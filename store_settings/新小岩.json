@@ -1,0 +1,81 @@
+{
+  "recommended_title_1": "毎日オススメ機種の優秀台",
+  "recommended_machines_1": [
+    "スマスロ北斗の拳",
+    "北斗転生2",
+    "東京喰種",
+    "ヴァルヴレイヴ2",
+    "かぐや様",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "recommended_title_2": "主力機種の優秀台",
+  "recommended_machines_2": [
+    "カバネリ海門決戦",
+    "モンキーターンV",
+    "炎炎ノ消防隊2",
+    "マギレコ",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "recommended_title_3": "ジャグラーシリーズの優秀台",
+  "recommended_machines_3": [
+    "マイジャグV",
+    "ネオアイム",
+    "ファンキー2",
+    "ゴージャグ3",
+    "ジャグラーガールズ",
+    "ミスジャグ",
+    "ハピジャグV",
+    "ウルトラミラジャグ",
+    ""
+  ],
+  "recommended_title_4": "沖スロ系の機種の優秀台",
+  "recommended_machines_4": [
+    "沖ドキBLACK",
+    "沖ドキGOLD30",
+    "L沖ドキDUO",
+    "沖ドキゴージャス30",
+    "キンハナ30",
+    "スマートキンハナV",
+    "ドラハナ閃光30",
+    "チバリヨ2",
+    ""
+  ],
+  "recommended_title_5": "最新機種の優秀台",
+  "recommended_machines_5": [
+    "バイオRE:3",
+    "リオエース2",
+    "ビッグドリーム",
+    "タクトオーパス",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "recommended_title_6": "",
+  "recommended_machines_6": [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "rec_enabled": true,
+  "recommended_filter_1": "+1,000枚以上",
+  "recommended_filter_2": "+1,000枚以上",
+  "recommended_filter_3": "プラス台",
+  "recommended_filter_4": "+1,000枚以上",
+  "recommended_filter_5": "+1,000枚以上",
+  "recommended_filter_6": "プラス台"
+}

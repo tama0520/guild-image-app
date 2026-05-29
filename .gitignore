@@ -1,0 +1,74 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Claude Code settings
+.claude/
+
+# Output / generated image folders
+output/
+機種別/
+
+# Date-based generated folders (YYYYMMDD_*)
+20260[0-9][0-9][0-9]_*/
+
+# Temporary / debug files
+_tmp_*
+_ref_files.txt
+
+# Test images
+centering_check.png
+centering_test.png
+
+# Generated data PNGs in root (e.g. 20260404_エスパス上野新館_20S.png)
+20260*.png
+
+# Work notes / memos
+その他.txt
+絵文字修正.txt
+合算確率.txt
+指示.txt
+正しい手順：.txt
+csv_header_check.txt
+
+# Data files
+*.csv
+
+# Date-based Excel data files (daily slot data)
+20260*.xlsx
+# Keep the name-conversion table
+!機種名変換.xlsx
+
+# Debug / temporary scripts
+check_machines.py
+check_machines2.py
+patch_work.py
+fix_title_spaces.py
+fmt_weekly2.py
+generate_results.py
+image_generator_app.py
+convert_juggler_all.py
+
+# Date-specific old scripts (excluded individually)
+convert_20260407.py
+convert_20260408_myjag_filter.py
+convert_20260408b.py
+convert_20260411.py
+convert_20260412.py
+convert_20260413.py
+convert_20260414.py
+convert_稲毛_20260404.py
+convert_稲毛_20260411.py
+convert_稲毛_20260415.py
+convert_溝の口新館_20260411.py
+convert_溝の口本館_20260412.py
+convert_高田馬場_20260411.py
+convert_渋谷新館_20260412.py
+convert_上野本館_20260411.py
+convert_新宿歌舞伎町_20260412.py
+convert_新小岩_20260409.py
+convert_新大久保_20260412.py
+convert_西武新宿_20260412.py
+convert_赤坂見附_20260412.py
+convert_秋葉原_20260412.py

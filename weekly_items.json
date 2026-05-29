@@ -1,0 +1,768 @@
+{
+  "渋谷新館": {
+    "t1": {
+      "items": [
+        "チェリーが半分(高配分◎？)",
+        "スイカが3等分(高配分○？)",
+        "キャラシルエット(いずれかのキャラに？)",
+        "共闘バトル(並び？)",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "title": "週間オススメ スマスロ北斗の拳",
+      "checks": [
+        [
+          true,
+          true,
+          true,
+          true,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          true,
+          true,
+          true,
+          true,
+          false,
+          false,
+          false
+        ],
+        [
+          true,
+          true,
+          false,
+          true,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ]
+      ],
+      "start_date": "2026-05-25",
+      "machine_name": "スマスロ北斗の拳",
+      "blank_days": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    },
+    "t2": {
+      "items": [
+        "マスター芳村(全台系!?)",
+        "半喰種金木(高配分◎!?)",
+        "鈴屋什造(差枚プラスが10台以上!?)",
+        "霧島董香(董香パネル全台!?)",
+        "有馬貴将(有馬パネル全台!?)",
+        "クロナナシロ(2台並び複数!?)",
+        "",
+        ""
+      ],
+      "title": "月間オススメ 東京喰種",
+      "start_date": "2026-04-22",
+      "checks": [
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ]
+      ],
+      "machine_name": "東京喰種",
+      "date_checks": {
+        "2026-05-22": [
+          false,
+          false,
+          true,
+          false,
+          true,
+          true,
+          false,
+          false
+        ],
+        "2026-05-23": [
+          false,
+          true,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false
+        ],
+        "2026-05-24": [
+          false,
+          true,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false
+        ],
+        "2026-05-25": [
+          false,
+          false,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false
+        ],
+        "2026-05-26": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          true,
+          false,
+          false
+        ],
+        "2026-05-27": [
+          false,
+          false,
+          true,
+          true,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-05-28": [
+          false,
+          true,
+          true,
+          true,
+          false,
+          true,
+          false,
+          false
+        ]
+      },
+      "blank_days": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "blank_date_checks": {
+        "2026-05-22": false,
+        "2026-05-23": false,
+        "2026-05-24": false,
+        "2026-05-25": false,
+        "2026-05-26": false,
+        "2026-05-27": false,
+        "2026-05-28": false
+      }
+    },
+    "t3": {
+      "items": [
+        "まろ吉、ベコたん、コンたろ(列!?)",
+        "椅子に座るピエロ(据え置き!?)",
+        "ガールズ2人(高配分◎!?)",
+        "キャラ全員集合(全台系!?)",
+        "ジャグビー、ツノっち、コンたろ(並び!?)",
+        "バーベルとらっぴ(前日より上げ!?)",
+        "トラッぴの背中(ちどり・1台ごとに仕掛け!?)",
+        ""
+      ],
+      "title": "週間オススメ ジャグラーシリーズ",
+      "machine_name": "ジャグラー系",
+      "cell_machines": {
+        "1,1": [
+          "対象台が1/1でプラス差枚"
+        ],
+        "2,3": [
+          "ハピジャグV"
+        ],
+        "4,0": [
+          "マイジャグV",
+          "ネオアイム",
+          "ジャグラーガールズ"
+        ],
+        "4,1": [
+          "マイジャグV",
+          "ネオアイム",
+          "ファンキー2",
+          "ゴージャグ3"
+        ],
+        "4,2": [
+          "マイジャグV",
+          "ファンキー2"
+        ],
+        "4,3": [
+          "マイジャグV",
+          "ネオアイム"
+        ],
+        "5,0": [
+          "対象台が3/3でプラス差枚"
+        ],
+        "5,1": [
+          "対象台が4/4でプラス差枚"
+        ]
+      },
+      "start_date": "2026-05-25",
+      "blank_days": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  },
+  "上野本館": {
+    "t2": {
+      "items": [
+        "マスター芳村(全台系!?)",
+        "半喰種金木(高配分◎!?)",
+        "鈴屋什造(差枚プラスが10台以上!?)",
+        "霧島董香(董香パネル全台!?)",
+        "有馬貴将(有馬パネル全台!?)",
+        "クロナナシロ(2台並び複数!?)",
+        "",
+        ""
+      ],
+      "title": "月間オススメ 東京喰種",
+      "machine_name": "東京喰種",
+      "date_checks": {
+        "2026-05-20": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          true,
+          false,
+          false
+        ],
+        "2026-05-21": [
+          false,
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-05-22": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          true,
+          false,
+          false
+        ],
+        "2026-05-23": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-05-24": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          true,
+          false,
+          false
+        ],
+        "2026-05-25": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          true,
+          false,
+          false
+        ],
+        "2026-05-26": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      "blank_days": [
+        false,
+        true,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "checks": [
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ]
+      ],
+      "start_date": "2026-05-11",
+      "monthly_start": "2026-05-22"
+    },
+    "t4": {
+      "items": [
+        "生駒(全台系!?)",
+        "無名(高配分◎!?)",
+        "菖蒲(チドリ仕掛け!?)",
+        "来栖(4台並び以上!?)",
+        "侑那(3台並び以上!?)",
+        "",
+        "",
+        ""
+      ],
+      "title": "月間オススメ カバネリ海門決戦",
+      "machine_name": "カバネリ海門決戦",
+      "date_checks": {
+        "2026-05-20": [
+          false,
+          false,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-05-21": [
+          false,
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-05-22": [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-05-23": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-05-24": [
+          false,
+          false,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-05-25": [
+          false,
+          false,
+          false,
+          false,
+          true,
+          false,
+          false,
+          false
+        ],
+        "2026-05-26": [
+          false,
+          false,
+          false,
+          false,
+          true,
+          false,
+          false,
+          false
+        ]
+      },
+      "blank_days": [
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "checks": [
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ]
+      ],
+      "start_date": "2026-05-11",
+      "monthly_start": "2026-05-22"
+    },
+    "t5": {
+      "items": [
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "title": "",
+      "machine_name": "",
+      "date_checks": {
+        "2026-05-19": [
+          false,
+          false,
+          false,
+          false,
+          true,
+          false,
+          false,
+          false
+        ],
+        "2026-05-20": [
+          false,
+          false,
+          false,
+          false,
+          true,
+          false,
+          false,
+          false
+        ],
+        "2026-05-21": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          true,
+          false,
+          false
+        ],
+        "2026-05-22": [
+          false,
+          false,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-05-23": [
+          false,
+          false,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-05-24": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      "blank_days": [
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        false
+      ],
+      "monthly_start": "2026-05-22"
+    }
+  }
+}

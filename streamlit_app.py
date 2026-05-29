@@ -6040,12 +6040,23 @@ def show_auto_article_page() -> None:
                                     with st.spinner("末尾画像を生成中..."):
                                         _img_s = _build_machine_img(_filtered, _img_title, _stat)
                                         st.image(_img_s, caption=_img_title, use_container_width=True)
-                                        _stem_s   = os.path.splitext(uploaded.name)[0].replace("_20S", "")
-                                        _out_dir  = os.path.join(_DESKTOP, _stem_s)
-                                        os.makedirs(_out_dir, exist_ok=True)
-                                        _save_path = os.path.join(_out_dir, f"{_make_safe_fn(_img_title)}.jpg")
-                                        _save_jpeg(_img_s, _save_path)
-                                        st.success(f"✅ `{_save_path}` に保存しました")
+                                        if _IS_CLOUD:
+                                            _sue_buf = io.BytesIO()
+                                            _img_s.convert("RGB").save(_sue_buf, format="JPEG", quality=85)
+                                            st.download_button(
+                                                "📥 ダウンロード",
+                                                _sue_buf.getvalue(),
+                                                f"{_make_safe_fn(_img_title)}.jpg",
+                                                "image/jpeg",
+                                                key=f"sue_dl_{_img_title[:10]}",
+                                            )
+                                        else:
+                                            _stem_s   = os.path.splitext(uploaded.name)[0].replace("_20S", "")
+                                            _out_dir  = os.path.join(_DESKTOP, _stem_s)
+                                            os.makedirs(_out_dir, exist_ok=True)
+                                            _save_path = os.path.join(_out_dir, f"{_make_safe_fn(_img_title)}.jpg")
+                                            _save_jpeg(_img_s, _save_path)
+                                            st.success(f"✅ `{_save_path}` に保存しました")
                     except Exception as _e:
                         st.error(f"❌ エラー: {_e}")
                         with st.expander("詳細"):
@@ -8213,9 +8224,9 @@ def show_rote_page() -> None:
             _rd  = _dt.date(int(_m.group(1)), int(_m.group(2)), int(_m.group(3)))
             _dow = ["月", "火", "水", "木", "金", "土", "日"][_rd.weekday()]
             _rote_date_label = f"{_rd.month}/{_rd.day}({_dow})"
-        _rote_stem       = os.path.splitext(uploaded.name)[0].replace("_20S", "")
-        _rote_out_dir    = os.path.join(_DESKTOP, _rote_stem)
-        _m_store         = re.match(r'^\d{8}_(.*)', _rote_stem)
+        _rote_stem    = os.path.splitext(uploaded.name)[0].replace("_20S", "")
+        _rote_out_dir = tempfile.mkdtemp() if _IS_CLOUD else os.path.join(_DESKTOP, _rote_stem)
+        _m_store      = re.match(r'^\d{8}_(.*)', _rote_stem)
         _rote_store_full = _m_store.group(1) if _m_store else store
     else:
         st.info("Excelをアップロードすると画像を生成できます。")
@@ -8235,7 +8246,8 @@ def show_rote_page() -> None:
             st.warning("①か②いずれかに機種名を1つ以上入力してください。")
         else:
             st.session_state[f"rote_gen_saved_{store}"] = _rote_out_dir
-            st.success(f"✅ `{_rote_out_dir}` に保存しました")
+            if not _IS_CLOUD:
+                st.success(f"✅ `{_rote_out_dir}` に保存しました")
             # 上野本館の月間オススメ表スタート日を決定（初回=当日、以降は保存済み初日を継続）
             _uo_monthly_start = None
             if store == "上野本館" and _rd is not None:
@@ -8547,10 +8559,25 @@ def show_rote_page() -> None:
                     st.markdown("### 結果テキスト")
                     st.text_area("", value=_rote_result, height=400, key="rote_result_area")
 
+            # ── ZIP ダウンロード（Cloud）/ 保存済み表示（ローカル）──────
+            if _IS_CLOUD and _rote_out_dir and os.path.isdir(_rote_out_dir):
+                try:
+                    _rote_zip = _make_zip_bytes(_rote_out_dir)
+                    st.success("✅ 処理が完了しました。ZIPをダウンロードしてください。")
+                    st.download_button(
+                        label="📥 画像・テキストをZIPでダウンロード",
+                        data=_rote_zip,
+                        file_name=f"{_rote_stem}.zip",
+                        mime="application/zip",
+                        key="rote_zip_dl",
+                        type="primary",
+                    )
+                except Exception as _rze:
+                    st.warning(f"ZIP生成に失敗: {_rze}")
 
     if not st.session_state.get("rote_gen_btn", False):
         _rote_saved = st.session_state.get(f"rote_gen_saved_{store}")
-        if _rote_saved:
+        if _rote_saved and not _IS_CLOUD:
             st.success(f"✅ `{_rote_saved}` に保存しました")
 
     st.markdown("---")
@@ -8848,10 +8875,20 @@ def show_weekly_result_text_page() -> None:
                 )
                 st.session_state[f"wrt_result_{store}"] = _result
                 _wrt_fname = f"週間結果テキスト_{date_labels[0].replace('/', '-').replace('（', '(').replace('）', ')')}〜{date_labels[6].replace('/', '-').replace('（', '(').replace('）', ')')}.txt"
-                _wrt_save_path = os.path.join(_DESKTOP, _wrt_fname)
-                with open(_wrt_save_path, "w", encoding="utf-8") as _f:
-                    _f.write(_result)
-                st.success(f"✅ デスクトップに保存しました: {_wrt_fname}")
+                if _IS_CLOUD:
+                    st.download_button(
+                        label="📥 ZIPをダウンロードしてください",
+                        data=_result.encode("utf-8"),
+                        file_name=_wrt_fname,
+                        mime="text/plain",
+                        key="wrt_dl",
+                        type="primary",
+                    )
+                else:
+                    _wrt_save_path = os.path.join(_DESKTOP, _wrt_fname)
+                    with open(_wrt_save_path, "w", encoding="utf-8") as _f:
+                        _f.write(_result)
+                    st.success(f"✅ デスクトップに保存しました: {_wrt_fname}")
 
     _result_val = st.session_state.get(f"wrt_result_{store}", "")
     if _result_val:
@@ -9037,11 +9074,11 @@ def show_name_conversion_page() -> None:
 
                 base_name = os.path.splitext(src_file.name)[0]
                 out_name  = f"{base_name}_機種名変換済.xlsx"
-                out_path  = os.path.join(out_folder, out_name)
-                df_converted.to_excel(out_path, index=False)
-
                 st.success(f"✅ 変換完了！{conv_count:,} 件を変換しました。")
-                st.info(f"📁 保存先: {out_path}")
+                if not _IS_CLOUD:
+                    out_path = os.path.join(out_folder, out_name)
+                    df_converted.to_excel(out_path, index=False)
+                    st.info(f"📁 保存先: {out_path}")
 
                 buf = io.BytesIO()
                 df_converted.to_excel(buf, index=False)

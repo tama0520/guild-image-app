@@ -25,6 +25,9 @@ import unicodedata
 
 from openpyxl import load_workbook
 
+# フォントディレクトリ（このスクリプトと同階層の fonts/ フォルダ）
+_FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
+
 import logging as _logging
 import pandas as pd
 import streamlit as st
@@ -396,19 +399,22 @@ _font_cache: dict[int, ImageFont.ImageFont] = {}
 def load_font(size: int) -> ImageFont.ImageFont:
     """
     日本語フォントを読み込む。
-    Mochiy Pop One → Meiryo → MS PGothic → デフォルト の順で試みる。
-    既存スクリプト（convert_稲毛_*.py 等）と同じフォントを優先する。
+    優先順: fonts/MochiyPopOne-Regular.ttf → fonts/NotoSansJP-Regular.ttf
+            → Windows フォント（ローカル実行時フォールバック）
+    fonts/ に何もなければ st.error でどのファイルが不足しているか表示する。
     """
     if size in _font_cache:
         return _font_cache[size]
 
     candidates = [
-        # Mochiy Pop One（既存スクリプトと同一フォント）
+        # ① プロジェクト同梱フォント（Cloud・ローカル共通）
+        (os.path.join(_FONTS_DIR, "MochiyPopOne-Regular.ttf"), None),
+        (os.path.join(_FONTS_DIR, "NotoSansJP-Regular.ttf"),   None),
+        # ② Windows ローカル実行時フォールバック
         (r"C:\Users\23-3\AppData\Local\Microsoft\Windows\Fonts\MochiyPopOne-Regular.ttf", None),
-        # Windows 標準フォント（フォールバック）
-        (r"C:\Windows\Fonts\meiryo.ttc",   0),
-        (r"C:\Windows\Fonts\msgothic.ttc",  1),
-        (r"C:\Windows\Fonts\YuGoth-M.ttc",  0),
+        (r"C:\Windows\Fonts\meiryo.ttc",  0),
+        (r"C:\Windows\Fonts\msgothic.ttc", 1),
+        (r"C:\Windows\Fonts\YuGoth-M.ttc", 0),
     ]
     for path, idx in candidates:
         if not os.path.exists(path):
@@ -422,9 +428,17 @@ def load_font(size: int) -> ImageFont.ImageFont:
         except Exception:
             continue
 
-    font = ImageFont.load_default()
-    _font_cache[size] = font
-    return font
+    # フォントが一切見つからない場合はエラーを表示して停止
+    mochiy_path = os.path.join(_FONTS_DIR, "MochiyPopOne-Regular.ttf")
+    noto_path   = os.path.join(_FONTS_DIR, "NotoSansJP-Regular.ttf")
+    st.error(
+        "【フォントエラー】日本語フォントが見つかりません。\n"
+        f"以下のいずれかを `fonts/` フォルダに配置してください:\n"
+        f"  ・{mochiy_path}\n"
+        f"  ・{noto_path}"
+    )
+    st.stop()
+    return ImageFont.load_default()  # unreachable but satisfies type checker
 
 # =============================================================================
 # ■ ④データユーティリティ
@@ -7121,17 +7135,23 @@ def _weekly_table_html_image(
     import html as _hm
     import base64 as _b64
 
-    _FONT_PATH = r"C:\Users\23-3\AppData\Local\Microsoft\Windows\Fonts\MochiyPopOne-Regular.ttf"
+    # CSS @font-face: fonts/ 同梱 → Windows ローカルの順で試みる
+    _FONT_PATHS_CSS = [
+        os.path.join(_FONTS_DIR, "MochiyPopOne-Regular.ttf"),
+        r"C:\Users\23-3\AppData\Local\Microsoft\Windows\Fonts\MochiyPopOne-Regular.ttf",
+    ]
     _font_face = ""
-    if os.path.exists(_FONT_PATH):
-        with open(_FONT_PATH, "rb") as _f:
-            _b64d = _b64.b64encode(_f.read()).decode("ascii")
-        _font_face = (
-            "@font-face{"
-            "font-family:'MochiyPopOne';"
-            f"src:url('data:font/truetype;base64,{_b64d}') format('truetype');"
-            "}"
-        )
+    for _FONT_PATH in _FONT_PATHS_CSS:
+        if os.path.exists(_FONT_PATH):
+            with open(_FONT_PATH, "rb") as _f:
+                _b64d = _b64.b64encode(_f.read()).decode("ascii")
+            _font_face = (
+                "@font-face{"
+                "font-family:'MochiyPopOne';"
+                f"src:url('data:font/truetype;base64,{_b64d}') format('truetype');"
+                "}"
+            )
+            break
     _font_fam = "'MochiyPopOne','Meiryo','MS Gothic',sans-serif"
 
     # レイアウト定数（CSS px / deviceScaleFactor=2 で物理2倍 ≒ PIL SC=2 相当）
@@ -7303,8 +7323,10 @@ def _draw_weekly_table_image(
     _sym_cache: dict[int, "ImageFont.ImageFont"] = {}
     def _sym_font(size: int) -> "ImageFont.ImageFont":
         if size not in _sym_cache:
-            # YuGothic → Meiryo → MS Gothic の順で試す（◎○のグリフが太くて見やすい順）
+            # ◎○記号フォント: fonts/ 同梱を最優先、次に Windows フォールバック
             for _p, _i in [
+                (os.path.join(_FONTS_DIR, "MochiyPopOne-Regular.ttf"), None),
+                (os.path.join(_FONTS_DIR, "NotoSansJP-Regular.ttf"),   None),
                 (r"C:\Windows\Fonts\YuGoth-M.ttc",  0),
                 (r"C:\Windows\Fonts\YuGothB.ttc",   0),
                 (r"C:\Windows\Fonts\yugothm.ttf",    None),

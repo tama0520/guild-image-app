@@ -7414,9 +7414,8 @@ def _draw_weekly_table_image(
     _sym_cache: dict[int, "ImageFont.ImageFont"] = {}
     def _sym_font(size: int) -> "ImageFont.ImageFont":
         if size not in _sym_cache:
-            # ◎○記号フォント: fonts/ 同梱を最優先、次に Windows フォールバック
+            # ◎○記号フォント: MochiyPopOneは○グリフ欠如のため除外、NotoSansJP → Windows フォールバック
             for _p, _i in [
-                (os.path.join(_FONTS_DIR, "MochiyPopOne-Regular.ttf"), None),
                 (os.path.join(_FONTS_DIR, "NotoSansJP-Regular.ttf"),   None),
                 (r"C:\Windows\Fonts\YuGoth-M.ttc",  0),
                 (r"C:\Windows\Fonts\YuGothB.ttc",   0),

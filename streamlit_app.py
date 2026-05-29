@@ -17,11 +17,13 @@ import math
 import io
 import json
 import os
+import platform
 import re
 import subprocess
 import tempfile
 import traceback
 import unicodedata
+import zipfile
 
 from openpyxl import load_workbook
 
@@ -236,6 +238,8 @@ NAME_MAP_PATH = os.path.join(BASE_DIR, "機種名変換.xlsx")
 
 # 出力先デスクトップ（どのPCでも自動検出）
 _DESKTOP = os.path.join(os.path.expanduser("~"), "Desktop")
+# Streamlit Cloud 判定（Linux = Cloud、Windows = ローカル）
+_IS_CLOUD = platform.system() != "Windows"
 # 店舗設定（オススメ機種など）の永続化先
 STORE_SETTINGS_DIR = os.path.join(BASE_DIR, "store_settings")
 # ローテ機種名の永続化先
@@ -1594,14 +1598,15 @@ def show_work_page() -> None:
                             img = _build_machine_img(filtered, img_title, stat)
                             st.success("✅ 画像を生成しました！")
                             st.image(img, caption=img_title, use_container_width=True)
-                            stem       = os.path.splitext(uploaded.name)[0]
-                            dir_stem   = stem.replace("_20S", "")
-                            output_dir = os.path.join(_DESKTOP, dir_stem)
-                            os.makedirs(output_dir, exist_ok=True)
-                            safe = _make_safe_fn(img_title)
-                            save_path = os.path.join(output_dir, f"{safe}.jpg")
-                            _save_jpeg(img, save_path)
-                            st.info(f"💾 `{save_path}` に保存しました")
+                            if not _IS_CLOUD:
+                                stem       = os.path.splitext(uploaded.name)[0]
+                                dir_stem   = stem.replace("_20S", "")
+                                output_dir = os.path.join(_DESKTOP, dir_stem)
+                                os.makedirs(output_dir, exist_ok=True)
+                                safe = _make_safe_fn(img_title)
+                                save_path = os.path.join(output_dir, f"{safe}.jpg")
+                                _save_jpeg(img, save_path)
+                                st.info(f"💾 `{save_path}` に保存しました")
                 except Exception as e:
                     st.error(f"❌ 予期しないエラーが発生しました: {e}")
                     with st.expander("詳細（開発者向け）"):
@@ -1619,9 +1624,12 @@ def show_work_page() -> None:
                 else:
                     stem       = os.path.splitext(uploaded.name)[0]
                     dir_stem   = stem.replace("_20S", "")
-                    output_dir = os.path.join(_DESKTOP, dir_stem)
-                    narabi_dir = os.path.join(output_dir, "並び画像")
-                    os.makedirs(narabi_dir, exist_ok=True)
+                    if not _IS_CLOUD:
+                        output_dir = os.path.join(_DESKTOP, dir_stem)
+                        narabi_dir = os.path.join(output_dir, "並び画像")
+                        os.makedirs(narabi_dir, exist_ok=True)
+                    else:
+                        narabi_dir = tempfile.mkdtemp()
 
                     ban_to_idx = {int(row["台番"]): i for i, row in df.iterrows()}
 
@@ -1668,8 +1676,14 @@ def show_work_page() -> None:
                                 st.success(f"✅ {len(preview_imgs)}件の並び画像を生成しました！")
                                 for title_n, img_n in preview_imgs:
                                     st.image(img_n, caption=title_n, use_container_width=True)
-                                for p in saved_paths:
-                                    st.info(f"💾 `{p}` に保存しました")
+                                if not _IS_CLOUD:
+                                    for p in saved_paths:
+                                        st.info(f"💾 `{p}` に保存しました")
+                                else:
+                                    _narabi_zip = _make_zip_bytes(narabi_dir)
+                                    st.download_button("📥 並び画像をZIPでダウンロード",
+                                                       _narabi_zip, f"{dir_stem}_narabi.zip",
+                                                       "application/zip", key="narabi_zip_dl")
 
                         except Exception as e:
                             st.error(f"❌ 予期しないエラーが発生しました: {e}")
@@ -1703,17 +1717,18 @@ def show_work_page() -> None:
                         key="download_btn",
                     )
 
-                    # 出力フォルダへ自動保存
-                    stem       = os.path.splitext(uploaded.name)[0]
-                    dir_stem   = stem.replace("_20S", "")
-                    output_dir = os.path.join(_DESKTOP, dir_stem)
-                    os.makedirs(output_dir, exist_ok=True)
-                    keyword_save = str(conditions.get("keyword", "")).strip()
-                    save_name  = keyword_save if keyword_save else title
-                    safe_title = _make_safe_fn(save_name)
-                    save_path  = os.path.join(output_dir, f"{safe_title}.jpg")
-                    _save_jpeg(img, save_path)
-                    st.info(f"💾 `{save_path}` に保存しました")
+                    # 出力フォルダへ自動保存（ローカルのみ）
+                    if not _IS_CLOUD:
+                        stem       = os.path.splitext(uploaded.name)[0]
+                        dir_stem   = stem.replace("_20S", "")
+                        output_dir = os.path.join(_DESKTOP, dir_stem)
+                        os.makedirs(output_dir, exist_ok=True)
+                        keyword_save = str(conditions.get("keyword", "")).strip()
+                        save_name  = keyword_save if keyword_save else title
+                        safe_title = _make_safe_fn(save_name)
+                        save_path  = os.path.join(output_dir, f"{safe_title}.jpg")
+                        _save_jpeg(img, save_path)
+                        st.info(f"💾 `{save_path}` に保存しました")
 
                 except ValueError as e:
                     st.error(f"❌ {e}")
@@ -1746,6 +1761,17 @@ def _save_jpeg(img: Image.Image, path: str, target_kb: int = 250) -> None:
         else:
             hi = mid - 1
     img.save(path, format="JPEG", quality=best_q, subsampling=0)
+
+
+def _make_zip_bytes(dir_path: str) -> bytes:
+    """dir_path 直下のファイル（サブフォルダは除く）をZIP化してbytesで返す。"""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fname in sorted(os.listdir(dir_path)):
+            fpath = os.path.join(dir_path, fname)
+            if os.path.isfile(fpath):
+                zf.write(fpath, fname)
+    return buf.getvalue()
 
 
 def _make_safe_fn(name: str) -> str:
@@ -4954,10 +4980,16 @@ def show_auto_page() -> None:
                         _s[f"recommended_filter_{_bk}"] = st.session_state[_fk]
             save_store_settings(store, _s)
 
-        stem       = os.path.splitext(uploaded.name)[0]
-        dir_stem   = stem.replace("_20S", "")
-        excel_path = os.path.join(BASE_DIR, uploaded.name)
-        output_dir = os.path.join(_DESKTOP, dir_stem)
+        stem     = os.path.splitext(uploaded.name)[0]
+        dir_stem = stem.replace("_20S", "")
+        if _IS_CLOUD:
+            _run_tmpdir = tempfile.mkdtemp()
+            excel_path  = os.path.join(_run_tmpdir, uploaded.name)
+            output_dir  = os.path.join(_run_tmpdir, dir_stem)
+        else:
+            _run_tmpdir = None
+            excel_path  = os.path.join(BASE_DIR, uploaded.name)
+            output_dir  = os.path.join(_DESKTOP, dir_stem)
         narabi_dir = os.path.join(output_dir, "並び画像")
         narabi_bans = ranges_to_bans(narabi_ranges) if narabi_ok else set()
         if kojin_enabled and kojin_narabi_ranges_text.strip():
@@ -5575,7 +5607,8 @@ def show_auto_page() -> None:
 
         # ── 生成ファイル一覧 ──────────────────────────────────────────
         st.markdown("### 生成されたファイル")
-        st.info(f"📁 `{output_dir}`")
+        if not _IS_CLOUD:
+            st.info(f"📁 `{output_dir}`")
         if os.path.isdir(output_dir):
             imgs = sorted(
                 f for f in os.listdir(output_dir)
@@ -5697,9 +5730,29 @@ def show_auto_page() -> None:
             try:
                 with open(_txt_path, "w", encoding="utf-8") as _f:
                     _f.write(report_text)
-                st.caption(f"📄 {_txt_name} を保存しました")
+                if _IS_CLOUD:
+                    st.caption(f"📄 {_txt_name} をZIPに含めます")
+                else:
+                    st.caption(f"📄 {_txt_name} を保存しました")
             except Exception as _e:
                 st.warning(f"結果.txt の保存に失敗: {_e}")
+
+            # ── ZIPダウンロードボタン（show_auto_page）─────────────────
+            if os.path.isdir(output_dir):
+                try:
+                    _zip_data = _make_zip_bytes(output_dir)
+                    if _IS_CLOUD:
+                        st.success("✅ 処理が完了しました。ZIPをダウンロードしてください。")
+                    st.download_button(
+                        label="📥 画像・テキストをZIPでダウンロード",
+                        data=_zip_data,
+                        file_name=f"{dir_stem}.zip",
+                        mime="application/zip",
+                        key="auto_zip_dl",
+                        type="primary" if _IS_CLOUD else "secondary",
+                    )
+                except Exception as _ze:
+                    st.warning(f"ZIP生成に失敗: {_ze}")
 
             import html as _html
             _safe = _html.escape(report_text)
@@ -6322,10 +6375,16 @@ def show_auto_article_page() -> None:
         st.info("⬆️ まずExcelをアップロードしてください。")
     elif run_clicked:
         _save_article_inputs(store)
-        stem       = os.path.splitext(uploaded.name)[0]
-        dir_stem   = stem.replace("_20S", "")
-        excel_path = os.path.join(BASE_DIR, uploaded.name)
-        output_dir = os.path.join(_DESKTOP, dir_stem)
+        stem     = os.path.splitext(uploaded.name)[0]
+        dir_stem = stem.replace("_20S", "")
+        if _IS_CLOUD:
+            _art_tmpdir = tempfile.mkdtemp()
+            excel_path  = os.path.join(_art_tmpdir, uploaded.name)
+            output_dir  = os.path.join(_art_tmpdir, dir_stem)
+        else:
+            _art_tmpdir = None
+            excel_path  = os.path.join(BASE_DIR, uploaded.name)
+            output_dir  = os.path.join(_DESKTOP, dir_stem)
         narabi_dir = os.path.join(output_dir, "並び画像")
         narabi_bans = ranges_to_bans(narabi_ranges) if narabi_ok else set()
         if kojin_enabled and kojin_narabi_ranges_text.strip():
@@ -6607,7 +6666,8 @@ def show_auto_article_page() -> None:
                 st.error(narabi_result["stderr"])
 
         st.markdown("### 生成されたファイル")
-        st.info(f"📁 `{output_dir}`")
+        if not _IS_CLOUD:
+            st.info(f"📁 `{output_dir}`")
         if os.path.isdir(output_dir):
             imgs = sorted(
                 f for f in os.listdir(output_dir)
@@ -6652,9 +6712,29 @@ def show_auto_article_page() -> None:
             try:
                 with open(_txt_path, "w", encoding="utf-8") as _f:
                     _f.write(report_text)
-                st.caption(f"📄 {_txt_name} を保存しました")
+                if _IS_CLOUD:
+                    st.caption(f"📄 {_txt_name} をZIPに含めます")
+                else:
+                    st.caption(f"📄 {_txt_name} を保存しました")
             except Exception as _e:
                 st.warning(f"結果.txt の保存に失敗: {_e}")
+
+            # ── ZIPダウンロードボタン（show_auto_article_page）──────────
+            if os.path.isdir(output_dir):
+                try:
+                    _art_zip_data = _make_zip_bytes(output_dir)
+                    if _IS_CLOUD:
+                        st.success("✅ 処理が完了しました。ZIPをダウンロードしてください。")
+                    st.download_button(
+                        label="📥 画像・テキストをZIPでダウンロード",
+                        data=_art_zip_data,
+                        file_name=f"{dir_stem}.zip",
+                        mime="application/zip",
+                        key="art_zip_dl",
+                        type="primary" if _IS_CLOUD else "secondary",
+                    )
+                except Exception as _ze:
+                    st.warning(f"ZIP生成に失敗: {_ze}")
 
             import html as _html
             _safe = _html.escape(report_text)

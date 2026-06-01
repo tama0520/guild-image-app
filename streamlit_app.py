@@ -5789,7 +5789,7 @@ def show_auto_page() -> None:
             st.download_button(
                 label="📥 画像・テキストをZIPでダウンロード",
                 data=st.session_state[f"_auto_zip_data_{store}"],
-                file_name=f"{st.session_state.get('_auto_zip_stem', 'output')}.zip",
+                file_name=f"{st.session_state.get(f'_auto_zip_stem_{store}', 'output')}.zip",
                 mime="application/zip",
                 key="auto_zip_dl",
                 type="primary",
@@ -6799,7 +6799,7 @@ def show_auto_article_page() -> None:
             st.download_button(
                 label="📥 画像・テキストをZIPでダウンロード",
                 data=st.session_state[f"_art_zip_data_{store}"],
-                file_name=f"{st.session_state.get('_art_zip_stem', 'output')}.zip",
+                file_name=f"{st.session_state.get(f'_art_zip_stem_{store}', 'output')}.zip",
                 mime="application/zip",
                 key="art_zip_dl",
                 type="primary",
@@ -8643,7 +8643,7 @@ def show_rote_page() -> None:
             st.download_button(
                 label="📥 画像・テキストをZIPでダウンロード",
                 data=st.session_state[f"_rote_zip_data_{store}"],
-                file_name=f"{st.session_state.get('_rote_zip_stem', 'rote')}.zip",
+                file_name=f"{st.session_state.get(f'_rote_zip_stem_{store}', 'rote')}.zip",
                 mime="application/zip",
                 key="rote_zip_dl",
                 type="primary",

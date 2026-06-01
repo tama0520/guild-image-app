@@ -8243,8 +8243,12 @@ def show_rote_page() -> None:
     else:
         st.info("Excelをアップロードすると画像を生成できます。")
 
-    if st.button("🎰 画像を生成する", type="primary", use_container_width=True, key="rote_gen_btn",
-                 disabled=uploaded is None):
+    _rote_gen_clicked = st.button("🎰 画像を生成する", type="primary", use_container_width=True, key="rote_gen_btn",
+                                   disabled=uploaded is None)
+    # Cloud のみ：ボタン直下にZIPダウンロード用スロットを確保
+    _zip_slot = st.empty() if _IS_CLOUD else None
+
+    if _rote_gen_clicked:
         names1 = [n for n in machine_inputs1 if n.strip()]
         names2 = [n for n in machine_inputs2 if n.strip()]
         names3 = [n for n in machine_inputs3 if n.strip()]
@@ -8585,19 +8589,11 @@ def show_rote_page() -> None:
                     st.markdown("### 結果テキスト")
                     st.text_area("", value=_rote_result, height=400, key="rote_result_area")
 
-            # ── ZIP ダウンロード（Cloud）/ 保存済み表示（ローカル）──────
+            # ── ZIP データをセッションに保存（ボタン直下スロットへ後で表示）──
             if _IS_CLOUD and _rote_out_dir and os.path.isdir(_rote_out_dir):
                 try:
-                    _rote_zip = _make_zip_bytes(_rote_out_dir)
-                    st.success("✅ 処理が完了しました。ZIPをダウンロードしてください。")
-                    st.download_button(
-                        label="📥 画像・テキストをZIPでダウンロード",
-                        data=_rote_zip,
-                        file_name=f"{_rote_stem}.zip",
-                        mime="application/zip",
-                        key="rote_zip_dl",
-                        type="primary",
-                    )
+                    st.session_state["_rote_zip_data"] = _make_zip_bytes(_rote_out_dir)
+                    st.session_state["_rote_zip_stem"] = _rote_stem
                 except Exception as _rze:
                     st.warning(f"ZIP生成に失敗: {_rze}")
 
@@ -8605,6 +8601,19 @@ def show_rote_page() -> None:
         _rote_saved = st.session_state.get(f"rote_gen_saved_{store}")
         if _rote_saved and not _IS_CLOUD:
             st.success(f"✅ `{_rote_saved}` に保存しました")
+
+    # ── ボタン直下スロットにZIPダウンロードボタンを表示（Cloud のみ）──
+    if _IS_CLOUD and _zip_slot is not None and st.session_state.get("_rote_zip_data"):
+        with _zip_slot.container():
+            st.success("✅ 処理が完了しました。ZIPをダウンロードしてください。")
+            st.download_button(
+                label="📥 画像・テキストをZIPでダウンロード",
+                data=st.session_state["_rote_zip_data"],
+                file_name=f"{st.session_state.get('_rote_zip_stem', 'rote')}.zip",
+                mime="application/zip",
+                key="rote_zip_dl",
+                type="primary",
+            )
 
     st.markdown("---")
     if st.button("← 画像種類選択に戻る", key="rote_back_bottom"):

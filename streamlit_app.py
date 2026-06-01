@@ -7651,8 +7651,20 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
         st.markdown("**④ 表示期間**")
         if store == "上野本館":
             _ref = excel_date if excel_date is not None else _dt.date.today()
-            _start = _ref - _dt.timedelta(days=6)
-            _end   = _ref
+            # monthly_start（リセット日）が6日以内なら初日固定増列、7日超でスライド
+            _ms_raw = _weekly_table_data(store, _tn).get("monthly_start")
+            _ms_dt = None
+            if _ms_raw:
+                try:
+                    _ms_dt = _dt.date.fromisoformat(_ms_raw)
+                except Exception:
+                    pass
+            if _ms_dt and _ms_dt <= _ref and (_ref - _ms_dt).days <= 6:
+                _start = _ms_dt
+                _end   = _ref
+            else:
+                _start = _ref - _dt.timedelta(days=6)
+                _end   = _ref
             _cap_suffix = "（Excelの日付より自動設定）" if excel_date is not None else "（今日の日付より自動設定）"
         else:
             # 渋谷新館：Excelの日付が最終日、過去7日間
@@ -7712,9 +7724,9 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
         _start = st.date_input("開始日", value=st.session_state[_date_key], key=_date_key, on_change=_on_date_change)
 
     _n_ui_dates = 7
-    if _use_excel_date and excel_date is not None:
+    if _use_excel_date:
         try:
-            _n_ui_dates = min(int((excel_date - _start).days) + 1, 7)
+            _n_ui_dates = min(int((_end - _start).days) + 1, 7)
         except Exception:
             pass
     _dates   = [_start + _dt.timedelta(days=_j) for _j in range(_n_ui_dates)]
@@ -8197,7 +8209,8 @@ def show_rote_page() -> None:
             show_weekly_table_section(store, table_num=3)
         show_weekly_table_section(store, table_num=2, excel_date=_rd_early)
         if store == "上野本館":
-            show_weekly_table_section(store, table_num=4, excel_date=_rd_early)
+            with st.expander("📅 月間オススメ表②", expanded=False):
+                show_weekly_table_section(store, table_num=4, excel_date=_rd_early)
             with st.expander("📅 月間オススメ表③", expanded=False):
                 show_weekly_table_section(store, table_num=5, excel_date=_rd_early)
 
@@ -8299,19 +8312,31 @@ def show_rote_page() -> None:
             if store in ("渋谷新館", "上野本館"):
                 _wt_save_list = (1, 2, 3) if store == "渋谷新館" else (2, 4, 5)
                 for _wtn in _wt_save_list:
-                    # 月間オススメ表③（t5）は機種名・項目がすべて空ならスキップ
-                    if _wtn == 5:
-                        _t5_mac = st.session_state.get(f"weekly_machine_{store}_t5", "").strip()
-                        _t5_its = [st.session_state.get(f"weekly_item_{store}_t5_{_wi}", "").strip() for _wi in range(_WEEKLY_N_ITEMS)]
-                        if not _t5_mac and not any(_t5_its):
+                    # 月間オススメ表②（t4）・③（t5）は機種名・項目がすべて空ならスキップ
+                    if _wtn in (4, 5):
+                        _tN_mac = st.session_state.get(f"weekly_machine_{store}_t{_wtn}", "").strip()
+                        _tN_its = [st.session_state.get(f"weekly_item_{store}_t{_wtn}_{_wi}", "").strip() for _wi in range(_WEEKLY_N_ITEMS)]
+                        if not _tN_mac and not any(_tN_its):
                             continue
                     _wt_items  = [st.session_state.get(f"weekly_item_{store}_t{_wtn}_{_wi}", "") for _wi in range(_WEEKLY_N_ITEMS)]
                     _wt_title  = st.session_state.get(f"weekly_title_{store}_t{_wtn}", "週間オススメ")
                     # 月間オススメ表はExcel日付から自動設定
                     # Excel日付が最終日、過去7日間（上野本館・渋谷新館共通）
-                    if _wtn in (2, 4, 5) and _rd is not None:
-                        _wt_start  = _rd - datetime.timedelta(days=6)
-                        _wt_n_cols = 7
+                    if _wtn in (2, 4, 5):
+                        _rd_ref = _rd if _rd is not None else datetime.date.today()
+                        _ms_gen_raw = _weekly_table_data(store, _wtn).get("monthly_start")
+                        _ms_gen_dt = None
+                        if _ms_gen_raw:
+                            try:
+                                _ms_gen_dt = datetime.date.fromisoformat(_ms_gen_raw)
+                            except Exception:
+                                pass
+                        if _ms_gen_dt and _ms_gen_dt <= _rd_ref and (_rd_ref - _ms_gen_dt).days <= 6:
+                            _wt_start  = _ms_gen_dt
+                            _wt_n_cols = (_rd_ref - _ms_gen_dt).days + 1
+                        else:
+                            _wt_start  = _rd_ref - datetime.timedelta(days=6)
+                            _wt_n_cols = 7
                     else:
                         _wt_start  = st.session_state.get(f"weekly_start_{store}_t{_wtn}")
                         _wt_n_cols = 7
@@ -8437,13 +8462,14 @@ def show_rote_page() -> None:
                         (3000,  5000,  f"{_te_uo}3,000枚超{_te_uo}"),
                         (1000,  3000,  f"{_te_uo}1,000枚超{_te_uo}"),
                     ]
-                    def _uo_monthly_text(machine_input, monthly_items, re_emoji=None):
+                    def _uo_monthly_text(machine_input, monthly_items, re_emoji=None, poster_text=None):
                         _re = re_emoji if re_emoji else _re_uo
+                        _pt = poster_text if poster_text else "月間オススメポスター"
                         _nm = (machine_input or "").strip()
                         _lm = [_header_uo, ""]
                         if _nm:
                             _lm.append(f"{_re}{_nm}{_re}")
-                        _lm += [f"{_re}月間オススメポスター{_re}", ""]
+                        _lm += [f"{_re}{_pt}{_re}", ""]
                         _lm.append("✅毎日何かしらの仕掛けアリ!?")
                         for _it in (monthly_items or []):
                             if (_it or "").strip():
@@ -8472,13 +8498,14 @@ def show_rote_page() -> None:
                     _uo_items2 = [st.session_state.get(f"weekly_item_{store}_t2_{_wi}", "") for _wi in range(_WEEKLY_N_ITEMS)]
                     _uo_t2_fn = f"{_uo_m2.strip()}結果.txt" if _uo_m2.strip() else "月間オススメ表①結果.txt"
                     with open(os.path.join(_rote_out_dir, _uo_t2_fn), "w", encoding="utf-8") as _f:
-                        _f.write(_uo_monthly_text(_uo_m2, _uo_items2, re_emoji="🗼"))
-                    # 月間オススメ表②結果.txt（🚂）
+                        _f.write(_uo_monthly_text(_uo_m2, _uo_items2, re_emoji="🤡", poster_text="毎日オススメポスター"))
+                    # 月間オススメ表②結果.txt（🚂）：機種名・項目いずれかが入力済みの場合のみ生成
                     _uo_m4 = st.session_state.get(f"weekly_machine_{store}_t4", "")
                     _uo_items4 = [st.session_state.get(f"weekly_item_{store}_t4_{_wi}", "") for _wi in range(_WEEKLY_N_ITEMS)]
-                    _uo_t4_fn = f"{_uo_m4.strip()}結果.txt" if _uo_m4.strip() else "月間オススメ表②結果.txt"
-                    with open(os.path.join(_rote_out_dir, _uo_t4_fn), "w", encoding="utf-8") as _f:
-                        _f.write(_uo_monthly_text(_uo_m4, _uo_items4, re_emoji="🚂"))
+                    if _uo_m4.strip() or any(i.strip() for i in _uo_items4):
+                        _uo_t4_fn = f"{_uo_m4.strip()}結果.txt" if _uo_m4.strip() else "月間オススメ表②結果.txt"
+                        with open(os.path.join(_rote_out_dir, _uo_t4_fn), "w", encoding="utf-8") as _f:
+                            _f.write(_uo_monthly_text(_uo_m4, _uo_items4, re_emoji="🚂"))
                     # 月間オススメ表③結果.txt（👊）：機種名・項目いずれかが入力済みの場合のみ生成
                     _uo_m5_txt = st.session_state.get(f"weekly_machine_{store}_t5", "")
                     _uo_items5 = [st.session_state.get(f"weekly_item_{store}_t5_{_wi}", "") for _wi in range(_WEEKLY_N_ITEMS)]

@@ -18,9 +18,9 @@
           true,
           true,
           true,
-          false,
-          false,
-          false
+          true,
+          true,
+          true
         ],
         [
           false,
@@ -36,7 +36,7 @@
           true,
           true,
           true,
-          false,
+          true,
           false,
           false
         ],
@@ -46,8 +46,8 @@
           false,
           true,
           false,
-          false,
-          false
+          true,
+          true
         ],
         [
           false,
@@ -187,36 +187,6 @@
       ],
       "machine_name": "東京喰種",
       "date_checks": {
-        "2026-05-22": [
-          false,
-          false,
-          true,
-          false,
-          true,
-          true,
-          false,
-          false
-        ],
-        "2026-05-23": [
-          false,
-          true,
-          true,
-          false,
-          false,
-          true,
-          false,
-          false
-        ],
-        "2026-05-24": [
-          false,
-          true,
-          true,
-          false,
-          false,
-          true,
-          false,
-          false
-        ],
         "2026-05-25": [
           false,
           false,
@@ -256,6 +226,36 @@
           true,
           false,
           false
+        ],
+        "2026-05-29": [
+          false,
+          true,
+          true,
+          true,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-05-30": [
+          false,
+          true,
+          true,
+          true,
+          true,
+          true,
+          false,
+          false
+        ],
+        "2026-05-31": [
+          false,
+          false,
+          true,
+          true,
+          false,
+          true,
+          false,
+          false
         ]
       },
       "blank_days": [
@@ -268,13 +268,13 @@
         false
       ],
       "blank_date_checks": {
-        "2026-05-22": false,
-        "2026-05-23": false,
-        "2026-05-24": false,
         "2026-05-25": false,
         "2026-05-26": false,
         "2026-05-27": false,
-        "2026-05-28": false
+        "2026-05-28": false,
+        "2026-05-29": false,
+        "2026-05-30": false,
+        "2026-05-31": false
       }
     },
     "t3": {
@@ -297,6 +297,15 @@
         "2,3": [
           "ハピジャグV"
         ],
+        "2,4": [
+          "ミスジャグ"
+        ],
+        "2,5": [
+          "ファンキー2"
+        ],
+        "3,6": [
+          "ウルトラミラジャグ"
+        ],
         "4,0": [
           "マイジャグV",
           "ネオアイム",
@@ -314,6 +323,17 @@
         ],
         "4,3": [
           "マイジャグV",
+          "ネオアイム"
+        ],
+        "4,4": [
+          "マイジャグV",
+          "ネオアイム",
+          "ゴージャグ3"
+        ],
+        "4,5": [
+          "マイジャグV"
+        ],
+        "4,6": [
           "ネオアイム"
         ],
         "5,0": [
@@ -338,83 +358,23 @@
   "上野本館": {
     "t2": {
       "items": [
-        "マスター芳村(全台系!?)",
-        "半喰種金木(高配分◎!?)",
-        "鈴屋什造(差枚プラスが10台以上!?)",
-        "霧島董香(董香パネル全台!?)",
-        "有馬貴将(有馬パネル全台!?)",
-        "クロナナシロ(2台並び複数!?)",
-        "",
+        "ぶどう(プラス差枚達成!?)",
+        "ベルが半分(高配分◎!?)",
+        "トラッぴ5連(列!?)",
+        "ジャグビー3人(並び!?)",
+        "トラッぴ模様(ちどり・1台ごとに仕掛け!?)",
+        "バーベルピエロ(前日より上げ!?)",
+        "椅子に座るトラッぴ(据え置き!?)",
         ""
       ],
-      "title": "月間オススメ 東京喰種",
-      "machine_name": "東京喰種",
+      "title": "毎日オススメ マイジャグV",
+      "machine_name": "マイジャグV",
       "date_checks": {
-        "2026-05-20": [
-          false,
-          false,
-          false,
-          false,
-          false,
+        "2026-06-01": [
+          true,
           true,
           false,
-          false
-        ],
-        "2026-05-21": [
-          false,
           true,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false
-        ],
-        "2026-05-22": [
-          false,
-          false,
-          false,
-          false,
-          false,
-          true,
-          false,
-          false
-        ],
-        "2026-05-23": [
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false
-        ],
-        "2026-05-24": [
-          false,
-          false,
-          false,
-          false,
-          false,
-          true,
-          false,
-          false
-        ],
-        "2026-05-25": [
-          false,
-          false,
-          false,
-          false,
-          false,
-          true,
-          false,
-          false
-        ],
-        "2026-05-26": [
-          false,
-          false,
-          false,
-          false,
           false,
           false,
           false,
@@ -423,10 +383,10 @@
       },
       "blank_days": [
         false,
-        true,
         false,
         false,
-        true,
+        false,
+        false,
         false,
         false
       ],
@@ -505,88 +465,91 @@
         ]
       ],
       "start_date": "2026-05-11",
-      "monthly_start": "2026-05-22"
+      "monthly_start": "2026-06-01",
+      "blank_date_checks": {
+        "2026-06-01": false
+      }
     },
     "t4": {
       "items": [
-        "生駒(全台系!?)",
-        "無名(高配分◎!?)",
-        "菖蒲(チドリ仕掛け!?)",
-        "来栖(4台並び以上!?)",
-        "侑那(3台並び以上!?)",
+        "",
+        "",
+        "",
+        "",
+        "",
         "",
         "",
         ""
       ],
-      "title": "月間オススメ カバネリ海門決戦",
-      "machine_name": "カバネリ海門決戦",
+      "title": "",
+      "machine_name": "",
       "date_checks": {
-        "2026-05-20": [
-          false,
-          false,
-          false,
-          true,
-          false,
-          false,
-          false,
-          false
-        ],
-        "2026-05-21": [
-          false,
-          true,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false
-        ],
-        "2026-05-22": [
-          true,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false
-        ],
-        "2026-05-23": [
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false
-        ],
-        "2026-05-24": [
-          false,
-          false,
-          false,
-          true,
-          false,
-          false,
-          false,
-          false
-        ],
-        "2026-05-25": [
-          false,
-          false,
-          false,
-          false,
-          true,
-          false,
-          false,
-          false
-        ],
         "2026-05-26": [
           false,
           false,
           false,
           false,
-          true,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-05-27": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-05-28": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-05-29": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-05-30": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-05-31": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-06-01": [
+          false,
+          false,
+          false,
+          false,
+          false,
           false,
           false,
           false
@@ -676,7 +639,16 @@
         ]
       ],
       "start_date": "2026-05-11",
-      "monthly_start": "2026-05-22"
+      "monthly_start": "2026-05-22",
+      "blank_date_checks": {
+        "2026-05-26": false,
+        "2026-05-27": false,
+        "2026-05-28": false,
+        "2026-05-29": false,
+        "2026-05-30": false,
+        "2026-05-31": false,
+        "2026-06-01": false
+      }
     },
     "t5": {
       "items": [

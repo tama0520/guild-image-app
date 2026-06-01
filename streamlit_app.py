@@ -5744,8 +5744,8 @@ def show_auto_page() -> None:
                 try:
                     _zip_data = _make_zip_bytes(output_dir)
                     if _IS_CLOUD:
-                        st.session_state["_auto_zip_data"] = _zip_data
-                        st.session_state["_auto_zip_stem"] = dir_stem
+                        st.session_state[f"_auto_zip_data_{store}"] = _zip_data
+                        st.session_state[f"_auto_zip_stem_{store}"] = dir_stem
                     else:
                         st.download_button(
                             label="📥 画像・テキストをZIPでダウンロード",
@@ -5783,12 +5783,12 @@ def show_auto_page() -> None:
             """, height=_h)
 
     # ── ボタン直下スロットにZIPダウンロードボタンを表示（Cloud のみ）──
-    if _IS_CLOUD and _auto_zip_slot is not None and st.session_state.get("_auto_zip_data"):
+    if _IS_CLOUD and _auto_zip_slot is not None and st.session_state.get(f"_auto_zip_data_{store}"):
         with _auto_zip_slot.container():
             st.success("✅ 処理が完了しました。ZIPをダウンロードしてください。")
             st.download_button(
                 label="📥 画像・テキストをZIPでダウンロード",
-                data=st.session_state["_auto_zip_data"],
+                data=st.session_state[f"_auto_zip_data_{store}"],
                 file_name=f"{st.session_state.get('_auto_zip_stem', 'output')}.zip",
                 mime="application/zip",
                 key="auto_zip_dl",
@@ -6754,8 +6754,8 @@ def show_auto_article_page() -> None:
                 try:
                     _art_zip_data = _make_zip_bytes(output_dir)
                     if _IS_CLOUD:
-                        st.session_state["_art_zip_data"] = _art_zip_data
-                        st.session_state["_art_zip_stem"] = dir_stem
+                        st.session_state[f"_art_zip_data_{store}"] = _art_zip_data
+                        st.session_state[f"_art_zip_stem_{store}"] = dir_stem
                     else:
                         st.download_button(
                             label="📥 画像・テキストをZIPでダウンロード",
@@ -6793,12 +6793,12 @@ def show_auto_article_page() -> None:
             """, height=_h)
 
     # ── ボタン直下スロットにZIPダウンロードボタンを表示（Cloud のみ）──
-    if _IS_CLOUD and _art_zip_slot is not None and st.session_state.get("_art_zip_data"):
+    if _IS_CLOUD and _art_zip_slot is not None and st.session_state.get(f"_art_zip_data_{store}"):
         with _art_zip_slot.container():
             st.success("✅ 処理が完了しました。ZIPをダウンロードしてください。")
             st.download_button(
                 label="📥 画像・テキストをZIPでダウンロード",
-                data=st.session_state["_art_zip_data"],
+                data=st.session_state[f"_art_zip_data_{store}"],
                 file_name=f"{st.session_state.get('_art_zip_stem', 'output')}.zip",
                 mime="application/zip",
                 key="art_zip_dl",
@@ -8626,8 +8626,8 @@ def show_rote_page() -> None:
             # ── ZIP データをセッションに保存（ボタン直下スロットへ後で表示）──
             if _IS_CLOUD and _rote_out_dir and os.path.isdir(_rote_out_dir):
                 try:
-                    st.session_state["_rote_zip_data"] = _make_zip_bytes(_rote_out_dir)
-                    st.session_state["_rote_zip_stem"] = _rote_stem
+                    st.session_state[f"_rote_zip_data_{store}"] = _make_zip_bytes(_rote_out_dir)
+                    st.session_state[f"_rote_zip_stem_{store}"] = _rote_stem
                 except Exception as _rze:
                     st.warning(f"ZIP生成に失敗: {_rze}")
 
@@ -8637,12 +8637,12 @@ def show_rote_page() -> None:
             st.success(f"✅ `{_rote_saved}` に保存しました")
 
     # ── ボタン直下スロットにZIPダウンロードボタンを表示（Cloud のみ）──
-    if _IS_CLOUD and _zip_slot is not None and st.session_state.get("_rote_zip_data"):
+    if _IS_CLOUD and _zip_slot is not None and st.session_state.get(f"_rote_zip_data_{store}"):
         with _zip_slot.container():
             st.success("✅ 処理が完了しました。ZIPをダウンロードしてください。")
             st.download_button(
                 label="📥 画像・テキストをZIPでダウンロード",
-                data=st.session_state["_rote_zip_data"],
+                data=st.session_state[f"_rote_zip_data_{store}"],
                 file_name=f"{st.session_state.get('_rote_zip_stem', 'rote')}.zip",
                 mime="application/zip",
                 key="rote_zip_dl",

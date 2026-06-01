@@ -6398,6 +6398,8 @@ def show_auto_article_page() -> None:
         disabled=(uploaded is None),
         key="art_run",
     )
+    # Cloud のみ：ボタン直下にZIPダウンロード用スロットを確保
+    _art_zip_slot = st.empty() if _IS_CLOUD else None
 
     if uploaded is None:
         st.info("⬆️ まずExcelをアップロードしてください。")
@@ -6747,20 +6749,22 @@ def show_auto_article_page() -> None:
             except Exception as _e:
                 st.warning(f"結果.txt の保存に失敗: {_e}")
 
-            # ── ZIPダウンロードボタン（show_auto_article_page）──────────
+            # ── ZIPデータをセッションに保存（ボタン直下スロットへ後で表示）──
             if os.path.isdir(output_dir):
                 try:
                     _art_zip_data = _make_zip_bytes(output_dir)
                     if _IS_CLOUD:
-                        st.success("✅ 処理が完了しました。ZIPをダウンロードしてください。")
-                    st.download_button(
-                        label="📥 画像・テキストをZIPでダウンロード",
-                        data=_art_zip_data,
-                        file_name=f"{dir_stem}.zip",
-                        mime="application/zip",
-                        key="art_zip_dl",
-                        type="primary" if _IS_CLOUD else "secondary",
-                    )
+                        st.session_state["_art_zip_data"] = _art_zip_data
+                        st.session_state["_art_zip_stem"] = dir_stem
+                    else:
+                        st.download_button(
+                            label="📥 画像・テキストをZIPでダウンロード",
+                            data=_art_zip_data,
+                            file_name=f"{dir_stem}.zip",
+                            mime="application/zip",
+                            key="art_zip_dl",
+                            type="secondary",
+                        )
                 except Exception as _ze:
                     st.warning(f"ZIP生成に失敗: {_ze}")
 
@@ -6787,6 +6791,19 @@ def show_auto_article_page() -> None:
                      border:1px solid #ccc;padding:8px;box-sizing:border-box;resize:vertical;"
             >{_safe}</textarea>
             """, height=_h)
+
+    # ── ボタン直下スロットにZIPダウンロードボタンを表示（Cloud のみ）──
+    if _IS_CLOUD and _art_zip_slot is not None and st.session_state.get("_art_zip_data"):
+        with _art_zip_slot.container():
+            st.success("✅ 処理が完了しました。ZIPをダウンロードしてください。")
+            st.download_button(
+                label="📥 画像・テキストをZIPでダウンロード",
+                data=st.session_state["_art_zip_data"],
+                file_name=f"{st.session_state.get('_art_zip_stem', 'output')}.zip",
+                mime="application/zip",
+                key="art_zip_dl",
+                type="primary",
+            )
 
     # ── 戻るボタン ─────────────────────────────────────────────────
     st.markdown("---")

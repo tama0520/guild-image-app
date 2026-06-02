@@ -4041,6 +4041,7 @@ def show_auto_page() -> None:
                                             _sue_total      = len(_filtered)
                                             _sue_total_diff = int(_filtered["差枚"].sum())
                                             _sue_avg_diff   = int(round(_filtered["差枚"].mean()))
+                                            _sue_win_count  = int((_filtered["差枚"] > 0).sum())
                                             if _is_plus_s:
                                                 _filtered = _filtered[_filtered["差枚"] > 0].copy()
                                                 _img_title = f"{_base_label}のプラス台"
@@ -4059,7 +4060,7 @@ def show_auto_page() -> None:
                                                 _stat = {
                                                     "total_diff":  _sue_total_diff,
                                                     "avg_diff":    _sue_avg_diff,
-                                                    "win_count":   len(_filtered),
+                                                    "win_count":   _sue_win_count,
                                                     "total_count": _sue_total,
                                                 }
                                             else:
@@ -4178,6 +4179,7 @@ def show_auto_page() -> None:
                                                 _jsue_total      = len(_jfilt)
                                                 _jsue_total_diff = int(_jfilt["差枚"].sum())
                                                 _jsue_avg_diff   = int(round(_jfilt["差枚"].mean()))
+                                                _jsue_win_count  = int((_jfilt["差枚"] > 0).sum())
                                                 if _is_jplus:
                                                     _jfilt = _jfilt[_jfilt["差枚"] > 0].copy()
                                                     _jimg_title = f"ジャグラーの末尾{_jcircle}番台のプラス台"
@@ -4200,7 +4202,7 @@ def show_auto_page() -> None:
                                                     _jstat = {
                                                         "total_diff":  _jsue_total_diff,
                                                         "avg_diff":    _jsue_avg_diff,
-                                                        "win_count":   len(_jfilt),
+                                                        "win_count":   _jsue_win_count,
                                                         "total_count": _jsue_total,
                                                     }
                                                 else:
@@ -4673,7 +4675,7 @@ def show_auto_page() -> None:
                                             _jy_of  = mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
                                             _jb_of  = mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
                                             if _jp_of or _jy_of:
-                                                _jof_total = len(_filt); _jof_td = int(_filt["差枚"].sum()); _jof_ad = int(round(_filt["差枚"].mean()))
+                                                _jof_total = len(_filt); _jof_td = int(_filt["差枚"].sum()); _jof_ad = int(round(_filt["差枚"].mean())); _jof_wc = int((_filt["差枚"] > 0).sum())
                                                 if _jp_of:
                                                     _filt = _filt[_filt["差枚"] > 0].copy()
                                                     _title = f"ジャグラーの{_lbl_base}番台のプラス台"
@@ -4690,7 +4692,7 @@ def show_auto_page() -> None:
                                                     _title = f"ジャグラーの{_lbl_base}番台の優秀台"
                                                 if _filt.empty:
                                                     continue
-                                                _stat_of = {"total_diff": _jof_td, "avg_diff": _jof_ad, "win_count": len(_filt), "total_count": _jof_total} if _jb_of else None
+                                                _stat_of = {"total_diff": _jof_td, "avg_diff": _jof_ad, "win_count": _jof_wc, "total_count": _jof_total} if _jb_of else None
                                             else:
                                                 # 全台: G数フィルターのみ（確率・差枚条件なし）
                                                 _title = f"ジャグラーの{_lbl_base}番台"
@@ -4703,7 +4705,7 @@ def show_auto_page() -> None:
                                             _y_of  = mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
                                             _b_of  = mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
                                             if _p_of or _y_of:
-                                                _of_total = len(_filt); _of_td = int(_filt["差枚"].sum()); _of_ad = int(round(_filt["差枚"].mean()))
+                                                _of_total = len(_filt); _of_td = int(_filt["差枚"].sum()); _of_ad = int(round(_filt["差枚"].mean())); _of_wc = int((_filt["差枚"] > 0).sum())
                                                 if _p_of:
                                                     _filt = _filt[_filt["差枚"] > 0].copy()
                                                     _title = f"{_lbl_base}のプラス台"
@@ -4716,7 +4718,7 @@ def show_auto_page() -> None:
                                                     _title = f"{_lbl_base}の優秀台"
                                                 if _filt.empty:
                                                     continue
-                                                _stat_of = {"total_diff": _of_td, "avg_diff": _of_ad, "win_count": len(_filt), "total_count": _of_total} if _b_of else None
+                                                _stat_of = {"total_diff": _of_td, "avg_diff": _of_ad, "win_count": _of_wc, "total_count": _of_total} if _b_of else None
                                             else:
                                                 _title = _lbl_base
                                                 _stat_of = {"total_diff": int(_filt["差枚"].sum()),
@@ -5293,7 +5295,7 @@ def show_auto_page() -> None:
                         _jy_r = mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
                         _jb_r = mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
                         if _jp_r or _jy_r:
-                            _jrun_total = len(_filt); _jrun_td = int(_filt["差枚"].sum()); _jrun_ad = int(round(_filt["差枚"].mean()))
+                            _jrun_total = len(_filt); _jrun_td = int(_filt["差枚"].sum()); _jrun_ad = int(round(_filt["差枚"].mean())); _jrun_wc = int((_filt["差枚"] > 0).sum())
                             if _jp_r:
                                 _filt = _filt[_filt["差枚"] > 0].copy()
                                 _title = f"ジャグラーの{_lbl}番台のプラス台"
@@ -5308,7 +5310,7 @@ def show_auto_page() -> None:
                                 _title = f"ジャグラーの{_lbl}番台の優秀台"
                             if _filt.empty:
                                 continue
-                            _stat = {"total_diff": _jrun_td, "avg_diff": _jrun_ad, "win_count": len(_filt), "total_count": _jrun_total} if _jb_r else None
+                            _stat = {"total_diff": _jrun_td, "avg_diff": _jrun_ad, "win_count": _jrun_wc, "total_count": _jrun_total} if _jb_r else None
                         else:
                             # 全台: G数フィルターのみ（確率・差枚条件なし）
                             _title = f"ジャグラーの{_lbl}番台"
@@ -5321,7 +5323,7 @@ def show_auto_page() -> None:
                         _y_r = mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
                         _b_r = mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
                         if _p_r or _y_r:
-                            _run_total = len(_filt); _run_td = int(_filt["差枚"].sum()); _run_ad = int(round(_filt["差枚"].mean()))
+                            _run_total = len(_filt); _run_td = int(_filt["差枚"].sum()); _run_ad = int(round(_filt["差枚"].mean())); _run_wc = int((_filt["差枚"] > 0).sum())
                             if _p_r:
                                 _filt = _filt[_filt["差枚"] > 0].copy()
                                 _title = f"{_lbl}のプラス台"
@@ -5334,7 +5336,7 @@ def show_auto_page() -> None:
                                 _title = f"{_lbl}の優秀台"
                             if _filt.empty:
                                 continue
-                            _stat = {"total_diff": _run_td, "avg_diff": _run_ad, "win_count": len(_filt), "total_count": _run_total} if _b_r else None
+                            _stat = {"total_diff": _run_td, "avg_diff": _run_ad, "win_count": _run_wc, "total_count": _run_total} if _b_r else None
                         else:
                             _title = _lbl
                             _stat = {"total_diff": int(_filt["差枚"].sum()),

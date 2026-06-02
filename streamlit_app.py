@@ -3996,7 +3996,7 @@ def show_auto_page() -> None:
                                           on_change=_save_auto_inputs, args=(store,))
             _sue_tails_ui = [t.strip() for t in [_sue_ti1, _sue_ti2, _sue_ti3] if t.strip()]
             if _sue_tails_ui:
-                _sue_mode = st.radio("モード", ["全台", "優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"], key="suebangai_mode",
+                _sue_mode = st.radio("モード", ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）", "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"], key="suebangai_mode",
                                      horizontal=True, on_change=_save_auto_inputs, args=(store,))
                 _sue_prev_key    = f"sue_preview_{store}"
                 _sue_prev_rt_key = f"sue_prev_tails_{store}"
@@ -4035,18 +4035,32 @@ def show_auto_page() -> None:
                                         if _filtered.empty:
                                             st.error(f"❌ {_base_label} の台が見つかりません。")
                                             continue
-                                        if _sue_mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"):
-                                            _filtered = _filtered[_filtered["差枚"] > 0].copy()
+                                        _is_plus_s  = _sue_mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）")
+                                        _is_yushu_s = _sue_mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
+                                        if _is_plus_s or _is_yushu_s:
+                                            _sue_total      = len(_filtered)
+                                            _sue_total_diff = int(_filtered["差枚"].sum())
+                                            _sue_avg_diff   = int(round(_filtered["差枚"].mean()))
+                                            if _is_plus_s:
+                                                _filtered = _filtered[_filtered["差枚"] > 0].copy()
+                                                _img_title = f"{_base_label}のプラス台"
+                                            else:
+                                                if "ゲーム数_rounded" in _filtered.columns:
+                                                    _smask = (_filtered["差枚"] >= 1000) | ((_filtered["ゲーム数_rounded"] >= 1800) & (_filtered["差枚"] > 0))
+                                                else:
+                                                    _smask = _filtered["差枚"] >= 1000
+                                                _filtered = _filtered[_smask].copy()
+                                                _img_title = f"{_base_label}の優秀台"
                                             if _filtered.empty:
-                                                st.error(f"❌ {_base_label}でプラスの台がありません。")
+                                                st.error(f"❌ {_base_label}で条件を満たす台がありません。")
                                                 continue
-                                            _img_title = f"{_base_label}の優秀台"
-                                            if _sue_mode == "優秀台（ピンクバー付き）":
+                                            _has_bar_s = _sue_mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
+                                            if _has_bar_s:
                                                 _stat = {
-                                                    "total_diff":  int(_filtered["差枚"].sum()),
-                                                    "avg_diff":    int(round(_filtered["差枚"].mean())),
-                                                    "win_count":   int((_filtered["差枚"] > 0).sum()),
-                                                    "total_count": len(_filtered),
+                                                    "total_diff":  _sue_total_diff,
+                                                    "avg_diff":    _sue_avg_diff,
+                                                    "win_count":   len(_filtered),
+                                                    "total_count": _sue_total,
                                                 }
                                             else:
                                                 _stat = None
@@ -4106,7 +4120,7 @@ def show_auto_page() -> None:
                                           on_change=_save_auto_inputs, args=(store,))
                 _jug_tails_ui = [t.strip() for t in [_jt1, _jt2, _jt3] if t.strip()]
                 if _jug_tails_ui:
-                    _jug_sue_mode = st.radio("モード（ジャグラー）", ["全台", "優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"], key="jug_sue_mode",
+                    _jug_sue_mode = st.radio("モード（ジャグラー）", ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）", "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"], key="jug_sue_mode",
                                              horizontal=True, on_change=_save_auto_inputs, args=(store,))
                     _jsue_prev_key    = f"jug_sue_preview_{store}"
                     _jsue_prev_rt_key = f"jug_sue_prev_tails_{store}"
@@ -4158,26 +4172,36 @@ def show_auto_page() -> None:
                                             if _jfilt.empty:
                                                 st.error(f"❌ {_jbase_label}番台でジャグラー機種が見つかりません。")
                                                 continue
-                                            if _jug_sue_mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"):
-                                                # 優秀台: 確率フィルター + 差枚 > 0
-                                                if not _jfilt.empty:
-                                                    _p_ser = _jfilt["機種名"].map(
-                                                        lambda m: _jug_thresh.get(m, (float("inf"), float("inf")))[0])
-                                                    _d_ser = _jfilt["機種名"].map(
-                                                        lambda m: _jug_thresh.get(m, (float("inf"), float("inf")))[1])
-                                                    _jmask = ((_jfilt["合算確率_num"] <= _p_ser) & (_jfilt["差枚"] >= 0)) | (_jfilt["差枚"] >= _d_ser)
-                                                    _jfilt = _jfilt[_jmask].copy().reset_index(drop=True)
-                                                _jfilt = _jfilt[_jfilt["差枚"] > 0].copy()
+                                            _is_jplus  = _jug_sue_mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）")
+                                            _is_jyushu = _jug_sue_mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
+                                            if _is_jplus or _is_jyushu:
+                                                _jsue_total      = len(_jfilt)
+                                                _jsue_total_diff = int(_jfilt["差枚"].sum())
+                                                _jsue_avg_diff   = int(round(_jfilt["差枚"].mean()))
+                                                if _is_jplus:
+                                                    _jfilt = _jfilt[_jfilt["差枚"] > 0].copy()
+                                                    _jimg_title = f"ジャグラーの末尾{_jcircle}番台のプラス台"
+                                                else:
+                                                    # 優秀台: 確率フィルター + 差枚 > 0
+                                                    if not _jfilt.empty:
+                                                        _p_ser = _jfilt["機種名"].map(
+                                                            lambda m: _jug_thresh.get(m, (float("inf"), float("inf")))[0])
+                                                        _d_ser = _jfilt["機種名"].map(
+                                                            lambda m: _jug_thresh.get(m, (float("inf"), float("inf")))[1])
+                                                        _jmask = ((_jfilt["合算確率_num"] <= _p_ser) & (_jfilt["差枚"] >= 0)) | (_jfilt["差枚"] >= _d_ser)
+                                                        _jfilt = _jfilt[_jmask].copy().reset_index(drop=True)
+                                                    _jfilt = _jfilt[_jfilt["差枚"] > 0].copy()
+                                                    _jimg_title = f"ジャグラーの末尾{_jcircle}番台の優秀台"
                                                 if _jfilt.empty:
-                                                    st.error(f"❌ {_jbase_label}番台のジャグラー優秀台がありません。")
+                                                    st.error(f"❌ {_jbase_label}番台のジャグラー条件を満たす台がありません。")
                                                     continue
-                                                _jimg_title = f"ジャグラーの末尾{_jcircle}番台の優秀台"
-                                                if _jug_sue_mode == "優秀台（ピンクバー付き）":
+                                                _has_jbar = _jug_sue_mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
+                                                if _has_jbar:
                                                     _jstat = {
-                                                        "total_diff":  int(_jfilt["差枚"].sum()),
-                                                        "avg_diff":    int(round(_jfilt["差枚"].mean())),
-                                                        "win_count":   int((_jfilt["差枚"] > 0).sum()),
-                                                        "total_count": len(_jfilt),
+                                                        "total_diff":  _jsue_total_diff,
+                                                        "avg_diff":    _jsue_avg_diff,
+                                                        "win_count":   len(_jfilt),
+                                                        "total_count": _jsue_total,
                                                     }
                                                 else:
                                                     _jstat = None
@@ -4645,20 +4669,28 @@ def show_auto_page() -> None:
                                             _filt = _filt[_filt["ゲーム数_rounded"] >= _jug_g_min_of].copy()
                                             if _filt.empty:
                                                 continue
-                                            if mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"):
-                                                # 優秀台: 確率フィルター + 差枚 > 0
-                                                if not _filt.empty:
-                                                    _ps = _filt["機種名"].map(
-                                                        lambda m: _jug_thresh_of.get(m, (float("inf"), float("inf")))[0])
-                                                    _ds = _filt["機種名"].map(
-                                                        lambda m: _jug_thresh_of.get(m, (float("inf"), float("inf")))[1])
-                                                    _filt = _filt[((_filt["合算確率_num"] <= _ps) & (_filt["差枚"] >= 0)) |
-                                                                  (_filt["差枚"] >= _ds)].copy().reset_index(drop=True)
-                                                _filt = _filt[_filt["差枚"] > 0].copy()
+                                            _jp_of  = mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）")
+                                            _jy_of  = mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
+                                            _jb_of  = mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
+                                            if _jp_of or _jy_of:
+                                                _jof_total = len(_filt); _jof_td = int(_filt["差枚"].sum()); _jof_ad = int(round(_filt["差枚"].mean()))
+                                                if _jp_of:
+                                                    _filt = _filt[_filt["差枚"] > 0].copy()
+                                                    _title = f"ジャグラーの{_lbl_base}番台のプラス台"
+                                                else:
+                                                    # 優秀台: 確率フィルター + 差枚 > 0
+                                                    if not _filt.empty:
+                                                        _ps = _filt["機種名"].map(
+                                                            lambda m: _jug_thresh_of.get(m, (float("inf"), float("inf")))[0])
+                                                        _ds = _filt["機種名"].map(
+                                                            lambda m: _jug_thresh_of.get(m, (float("inf"), float("inf")))[1])
+                                                        _filt = _filt[((_filt["合算確率_num"] <= _ps) & (_filt["差枚"] >= 0)) |
+                                                                      (_filt["差枚"] >= _ds)].copy().reset_index(drop=True)
+                                                    _filt = _filt[_filt["差枚"] > 0].copy()
+                                                    _title = f"ジャグラーの{_lbl_base}番台の優秀台"
                                                 if _filt.empty:
                                                     continue
-                                                _title = f"ジャグラーの{_lbl_base}番台の優秀台"
-                                                _stat_of = {"total_diff": int(_filt["差枚"].sum()), "avg_diff": int(round(_filt["差枚"].mean())), "win_count": int((_filt["差枚"] > 0).sum()), "total_count": len(_filt)} if mode == "優秀台（ピンクバー付き）" else None
+                                                _stat_of = {"total_diff": _jof_td, "avg_diff": _jof_ad, "win_count": len(_filt), "total_count": _jof_total} if _jb_of else None
                                             else:
                                                 # 全台: G数フィルターのみ（確率・差枚条件なし）
                                                 _title = f"ジャグラーの{_lbl_base}番台"
@@ -4667,12 +4699,24 @@ def show_auto_page() -> None:
                                                             "win_count": int((_filt["差枚"] > 0).sum()),
                                                             "total_count": len(_filt)}
                                         else:
-                                            if mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"):
-                                                _filt = _filt[_filt["差枚"] > 0].copy()
+                                            _p_of  = mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）")
+                                            _y_of  = mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
+                                            _b_of  = mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
+                                            if _p_of or _y_of:
+                                                _of_total = len(_filt); _of_td = int(_filt["差枚"].sum()); _of_ad = int(round(_filt["差枚"].mean()))
+                                                if _p_of:
+                                                    _filt = _filt[_filt["差枚"] > 0].copy()
+                                                    _title = f"{_lbl_base}のプラス台"
+                                                else:
+                                                    if "ゲーム数_rounded" in _filt.columns:
+                                                        _ofm = (_filt["差枚"] >= 1000) | ((_filt["ゲーム数_rounded"] >= 1800) & (_filt["差枚"] > 0))
+                                                    else:
+                                                        _ofm = _filt["差枚"] >= 1000
+                                                    _filt = _filt[_ofm].copy()
+                                                    _title = f"{_lbl_base}の優秀台"
                                                 if _filt.empty:
                                                     continue
-                                                _title = f"{_lbl_base}の優秀台"
-                                                _stat_of = {"total_diff": int(_filt["差枚"].sum()), "avg_diff": int(round(_filt["差枚"].mean())), "win_count": int((_filt["差枚"] > 0).sum()), "total_count": len(_filt)} if mode == "優秀台（ピンクバー付き）" else None
+                                                _stat_of = {"total_diff": _of_td, "avg_diff": _of_ad, "win_count": len(_filt), "total_count": _of_total} if _b_of else None
                                             else:
                                                 _title = _lbl_base
                                                 _stat_of = {"total_diff": int(_filt["差枚"].sum()),
@@ -5245,18 +5289,26 @@ def show_auto_page() -> None:
                         _filt = _filt[_filt["ゲーム数_rounded"] >= _jug_g_min].copy()
                         if _filt.empty:
                             continue
-                        if mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"):
-                            # 優秀台: 確率フィルター + 差枚 > 0
-                            if not _filt.empty:
-                                _ps = _filt["機種名"].map(lambda m: _jug_thresh.get(m, (float("inf"), float("inf")))[0])
-                                _ds = _filt["機種名"].map(lambda m: _jug_thresh.get(m, (float("inf"), float("inf")))[1])
-                                _filt = _filt[((_filt["合算確率_num"] <= _ps) & (_filt["差枚"] >= 0)) |
-                                              (_filt["差枚"] >= _ds)].copy().reset_index(drop=True)
-                            _filt = _filt[_filt["差枚"] > 0].copy()
+                        _jp_r = mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）")
+                        _jy_r = mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
+                        _jb_r = mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
+                        if _jp_r or _jy_r:
+                            _jrun_total = len(_filt); _jrun_td = int(_filt["差枚"].sum()); _jrun_ad = int(round(_filt["差枚"].mean()))
+                            if _jp_r:
+                                _filt = _filt[_filt["差枚"] > 0].copy()
+                                _title = f"ジャグラーの{_lbl}番台のプラス台"
+                            else:
+                                # 優秀台: 確率フィルター + 差枚 > 0
+                                if not _filt.empty:
+                                    _ps = _filt["機種名"].map(lambda m: _jug_thresh.get(m, (float("inf"), float("inf")))[0])
+                                    _ds = _filt["機種名"].map(lambda m: _jug_thresh.get(m, (float("inf"), float("inf")))[1])
+                                    _filt = _filt[((_filt["合算確率_num"] <= _ps) & (_filt["差枚"] >= 0)) |
+                                                  (_filt["差枚"] >= _ds)].copy().reset_index(drop=True)
+                                _filt = _filt[_filt["差枚"] > 0].copy()
+                                _title = f"ジャグラーの{_lbl}番台の優秀台"
                             if _filt.empty:
                                 continue
-                            _title = f"ジャグラーの{_lbl}番台の優秀台"
-                            _stat = {"total_diff": int(_filt["差枚"].sum()), "avg_diff": int(round(_filt["差枚"].mean())), "win_count": int((_filt["差枚"] > 0).sum()), "total_count": len(_filt)} if mode == "優秀台（ピンクバー付き）" else None
+                            _stat = {"total_diff": _jrun_td, "avg_diff": _jrun_ad, "win_count": len(_filt), "total_count": _jrun_total} if _jb_r else None
                         else:
                             # 全台: G数フィルターのみ（確率・差枚条件なし）
                             _title = f"ジャグラーの{_lbl}番台"
@@ -5265,12 +5317,24 @@ def show_auto_page() -> None:
                                      "win_count": int((_filt["差枚"] > 0).sum()),
                                      "total_count": len(_filt)}
                     else:
-                        if mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"):
-                            _filt = _filt[_filt["差枚"] > 0].copy()
+                        _p_r = mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）")
+                        _y_r = mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
+                        _b_r = mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
+                        if _p_r or _y_r:
+                            _run_total = len(_filt); _run_td = int(_filt["差枚"].sum()); _run_ad = int(round(_filt["差枚"].mean()))
+                            if _p_r:
+                                _filt = _filt[_filt["差枚"] > 0].copy()
+                                _title = f"{_lbl}のプラス台"
+                            else:
+                                if "ゲーム数_rounded" in _filt.columns:
+                                    _rm = (_filt["差枚"] >= 1000) | ((_filt["ゲーム数_rounded"] >= 1800) & (_filt["差枚"] > 0))
+                                else:
+                                    _rm = _filt["差枚"] >= 1000
+                                _filt = _filt[_rm].copy()
+                                _title = f"{_lbl}の優秀台"
                             if _filt.empty:
                                 continue
-                            _title = f"{_lbl}の優秀台"
-                            _stat = {"total_diff": int(_filt["差枚"].sum()), "avg_diff": int(round(_filt["差枚"].mean())), "win_count": int((_filt["差枚"] > 0).sum()), "total_count": len(_filt)} if mode == "優秀台（ピンクバー付き）" else None
+                            _stat = {"total_diff": _run_td, "avg_diff": _run_ad, "win_count": len(_filt), "total_count": _run_total} if _b_r else None
                         else:
                             _title = _lbl
                             _stat = {"total_diff": int(_filt["差枚"].sum()),

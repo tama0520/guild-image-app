@@ -4437,7 +4437,12 @@ def show_auto_page() -> None:
                         _tmp_excel = os.path.join(_tmpdir, uploaded.name)
                         with open(_tmp_excel, "wb") as _tf:
                             _tf.write(_excel_bytes)
-                        _prev_rec_names: set[str] = set()
+                        _prev_rec_names: set[str] = {
+                            m.strip()
+                            for block in recommended_blocks
+                            for m in block["machines"]
+                            if m.strip()
+                        }
                         if kojin_enabled:
                             _prev_rec_names |= {m.strip() for m in kojin_zentai_machines if m.strip()}
                             _prev_rec_names |= {m.strip() for m in kojin_yushu_machines if m.strip()}
@@ -5138,6 +5143,11 @@ def show_auto_page() -> None:
                 st.write(msg)
 
             _rec_names: set[str] = {
+                m.strip()
+                for block in recommended_blocks
+                for m in block["machines"]
+                if m.strip()
+            } | {
                 m.strip()
                 for m in (kojin_zentai_machines + kojin_yushu_machines)
                 if m.strip()

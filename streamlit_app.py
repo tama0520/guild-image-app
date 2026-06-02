@@ -297,6 +297,12 @@ DEFAULT_STORE_CONFIG: dict = {
         ("クレアの秘宝伝",  152, 1000),
         ("ヱヴァ約束",     172, 1000),
         ("ディスクアップUR", 200, 1000),
+        ("うみねこ2",      190, 1000),
+        ("バーサスリヴァイズ", 150, 1000),
+        ("ホウオウ天翔30", 160, 1000),
+        ("キンハナ30",     157, 1000),
+        ("キンハナV30",    165, 1000),
+        ("ディスクアップ2", 170, 1000),
     ],
     # 総台数9台以下: 勝率50%以上 かつ +1000枚台>=3 で高配分個別画像を生成し統合画像から除外
     "small_machine_rule": {"max_total": 9, "min_1k": 3},
@@ -4046,8 +4052,9 @@ def show_auto_page() -> None:
                                                 _filtered = _filtered[_filtered["差枚"] > 0].copy()
                                                 _img_title = f"{_base_label}のプラス台"
                                             else:
-                                                if "ゲーム数_rounded" in _filtered.columns:
-                                                    _smask = (_filtered["差枚"] >= 1000) | ((_filtered["ゲーム数_rounded"] >= 1800) & (_filtered["差枚"] > 0))
+                                                _sg_col = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _filtered.columns), None)
+                                                if _sg_col:
+                                                    _smask = (_filtered["差枚"] >= 1000) | ((_filtered[_sg_col] >= 1800) & (_filtered["差枚"] > 0))
                                                 else:
                                                     _smask = _filtered["差枚"] >= 1000
                                                 _filtered = _filtered[_smask].copy()
@@ -4710,10 +4717,8 @@ def show_auto_page() -> None:
                                                     _filt = _filt[_filt["差枚"] > 0].copy()
                                                     _title = f"{_lbl_base}のプラス台"
                                                 else:
-                                                    if "ゲーム数_rounded" in _filt.columns:
-                                                        _ofm = (_filt["差枚"] >= 1000) | ((_filt["ゲーム数_rounded"] >= 1800) & (_filt["差枚"] > 0))
-                                                    else:
-                                                        _ofm = _filt["差枚"] >= 1000
+                                                    _og_col = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _filt.columns), None)
+                                                    _ofm = (_filt["差枚"] >= 1000) | ((_filt[_og_col] >= 1800) & (_filt["差枚"] > 0)) if _og_col else (_filt["差枚"] >= 1000)
                                                     _filt = _filt[_ofm].copy()
                                                     _title = f"{_lbl_base}の優秀台"
                                                 if _filt.empty:
@@ -5328,10 +5333,8 @@ def show_auto_page() -> None:
                                 _filt = _filt[_filt["差枚"] > 0].copy()
                                 _title = f"{_lbl}のプラス台"
                             else:
-                                if "ゲーム数_rounded" in _filt.columns:
-                                    _rm = (_filt["差枚"] >= 1000) | ((_filt["ゲーム数_rounded"] >= 1800) & (_filt["差枚"] > 0))
-                                else:
-                                    _rm = _filt["差枚"] >= 1000
+                                _rg_col = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _filt.columns), None)
+                                _rm = (_filt["差枚"] >= 1000) | ((_filt[_rg_col] >= 1800) & (_filt["差枚"] > 0)) if _rg_col else (_filt["差枚"] >= 1000)
                                 _filt = _filt[_rm].copy()
                                 _title = f"{_lbl}の優秀台"
                             if _filt.empty:

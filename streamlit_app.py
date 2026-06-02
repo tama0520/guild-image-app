@@ -2238,8 +2238,14 @@ def run_step2_juggler(
     if not pool_dfs:
         return generated, None, None, high_ratio_list, jug_excellent_list, None
 
+    pool_dfs   = [d for d in pool_dfs   if not d.empty]
+    pool_diffs = [d for d in pool_diffs if not d.empty]
+    if not pool_dfs:
+        return generated, None, None, high_ratio_list, jug_excellent_list, None
     combined    = pd.concat(pool_dfs,   ignore_index=True)
     dr_combined = pd.concat(pool_diffs, ignore_index=True)
+    if combined.empty:
+        return generated, None, None, high_ratio_list, jug_excellent_list, None
     order       = combined["台番"].argsort()
     combined    = combined.iloc[order].reset_index(drop=True)
     dr_combined = dr_combined.iloc[order].reset_index(drop=True)
@@ -2455,12 +2461,12 @@ def run_step3_other(
                 for _i in range(len(filt_ex)):
                     excellent_list.append({"name": machine, "diff": int(dr_f_ex.iloc[_i]), "ban": int(filt_ex.iloc[_i]["台番"])})
 
-    if overflow_df is not None and not overflow_df.empty:
+    if overflow_df is not None and overflow_diff is not None and not overflow_df.empty:
         # ジャグラー overflow を excellent pool へ（sonota_exclude機種は除外）
-        if sonota_exclude:
+        if sonota_exclude and "機種名" in overflow_df.columns:
             _ov_keep      = ~overflow_df["機種名"].isin(sonota_exclude)
             overflow_df   = overflow_df[_ov_keep].reset_index(drop=True)
-            overflow_diff = overflow_diff[_ov_keep].reset_index(drop=True)
+            overflow_diff = overflow_diff[_ov_keep.values].reset_index(drop=True)
         if not overflow_df.empty:
             for i, row in overflow_df.iterrows():
                 excellent_list.append({"name": str(row["機種名"]), "diff": int(overflow_diff.iloc[i]), "ban": int(row["台番"])})

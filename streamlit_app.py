@@ -2146,6 +2146,7 @@ def run_step2_juggler(
     suebangai_bans: set[int] = set(),
     zen_dai_juggler_machines: set[str] = set(),
     article_mode: bool = False,
+    sonota_exclude: set[str] = frozenset(),
 ) -> tuple[list[str], pd.DataFrame | None, pd.Series | None, list[dict], list[dict]]:
     """Step 2: ジャグラーシリーズ優秀台フィルター。
     少数機種は統合画像へ。5台以下なら overflow として Step 3 へ渡す。
@@ -2219,6 +2220,7 @@ def run_step2_juggler(
                 "total":      total_orig,
                 "diffs":      sorted([int(d) for d in dr_f.tolist() if int(d) >= 1000], reverse=True),
                 "all_avg_diff": int(round(diff_raw.loc[all_for_m_orig.index].mean())),
+                "has_image":  True,
             })
         else:
             if machine in recommended_machines:
@@ -2239,6 +2241,12 @@ def run_step2_juggler(
 
     if len(combined) <= 5:
         log(f"  ジャグラー統合 {len(combined)}台 → overflow")
+        return generated, combined, dr_combined, high_ratio_list, jug_excellent_list, None
+
+    # オススメ機種にジャグラーが含まれる場合は統合画像を作らずoverflowへ
+    _juggler_names = {m for m, _, _ in juggler_jobs}
+    if sonota_exclude & _juggler_names:
+        log(f"  ジャグラーシリーズ優秀台: オススメ機種に含まれるため統合画像スキップ → overflow")
         return generated, combined, dr_combined, high_ratio_list, jug_excellent_list, None
 
     juggler_series_set = {m for m, _, _ in juggler_jobs}
@@ -2271,6 +2279,7 @@ def run_step3_other(
     recommended_machines: set[str] = set(),
     suebangai_bans: set[int] = set(),
     article_mode: bool = False,
+    sonota_exclude: set[str] = frozenset(),
 ) -> tuple[list[str], list[dict], list[dict]]:
     """Step 3: 非ジャグラー機種の優秀台 + その他の優秀台ピックアップ統合画像。
     戻り値: (generated, high_ratio_list, excellent_list)"""
@@ -2309,7 +2318,7 @@ def run_step3_other(
             if machine in manual_exclude:
                 mask_1k = dr_ex >= 1000
                 if mask_1k.any():
-                    if machine not in recommended_machines:
+                    if machine not in recommended_machines and machine not in sonota_exclude:
                         other_dfs.append(grp_ex[mask_1k].copy().reset_index(drop=True))
                         other_diffs.append(dr_ex[mask_1k].reset_index(drop=True))
                     if machine not in recommended_machines:
@@ -2318,7 +2327,7 @@ def run_step3_other(
                 continue
             elif total == 1 and int(dr_m.iloc[0]) >= 1000:
                 if not grp_ex.empty:
-                    if machine not in recommended_machines:
+                    if machine not in recommended_machines and machine not in sonota_exclude:
                         other_dfs.append(grp_ex.copy().reset_index(drop=True))
                         other_diffs.append(dr_ex.reset_index(drop=True))
                         excellent_list.append({"name": machine, "diff": int(dr_ex.iloc[0]), "ban": int(grp_ex.iloc[0]["台番"])})
@@ -2343,7 +2352,7 @@ def run_step3_other(
         if machine in manual_exclude:
             mask_1k = dr_ex >= 1000
             if mask_1k.any():
-                if machine not in recommended_machines:
+                if machine not in recommended_machines and machine not in sonota_exclude:
                     other_dfs.append(grp_ex[mask_1k].copy().reset_index(drop=True))
                     other_diffs.append(dr_ex[mask_1k].reset_index(drop=True))
                 for idx in dr_ex[mask_1k].index:
@@ -2416,6 +2425,7 @@ def run_step3_other(
                     "total":        total,
                     "diffs":        sorted([int(d) for d in dr_f.tolist() if int(d) >= 1000], reverse=True),
                     "all_avg_diff": int(round(dr_m.mean())),
+                    "has_image":    True,
                 })
         else:
             # 勝率50%以上 → テキストのみ high_ratio_list に追加（画像なし）
@@ -2428,23 +2438,29 @@ def run_step3_other(
                     "total":        total,
                     "diffs":        sorted([int(d) for d in dr_m.tolist() if int(d) >= 1000], reverse=True),
                     "all_avg_diff": int(round(dr_m.mean())),
+                    "has_image":    False,
                 })
             # excellent pool: 並び台除外版を使用
             mask_ex = dr_ex >= 1000
             filt_ex = grp_ex[mask_ex].copy().reset_index(drop=True)
             dr_f_ex = dr_ex[mask_ex].reset_index(drop=True)
-            if machine not in recommended_machines and not filt_ex.empty:
+            if machine not in recommended_machines and machine not in sonota_exclude and not filt_ex.empty:
                 other_dfs.append(filt_ex)
                 other_diffs.append(dr_f_ex)
                 for _i in range(len(filt_ex)):
                     excellent_list.append({"name": machine, "diff": int(dr_f_ex.iloc[_i]), "ban": int(filt_ex.iloc[_i]["台番"])})
 
     if overflow_df is not None and not overflow_df.empty:
-        # ジャグラー overflow を excellent pool へ
-        for i, row in overflow_df.iterrows():
-            excellent_list.append({"name": str(row["機種名"]), "diff": int(overflow_diff.iloc[i]), "ban": int(row["台番"])})
-        other_dfs.append(overflow_df)
-        other_diffs.append(overflow_diff)
+        # ジャグラー overflow を excellent pool へ（sonota_exclude機種は除外）
+        if sonota_exclude:
+            _ov_keep      = ~overflow_df["機種名"].isin(sonota_exclude)
+            overflow_df   = overflow_df[_ov_keep].reset_index(drop=True)
+            overflow_diff = overflow_diff[_ov_keep].reset_index(drop=True)
+        if not overflow_df.empty:
+            for i, row in overflow_df.iterrows():
+                excellent_list.append({"name": str(row["機種名"]), "diff": int(overflow_diff.iloc[i]), "ban": int(row["台番"])})
+            other_dfs.append(overflow_df)
+            other_diffs.append(overflow_diff)
 
     if not other_dfs:
         log("  その他の優秀台: 該当台なし")
@@ -3107,6 +3123,7 @@ def run_auto_pipeline(
     recommended_machines: set[str] = set(),
     suebangai_tails: list[str] = [],
     article_mode: bool = False,
+    sonota_exclude: set[str] = frozenset(),
 ) -> dict:
     """3ステップパイプラインを実行する。
     戻り値: {"ok": bool, "files": list[str], "error": str | None,
@@ -3146,10 +3163,10 @@ def run_auto_pipeline(
         log("② ジャグラーシリーズ優秀台")
         _jug_series = cfg["juggler_series"]
         _zen_dai_jug = {item["name"] for item in zen_dai_list if item["name"] in _jug_series}
-        f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode)
+        f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude)
 
         log("③ その他の優秀台ピックアップ")
-        f3, oth_hr, sonota_excellent = run_step3_other(df, diff_raw, output_dir, cfg, narabi_bans, ov_df, ov_diff, log, recommended_machines, suebangai_bans, article_mode=article_mode)
+        f3, oth_hr, sonota_excellent = run_step3_other(df, diff_raw, output_dir, cfg, narabi_bans, ov_df, ov_diff, log, recommended_machines, suebangai_bans, article_mode=article_mode, sonota_exclude=sonota_exclude)
         _ex_seen: set[tuple] = set()
         excellent_list = []
         for _ex_item in jug_excellent + sonota_excellent:
@@ -3714,6 +3731,43 @@ def generate_recommended_block_image(
                 .drop(columns=["_grp_order"])
                 .reset_index(drop=True))
     return _build_machine_img(combined, title, None)
+
+
+def _kojin_yushu_filter(km: str, grp_all: pd.DataFrame, dr_all: pd.Series, cfg: dict) -> pd.DataFrame:
+    """個別優秀台のマスク: Step3高配分と同じ条件でフィルター（index は元のまま）。"""
+    prob_jobs_map      = cfg["prob_jobs_map"]
+    rb_thresh_machines = cfg["rb_threshold_machines"]
+    rb_min             = cfg["rb_min"]
+    has_g = "ゲーム数_rounded" in grp_all.columns
+    if km in prob_jobs_map:
+        prob_thr, diff_bon = prob_jobs_map[km]
+        has_prob = "合算確率_num" in grp_all.columns
+        if has_g and has_prob:
+            mask = (grp_all["ゲーム数_rounded"] >= 2000) & (
+                ((grp_all["合算確率_num"] <= prob_thr) & (dr_all >= 0)) | (dr_all >= diff_bon)
+            )
+        elif has_g:
+            mask = (grp_all["ゲーム数_rounded"] >= 2000) & (dr_all >= diff_bon)
+        else:
+            mask = dr_all >= diff_bon
+    elif km in rb_thresh_machines:
+        _rb_col = next((c for c in ["RB", "REG"] if c in grp_all.columns), None)
+        if _rb_col and has_g:
+            mask = (dr_all >= 1000) | (
+                (grp_all["ゲーム数_rounded"] >= 2000) & (grp_all[_rb_col] >= rb_min) & (dr_all >= 0)
+            )
+        else:
+            mask = dr_all >= 1000
+    else:
+        if has_g:
+            _cnt_1k = int((dr_all >= 1000).sum())
+            if _cnt_1k >= 2:
+                mask = (dr_all >= 1000) | ((dr_all >= 0) & (grp_all["ゲーム数_rounded"] >= 2000))
+            else:
+                mask = (dr_all >= 1000) | ((dr_all > 0) & (grp_all["ゲーム数_rounded"] >= 5000))
+        else:
+            mask = dr_all >= 1000
+    return grp_all[mask.values].copy()
 
 
 def show_auto_page() -> None:
@@ -4335,6 +4389,7 @@ def show_auto_page() -> None:
         _aprev_jug_ex_key   = f"auto_preview_jug_ex_{store}"
         _aprev_jug_pool_key = f"auto_preview_jug_pool_{store}"
         _aprev_narabi_key   = f"auto_preview_narabi_{store}"
+        _aprev_hr_img_key   = f"auto_preview_hr_img_{store}"
         # Excel が変わったらプレビューをクリア
         if st.session_state.get(_aprev_fname) != uploaded.name:
             for _k in (_aprev_key, _aprev_df_key, _aprev_di_key, _aprev_ex_key, _aprev_hr_key, _aprev_zen_key, _aprev_jug_ex_key, _aprev_jug_pool_key, _aprev_narabi_key):
@@ -4371,12 +4426,7 @@ def show_auto_page() -> None:
                         _tmp_excel = os.path.join(_tmpdir, uploaded.name)
                         with open(_tmp_excel, "wb") as _tf:
                             _tf.write(_excel_bytes)
-                        _prev_rec_names: set[str] = {
-                            m.strip()
-                            for block in recommended_blocks
-                            for m in block["machines"]
-                            if m.strip()
-                        }
+                        _prev_rec_names: set[str] = set()
                         if kojin_enabled:
                             _prev_rec_names |= {m.strip() for m in kojin_zentai_machines if m.strip()}
                             _prev_rec_names |= {m.strip() for m in kojin_yushu_machines if m.strip()}
@@ -4391,6 +4441,7 @@ def show_auto_page() -> None:
                             narabi_ranges=narabi_ranges if narabi_ok else None,
                             recommended_machines=_prev_rec_names,
                             suebangai_tails=_prev_sue_tails,
+                            sonota_exclude={m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()},
                         )
                         _prev_img_list: list[tuple[str, "Image.Image"]] = []
                         if _prev_result["ok"]:
@@ -4445,11 +4496,7 @@ def show_auto_page() -> None:
                                     if _kgrp_all.empty:
                                         continue
                                     _kdr_all = _pv_diff.loc[_kgrp_all.index]
-                                    _kgrp_p = _kgrp_all[(_kdr_all > 0).values].copy()
-                                    _rb_thresh_kp = get_store_config(store)["rb_threshold_machines"]
-                                    if _km in _rb_thresh_kp and "ゲーム数_rounded" in _kgrp_p.columns:
-                                        _kgrp_p = _kgrp_p[_kgrp_p["ゲーム数_rounded"] >= 2000]
-                                    _kgrp_p = _kgrp_p.reset_index(drop=True)
+                                    _kgrp_p = _kojin_yushu_filter(_km, _kgrp_all, _kdr_all, get_store_config(store)).reset_index(drop=True)
                                     if _kgrp_p.empty:
                                         continue
                                     _kavg = int(round(_kdr_all.mean()))
@@ -4647,7 +4694,10 @@ def show_auto_page() -> None:
                                     "diff_bonus": _pv_scfg["diff_bonus"],
                                 }
                                 _pv_zen   = {item["name"] for item in _prev_result.get("zen_dai_list", [])}
-                                _pv_high  = {item["name"] for item in _prev_result.get("high_ratio_list", [])}
+                                _pv_high  = {item["name"] for item in _prev_result.get("high_ratio_list", []) if item.get("has_image", True)}
+                                if kojin_enabled:
+                                    _pv_zen  |= {m.strip() for m in kojin_zentai_machines if m.strip()}
+                                    _pv_high |= {m.strip() for m in kojin_yushu_machines if m.strip()}
                                 _sfx_map  = {1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
                                 for _block in recommended_blocks:
                                     _bt = _block["title"].strip()
@@ -4684,6 +4734,11 @@ def show_auto_page() -> None:
                     }
                     st.session_state[_aprev_jug_ex_key]   = _prev_result.get("jug_excellent_list", [])
                     st.session_state[_aprev_jug_pool_key] = _prev_result.get("jug_pool_df")
+                    st.session_state[_aprev_hr_img_key]   = {
+                        item["name"]
+                        for item in _prev_result.get("high_ratio_list", [])
+                        if item.get("has_image", True)
+                    }
                     st.session_state[_aprev_narabi_key]   = _narabi_ban_map if narabi_ok and narabi_ranges else {}
                 st.rerun()
         else:
@@ -4716,6 +4771,9 @@ def show_auto_page() -> None:
                         _jug_series_set = set(get_store_config(store)["juggler_series"])
                         # kojin個別画像がある機種はチェック外し時に統合画像へ追加しない
                         _kojin_machines_set = {m.strip() for m in (kojin_zentai_machines + kojin_yushu_machines) if m.strip()}
+                        # オススメ機種セットとチェック外し追跡
+                        _rec_machines_set: set[str] = {m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()}
+                        _rec_unchecked_machines: set[str] = set()
                         # 末尾台番セット（その他の優秀台への重複追加を防止）
                         _sue_bans_upd: set[int] = set()
                         _stails_upd = [t for i in range(1, 4)
@@ -4769,6 +4827,8 @@ def show_auto_page() -> None:
                                         if not _mgood.empty:
                                             if _m in _jug_series_set:
                                                 _jug_extra_dfs.append(_mgood)
+                                            elif _m in _rec_machines_set:
+                                                _rec_unchecked_machines.add(_m)
                                             else:
                                                 _upd_extra_dfs.append(_mgood)
                                                 _upd_extra_diffs.append(_mgood_diff)
@@ -4934,6 +4994,54 @@ def show_auto_page() -> None:
                                 _new_prev.append(("ジャグラーシリーズ優秀台.jpg", _jug_img))
                                 st.session_state[f"auto_prev_ck_{store}_{len(_new_prev)-1}"] = True
                             _updated = True
+                        # オススメ機種ピックアップ再生成（チェック外し機種がオススメに含まれる場合）
+                        if _rec_unchecked_machines and _pv_df is not None and _pv_diff is not None:
+                            _pv_scfg_r = get_store_config(store)
+                            _pv_jcfg_r = {
+                                "series":     _pv_scfg_r["juggler_series"],
+                                "jobs_map":   {j[0]: j[1] for j in _pv_scfg_r["juggler_jobs"]},
+                                "g_min":      _pv_scfg_r["juggler_g_min"],
+                                "diff_bonus": _pv_scfg_r["diff_bonus"],
+                            }
+                            _pv_zen_r  = set(st.session_state.get(_aprev_zen_key, {}).values())
+                            _pv_hr_img = st.session_state.get(_aprev_hr_img_key, set())
+                            _pv_high_r = (_pv_hr_img - _rec_unchecked_machines)
+                            if kojin_enabled:
+                                _pv_zen_r  |= {m.strip() for m in kojin_zentai_machines if m.strip()}
+                                _pv_high_r |= {m.strip() for m in kojin_yushu_machines if m.strip()}
+                            _upd_nb: set[int] = ranges_to_bans(narabi_ranges) if narabi_ok else set()
+                            if kojin_enabled and kojin_narabi_ranges_text.strip():
+                                try: _upd_nb |= ranges_to_bans(parse_ranges(kojin_narabi_ranges_text.strip()))
+                                except Exception: pass
+                            if kojin_enabled and kojin_narabi2_ranges_text.strip():
+                                try: _upd_nb |= ranges_to_bans(parse_ranges(kojin_narabi2_ranges_text.strip()))
+                                except Exception: pass
+                            _sfx_map_r = {1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
+                            for _block_r in recommended_blocks:
+                                _bt_r = _block_r["title"].strip() or "オススメ機種"
+                                _bm_r = _block_r["machines"]
+                                if not any(m.strip() in _rec_unchecked_machines for m in _bm_r if m.strip()):
+                                    continue
+                                _valid_r, _ = filter_recommended_machines(_bm_r, _pv_df, _pv_zen_r, _pv_high_r)
+                                if not _valid_r:
+                                    continue
+                                for _thr_r in _block_r.get("thresholds", [1]):
+                                    _rec_img_r = generate_recommended_block_image(
+                                        _bt_r, _valid_r, _pv_df, _pv_diff, _upd_nb,
+                                        min_diff=_thr_r, juggler_cfg=_pv_jcfg_r
+                                    )
+                                    if _rec_img_r is None:
+                                        continue
+                                    _sfx_r = _sfx_map_r.get(_thr_r, str(_thr_r))
+                                    _tgt_r = f"オススメ_{_make_safe_fn(_bt_r)}_{_sfx_r}.jpg"
+                                    for _ri, (_rpn, _) in enumerate(_new_prev):
+                                        if _rpn == _tgt_r:
+                                            _new_prev[_ri] = (_rpn, _rec_img_r)
+                                            break
+                                    else:
+                                        _new_prev.append((_tgt_r, _rec_img_r))
+                                        st.session_state[f"auto_prev_ck_{store}_{len(_new_prev)-1}"] = True
+                            _updated = True
                         if _updated:
                             st.session_state[_aprev_key] = _new_prev
                             st.rerun()
@@ -5020,11 +5128,6 @@ def show_auto_page() -> None:
 
             _rec_names: set[str] = {
                 m.strip()
-                for block in recommended_blocks
-                for m in block["machines"]
-                if m.strip()
-            } | {
-                m.strip()
                 for m in (kojin_zentai_machines + kojin_yushu_machines)
                 if m.strip()
             }
@@ -5038,6 +5141,7 @@ def show_auto_page() -> None:
                 narabi_ranges=narabi_ranges if narabi_ok else None,
                 recommended_machines=_rec_names,
                 suebangai_tails=_sue_tails_run,
+                sonota_exclude={m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()},
             )
 
             # ── ④ 末尾・ジャグラー末尾の保存（プレビュー済みはチェック済みのみ、未生成はオンザフライ）──
@@ -5365,7 +5469,10 @@ def show_auto_page() -> None:
                 diff_pipe = result.get("diff_raw")
                 if df_pipe is not None and diff_pipe is not None:
                     zen_dai_names    = {item["name"] for item in result.get("zen_dai_list", [])}
-                    high_ratio_names = {item["name"] for item in result.get("high_ratio_list", [])}
+                    high_ratio_names = {item["name"] for item in result.get("high_ratio_list", []) if item.get("has_image", True)}
+                    if kojin_enabled:
+                        zen_dai_names    |= {m.strip() for m in kojin_zentai_machines if m.strip()}
+                        high_ratio_names |= {m.strip() for m in kojin_yushu_machines if m.strip()}
                     _scfg = get_store_config(store)
                     _juggler_cfg = {
                         "series":     _scfg["juggler_series"],
@@ -5440,13 +5547,9 @@ def show_auto_page() -> None:
                             _log(f"  個別(優秀台)「{_km}」: 該当台なし")
                             continue
                         _kdr_all  = diff_k.loc[_kgrp_all.index]
-                        _kmask    = _kdr_all > 0
-                        _kgrp_p   = _kgrp_all[_kmask.values].copy()
-                        _rb_thresh_kg = get_store_config(store)["rb_threshold_machines"]
-                        if _km in _rb_thresh_kg and "ゲーム数_rounded" in _kgrp_p.columns:
-                            _kgrp_p = _kgrp_p[_kgrp_p["ゲーム数_rounded"] >= 2000]
+                        _kgrp_p   = _kojin_yushu_filter(_km, _kgrp_all, _kdr_all, get_store_config(store))
                         if _kgrp_p.empty:
-                            _log(f"  個別(優秀台)「{_km}」: プラス台なし（G数不足含む）")
+                            _log(f"  個別(優秀台)「{_km}」: 条件を満たす台なし")
                             continue
                         _kdr_p    = _kdr_all.loc[_kgrp_p.index]
                         _kgrp_p   = _kgrp_p.reset_index(drop=True)
@@ -6176,11 +6279,7 @@ def show_auto_article_page() -> None:
                                     _kga = _apdf[_apdf["機種名"] == _km]
                                     if _kga.empty: continue
                                     _kda = _apdi.loc[_kga.index]
-                                    _kgp = _kga[(_kda > 0).values].copy()
-                                    _rbt = get_store_config(store)["rb_threshold_machines"]
-                                    if _km in _rbt and "ゲーム数_rounded" in _kgp.columns:
-                                        _kgp = _kgp[_kgp["ゲーム数_rounded"] >= 2000]
-                                    _kgp = _kgp.reset_index(drop=True)
+                                    _kgp = _kojin_yushu_filter(_km, _kga, _kda, get_store_config(store)).reset_index(drop=True)
                                     if _kgp.empty: continue
                                     _ahitems.append((int(round(_kda.mean())), "kojin", (_km, _kgp)))
                             for _av, _tp, _da in sorted(_ahitems, key=lambda x: x[0], reverse=True):
@@ -6517,13 +6616,9 @@ def show_auto_article_page() -> None:
                             _log(f"  個別(優秀台)「{_km}」: 該当台なし")
                             continue
                         _kdr_all  = diff_k.loc[_kgrp_all.index]
-                        _kmask    = _kdr_all > 0
-                        _kgrp_p   = _kgrp_all[_kmask.values].copy()
-                        _rb_thresh_kg2 = get_store_config(store)["rb_threshold_machines"]
-                        if _km in _rb_thresh_kg2 and "ゲーム数_rounded" in _kgrp_p.columns:
-                            _kgrp_p = _kgrp_p[_kgrp_p["ゲーム数_rounded"] >= 2000]
+                        _kgrp_p   = _kojin_yushu_filter(_km, _kgrp_all, _kdr_all, get_store_config(store))
                         if _kgrp_p.empty:
-                            _log(f"  個別(優秀台)「{_km}」: プラス台なし（G数不足含む）")
+                            _log(f"  個別(優秀台)「{_km}」: 条件を満たす台なし")
                             continue
                         _kdr_p2   = _kdr_all.loc[_kgrp_p.index]
                         _kgrp_p   = _kgrp_p.reset_index(drop=True)

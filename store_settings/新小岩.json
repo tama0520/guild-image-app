@@ -47,12 +47,12 @@
     "チバリヨ2",
     ""
   ],
-  "recommended_title_5": "最新機種の優秀台",
+  "recommended_title_5": "",
   "recommended_machines_5": [
-    "バイオRE:3",
-    "リオエース2",
-    "ビッグドリーム",
-    "タクトオーパス",
+    "",
+    "",
+    "",
+    "",
     "",
     "",
     "",
@@ -76,6 +76,6 @@
   "recommended_filter_2": "+1,000枚以上",
   "recommended_filter_3": "プラス台",
   "recommended_filter_4": "+1,000枚以上",
-  "recommended_filter_5": "+1,000枚以上",
+  "recommended_filter_5": "プラス台",
   "recommended_filter_6": "プラス台"
 }

@@ -3996,7 +3996,7 @@ def show_auto_page() -> None:
                                           on_change=_save_auto_inputs, args=(store,))
             _sue_tails_ui = [t.strip() for t in [_sue_ti1, _sue_ti2, _sue_ti3] if t.strip()]
             if _sue_tails_ui:
-                _sue_mode = st.radio("モード", ["全台", "優秀台"], key="suebangai_mode",
+                _sue_mode = st.radio("モード", ["全台", "優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"], key="suebangai_mode",
                                      horizontal=True, on_change=_save_auto_inputs, args=(store,))
                 _sue_prev_key    = f"sue_preview_{store}"
                 _sue_prev_rt_key = f"sue_prev_tails_{store}"
@@ -4035,13 +4035,21 @@ def show_auto_page() -> None:
                                         if _filtered.empty:
                                             st.error(f"❌ {_base_label} の台が見つかりません。")
                                             continue
-                                        if _sue_mode == "優秀台":
+                                        if _sue_mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"):
                                             _filtered = _filtered[_filtered["差枚"] > 0].copy()
                                             if _filtered.empty:
                                                 st.error(f"❌ {_base_label}でプラスの台がありません。")
                                                 continue
                                             _img_title = f"{_base_label}の優秀台"
-                                            _stat = None
+                                            if _sue_mode == "優秀台（ピンクバー付き）":
+                                                _stat = {
+                                                    "total_diff":  int(_filtered["差枚"].sum()),
+                                                    "avg_diff":    int(round(_filtered["差枚"].mean())),
+                                                    "win_count":   int((_filtered["差枚"] > 0).sum()),
+                                                    "total_count": len(_filtered),
+                                                }
+                                            else:
+                                                _stat = None
                                         else:
                                             _img_title = _base_label
                                             _stat = {
@@ -4098,7 +4106,7 @@ def show_auto_page() -> None:
                                           on_change=_save_auto_inputs, args=(store,))
                 _jug_tails_ui = [t.strip() for t in [_jt1, _jt2, _jt3] if t.strip()]
                 if _jug_tails_ui:
-                    _jug_sue_mode = st.radio("モード（ジャグラー）", ["全台", "優秀台"], key="jug_sue_mode",
+                    _jug_sue_mode = st.radio("モード（ジャグラー）", ["全台", "優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"], key="jug_sue_mode",
                                              horizontal=True, on_change=_save_auto_inputs, args=(store,))
                     _jsue_prev_key    = f"jug_sue_preview_{store}"
                     _jsue_prev_rt_key = f"jug_sue_prev_tails_{store}"
@@ -4150,7 +4158,7 @@ def show_auto_page() -> None:
                                             if _jfilt.empty:
                                                 st.error(f"❌ {_jbase_label}番台でジャグラー機種が見つかりません。")
                                                 continue
-                                            if _jug_sue_mode == "優秀台":
+                                            if _jug_sue_mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"):
                                                 # 優秀台: 確率フィルター + 差枚 > 0
                                                 if not _jfilt.empty:
                                                     _p_ser = _jfilt["機種名"].map(
@@ -4164,7 +4172,15 @@ def show_auto_page() -> None:
                                                     st.error(f"❌ {_jbase_label}番台のジャグラー優秀台がありません。")
                                                     continue
                                                 _jimg_title = f"ジャグラーの末尾{_jcircle}番台の優秀台"
-                                                _jstat = None
+                                                if _jug_sue_mode == "優秀台（ピンクバー付き）":
+                                                    _jstat = {
+                                                        "total_diff":  int(_jfilt["差枚"].sum()),
+                                                        "avg_diff":    int(round(_jfilt["差枚"].mean())),
+                                                        "win_count":   int((_jfilt["差枚"] > 0).sum()),
+                                                        "total_count": len(_jfilt),
+                                                    }
+                                                else:
+                                                    _jstat = None
                                             else:
                                                 # 全台: G数フィルターのみ（確率・差枚条件なし）
                                                 _jimg_title = f"ジャグラーの末尾{_jcircle}番台"
@@ -4629,7 +4645,7 @@ def show_auto_page() -> None:
                                             _filt = _filt[_filt["ゲーム数_rounded"] >= _jug_g_min_of].copy()
                                             if _filt.empty:
                                                 continue
-                                            if mode == "優秀台":
+                                            if mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"):
                                                 # 優秀台: 確率フィルター + 差枚 > 0
                                                 if not _filt.empty:
                                                     _ps = _filt["機種名"].map(
@@ -4642,7 +4658,7 @@ def show_auto_page() -> None:
                                                 if _filt.empty:
                                                     continue
                                                 _title = f"ジャグラーの{_lbl_base}番台の優秀台"
-                                                _stat_of = None
+                                                _stat_of = {"total_diff": int(_filt["差枚"].sum()), "avg_diff": int(round(_filt["差枚"].mean())), "win_count": int((_filt["差枚"] > 0).sum()), "total_count": len(_filt)} if mode == "優秀台（ピンクバー付き）" else None
                                             else:
                                                 # 全台: G数フィルターのみ（確率・差枚条件なし）
                                                 _title = f"ジャグラーの{_lbl_base}番台"
@@ -4651,12 +4667,12 @@ def show_auto_page() -> None:
                                                             "win_count": int((_filt["差枚"] > 0).sum()),
                                                             "total_count": len(_filt)}
                                         else:
-                                            if mode == "優秀台":
+                                            if mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"):
                                                 _filt = _filt[_filt["差枚"] > 0].copy()
                                                 if _filt.empty:
                                                     continue
                                                 _title = f"{_lbl_base}の優秀台"
-                                                _stat_of = None
+                                                _stat_of = {"total_diff": int(_filt["差枚"].sum()), "avg_diff": int(round(_filt["差枚"].mean())), "win_count": int((_filt["差枚"] > 0).sum()), "total_count": len(_filt)} if mode == "優秀台（ピンクバー付き）" else None
                                             else:
                                                 _title = _lbl_base
                                                 _stat_of = {"total_diff": int(_filt["差枚"].sum()),
@@ -5229,7 +5245,7 @@ def show_auto_page() -> None:
                         _filt = _filt[_filt["ゲーム数_rounded"] >= _jug_g_min].copy()
                         if _filt.empty:
                             continue
-                        if mode == "優秀台":
+                        if mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"):
                             # 優秀台: 確率フィルター + 差枚 > 0
                             if not _filt.empty:
                                 _ps = _filt["機種名"].map(lambda m: _jug_thresh.get(m, (float("inf"), float("inf")))[0])
@@ -5240,7 +5256,7 @@ def show_auto_page() -> None:
                             if _filt.empty:
                                 continue
                             _title = f"ジャグラーの{_lbl}番台の優秀台"
-                            _stat = None
+                            _stat = {"total_diff": int(_filt["差枚"].sum()), "avg_diff": int(round(_filt["差枚"].mean())), "win_count": int((_filt["差枚"] > 0).sum()), "total_count": len(_filt)} if mode == "優秀台（ピンクバー付き）" else None
                         else:
                             # 全台: G数フィルターのみ（確率・差枚条件なし）
                             _title = f"ジャグラーの{_lbl}番台"
@@ -5249,12 +5265,12 @@ def show_auto_page() -> None:
                                      "win_count": int((_filt["差枚"] > 0).sum()),
                                      "total_count": len(_filt)}
                     else:
-                        if mode == "優秀台":
+                        if mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"):
                             _filt = _filt[_filt["差枚"] > 0].copy()
                             if _filt.empty:
                                 continue
                             _title = f"{_lbl}の優秀台"
-                            _stat = None
+                            _stat = {"total_diff": int(_filt["差枚"].sum()), "avg_diff": int(round(_filt["差枚"].mean())), "win_count": int((_filt["差枚"] > 0).sum()), "total_count": len(_filt)} if mode == "優秀台（ピンクバー付き）" else None
                         else:
                             _title = _lbl
                             _stat = {"total_diff": int(_filt["差枚"].sum()),

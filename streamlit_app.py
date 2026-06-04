@@ -7518,24 +7518,30 @@ def _weekly_table_html_image(
     from PIL import ImageFont as _IFont
     import io as _io
 
-    # フォントパス
-    _fp = os.path.join(_FONTS_DIR, "MochiyPopOne-Regular.ttf")
-    if not os.path.exists(_fp):
-        _fp = r"C:\Users\23-3\AppData\Local\Microsoft\Windows\Fonts\MochiyPopOne-Regular.ttf"
+    # フォントパス（MochiyPopOne + NotoSansJP フォールバック）
+    _fp_m = os.path.join(_FONTS_DIR, "MochiyPopOne-Regular.ttf")
+    _fp_n = os.path.join(_FONTS_DIR, "NotoSansJP-Regular.ttf")
+    if not os.path.exists(_fp_m):
+        _fp_m = r"C:\Users\23-3\AppData\Local\Microsoft\Windows\Fonts\MochiyPopOne-Regular.ttf"
 
-    def _lf(sz):
-        try:
-            return _IFont.truetype(_fp, sz)
-        except Exception:
-            return _IFont.load_default()
+    def _lf_m(sz):
+        try:    return _IFont.truetype(_fp_m, sz)
+        except: return _IFont.load_default()
+
+    def _lf_n(sz):
+        if os.path.exists(_fp_n):
+            try:    return _IFont.truetype(_fp_n, sz)
+            except: pass
+        return _lf_m(sz)
 
     # レイアウト定数（CSS px × deviceScaleFactor=2 の物理ピクセル）
-    SC   = 2
-    _TH  = 44 * SC    # タイトルバー高さ (88px)
-    _HH  = 38 * SC    # ヘッダー行高さ  (76px)
-    _RH  = 40 * SC    # 機種スロット1つの高さ (80px)
-    _IW  = 190 * SC   # アイテム列幅   (380px)
-    _DW  = 130 * SC   # 日付列幅       (260px)
+    SC          = 2
+    _TH         = 44 * SC    # タイトルバー高さ (88px)
+    _HH         = 38 * SC    # ヘッダー行高さ  (76px)
+    _RH         = 40 * SC    # 機種スロット1つの高さ (80px)
+    _IW_MIN     = 190 * SC   # アイテム列最小幅 (380px)
+    _DW         = 130 * SC   # 日付列幅       (260px)
+    _ITEM_PAD_X = 12 * SC    # アイテム列左右パディング
 
     # フォントサイズ（CSS px × SC）
     _TITLE_SZ   = 22 * SC   # 44px
@@ -7546,19 +7552,47 @@ def _weekly_table_html_image(
     # 色
     C_TITLE_BG = (0, 0, 0)
     C_TITLE_FG = (255, 255, 255)
-    C_HDR_BG   = (208, 208, 208)   # #D0D0D0
-    C_ITEM_BG  = (247, 235, 203)   # #F7EBCB
-    C_CELL_YEL = (255, 255, 0)     # #FFFF00
+    C_HDR_BG   = (208, 208, 208)
+    C_ITEM_BG  = (247, 235, 203)
+    C_CELL_YEL = (255, 255, 0)
     C_CELL_WHT = (255, 255, 255)
     C_BORDER   = (0, 0, 0)
 
-    f_title   = _lf(_TITLE_SZ)
-    f_hdr     = _lf(_HDR_SZ)
-    f_item    = _lf(_ITEM_SZ)
-    f_machine = _lf(_MACHINE_SZ)
+    f_title   = _lf_m(_TITLE_SZ)
+    f_hdr     = _lf_m(_HDR_SZ)
+    f_item    = _lf_m(_ITEM_SZ)     # MochiyPopOne（アイテム本体）
+    f_item_fb = _lf_n(_ITEM_SZ)     # NotoSansJP（◎等の記号フォールバック）
+    f_machine = _lf_m(_MACHINE_SZ)
+
+    # ◎○等 MochiyPopOneで文字化けする記号 → NotoSansJPで描画
+    _SYM_CHARS = set("◎○●◯△▲▽▼□■◇◆★☆")
+
+    def _item_font_for(char):
+        return f_item_fb if char in _SYM_CHARS else f_item
 
     active = [(i, it) for i, it in enumerate(items) if it.strip()]
     n_days = len(date_labels)
+
+    # ── アイテム列幅を実テキスト幅から動的決定 ──────────────────────
+    _tmp_img  = Image.new("RGB", (10, 10))
+    _tmp_draw = ImageDraw.Draw(_tmp_img)
+
+    def _item_tw(text):
+        """アイテムテキストの実幅（文字ごとフォント切り替え）"""
+        total = 0
+        for ch in text:
+            fn = _item_font_for(ch)
+            try:
+                bb = _tmp_draw.textbbox((0, 0), ch, font=fn)
+                total += bb[2] - bb[0]
+            except Exception:
+                total += _ITEM_SZ // 2
+        return total
+
+    _IW = _IW_MIN
+    for _, item in active:
+        for ln in [l.strip() for l in item.split("\n") if l.strip()]:
+            _IW = max(_IW, _item_tw(ln) + 2 * _ITEM_PAD_X)
 
     # 行ごとの最大機種数 → 行高さ決定
     _row_max = []
@@ -7593,6 +7627,31 @@ def _weekly_table_html_image(
         ty = y + (h - th) // 2 - bb[1]
         draw.text((tx, ty), text, fill=fg, font=font)
 
+    def _item_centered(text, x, y, w, h):
+        """アイテムテキストを中央揃え（◎等は文字ごとにフォント切り替え）"""
+        # 文字ごとに幅・フォントを収集
+        chars = []
+        total_tw = 0
+        max_th   = 0
+        for ch in text:
+            fn = _item_font_for(ch)
+            try:
+                bb = draw.textbbox((0, 0), ch, font=fn)
+                cw = bb[2] - bb[0]
+                ch_h = bb[3] - bb[1]
+            except Exception:
+                bb = (0, 0, _ITEM_SZ // 2, _ITEM_SZ)
+                cw, ch_h = _ITEM_SZ // 2, _ITEM_SZ
+            chars.append((ch, fn, bb, cw))
+            total_tw += cw
+            max_th = max(max_th, ch_h)
+        # 開始座標（センタリング）
+        cx = x + (w - total_tw) // 2
+        ty = y + (h - max_th) // 2
+        for ch, fn, bb, cw in chars:
+            draw.text((cx - bb[0], ty - bb[1]), ch, fill=(0, 0, 0), font=fn)
+            cx += cw
+
     # ── タイトルバー ──
     _fill_rect(0, 0, _TW, _TH, C_TITLE_BG)
     _centered(title, 0, 0, _TW, _TH, f_title, C_TITLE_FG)
@@ -7616,15 +7675,15 @@ def _weekly_table_html_image(
     for ri, (i, item) in enumerate(active):
         row_h = _row_max[ri] * _RH
 
-        # アイテム列
+        # アイテム列（◎等を含む混在テキスト対応）
         _fill_rect(0, _y, _IW, row_h, C_ITEM_BG)
         item_lines = [l.strip() for l in item.split("\n") if l.strip()]
         if len(item_lines) == 1:
-            _centered(item.strip(), 0, _y, _IW, row_h, f_item)
+            _item_centered(item.strip(), 0, _y, _IW, row_h)
         else:
             lh = row_h // len(item_lines)
             for li, ln in enumerate(item_lines):
-                _centered(ln, 0, _y + li * lh, _IW, lh, f_item)
+                _item_centered(ln, 0, _y + li * lh, _IW, lh)
 
         # 日付列
         for j in range(n_days):
@@ -7640,8 +7699,8 @@ def _weekly_table_html_image(
                     if mi > 0:
                         draw.line([(xj, sy), (xj + _DW - 1, sy)], fill=C_BORDER, width=1)
                     if m.startswith(_SP):
-                        _centered(_SP,        xj, sy,          _DW, sh // 2,      f_machine)
-                        _centered(m[len(_SP):], xj, sy + sh // 2, _DW, sh - sh // 2, f_machine)
+                        _centered(_SP,          xj, sy,           _DW, sh // 2,       f_machine)
+                        _centered(m[len(_SP):], xj, sy + sh // 2, _DW, sh - sh // 2,  f_machine)
                     else:
                         _centered(m, xj, sy, _DW, sh, f_machine)
             else:

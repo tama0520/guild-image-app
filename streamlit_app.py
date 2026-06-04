@@ -82,6 +82,19 @@ STORE_EMOJI_CONFIG: dict[str, tuple[str, str]] = {
     "新小岩":     ("✨", "🍀"),
     "溝の口新館": ("📢", "🎁"),
     "西武新宿":   ("✨", "👑"),
+    "赤坂見附":   ("🔥", "👑"),
+}
+
+# 店舗ごとの結果テキスト後処理置換リスト {store: [(旧, 新), ...]}
+# generate_report_text 後にこの順で str.replace を適用する
+STORE_RESULT_TRANSFORMS: dict[str, list[tuple[str, str]]] = {
+    "赤坂見附": [
+        ("👑高配分機種",    "👑高配分以上機種👑"),
+        ("👑並び仕掛け",    "👑並び👑"),
+        ("👑全台系濃厚機種", "👑全台系濃厚機種👑"),
+        ("👑その他の優秀台", "👑その他の優秀台👑"),
+        ("→", "➡"),
+    ],
 }
 
 # ローテ結果テキストの絵文字設定 {store: (機種名囲み絵文字, 枚数ティア絵文字)}
@@ -5948,6 +5961,8 @@ def show_auto_page() -> None:
                 else:
                     st.warning("⚠️ df/diff_raw が result に含まれていません")
             # 結果.txt をフォルダに保存
+            for _old, _new in STORE_RESULT_TRANSFORMS.get(store, []):
+                report_text = report_text.replace(_old, _new)
             _date = result.get("date")
             if _date:
                 _txt_name = f"{_date.month:02d}{_date.day:02d}_結果.txt"
@@ -6950,6 +6965,8 @@ def show_auto_article_page() -> None:
                 diff_raw=result.get("diff_raw"),
                 df=result.get("df"),
             )
+            for _old, _new in STORE_RESULT_TRANSFORMS.get(store, []):
+                report_text = report_text.replace(_old, _new)
             _date = result.get("date")
             if _date:
                 _txt_name = f"{_date.month:02d}{_date.day:02d}_結果.txt"

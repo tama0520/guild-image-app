@@ -1148,5 +1148,31 @@
     "kojin_narabi_title_新小岩": "",
     "kojin_narabi2_range_新小岩": "",
     "kojin_narabi2_title_新小岩": ""
+  },
+  "20260531_エスパス赤坂見附_20S.xlsx": {
+    "kojin_enabled": false,
+    "narabi_enabled": true,
+    "narabi_ranges_input": "2059-2062　モンキーターン\n2072-2074　バラエティ\n2227-2229　ネオアイムジャグラー\n2253-2256　ネオアイム・ファンキージャグラー",
+    "suebangai_enabled": false,
+    "suebangai_tail_input_1": "",
+    "suebangai_tail_input_2": "",
+    "suebangai_tail_input_3": "",
+    "suebangai_mode": "",
+    "kojin_z_0_赤坂見附": "",
+    "kojin_y_0_赤坂見附": "",
+    "kojin_z_1_赤坂見附": "",
+    "kojin_y_1_赤坂見附": "",
+    "kojin_z_2_赤坂見附": "",
+    "kojin_y_2_赤坂見附": "",
+    "kojin_z_3_赤坂見附": "",
+    "kojin_y_3_赤坂見附": "",
+    "kojin_z_4_赤坂見附": "",
+    "kojin_y_4_赤坂見附": "",
+    "kojin_z_5_赤坂見附": "",
+    "kojin_y_5_赤坂見附": "",
+    "kojin_narabi_range_赤坂見附": "",
+    "kojin_narabi_title_赤坂見附": "",
+    "kojin_narabi2_range_赤坂見附": "",
+    "kojin_narabi2_title_赤坂見附": ""
   }
 }

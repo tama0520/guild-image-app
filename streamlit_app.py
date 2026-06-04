@@ -122,6 +122,11 @@ STORE_REC_CONFIG: dict[str, dict] = {
         "section_emoji": "🍀",
         "block_emojis":  ["🎖️", "💥", "🤡", "🌺", "🎖️", "🎖️"],
         "item_emoji":    "🚩",
+        # ブロックインデックス→カッコ内に表示する短縮名リスト（指定なしは「の優秀台」形式）
+        "block_header_names": {
+            0: ["スマスロ北斗", "北斗転生2", "東京喰種", "ヴヴヴ2", "かぐや様"],
+            1: ["カバネリ海門", "モンキーV", "マギレコ", "炎炎2"],
+        },
     },
 }
 
@@ -2634,11 +2639,15 @@ def format_result_memo_sections(
 def insert_formatted_result_before_other_picks(
     result_text: str, formatted_text: str, store_name: str = ""
 ) -> str:
-    """formatted_text を「{e2}その他の優秀台」直前に挿入して返す。"""
+    """formatted_text を「{e2}その他の優秀台」直前に挿入して返す。
+    新小岩は「{e2}全台系濃厚機種」の前に挿入する。"""
     if not formatted_text.strip():
         return result_text
     e2 = STORE_EMOJI_CONFIG.get(store_name, ("💫", "👑"))[1]
-    marker = f"{e2}その他の優秀台"
+    if store_name == "新小岩":
+        marker = f"{e2}全台系濃厚機種"
+    else:
+        marker = f"{e2}その他の優秀台"
     idx = result_text.find(marker)
     if idx == -1:
         return result_text + "\n\n" + formatted_text
@@ -2694,7 +2703,12 @@ def generate_recommended_result_text(
         if not machine_parts:
             continue
         clean_title = title[:-len("の優秀台")] if title.endswith("の優秀台") else title
-        sections.append(f"{_sec_emoji}{clean_title}の優秀台\n" + "\n\n".join(machine_parts))
+        _block_header_names = _rec_cfg.get("block_header_names", {})
+        if i in _block_header_names:
+            header_line = f"{_sec_emoji}{clean_title}({'・'.join(_block_header_names[i])})"
+        else:
+            header_line = f"{_sec_emoji}{clean_title}の優秀台"
+        sections.append(header_line + "\n" + "\n\n".join(machine_parts))
 
     return "\n\n".join(sections)
 
@@ -3304,6 +3318,7 @@ def parse_ranges(text: str) -> list[list[int]]:
         # テーブル行でない行（"440-441+511" など）を範囲形式でパース
         for part in re.split(r"[,、\s　]+", " ".join(non_table_parts)):
             part = part.strip().lstrip("・")
+            part = re.sub(r"[番号台]+$", "", part)  # 末尾の「番」「号」「台」を除去
             if not part:
                 continue
             m2 = re.match(r"(\d+)\s*[-~～]\s*(\d+)$", part)
@@ -3331,6 +3346,7 @@ def parse_ranges(text: str) -> list[list[int]]:
     result = []
     for part in re.split(r"[,、\s　]+", text):
         part = part.strip().lstrip("・")
+        part = re.sub(r"[番号台]+$", "", part)  # 末尾の「番」「号」「台」を除去
         if not part:
             continue
         m = re.match(r"(\d+)\s*[-~～]\s*(\d+)$", part)

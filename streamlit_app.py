@@ -1795,13 +1795,14 @@ def _save_jpeg(img: Image.Image, path: str, target_kb: int = 250) -> None:
 
 
 def _make_zip_bytes(dir_path: str) -> bytes:
-    """dir_path 直下のファイル（サブフォルダは除く）をZIP化してbytesで返す。"""
+    """dir_path 以下のファイルをすべてZIP化してbytesで返す（サブフォルダ含む）。"""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for fname in sorted(os.listdir(dir_path)):
-            fpath = os.path.join(dir_path, fname)
-            if os.path.isfile(fpath):
-                zf.write(fpath, fname)
+        for root, _dirs, files in os.walk(dir_path):
+            for fname in sorted(files):
+                fpath = os.path.join(root, fname)
+                arcname = os.path.relpath(fpath, dir_path)
+                zf.write(fpath, arcname)
     return buf.getvalue()
 
 

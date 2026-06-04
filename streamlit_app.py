@@ -7821,18 +7821,32 @@ def _draw_weekly_table_image(
     d   = ImageDraw.Draw(img)
 
     def _draw_mixed(text: str, cx: int, cell_y: int, cell_h: int, size: int, fg: str, sym_stroke: int = 0) -> None:
-        """1文字ずつフォントを切り替え、各文字をセル内で独立して縦中央揃えして描画する。"""
+        """1文字ずつフォントを切り替え、全文字共通のy_origin（ベースライン）で縦中央揃えして描画する。
+        文字ごとにbb[1]で補正すると、、や◎などbb[1]が異なる文字でベースラインがズレるため、
+        全文字のbb[1]/bb[3]を先に収集して共通y_originを算出する。"""
+        if not text:
+            return
+        # 1st pass: 全文字のbb・幅を収集しテキスト全体の高さを計算
+        chars_info = []
+        min_bb1, max_bb3 = 0, 0
         for c in text:
             f  = _char_font(c, size)
             bb = d.textbbox((0, 0), c, font=f)
-            th = bb[3] - bb[1]
             tw = bb[2] - bb[0]
-            char_ty = cell_y + (cell_h - th) // 2 - bb[1]
+            chars_info.append((c, f, bb, tw))
+            min_bb1 = min(min_bb1, bb[1])
+            max_bb3 = max(max_bb3, bb[3])
+        # 全体の高さでセル内垂直中央のy_origin（PILのdraw.text y引数）を算出
+        text_h   = max_bb3 - min_bb1
+        text_top = cell_y + (cell_h - text_h) // 2
+        y_origin = text_top - min_bb1
+        # 2nd pass: 全文字を共通y_originで描画
+        for c, f, bb, tw in chars_info:
             if sym_stroke > 0 and c in _SYM_CHARS:
-                d.text((cx - bb[0], char_ty), c, fill=fg, font=f,
+                d.text((cx - bb[0], y_origin), c, fill=fg, font=f,
                        stroke_width=sym_stroke, stroke_fill=fg)
             else:
-                d.text((cx - bb[0], char_ty), c, fill=fg, font=f)
+                d.text((cx - bb[0], y_origin), c, fill=fg, font=f)
             cx += tw
 
     def _cell(x, y, w, h, bg, text="", fg=C_BK, size=None, sym_stroke: int = 0):

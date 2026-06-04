@@ -3407,6 +3407,14 @@ def _patch_and_run_narabi(
             code, flags=re.MULTILINE,
         )
 
+    # 機種名変換.xlsxのパスをBASE_DIRベースに書き換え（Cloud対応）
+    _name_map_path = os.path.join(BASE_DIR, "機種名変換.xlsx").replace("\\", "/")
+    code = re.sub(
+        r'r?"[^"]*機種名変換\.xlsx"',
+        f'r"{_name_map_path}"',
+        code,
+    )
+
     ranges_str = repr(ranges)
     m_ranges = re.search(r'^RANGES\s*=\s*', code, re.MULTILINE)
     if m_ranges:

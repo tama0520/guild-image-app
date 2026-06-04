@@ -7628,28 +7628,37 @@ def _weekly_table_html_image(
         draw.text((tx, ty), text, fill=fg, font=font)
 
     def _item_centered(text, x, y, w, h):
-        """アイテムテキストを中央揃え（◎等は文字ごとにフォント切り替え）"""
-        # 文字ごとに幅・フォントを収集
-        chars = []
+        """アイテムテキストを中央揃え（◎等は文字ごとにフォント切り替え）
+        全文字で共通の y_origin（PILのdraw.textに渡すy）を使うことで
+        文字ごとのbb[1]差による垂直ズレ（、が上に飛ぶ等）を防ぐ。
+        """
+        chars   = []
         total_tw = 0
-        max_th   = 0
+        min_bb1  = 0    # テキスト全体の最上部（ascender）
+        max_bb3  = 0    # テキスト全体の最下部（descender）
+
         for ch in text:
             fn = _item_font_for(ch)
             try:
                 bb = draw.textbbox((0, 0), ch, font=fn)
-                cw = bb[2] - bb[0]
-                ch_h = bb[3] - bb[1]
             except Exception:
                 bb = (0, 0, _ITEM_SZ // 2, _ITEM_SZ)
-                cw, ch_h = _ITEM_SZ // 2, _ITEM_SZ
+            cw = bb[2] - bb[0]
             chars.append((ch, fn, bb, cw))
             total_tw += cw
-            max_th = max(max_th, ch_h)
-        # 開始座標（センタリング）
+            min_bb1 = min(min_bb1, bb[1])
+            max_bb3 = max(max_bb3, bb[3])
+
+        text_h  = max_bb3 - min_bb1               # 文字列の実高さ
+        text_top = y + (h - text_h) // 2          # セル内垂直中央の上端
+        # PILの draw.text y は「テキスト原点（カーソルy）」
+        # text_top = y_origin + min_bb1  →  y_origin = text_top - min_bb1
+        y_origin = text_top - min_bb1
+
         cx = x + (w - total_tw) // 2
-        ty = y + (h - max_th) // 2
         for ch, fn, bb, cw in chars:
-            draw.text((cx - bb[0], ty - bb[1]), ch, fill=(0, 0, 0), font=fn)
+            # x方向のみbb[0]補正。y方向は全文字共通のy_originを使う
+            draw.text((cx - bb[0], y_origin), ch, fill=(0, 0, 0), font=fn)
             cx += cw
 
     # ── タイトルバー ──

@@ -20,6 +20,7 @@ import os
 import platform
 import re
 import subprocess
+import sys
 import tempfile
 import traceback
 import unicodedata
@@ -3429,7 +3430,7 @@ def _patch_and_run_narabi(
 
     try:
         result = subprocess.run(
-            ["py", "-3.14", tmp_path],
+            [sys.executable, tmp_path],
             capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=BASE_DIR,
         )
         return result.returncode == 0, result.stdout, result.stderr

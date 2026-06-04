@@ -3431,10 +3431,10 @@ def _patch_and_run_narabi(
                     break
         code = code[:m_ranges.start()] + f'RANGES = {ranges_str}\n' + code[end_pos:].lstrip('\n')
 
-    # Cloud環境ではPlaywright不可のためmatplotlibバックエンドに切り替え
+    # Cloud環境ではPlaywright不可のためシステムChromium(selenium)に切り替え
     if _IS_CLOUD:
-        code = code.replace('table_conversion="playwright"', 'table_conversion="matplotlib"')
-        code = code.replace("table_conversion='playwright'", "table_conversion='matplotlib'")
+        code = code.replace('table_conversion="playwright"', 'table_conversion="chrome"')
+        code = code.replace("table_conversion='playwright'", "table_conversion='chrome'")
 
     with tempfile.NamedTemporaryFile(
         suffix=".py", mode="w", encoding="utf-8", delete=False, dir=BASE_DIR

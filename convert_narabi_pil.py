@@ -167,8 +167,9 @@ dup_titles = {t for t, c in title_counts.items() if c > 1}
 SCALE         = 150 / 96            # ≈ 1.5625
 FONT_SIZE_TBL = round(14 * SCALE)   # 22px  表本体
 PAD_X         = round(8  * SCALE)   # 13px  左右パディング
-PAD_Y         = round(4  * SCALE)   # 6px   上下パディング
-ROW_H_TBL     = FONT_SIZE_TBL + 2 * PAD_Y  # 34px  行高
+# 他画像（全台系・高配分・ジャグラー優秀台）の ROW_H=28 CSS px と統一
+ROW_H_TBL     = round(28 * SCALE)   # 44px  行高（28 CSS px × 1.5625）
+PAD_Y         = (ROW_H_TBL - FONT_SIZE_TBL) // 2  # 11px  上下パディング
 
 HEADER_BG  = (243, 230, 200)   # #f3e6c8
 HEADER_FG  = (75,  0,   130)   # #4B0082

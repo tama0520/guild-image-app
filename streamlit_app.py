@@ -3398,6 +3398,8 @@ def _patch_and_run_narabi(
     script_path: str, input_path: str, split_dir: str, ranges: list
 ) -> tuple[bool, str, str]:
     """並びスクリプト専用: INPUT/SPLIT_DIR/RANGES を書き換えて実行する"""
+    if _IS_CLOUD:
+        return False, "", "並び画像はローカル環境のみ対応です（Cloud上ではdataframe_imageのブラウザ依存により生成できません）"
     with open(script_path, encoding="utf-8") as f:
         code = f.read()
 

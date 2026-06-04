@@ -7513,41 +7513,49 @@ def _weekly_table_html_image(
     cell_machines,
     title: str = "週間オススメ",
 ) -> "Image.Image":
-    """週間オススメ表② (cell_machinesモード) を HTML+CSS+Playwright で生成する。
-    各列の機種数で均等割りする flex レイアウト。"""
-    from playwright.sync_api import sync_playwright
+    """週間オススメ表② (cell_machinesモード) を PIL ImageDraw で生成する。
+    Playwright不使用・Cloud/ローカル共通版。"""
+    from PIL import ImageFont as _IFont
     import io as _io
-    import html as _hm
-    import base64 as _b64
 
-    # CSS @font-face: fonts/ 同梱 → Windows ローカルの順で試みる
-    _FONT_PATHS_CSS = [
-        os.path.join(_FONTS_DIR, "MochiyPopOne-Regular.ttf"),
-        r"C:\Users\23-3\AppData\Local\Microsoft\Windows\Fonts\MochiyPopOne-Regular.ttf",
-    ]
-    _font_face = ""
-    for _FONT_PATH in _FONT_PATHS_CSS:
-        if os.path.exists(_FONT_PATH):
-            with open(_FONT_PATH, "rb") as _f:
-                _b64d = _b64.b64encode(_f.read()).decode("ascii")
-            _font_face = (
-                "@font-face{"
-                "font-family:'MochiyPopOne';"
-                f"src:url('data:font/truetype;base64,{_b64d}') format('truetype');"
-                "}"
-            )
-            break
-    _font_fam = "'MochiyPopOne','Meiryo','MS Gothic',sans-serif"
+    # フォントパス
+    _fp = os.path.join(_FONTS_DIR, "MochiyPopOne-Regular.ttf")
+    if not os.path.exists(_fp):
+        _fp = r"C:\Users\23-3\AppData\Local\Microsoft\Windows\Fonts\MochiyPopOne-Regular.ttf"
 
-    # レイアウト定数（CSS px / deviceScaleFactor=2 で物理2倍 ≒ PIL SC=2 相当）
-    _TH = 44    # title bar height
-    _HH = 38    # header row height
-    _RH = 40    # row height per machine slot
-    _IW = 190   # item (left) column width — \n区切り各行が折り返さない幅
-    _DW = 130   # day column width — 「ジャグラーガールズ」9文字を1行に収める幅
+    def _lf(sz):
+        try:
+            return _IFont.truetype(_fp, sz)
+        except Exception:
+            return _IFont.load_default()
 
-    def _e(s: str) -> str:
-        return _hm.escape(str(s))
+    # レイアウト定数（CSS px × deviceScaleFactor=2 の物理ピクセル）
+    SC   = 2
+    _TH  = 44 * SC    # タイトルバー高さ (88px)
+    _HH  = 38 * SC    # ヘッダー行高さ  (76px)
+    _RH  = 40 * SC    # 機種スロット1つの高さ (80px)
+    _IW  = 190 * SC   # アイテム列幅   (380px)
+    _DW  = 130 * SC   # 日付列幅       (260px)
+
+    # フォントサイズ（CSS px × SC）
+    _TITLE_SZ   = 22 * SC   # 44px
+    _HDR_SZ     = 12 * SC   # 24px
+    _ITEM_SZ    = 15 * SC   # 30px
+    _MACHINE_SZ = 10 * SC   # 20px
+
+    # 色
+    C_TITLE_BG = (0, 0, 0)
+    C_TITLE_FG = (255, 255, 255)
+    C_HDR_BG   = (208, 208, 208)   # #D0D0D0
+    C_ITEM_BG  = (247, 235, 203)   # #F7EBCB
+    C_CELL_YEL = (255, 255, 0)     # #FFFF00
+    C_CELL_WHT = (255, 255, 255)
+    C_BORDER   = (0, 0, 0)
+
+    f_title   = _lf(_TITLE_SZ)
+    f_hdr     = _lf(_HDR_SZ)
+    f_item    = _lf(_ITEM_SZ)
+    f_machine = _lf(_MACHINE_SZ)
 
     active = [(i, it) for i, it in enumerate(items) if it.strip()]
     n_days = len(date_labels)
@@ -7562,118 +7570,86 @@ def _weekly_table_html_image(
         )
         _row_max.append(max(1, _n))
 
-    _TW = _IW + _DW * n_days  # 表全体幅
+    _TW      = _IW + _DW * n_days
+    _total_h = _TH + _HH + sum(rm * _RH for rm in _row_max)
 
-    # ── ヘッダー行
-    _hdr = (
-        f'<th style="width:{_IW}px;height:{_HH}px;background:#D0D0D0;'
-        f'border:1px solid #000;"></th>'
-    )
-    for _dl in date_labels:
-        _hdr += (
-            f'<th style="width:{_DW}px;min-width:{_DW}px;height:{_HH}px;background:#D0D0D0;'
-            f'border:1px solid #000;text-align:center;font-size:12px;font-weight:normal;white-space:nowrap;">'
-            f'{_e(_dl)}</th>'
-        )
+    img  = Image.new("RGB", (_TW, _total_h), (255, 255, 255))
+    draw = ImageDraw.Draw(img)
 
-    # ── データ行
-    _tbody = ""
-    for _ri, (i, item) in enumerate(active):
-        _rh = _row_max[_ri] * _RH
-        _il = "<br>".join(_e(l) for l in item.split("\n") if l.strip())
-        _td0 = (
-            f'<td style="width:{_IW}px;height:{_rh}px;background:#F7EBCB;'
-            f'border:1px solid #000;text-align:center;vertical-align:middle;'
-            f'font-size:15px;padding:4px 6px;white-space:nowrap;">{_il}</td>'
-        )
-        _tds = ""
+    def _tsize(text, font):
+        try:
+            bb = draw.textbbox((0, 0), text, font=font)
+            return bb[2] - bb[0], bb[3] - bb[1], bb
+        except Exception:
+            sz = getattr(font, "size", 10)
+            return len(text) * sz // 2, sz, (0, 0, len(text) * sz // 2, sz)
+
+    def _fill_rect(x, y, w, h, fill):
+        draw.rectangle([x, y, x + w - 1, y + h - 1], fill=fill, outline=C_BORDER, width=1)
+
+    def _centered(text, x, y, w, h, font, fg=(0, 0, 0)):
+        tw, th, bb = _tsize(text, font)
+        tx = x + (w - tw) // 2 - bb[0]
+        ty = y + (h - th) // 2 - bb[1]
+        draw.text((tx, ty), text, fill=fg, font=font)
+
+    # ── タイトルバー ──
+    _fill_rect(0, 0, _TW, _TH, C_TITLE_BG)
+    _centered(title, 0, 0, _TW, _TH, f_title, C_TITLE_FG)
+
+    # ── ヘッダー行 ──
+    _fill_rect(0, _TH, _IW, _HH, C_HDR_BG)
+    for j, dl in enumerate(date_labels):
+        xj = _IW + j * _DW
+        _fill_rect(xj, _TH, _DW, _HH, C_HDR_BG)
+        lines = [l for l in dl.split("\n") if l]
+        if len(lines) <= 1:
+            _centered(dl, xj, _TH, _DW, _HH, f_hdr)
+        else:
+            lh = _HH // len(lines)
+            for li, ln in enumerate(lines):
+                _centered(ln, xj, _TH + li * lh, _DW, lh, f_hdr)
+
+    # ── データ行 ──
+    _y = _TH + _HH
+    _SP = "対象台が"
+    for ri, (i, item) in enumerate(active):
+        row_h = _row_max[ri] * _RH
+
+        # アイテム列
+        _fill_rect(0, _y, _IW, row_h, C_ITEM_BG)
+        item_lines = [l.strip() for l in item.split("\n") if l.strip()]
+        if len(item_lines) == 1:
+            _centered(item.strip(), 0, _y, _IW, row_h, f_item)
+        else:
+            lh = row_h // len(item_lines)
+            for li, ln in enumerate(item_lines):
+                _centered(ln, 0, _y + li * lh, _IW, lh, f_item)
+
+        # 日付列
         for j in range(n_days):
-            _ms = (cell_machines[i][j]
-                   if i < len(cell_machines) and j < len(cell_machines[i]) else [])
-            if _ms:
-                _divs = ""
-                for _mi, _m in enumerate(_ms):
-                    _bt = "border-top:none;" if _mi == 0 else "border-top:1px solid #000;"
-                    _SP = "対象台が"
-                    if _m.startswith(_SP):
-                        # flex-direction:column + 2 span で確実に上下中央揃え
-                        _divs += (
-                            f'<div style="flex:1;display:flex;flex-direction:column;'
-                            f'align-items:center;justify-content:center;'
-                            f'font-size:10px;{_bt}padding:2px 3px;">'
-                            f'<span style="line-height:1.4;white-space:nowrap;">{_e(_SP)}</span>'
-                            f'<span style="line-height:1.4;white-space:nowrap;">{_e(_m[len(_SP):])}</span>'
-                            f'</div>'
-                        )
+            ms = (cell_machines[i][j]
+                  if i < len(cell_machines) and j < len(cell_machines[i]) else [])
+            xj = _IW + j * _DW
+            if ms:
+                slot_h_base = row_h // len(ms)
+                for mi, m in enumerate(ms):
+                    sy = _y + mi * slot_h_base
+                    sh = slot_h_base if mi < len(ms) - 1 else row_h - mi * slot_h_base
+                    _fill_rect(xj, sy, _DW, sh, C_CELL_YEL)
+                    if mi > 0:
+                        draw.line([(xj, sy), (xj + _DW - 1, sy)], fill=C_BORDER, width=1)
+                    if m.startswith(_SP):
+                        _centered(_SP,        xj, sy,          _DW, sh // 2,      f_machine)
+                        _centered(m[len(_SP):], xj, sy + sh // 2, _DW, sh - sh // 2, f_machine)
                     else:
-                        _divs += (
-                            f'<div style="flex:1;display:flex;align-items:center;'
-                            f'justify-content:center;text-align:center;font-size:10px;'
-                            f'{_bt}padding:2px 3px;word-break:break-all;">'
-                            f'{_e(_m)}</div>'
-                        )
-                _inner = (
-                    f'<div style="display:flex;flex-direction:column;'
-                    f'width:100%;height:{_rh}px;">{_divs}</div>'
-                )
-                _bg = "#FFFF00"
+                        _centered(m, xj, sy, _DW, sh, f_machine)
             else:
-                _inner = ""
-                _bg    = "#FFFFFF"
-            _tds += (
-                f'<td style="width:{_DW}px;min-width:{_DW}px;height:{_rh}px;background:{_bg};'
-                f'border:1px solid #000;padding:0;vertical-align:top;">'
-                f'{_inner}</td>'
-            )
-        _tbody += f'<tr style="height:{_rh}px;">{_td0}{_tds}</tr>\n'
+                _fill_rect(xj, _y, _DW, row_h, C_CELL_WHT)
 
-    _total_h = _TH + _HH + sum(_row_max[_ri] * _RH for _ri in range(len(active)))
+        _y += row_h
 
-    _html = (
-        "<!DOCTYPE html><html><head><meta charset='utf-8'><style>"
-        f"{_font_face}"
-        f"*{{box-sizing:border-box;margin:0;padding:0;}}"
-        f"body{{font-family:{_font_fam};background:white;}}"
-        "</style></head><body>"
-        "<div id='wrap' style='display:inline-flex;flex-direction:column;border:0;'>"
-        f"<div style='background:#000;color:#fff;text-align:center;font-size:22px;"
-        f"height:{_TH}px;line-height:{_TH}px;'>"
-        f"{_e(title)}</div>"
-        f"<table style='border-collapse:collapse;width:{_TW}px;'>"
-        f"<thead><tr>{_hdr}</tr></thead>"
-        f"<tbody>{_tbody}</tbody>"
-        "</table></div></body></html>"
-    )
-
-    # Streamlit は独自の asyncio ループを持つため、専用スレッドで Playwright を実行する
-    import threading as _th
-    import sys as _sys
-    _result: dict = {}
-
-    def _pw_worker() -> None:
-        import asyncio as _aio
-        if _sys.platform == "win32":
-            _aio.set_event_loop_policy(_aio.WindowsProactorEventLoopPolicy())
-        with sync_playwright() as _pw:
-            _br = _pw.chromium.launch()
-            _pg = _br.new_page(
-                viewport={"width": _TW + 40, "height": _total_h + 60},
-                device_scale_factor=2,
-            )
-            _pg.set_content(_html, wait_until="load")
-            _pg.wait_for_timeout(600)
-            _el = _pg.query_selector("#wrap")
-            _result["shot"] = _el.screenshot()
-            _br.close()
-
-    _t = _th.Thread(target=_pw_worker, daemon=True)
-    _t.start()
-    _t.join()
-
-    if "shot" not in _result:
-        raise RuntimeError("Playwright のスクリーンショット取得に失敗しました")
-
-    return Image.open(_io.BytesIO(_result["shot"]))
+    return img
 
 
 def _draw_weekly_table_image(

@@ -3431,10 +3431,20 @@ def _patch_and_run_narabi(
                     break
         code = code[:m_ranges.start()] + f'RANGES = {ranges_str}\n' + code[end_pos:].lstrip('\n')
 
-    # Cloud環境ではPlaywright不可のためシステムChromium(selenium)に切り替え
+    # Cloud環境ではPlaywright不可のためimgkit(wkhtmltopdf)で代替
     if _IS_CLOUD:
-        code = code.replace('table_conversion="playwright"', 'table_conversion="chrome"')
-        code = code.replace("table_conversion='playwright'", "table_conversion='chrome'")
+        cloud_patch = (
+            "try:\n"
+            "    import imgkit as _imgkit, dataframe_image as _dfi_m\n"
+            "    def _imgkit_export(obj, filename, *, fontsize=14, **kw):\n"
+            "        _css = f'<style>body{{font-size:{fontsize}pt;font-family:sans-serif;}} td,th{{white-space:nowrap;}}</style>'\n"
+            "        _imgkit.from_string(_css + obj.to_html(), filename,\n"
+            "                            options={'quiet':'','zoom':'1.5','width':'1600'})\n"
+            "    _dfi_m.export = _imgkit_export\n"
+            "except Exception:\n"
+            "    pass\n"
+        )
+        code = cloud_patch + code
 
     with tempfile.NamedTemporaryFile(
         suffix=".py", mode="w", encoding="utf-8", delete=False, dir=BASE_DIR

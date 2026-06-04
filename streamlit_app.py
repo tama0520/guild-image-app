@@ -264,6 +264,16 @@ NAME_MAP_PATH = os.path.join(BASE_DIR, "機種名変換.xlsx")
 _DESKTOP = os.path.join(os.path.expanduser("~"), "Desktop")
 # Streamlit Cloud 判定（Linux = Cloud、Windows = ローカル）
 _IS_CLOUD = platform.system() != "Windows"
+
+# Cloud 環境では Playwright の Chromium を自動インストール（並び画像用）
+if _IS_CLOUD:
+    _pw_cache = os.path.join(os.path.expanduser("~"), ".cache", "ms-playwright")
+    if not os.path.exists(_pw_cache) or not any(os.scandir(_pw_cache)):
+        import subprocess as _sp_pw
+        _sp_pw.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            capture_output=True, timeout=300,
+        )
 # 店舗設定（オススメ機種など）の永続化先
 STORE_SETTINGS_DIR = os.path.join(BASE_DIR, "store_settings")
 # ローテ機種名の永続化先

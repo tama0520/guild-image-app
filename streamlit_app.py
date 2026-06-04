@@ -362,7 +362,7 @@ def get_store_config(store: str) -> dict:
 
 
 # 自動処理: 店舗 → 並びスクリプト（並び画像オプション用・subprocess）
-_NARABI_GENERIC = os.path.join(BASE_DIR, "convert_narabi_20260414.py")
+_NARABI_GENERIC = os.path.join(BASE_DIR, "convert_narabi_pil.py")
 STORE_NARABI_SCRIPT: dict[str, str] = {
     "新宿歌舞伎町": _NARABI_GENERIC,
     "西武新宿":     _NARABI_GENERIC,
@@ -3398,8 +3398,6 @@ def _patch_and_run_narabi(
     script_path: str, input_path: str, split_dir: str, ranges: list
 ) -> tuple[bool, str, str]:
     """並びスクリプト専用: INPUT/SPLIT_DIR/RANGES を書き換えて実行する"""
-    if _IS_CLOUD:
-        return False, "", "並び画像はローカル環境のみ対応です（Cloud上ではdataframe_imageのブラウザ依存により生成できません）"
     with open(script_path, encoding="utf-8") as f:
         code = f.read()
 

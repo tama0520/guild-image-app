@@ -1810,6 +1810,43 @@ def _make_safe_fn(name: str) -> str:
     return re.sub(r'[\\/:*?"<>|]', '_', str(name))
 
 
+def _git_auto_push(label: str = "auto") -> tuple[bool, str]:
+    """ローカル環境専用: 設定ファイルをgit add→commit→pushする。
+    戻り値: (成功, メッセージ)
+    """
+    import subprocess
+    targets = [
+        "weekly_items.json",
+        "auto_page_inputs.json",
+        "rote_machines.json",
+        "store_settings",
+    ]
+    try:
+        # 変更があるファイルだけステージング
+        subprocess.run(
+            ["git", "add"] + targets,
+            cwd=BASE_DIR, capture_output=True, check=True,
+        )
+        # 差分がなければスキップ
+        diff = subprocess.run(
+            ["git", "diff", "--cached", "--quiet"],
+            cwd=BASE_DIR, capture_output=True,
+        )
+        if diff.returncode == 0:
+            return True, "変更なし（push不要）"
+        subprocess.run(
+            ["git", "commit", "-m", f"auto: {label}後の設定を保存"],
+            cwd=BASE_DIR, capture_output=True, check=True,
+        )
+        subprocess.run(
+            ["git", "push", "origin", "main"],
+            cwd=BASE_DIR, capture_output=True, check=True,
+        )
+        return True, "GitHubにpushしました"
+    except subprocess.CalledProcessError as e:
+        return False, f"push失敗: {e.stderr.decode('utf-8', errors='replace').strip()}"
+
+
 def _load_pipeline_df(excel_path: str) -> tuple[pd.DataFrame, pd.Series]:
     """Excel/CSV を読み込み、列正規化・機種名変換・補助列追加を行って返す。
     戻り値: (df, diff_raw)  diff_raw は生の差枚 int Series。"""
@@ -8950,6 +8987,14 @@ def show_rote_page() -> None:
                     st.session_state[f"_rote_zip_stem_{store}"] = _rote_stem
                 except Exception as _rze:
                     st.warning(f"ZIP生成に失敗: {_rze}")
+
+            # ── ローカルのみ: 設定ファイルを自動push ──
+            if not _IS_CLOUD:
+                _push_ok, _push_msg = _git_auto_push("ローテ画像生成")
+                if _push_ok:
+                    st.info(f"🔄 {_push_msg}")
+                else:
+                    st.warning(f"⚠️ {_push_msg}")
 
     if not st.session_state.get("rote_gen_btn", False):
         _rote_saved = st.session_state.get(f"rote_gen_saved_{store}")

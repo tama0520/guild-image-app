@@ -1888,25 +1888,29 @@ def _git_auto_push(label: str = "auto") -> tuple[bool, str]:
         "store_settings",
     ]
     try:
-        # リモートの変更を先に取り込む（Cloud側のAPI更新との競合を防ぐ）
-        subprocess.run(
-            ["git", "pull", "--rebase", "origin", "main"],
-            cwd=BASE_DIR, capture_output=True, check=True,
-        )
-        # 変更があるファイルだけステージング
+        # 先にステージング（pull前に行うことでunstaged changesによるpull失敗を防ぐ）
         subprocess.run(
             ["git", "add"] + targets,
             cwd=BASE_DIR, capture_output=True, check=True,
         )
-        # 差分がなければスキップ
+        # 差分がなければpullのみしてスキップ
         diff = subprocess.run(
             ["git", "diff", "--cached", "--quiet"],
             cwd=BASE_DIR, capture_output=True,
         )
         if diff.returncode == 0:
+            subprocess.run(
+                ["git", "pull", "--rebase", "origin", "main"],
+                cwd=BASE_DIR, capture_output=True, check=True,
+            )
             return True, "変更なし（push不要）"
+        # コミット → リモートの変更を取り込む → push
         subprocess.run(
             ["git", "commit", "-m", f"auto: {label}後の設定を保存"],
+            cwd=BASE_DIR, capture_output=True, check=True,
+        )
+        subprocess.run(
+            ["git", "pull", "--rebase", "origin", "main"],
             cwd=BASE_DIR, capture_output=True, check=True,
         )
         subprocess.run(

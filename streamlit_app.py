@@ -1874,6 +1874,11 @@ def _git_auto_push(label: str = "auto") -> tuple[bool, str]:
         "store_settings",
     ]
     try:
+        # リモートの変更を先に取り込む（Cloud側のAPI更新との競合を防ぐ）
+        subprocess.run(
+            ["git", "pull", "--rebase", "origin", "main"],
+            cwd=BASE_DIR, capture_output=True, check=True,
+        )
         # 変更があるファイルだけステージング
         subprocess.run(
             ["git", "add"] + targets,

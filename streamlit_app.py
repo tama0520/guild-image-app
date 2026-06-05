@@ -8035,7 +8035,7 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
     st.markdown(f"### 📅 {_tname}")
 
     # ── Cloud: GITHUB_TOKEN確認 & 同期ログ表示 ──
-    if _IS_CLOUD and table_num in (1, 2, 3):
+    if _IS_CLOUD and table_num in (1, 2, 3, 4, 5):
         _tok_ok, _tok_msg = _check_github_token()
         if _tok_ok:
             st.success(f"🔑 {_tok_msg}", icon="✅")

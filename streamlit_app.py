@@ -1810,6 +1810,47 @@ def _make_safe_fn(name: str) -> str:
     return re.sub(r'[\\/:*?"<>|]', '_', str(name))
 
 
+def _github_push_file(content_str: str, repo_path: str = "weekly_items.json") -> tuple[bool, str]:
+    """Cloud専用: GitHub APIでファイルを直接更新する。
+    st.secrets["GITHUB_TOKEN"] が必要。
+    """
+    import urllib.request, urllib.error, base64 as _b64
+    try:
+        token = st.secrets.get("GITHUB_TOKEN", "")
+    except Exception:
+        return False, "secrets未設定"
+    if not token:
+        return False, "GITHUB_TOKEN未設定"
+    repo = "tama0520/guild-image-app"
+    url = f"https://api.github.com/repos/{repo}/contents/{repo_path}"
+    hdrs = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json",
+        "Content-Type": "application/json",
+    }
+    # 現在のSHAを取得
+    try:
+        req = urllib.request.Request(url, headers=hdrs)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            sha = json.loads(r.read())["sha"]
+    except Exception as e:
+        return False, f"SHA取得失敗: {e}"
+    # ファイルを更新
+    body = json.dumps({
+        "message": "auto: Cloud上のチェック状態を保存",
+        "content": _b64.b64encode(content_str.encode("utf-8")).decode("ascii"),
+        "sha": sha,
+        "branch": "main",
+    }).encode("utf-8")
+    try:
+        req2 = urllib.request.Request(url, data=body, headers=hdrs, method="PUT")
+        with urllib.request.urlopen(req2, timeout=15) as r:
+            r.read()
+        return True, "GitHubに同期しました"
+    except Exception as e:
+        return False, f"同期失敗: {e}"
+
+
 def _git_auto_push(label: str = "auto") -> tuple[bool, str]:
     """ローカル環境専用: 設定ファイルをgit add→commit→pushする。
     戻り値: (成功, メッセージ)
@@ -7542,8 +7583,11 @@ def _save_weekly_items(
         _cur["monthly_start"] = monthly_start_date
     _sd[_tk]    = _cur
     _data[store] = _sd
+    _weekly_json_str = json.dumps(_data, ensure_ascii=False, indent=2)
     with open(_WEEKLY_SAVE_FILE, "w", encoding="utf-8") as _f:
-        json.dump(_data, _f, ensure_ascii=False, indent=2)
+        _f.write(_weekly_json_str)
+    if _IS_CLOUD:
+        _github_push_file(_weekly_json_str)
 
 
 def _weekly_table_html_image(

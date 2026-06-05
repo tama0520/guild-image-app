@@ -3335,6 +3335,7 @@ def parse_ranges(text: str) -> list[list[int]]:
         for part in re.split(r"[,、\s　]+", " ".join(non_table_parts)):
             part = part.strip().lstrip("・")
             part = re.sub(r"[番号台]+$", "", part)  # 末尾の「番」「号」「台」を除去
+            part = re.sub(r"[（(][^）)]*[）)]", "", part).strip()  # 末尾の（機種名）等を除去
             if not part:
                 continue
             m2 = re.match(r"(\d+)\s*[-~～]\s*(\d+)$", part)
@@ -3363,6 +3364,7 @@ def parse_ranges(text: str) -> list[list[int]]:
     for part in re.split(r"[,、\s　]+", text):
         part = part.strip().lstrip("・")
         part = re.sub(r"[番号台]+$", "", part)  # 末尾の「番」「号」「台」を除去
+        part = re.sub(r"[（(][^）)]*[）)]", "", part).strip()  # 末尾の（機種名）等を除去
         if not part:
             continue
         m = re.match(r"(\d+)\s*[-~～]\s*(\d+)$", part)

@@ -1862,6 +1862,20 @@ def _github_push_file(content_str: str, repo_path: str = "weekly_items.json") ->
         return False, f"同期失敗: {e}"
 
 
+def _git_auto_pull() -> tuple[bool, str]:
+    """ローカル環境専用: 起動時にgit pull --rebaseでリモートの変更を取り込む。"""
+    import subprocess
+    try:
+        r = subprocess.run(
+            ["git", "pull", "--rebase", "origin", "main"],
+            cwd=BASE_DIR, capture_output=True, check=True,
+        )
+        msg = r.stdout.decode("utf-8", errors="replace").strip()
+        return True, msg or "Already up to date."
+    except subprocess.CalledProcessError as e:
+        return False, e.stderr.decode("utf-8", errors="replace").strip()
+
+
 def _git_auto_push(label: str = "auto") -> tuple[bool, str]:
     """ローカル環境専用: 設定ファイルをgit add→commit→pushする。
     戻り値: (成功, メッセージ)
@@ -9640,6 +9654,13 @@ def main() -> None:
 
     init_session_state()
     _sync_from_query_params()
+
+    # ローカルのみ: 起動時に1回だけgit pullしてCloudの変更を取り込む
+    if not _IS_CLOUD and not st.session_state.get("_git_pulled"):
+        st.session_state["_git_pulled"] = True
+        _pull_ok, _pull_msg = _git_auto_pull()
+        if not _pull_ok:
+            st.toast(f"⚠️ git pull失敗: {_pull_msg}", icon="⚠️")
 
     # ブラウザの戻る/進むボタンを検知してページをリロードさせる
     # components.html は iframe 内なので window.parent を使う

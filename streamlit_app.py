@@ -1810,6 +1810,17 @@ def _make_safe_fn(name: str) -> str:
     return re.sub(r'[\\/:*?"<>|]', '_', str(name))
 
 
+def _check_github_token() -> tuple[bool, str]:
+    """GITHUB_TOKEN が secrets に設定されているか確認する。"""
+    try:
+        token = st.secrets.get("GITHUB_TOKEN", "")
+    except Exception as e:
+        return False, f"secrets 読み込みエラー: {e}"
+    if not token:
+        return False, "GITHUB_TOKEN が未設定です"
+    return True, f"GITHUB_TOKEN 設定済み（先頭8文字: {str(token)[:8]}…）"
+
+
 def _github_push_file(content_str: str, repo_path: str = "weekly_items.json") -> tuple[bool, str]:
     """Cloud専用: GitHub APIでファイルを直接更新する。
     st.secrets["GITHUB_TOKEN"] が必要。
@@ -7587,7 +7598,13 @@ def _save_weekly_items(
     with open(_WEEKLY_SAVE_FILE, "w", encoding="utf-8") as _f:
         _f.write(_weekly_json_str)
     if _IS_CLOUD:
-        _github_push_file(_weekly_json_str)
+        _ok, _msg = _github_push_file(_weekly_json_str)
+        _log = ("✅ " if _ok else "❌ ") + _msg
+        st.session_state["_github_sync_log"] = _log
+        try:
+            st.toast(_log, icon="✅" if _ok else "❌")
+        except Exception:
+            pass
 
 
 def _weekly_table_html_image(
@@ -8011,6 +8028,20 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
 
     st.markdown("---")
     st.markdown(f"### 📅 {_tname}")
+
+    # ── Cloud: GITHUB_TOKEN確認 & 同期ログ表示 ──
+    if _IS_CLOUD and table_num == 1:
+        _tok_ok, _tok_msg = _check_github_token()
+        if _tok_ok:
+            st.success(f"🔑 {_tok_msg}", icon="✅")
+        else:
+            st.error(f"🔑 {_tok_msg}", icon="❌")
+        _sync_log = st.session_state.get("_github_sync_log")
+        if _sync_log:
+            if _sync_log.startswith("✅"):
+                st.info(_sync_log)
+            else:
+                st.warning(_sync_log)
 
     # ── ① 機種名入力
     st.markdown("**① 機種名を入力**")

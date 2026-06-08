@@ -7951,14 +7951,14 @@ def _draw_weekly_table_image(
             return
         # 1st pass: 全文字のbb・幅を収集しテキスト全体の高さを計算
         chars_info = []
-        min_bb1, max_bb3 = 0, 0
+        min_bb1, max_bb3 = None, None
         for c in text:
             f  = _char_font(c, size)
             bb = d.textbbox((0, 0), c, font=f)
             tw = bb[2] - bb[0]
             chars_info.append((c, f, bb, tw))
-            min_bb1 = min(min_bb1, bb[1])
-            max_bb3 = max(max_bb3, bb[3])
+            min_bb1 = bb[1] if min_bb1 is None else min(min_bb1, bb[1])
+            max_bb3 = bb[3] if max_bb3 is None else max(max_bb3, bb[3])
         # 全体の高さでセル内垂直中央のy_origin（PILのdraw.text y引数）を算出
         text_h   = max_bb3 - min_bb1
         text_top = cell_y + (cell_h - text_h) // 2

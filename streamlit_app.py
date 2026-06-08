@@ -5349,8 +5349,8 @@ def show_auto_page() -> None:
             excel_path  = os.path.join(_run_tmpdir, uploaded.name)
             output_dir  = os.path.join(_run_tmpdir, dir_stem)
         else:
-            _run_tmpdir = None
-            excel_path  = os.path.join(BASE_DIR, uploaded.name)
+            _run_tmpdir = tempfile.mkdtemp()
+            excel_path  = os.path.join(_run_tmpdir, uploaded.name)
             output_dir  = os.path.join(_DESKTOP, dir_stem)
         narabi_dir = os.path.join(output_dir, "並び画像")
         narabi_bans = ranges_to_bans(narabi_ranges) if narabi_ok else set()
@@ -6788,8 +6788,8 @@ def show_auto_article_page() -> None:
             excel_path  = os.path.join(_art_tmpdir, uploaded.name)
             output_dir  = os.path.join(_art_tmpdir, dir_stem)
         else:
-            _art_tmpdir = None
-            excel_path  = os.path.join(BASE_DIR, uploaded.name)
+            _art_tmpdir = tempfile.mkdtemp()
+            excel_path  = os.path.join(_art_tmpdir, uploaded.name)
             output_dir  = os.path.join(_DESKTOP, dir_stem)
         narabi_dir = os.path.join(output_dir, "並び画像")
         narabi_bans = ranges_to_bans(narabi_ranges) if narabi_ok else set()

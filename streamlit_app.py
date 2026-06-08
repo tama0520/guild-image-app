@@ -5956,12 +5956,18 @@ def show_auto_page() -> None:
                     _bt2 = _blk["title"].strip() or "オススメ機種"
                     for _thr in _blk.get("thresholds", [1]):
                         _order.append(f"オススメ_{_make_safe_fn(_bt2)}_{_sfx_r.get(_thr, str(_thr))}.jpg")
+                # 再実行時に前回の連番プレフィックスが残っていると衝突するため、先に剥がしておく
+                for _ef in os.listdir(output_dir):
+                    _pm = re.match(r"^\d{2}_(.+)$", _ef)
+                    if _pm and os.path.isfile(os.path.join(output_dir, _ef)):
+                        os.replace(os.path.join(output_dir, _ef),
+                                   os.path.join(output_dir, _pm.group(1)))
                 # 実在するファイルに 01_ 02_ … プレフィックスを付与
                 _seq = 1
                 for _bn in _order:
                     _src = os.path.join(output_dir, _bn)
                     if os.path.exists(_src):
-                        os.rename(_src, os.path.join(output_dir, f"{_seq:02d}_{_bn}"))
+                        os.replace(_src, os.path.join(output_dir, f"{_seq:02d}_{_bn}"))
                         _seq += 1
 
             all_ok = result["ok"] and (narabi_result is None or narabi_result["ok"])

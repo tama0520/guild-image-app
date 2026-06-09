@@ -1,5 +1,5 @@
 {
-  "recommended_title_1": "山佐機種の優秀台",
+  "recommended_title_1": "",
   "recommended_machines_1": [
     "モンキーターンV",
     "スーパーBJ",
@@ -11,7 +11,7 @@
     "",
     ""
   ],
-  "recommended_title_2": "オススメ5機種の優秀台",
+  "recommended_title_2": "",
   "recommended_machines_2": [
     "マイジャグV",
     "東京喰種",
@@ -23,7 +23,7 @@
     "",
     ""
   ],
-  "recommended_title_3": "ジャグラー&沖スロ系の機種の優秀台",
+  "recommended_title_3": "",
   "recommended_machines_3": [
     "ウルトラミラジャグ",
     "ネオアイム",
@@ -47,5 +47,13 @@
     "",
     ""
   ],
-  "rec_enabled": false
+  "rec_enabled": false,
+  "recommended_filter_1": "プラス台",
+  "recommended_filter_2": "プラス台",
+  "recommended_filter_3": "プラス台",
+  "recommended_filter_4": "プラス台",
+  "recommended_title_5": "",
+  "recommended_filter_5": "プラス台",
+  "recommended_title_6": "",
+  "recommended_filter_6": "プラス台"
 }

@@ -9537,9 +9537,11 @@ def show_name_conversion_page() -> None:
         )
 
         df_src: pd.DataFrame | None = None
+        raw_src: pd.DataFrame | None = None
         if src_file:
             try:
                 raw = _read_uploaded_df(src_file)
+                raw_src = raw
                 df_src = _find_kisha_col(raw)
                 if df_src is None:
                     st.error(f"❌ 「機種名」列が見つかりません。実際の列名: {list(raw.columns)}")
@@ -9552,13 +9554,20 @@ def show_name_conversion_page() -> None:
         name_map, name_map_norm = load_name_map()
 
         if df_src is not None:
-            unique_machines = (
-                df_src["機種名"].dropna().astype(str).str.strip().unique().tolist()
-            )
-            unregistered = [
-                m for m in unique_machines
-                if m not in name_map and _normalize_key(m) not in name_map_norm
+            # 全機種名列（正式名・データサイト表記など）からすべての機種名を収集
+            _kisha_cands = ["機種名"] + COLUMN_ALIASES.get("機種名", [])
+            _seen: dict[str, str] = {}  # 機種名 -> 出典列名
+            _raw_for_check = raw_src if raw_src is not None else df_src
+            for _col in _kisha_cands:
+                if _col in _raw_for_check.columns:
+                    for _m in _raw_for_check[_col].dropna().astype(str).str.strip().unique():
+                        if _m and _m != "nan" and _m not in _seen:
+                            _seen[_m] = _col
+            unregistered_pairs = [
+                (_m, _col) for _m, _col in _seen.items()
+                if _m not in name_map and _normalize_key(_m) not in name_map_norm
             ]
+            unregistered = [_m for _m, _ in unregistered_pairs]
 
             if unregistered:
                 st.markdown("### ② 未登録機種をマスタに追加")
@@ -9567,14 +9576,15 @@ def show_name_conversion_page() -> None:
                     "　変換後の名前を入力して「マスタに追加」を押してください。"
                 )
                 edit_df = pd.DataFrame({
-                    "機種名（元）":   unregistered,
-                    "変換後の機種名": [""] * len(unregistered),
+                    "機種名（元）":   [_m for _m, _ in unregistered_pairs],
+                    "出典列":        [_col for _, _col in unregistered_pairs],
+                    "変換後の機種名": [""] * len(unregistered_pairs),
                 })
                 edited = st.data_editor(
                     edit_df,
                     key="nc_unreg_edit",
                     use_container_width=True,
-                    disabled=["機種名（元）"],
+                    disabled=["機種名（元）", "出典列"],
                     hide_index=True,
                 )
                 new_entries = [
@@ -9899,42 +9909,82 @@ def show_slump_graph_page() -> None:
         sel_date = st.date_input("日付を選択", key="slump_date")
         date_str = sel_date.strftime("%Y-%m-%d")
 
+    # ── Step1: 機種一覧を取得（ホール・日付ごとにキャッシュ）────────────
+    _data_key  = f"_slump_data_{sel_hall_id}_{date_str}"
+    _names_key = f"_slump_names_{sel_hall_id}_{date_str}"
+
+    if _data_key not in st.session_state:
+        if st.button("🔍 機種一覧を取得", use_container_width=True, key="slump_fetch"):
+            with st.spinner(f"{date_str} のデータを取得中..."):
+                try:
+                    _fetched = fetch_pision_results(api_key, sel_hall_id, date_str)
+                except Exception as e:
+                    st.error(f"❌ データ取得失敗: {e}")
+                    return
+            if _fetched is None:
+                st.info("📭 データを取得できませんでした（404 / 未公開 / 店休日の可能性があります）。")
+                return
+            if not _fetched:
+                st.info("📭 この日付のデータがありません。")
+                return
+            # 機種名変換マスタを適用して _convertedName を付与
+            _nm, _nm_norm = load_name_map()
+            def _conv_name(raw: str) -> str:
+                raw = str(raw).strip()
+                if raw in _nm:
+                    return _nm[raw]
+                k = _normalize_key(raw)
+                if k in _nm_norm:
+                    return _nm_norm[k]
+                return raw
+            for _it in _fetched:
+                _it["_convertedName"] = _conv_name(_it.get("displayName", ""))
+            st.session_state[_data_key]  = _fetched
+            st.session_state[_names_key] = sorted({
+                _it["_convertedName"]
+                for _it in _fetched
+                if _it.get("points") and _it.get("_convertedName")
+            })
+            st.rerun()
+        return  # 取得前はここで終了
+
+    # ── Step2: フィルタ選択・グラフ生成 ──────────────────────────────
+    cached_details = st.session_state[_data_key]
+    cached_names   = st.session_state.get(_names_key, [])
+
     col3, col4 = st.columns(2)
     with col3:
-        machine_filter = st.text_input("機種名検索（空欄可・部分一致）", key="slump_machine")
+        selected_machines = st.multiselect(
+            "機種名を選択（空欄=全台・入力で絞り込み）",
+            options=cached_names,
+            key="slump_machine_ms",
+        )
     with col4:
         unit_filter = st.text_input("台番号検索（空欄可）", key="slump_unit")
+
+    st.caption(f"📋 取得済み: {len(cached_details)} 台 / points あり: {len(cached_names)} 機種")
+    if st.button("🔄 再取得", key="slump_refetch"):
+        st.session_state.pop(_data_key, None)
+        st.session_state.pop(_names_key, None)
+        st.rerun()
+
+    st.divider()
 
     if st.button("グラフ生成", type="primary", use_container_width=True, key="slump_run"):
         if template_path is None:
             st.error("❌ `base_3000_bk.png` が見つかりません。テンプレート画像を配置してください。")
             return
 
-        # データ取得
-        with st.spinner(f"{date_str} のデータを取得中..."):
-            try:
-                details = fetch_pision_results(api_key, sel_hall_id, date_str)
-            except Exception as e:
-                st.error(f"❌ データ取得失敗: {e}")
-                return
-
-        if details is None:
-            st.info("📭 データを取得できませんでした（404 / 未公開 / 店休日の可能性があります）。")
-            return
-        if not details:
-            st.info("📭 この日付のデータがありません。")
-            return
-
         # フィルタ
         filtered = []
         skipped_no_points = 0
-        for item in details:
+        for item in cached_details:
             if not item.get("points"):
                 skipped_no_points += 1
                 continue
-            name = item.get("displayName", "")
+            name = item.get("_convertedName") or item.get("displayName", "")
             uid  = str(item.get("unitId", ""))
-            if machine_filter and machine_filter not in name:
+            if selected_machines and name not in selected_machines:
                 continue
             if unit_filter and unit_filter != uid:
                 continue
@@ -9954,7 +10004,7 @@ def show_slump_graph_page() -> None:
         for i, item in enumerate(filtered):
             try:
                 uid  = str(item.get("unitId", ""))
-                name = item.get("displayName", "")
+                name = item.get("_convertedName") or item.get("displayName", "")
                 pts  = item["points"]
                 img  = draw_slump_graph(template_path, uid, name, pts)
                 fname = _safe_filename(f"{uid}_{name}.png")

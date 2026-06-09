@@ -8695,7 +8695,8 @@ def show_rote_page() -> None:
             _navigate("image_type")
         return
 
-    _rote_candidates = load_machine_candidates()
+    _ban_map_vals = list(st.session_state.get(f"ban_map_{store}", {}).values())
+    _rote_candidates = sorted(set(_ban_map_vals)) if _ban_map_vals else load_machine_candidates()
 
     # 機種名変更時に即座にJSONへ保存するコールバック
     def _on_rote_name_change():

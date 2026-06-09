@@ -9968,6 +9968,22 @@ def show_slump_graph_page() -> None:
         st.session_state.pop(_names_key, None)
         st.rerun()
 
+    with st.expander("🔍 取得済み全機種一覧（機種が見つからない場合に確認）"):
+        _all_names_debug = sorted({
+            (
+                _it.get("_convertedName") or _it.get("displayName", ""),
+                _it.get("displayName", ""),
+                "✅" if _it.get("points") else "❌ pointsなし",
+            )
+            for _it in cached_details
+            if _it.get("displayName")
+        }, key=lambda x: x[0])
+        if _all_names_debug:
+            _debug_df = pd.DataFrame(_all_names_debug, columns=["表示名（変換後）", "API名（displayName）", "グラフ"])
+            st.dataframe(_debug_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("データなし")
+
     st.divider()
 
     if st.button("グラフ生成", type="primary", use_container_width=True, key="slump_run"):

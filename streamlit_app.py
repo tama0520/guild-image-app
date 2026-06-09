@@ -5064,6 +5064,16 @@ def show_auto_page() -> None:
                         _upd_extra_dfs:   list[pd.DataFrame] = []
                         _upd_extra_diffs: list[pd.Series]    = []
                         _jug_extra_dfs:   list[pd.DataFrame] = []
+                        # チェック済みの高配分・全台系画像がある機種セット（並び外しでその他に重複追加しないため）
+                        _checked_img_machines: set[str] = set()
+                        for _si, (_spn, _) in enumerate(_auto_previews):
+                            if st.session_state.get(f"auto_prev_ck_{store}_{_si}", True):
+                                _hm = _pv_hr.get(_spn)
+                                if _hm:
+                                    _checked_img_machines.add(_hm)
+                                _zm = _pv_zen.get(_spn)
+                                if _zm:
+                                    _checked_img_machines.add(_zm)
                         for _ci, (_pname, _) in enumerate(_auto_previews):
                             if not st.session_state.get(f"auto_prev_ck_{store}_{_ci}", True):
                                 # 高配分：kojin済みはスキップ・ジャグラーならジャグラー優秀台へ、それ以外はその他へ
@@ -5156,6 +5166,11 @@ def show_auto_page() -> None:
                                                 _nb_oth_keep = ~_nb_oth_part["台番"].apply(int).isin(_sue_bans_upd)
                                                 _nb_oth_part = _nb_oth_part[_nb_oth_keep.values].copy().reset_index(drop=True)
                                                 _nb_oth_diff = _nb_oth_diff[_nb_oth_keep.values].reset_index(drop=True)
+                                        # 高配分・全台系画像がチェック済みの機種はその他へ追加しない
+                                        if not _nb_oth_part.empty and _checked_img_machines:
+                                            _nb_no_img = ~_nb_oth_part["機種名"].isin(_checked_img_machines)
+                                            _nb_oth_part = _nb_oth_part[_nb_no_img.values].copy().reset_index(drop=True)
+                                            _nb_oth_diff = _nb_oth_diff[_nb_no_img.values].reset_index(drop=True)
                                         if not _nb_oth_part.empty:
                                             _upd_extra_dfs.append(_nb_oth_part)
                                             _upd_extra_diffs.append(_nb_oth_diff)
@@ -5227,6 +5242,7 @@ def show_auto_page() -> None:
                             _all_dfs = []
                         if _all_dfs:
                             _son_comb  = pd.concat(_all_dfs,   ignore_index=True)
+                            _son_comb  = _son_comb.drop_duplicates(subset=["台番"])
                             _son_order = _son_comb["台番"].argsort()
                             _son_comb  = _son_comb.iloc[_son_order].reset_index(drop=True)
                             _son_img   = _build_machine_img(_son_comb, "その他の優秀台ピックアップ", None)

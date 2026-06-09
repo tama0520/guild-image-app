@@ -1,11 +1,81 @@
 {
-  "recommended_title_1": "",
-  "recommended_machines_1": [],
+  "recommended_title_1": "バラエティ・BT機の優秀台",
+  "recommended_machines_1": [
+    "カバネリ",
+    "ディスクアップ2",
+    "鉄拳6",
+    "戦コレ5 超極楽",
+    "スタァライト",
+    "アレックスB",
+    "LBサンダーV",
+    "",
+    ""
+  ],
   "recommended_title_2": "",
-  "recommended_machines_2": [],
+  "recommended_machines_2": [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
   "recommended_title_3": "",
-  "recommended_machines_3": [],
+  "recommended_machines_3": [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
   "recommended_title_4": "",
-  "recommended_machines_4": [],
-  "rec_enabled": false
+  "recommended_machines_4": [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "rec_enabled": true,
+  "recommended_filter_1": "+1,000枚以上",
+  "recommended_filter_2": "プラス台",
+  "recommended_filter_3": "プラス台",
+  "recommended_filter_4": "プラス台",
+  "recommended_title_5": "",
+  "recommended_filter_5": "プラス台",
+  "recommended_title_6": "",
+  "recommended_filter_6": "プラス台",
+  "recommended_machines_5": [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "recommended_machines_6": [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ]
 }

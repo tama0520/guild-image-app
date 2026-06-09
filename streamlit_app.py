@@ -9674,6 +9674,331 @@ def show_name_conversion_page() -> None:
 
 
 # =============================================================================
+# ■ ⑩スランプグラフ生成
+# =============================================================================
+
+_PISION_BASE_URL = "https://www.pision.io"
+
+# 表示対象ホール（部分一致）。将来の追加はここにキーワードを1行足す。
+_PISION_ALLOWED_HALLS: list[str] = [
+    "新宿歌舞伎町",
+    "西武新宿",
+    "新大久保",
+    "高田馬場",
+    "上野本館",
+    "上野新館",
+    "渋谷新館",
+    "赤坂見附",
+    "新小岩",
+    "溝の口本館",
+    "溝の口新館",
+    "稲毛",
+]
+
+
+def _get_pision_api_key() -> "str | None":
+    """APIキーを st.secrets → .env → 環境変数 の優先順で取得する。"""
+    try:
+        return st.secrets["PISION_API_KEY"]
+    except Exception:
+        pass
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+    return os.getenv("PISION_API_KEY")
+
+
+def find_slump_template() -> "object | None":
+    """テンプレート画像 base_3000_bk.png を優先順で検索して Path を返す。"""
+    from pathlib import Path
+    candidates = [
+        Path(os.path.abspath(__file__)).parent / "base_3000_bk.png",
+        Path(os.path.abspath(__file__)).parent / "images" / "base_3000_bk.png",
+        Path(r"C:\Users\23-3\Desktop\画像作成\base_3000_bk.png"),
+    ]
+    for p in candidates:
+        if p.exists():
+            return p
+    return None
+
+
+def _pision_request(api_key: str, path: str) -> "dict | list | None":
+    """pision.io API へ GET リクエストを送る。404 は None を返す。"""
+    import urllib.request
+    import urllib.error
+    url = f"{_PISION_BASE_URL}{path}"
+    req = urllib.request.Request(url, headers={"X-Api-Key": api_key})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise
+
+
+def fetch_pision_halls(api_key: str) -> list:
+    """ホール一覧を取得する。"""
+    data = _pision_request(api_key, "/api/v2/halls")
+    if data is None:
+        return []
+    if isinstance(data, list):
+        return data
+    return data.get("halls", data.get("data", []))
+
+
+def fetch_pision_results(api_key: str, hall_id: str, date: str) -> "list | None":
+    """台別データを取得する。404 / 未公開 / 店休日は None を返す。"""
+    import time
+    data = _pision_request(api_key, f"/api/v2/halls/{hall_id}/results/{date}")
+    time.sleep(1)
+    if data is None:
+        return None
+    if isinstance(data, list):
+        return data
+    return data.get("details", data.get("data", []))
+
+
+def draw_slump_graph(
+    template_path,
+    unit_id: str,
+    display_name: str,
+    points: list,
+) -> "Image.Image":
+    """スランプグラフを template に描画して PIL Image を返す。"""
+    SCALE     = 2
+    X_START   = 23
+    X_END     = 319
+    Y_ZERO    = 240
+    PX_1000   = 38
+    LINE_RGB  = (225, 30, 30, 255)
+
+    base = Image.open(str(template_path)).convert("RGBA")
+    w, h = base.size
+
+    # 2倍キャンバスでアンチエイリアス
+    big      = base.resize((w * SCALE, h * SCALE), Image.NEAREST)
+    draw_big = ImageDraw.Draw(big)
+
+    if len(points) >= 2:
+        max_x = max(p["x"] for p in points)
+        if max_x > 0:
+            x_range = X_END - X_START
+            coords = [
+                (
+                    (X_START + (p["x"] / max_x) * x_range) * SCALE,
+                    (Y_ZERO  - (p["y"] / 1000)  * PX_1000) * SCALE,
+                )
+                for p in points
+            ]
+            for i in range(len(coords) - 1):
+                draw_big.line([coords[i], coords[i + 1]], fill=LINE_RGB, width=2 * SCALE)
+
+    # 1x にスケールダウン（ライン AA）
+    result = big.resize((w, h), Image.LANCZOS).convert("RGB")
+    draw   = ImageDraw.Draw(result)
+
+    # テキスト描画（1x で中央寄せ）
+    font_name = load_font(13)
+    font_uid  = load_font(11)
+
+    def _cx(text, font):
+        try:
+            bb = font.getbbox(text)
+            return max(0, (w - (bb[2] - bb[0])) // 2)
+        except Exception:
+            return max(0, (w - len(text) * 11) // 2)
+
+    draw.text((_cx(display_name, font_name), 6),  display_name, fill=(255, 255, 255), font=font_name)
+    draw.text((_cx(str(unit_id),  font_uid),  23), str(unit_id), fill=(200, 200, 200), font=font_uid)
+
+    return result
+
+
+def _make_slump_zip(images: list) -> bytes:
+    """(ファイル名, PIL Image) リストを ZIP バイト列に変換する。"""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fname, img in images:
+            ibuf = io.BytesIO()
+            img.save(ibuf, format="PNG")
+            zf.writestr(fname, ibuf.getvalue())
+    return buf.getvalue()
+
+
+def _safe_filename(name: str) -> str:
+    for ch in r'\/:*?"<>|':
+        name = name.replace(ch, "_")
+    return name
+
+
+def show_slump_graph_page() -> None:
+    st.header("📈 スランプグラフ生成")
+
+    # ── APIキー確認 ──────────────────────────────────────────────────
+    api_key = _get_pision_api_key()
+    if not api_key:
+        st.error("❌ APIキーが未設定です。.env に `PISION_API_KEY` を設定してください。")
+        st.code("PISION_API_KEY=your-api-key-here", language="text")
+        return
+
+    # ── テンプレート確認 ─────────────────────────────────────────────
+    template_path = find_slump_template()
+    if template_path is None:
+        st.warning("⚠️ `base_3000_bk.png` が見つかりません。画像作成フォルダまたはアプリと同じフォルダに配置してください。")
+    else:
+        st.caption(f"✅ テンプレート: `{template_path}`")
+
+    # ── ホール一覧（セッションキャッシュ）───────────────────────────
+    _hall_key = "_slump_halls"
+    if _hall_key not in st.session_state:
+        with st.spinner("ホール一覧を取得中..."):
+            try:
+                halls = fetch_pision_halls(api_key)
+                st.session_state[_hall_key] = halls
+            except Exception as e:
+                st.error(f"❌ ホール一覧取得失敗: {e}")
+                return
+
+    halls = st.session_state.get(_hall_key, [])
+    halls_visible = [
+        h for h in halls
+        if not h.get("secret", False)
+        and "エスパス" in (h.get("name") or h.get("displayName") or "")
+        and any(kw in (h.get("name") or h.get("displayName") or "") for kw in _PISION_ALLOWED_HALLS)
+    ]
+    if not halls_visible:
+        st.error("❌ 利用可能なホールが見つかりません。")
+        if st.button("🔄 再取得"):
+            st.session_state.pop(_hall_key, None)
+            st.rerun()
+        return
+
+    def _hname(h):
+        return h.get("name") or h.get("displayName") or str(h.get("id", ""))
+
+    def _hid(h):
+        return str(h.get("id") or h.get("hallId") or "")
+
+    hall_names = [_hname(h) for h in halls_visible]
+    hall_ids   = [_hid(h)   for h in halls_visible]
+
+    # ── 入力フォーム ─────────────────────────────────────────────────
+    col1, col2 = st.columns(2)
+    with col1:
+        sel_idx = st.selectbox(
+            "店舗を選択",
+            options=range(len(hall_names)),
+            format_func=lambda i: hall_names[i],
+            key="slump_hall_idx",
+        )
+        sel_hall_id = hall_ids[sel_idx]
+    with col2:
+        sel_date = st.date_input("日付を選択", key="slump_date")
+        date_str = sel_date.strftime("%Y-%m-%d")
+
+    col3, col4 = st.columns(2)
+    with col3:
+        machine_filter = st.text_input("機種名検索（空欄可・部分一致）", key="slump_machine")
+    with col4:
+        unit_filter = st.text_input("台番号検索（空欄可）", key="slump_unit")
+
+    if st.button("グラフ生成", type="primary", use_container_width=True, key="slump_run"):
+        if template_path is None:
+            st.error("❌ `base_3000_bk.png` が見つかりません。テンプレート画像を配置してください。")
+            return
+
+        # データ取得
+        with st.spinner(f"{date_str} のデータを取得中..."):
+            try:
+                details = fetch_pision_results(api_key, sel_hall_id, date_str)
+            except Exception as e:
+                st.error(f"❌ データ取得失敗: {e}")
+                return
+
+        if details is None:
+            st.info("📭 データを取得できませんでした（404 / 未公開 / 店休日の可能性があります）。")
+            return
+        if not details:
+            st.info("📭 この日付のデータがありません。")
+            return
+
+        # フィルタ
+        filtered = []
+        skipped_no_points = 0
+        for item in details:
+            if not item.get("points"):
+                skipped_no_points += 1
+                continue
+            name = item.get("displayName", "")
+            uid  = str(item.get("unitId", ""))
+            if machine_filter and machine_filter not in name:
+                continue
+            if unit_filter and unit_filter != uid:
+                continue
+            filtered.append(item)
+
+        if skipped_no_points:
+            st.caption(f"ℹ️ points なしの台 {skipped_no_points} 件をスキップしました。")
+
+        if not filtered:
+            st.warning("⚠️ 条件に一致する台（points あり）が見つかりませんでした。")
+            return
+
+        # グラフ生成
+        pb     = st.progress(0, text="グラフ生成中...")
+        images = []
+        errors = []
+        for i, item in enumerate(filtered):
+            try:
+                uid  = str(item.get("unitId", ""))
+                name = item.get("displayName", "")
+                pts  = item["points"]
+                img  = draw_slump_graph(template_path, uid, name, pts)
+                fname = _safe_filename(f"{uid}_{name}.png")
+                images.append((fname, img))
+            except Exception as e:
+                errors.append(f"台{item.get('unitId','?')}: {e}")
+            pb.progress((i + 1) / len(filtered), text=f"生成中 {i + 1}/{len(filtered)}")
+        pb.empty()
+
+        if errors:
+            with st.expander(f"⚠️ 生成エラー {len(errors)} 件"):
+                for err in errors:
+                    st.text(err)
+
+        if not images:
+            st.error("❌ グラフを1件も生成できませんでした。")
+            return
+
+        st.success(f"✅ {len(images)} 台分のグラフを生成しました")
+
+        # サムネイル表示（4列）
+        cols_per_row = 4
+        for row_start in range(0, len(images), cols_per_row):
+            cols = st.columns(cols_per_row)
+            for ci, idx in enumerate(range(row_start, min(row_start + cols_per_row, len(images)))):
+                fname, img = images[idx]
+                with cols[ci]:
+                    st.image(img, caption=fname, use_container_width=True)
+
+        # ZIP ダウンロード
+        with st.spinner("ZIP 作成中..."):
+            zip_bytes = _make_slump_zip(images)
+
+        st.download_button(
+            label="📦 ZIP ダウンロード",
+            data=zip_bytes,
+            file_name=_safe_filename(f"slump_{hall_names[sel_idx]}_{date_str}.zip"),
+            mime="application/zip",
+            use_container_width=True,
+            key="slump_zip_dl",
+        )
+
+
+# =============================================================================
 # ■ ⑨メイン
 # =============================================================================
 
@@ -9758,6 +10083,8 @@ def main() -> None:
         # カテゴリボタン
         if st.button("🖼️ 画像生成", use_container_width=True, key="nav_image"):
             _navigate("store")
+        if st.button("📈 スランプグラフ生成", use_container_width=True, key="nav_slump"):
+            _navigate("slump_graph")
         if st.button("🔄 機種名変換", use_container_width=True, key="nav_nc"):
             _navigate("name_conversion")
 
@@ -9784,6 +10111,8 @@ def main() -> None:
             st.markdown("　→ **📅 1週間の結果テキスト**")
         elif page == "name_conversion":
             st.markdown("📍 **機種名変換**")
+        elif page == "slump_graph":
+            st.markdown("📍 **スランプグラフ生成**")
 
     # ── アプリタイトル ────────────────────────────────────────────
     st.title("ギルド画像生成")
@@ -9805,6 +10134,8 @@ def main() -> None:
         show_auto_article_page()
     elif st.session_state.page == "name_conversion":
         show_name_conversion_page()
+    elif st.session_state.page == "slump_graph":
+        show_slump_graph_page()
     else:
         # 不正な状態はトップに戻す
         st.session_state.page = "store"

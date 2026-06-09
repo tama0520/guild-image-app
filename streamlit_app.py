@@ -3456,12 +3456,17 @@ def parse_ranges(text: str) -> list[list[int]]:
             part = part.strip().lstrip("・")
             part = re.sub(r"[番号台]+$", "", part)  # 末尾の「番」「号」「台」を除去
             part = re.sub(r"[（(][^）)]*[）)]", "", part).strip()  # 末尾の（機種名）等を除去
-            part = re.sub(r"^[^\d]+", "", part)  # 先頭の■機種名：等を除去
+            # 先頭の■機種名：等を除去（残余が3桁以上の数字で始まる場合のみ適用）
+            _s = re.sub(r"^[^\d]+", "", part)
+            if _s and re.match(r"\d{3}", _s):
+                part = _s
             if not part:
                 continue
             m2 = re.match(r"(\d+)\s*[-~～]\s*(\d+)$", part)
             if m2:
-                result.append(list(range(int(m2.group(1)), int(m2.group(2)) + 1)))
+                s2, e2 = int(m2.group(1)), int(m2.group(2))
+                if s2 <= e2:
+                    result.append(list(range(s2, e2 + 1)))
                 continue
             plus_parts = re.split(r"\+", part)
             if len(plus_parts) >= 2:
@@ -3486,12 +3491,17 @@ def parse_ranges(text: str) -> list[list[int]]:
         part = part.strip().lstrip("・")
         part = re.sub(r"[番号台]+$", "", part)  # 末尾の「番」「号」「台」を除去
         part = re.sub(r"[（(][^）)]*[）)]", "", part).strip()  # 末尾の（機種名）等を除去
-        part = re.sub(r"^[^\d]+", "", part)  # 先頭の■機種名：等を除去
+        # 先頭の■機種名：等を除去（残余が3桁以上の数字で始まる場合のみ適用）
+        _s = re.sub(r"^[^\d]+", "", part)
+        if _s and re.match(r"\d{3}", _s):
+            part = _s
         if not part:
             continue
         m = re.match(r"(\d+)\s*[-~～]\s*(\d+)$", part)
         if m:
-            result.append(list(range(int(m.group(1)), int(m.group(2)) + 1)))
+            s, e = int(m.group(1)), int(m.group(2))
+            if s <= e:
+                result.append(list(range(s, e + 1)))
             continue
         plus_parts = re.split(r"\+", part)
         if len(plus_parts) >= 2:

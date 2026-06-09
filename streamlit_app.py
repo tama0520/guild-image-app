@@ -1866,10 +1866,18 @@ def _git_auto_pull() -> tuple[bool, str]:
     """ローカル環境専用: 起動時にgit pull --rebaseでリモートの変更を取り込む。"""
     import subprocess
     try:
+        # 未コミット変更があっても pull できるよう stash で退避
+        stash_r = subprocess.run(
+            ["git", "stash"],
+            cwd=BASE_DIR, capture_output=True,
+        )
+        stashed = b"No local changes" not in stash_r.stdout and stash_r.returncode == 0
         r = subprocess.run(
             ["git", "pull", "--rebase", "origin", "main"],
             cwd=BASE_DIR, capture_output=True, check=True,
         )
+        if stashed:
+            subprocess.run(["git", "stash", "pop"], cwd=BASE_DIR, capture_output=True)
         msg = r.stdout.decode("utf-8", errors="replace").strip()
         return True, msg or "Already up to date."
     except subprocess.CalledProcessError as e:
@@ -3448,6 +3456,7 @@ def parse_ranges(text: str) -> list[list[int]]:
             part = part.strip().lstrip("・")
             part = re.sub(r"[番号台]+$", "", part)  # 末尾の「番」「号」「台」を除去
             part = re.sub(r"[（(][^）)]*[）)]", "", part).strip()  # 末尾の（機種名）等を除去
+            part = re.sub(r"^[^\d]+", "", part)  # 先頭の■機種名：等を除去
             if not part:
                 continue
             m2 = re.match(r"(\d+)\s*[-~～]\s*(\d+)$", part)
@@ -3477,6 +3486,7 @@ def parse_ranges(text: str) -> list[list[int]]:
         part = part.strip().lstrip("・")
         part = re.sub(r"[番号台]+$", "", part)  # 末尾の「番」「号」「台」を除去
         part = re.sub(r"[（(][^）)]*[）)]", "", part).strip()  # 末尾の（機種名）等を除去
+        part = re.sub(r"^[^\d]+", "", part)  # 先頭の■機種名：等を除去
         if not part:
             continue
         m = re.match(r"(\d+)\s*[-~～]\s*(\d+)$", part)

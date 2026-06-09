@@ -3997,6 +3997,24 @@ def show_auto_page() -> None:
         # 毎レンダーで自動保存（ボタン未押下でブラウザを閉じても値が残るようにする）
         _save_auto_inputs(store)
 
+    # ── Excel由来の機種名候補リストを抽出・キャッシュ ─────────────────
+    _em_ss_key = f"_auto_excel_machines_{store}"
+    _em_fn_key = f"_auto_excel_machines_fn_{store}"
+    if uploaded is not None and st.session_state.get(_em_fn_key) != uploaded.name:
+        try:
+            uploaded.seek(0)
+            _raw_em = _read_uploaded_df(uploaded)
+            uploaded.seek(0)
+            _df_em, _ = normalize_df(_raw_em)
+            _df_em = apply_name_conversion(_df_em)
+            st.session_state[_em_ss_key] = sorted(
+                set(_df_em["機種名"].dropna().astype(str).str.strip().tolist())
+            )
+            st.session_state[_em_fn_key] = uploaded.name
+        except Exception:
+            pass
+    _excel_candidates: list[str] = st.session_state.get(_em_ss_key) or load_machine_candidates()
+
     # ── ② 処理内容（常に描画）────────────────────────────────────────
     st.caption("処理内容：① 全台系PNG ＋ 全台プラス機種別JPG　② ジャグラーシリーズ優秀台JPG　③ その他の優秀台ピックアップJPG")
 
@@ -4011,7 +4029,7 @@ def show_auto_page() -> None:
     kojin_enabled = st.checkbox("個別画像も生成する", key="kojin_enabled",
                                 on_change=_save_auto_inputs, args=(store,))
     if kojin_enabled:
-        _kojin_candidates = load_machine_candidates()
+        _kojin_candidates = _excel_candidates
         st.caption("指定した機種の個別画像を生成します。ここに入力した機種はその他の優秀台ピックアップから除外されます。")
         col_kz, col_ky = st.columns(2, gap="large")
         with col_kz:
@@ -4453,7 +4471,7 @@ def show_auto_page() -> None:
                 "　タイトルと機種名は次回起動後も保持されます。"
             )
 
-            _machine_candidates = load_machine_candidates()
+            _machine_candidates = _excel_candidates
             col_b1, col_b2 = st.columns(2, gap="large")
 
             with col_b1:

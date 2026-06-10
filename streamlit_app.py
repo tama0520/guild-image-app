@@ -3116,18 +3116,6 @@ def generate_report_text(
         for m in jug_m_order:
             L.append(f"🍡{m}")
             L.extend(nami_detail_lines(m))
-        jug_4 = [x for x in nami_list if x.get("machine", "") in jug_names and x["count"] >= 4]
-        if jug_4:
-            seen_4: set[str] = set()
-            for item in jug_4:
-                m4 = item.get("machine", "")
-                if m4 not in seen_4:
-                    L.append(f"🍡{m4}")
-                    seen_4.add(m4)
-                br = item.get("ban_range", "")
-                n = item["count"]
-                avg = _fmt_diff(item["avg_diff"])
-                L.append(f"{br}番台({n}台並び)→平均{avg}" if br else f"({n}台並び)→平均{avg}")
         L.append("")
 
         # ── 東京喰種 ──

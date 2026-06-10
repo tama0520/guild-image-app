@@ -1527,5 +1527,31 @@
     "kojin_narabi_title_上野本館": "",
     "kojin_narabi2_range_上野本館": "",
     "kojin_narabi2_title_上野本館": ""
+  },
+  "20260609_エスパス渋谷新館_20S.xlsx": {
+    "kojin_enabled": false,
+    "narabi_enabled": true,
+    "narabi_ranges_input": "3158-3162番\n3173-3175番\n2040-2041番\n2075-2077番\n2081-2085番\n2092-2093番\n2099-2101番\n2105-2106番\n2011-2014番\n3111-3113番\n2110-2114番\n2229-2231番",
+    "suebangai_enabled": false,
+    "suebangai_tail_input_1": "",
+    "suebangai_tail_input_2": "",
+    "suebangai_tail_input_3": "",
+    "suebangai_mode": "",
+    "kojin_z_0_渋谷新館": "",
+    "kojin_y_0_渋谷新館": "",
+    "kojin_z_1_渋谷新館": "",
+    "kojin_y_1_渋谷新館": "",
+    "kojin_z_2_渋谷新館": "",
+    "kojin_y_2_渋谷新館": "",
+    "kojin_z_3_渋谷新館": "",
+    "kojin_y_3_渋谷新館": "",
+    "kojin_z_4_渋谷新館": "",
+    "kojin_y_4_渋谷新館": "",
+    "kojin_z_5_渋谷新館": "",
+    "kojin_y_5_渋谷新館": "",
+    "kojin_narabi_range_渋谷新館": "",
+    "kojin_narabi_title_渋谷新館": "",
+    "kojin_narabi2_range_渋谷新館": "",
+    "kojin_narabi2_title_渋谷新館": ""
   }
 }

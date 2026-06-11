@@ -9869,7 +9869,7 @@ def draw_slump_graph(
     X_END     = 364
     Y_ZERO    = 290
     PX_1000   = 47
-    DARK_Y1   = 462  # 黒地グラフ枠の下端（これより下はみ出さないようクランプ）
+    DARK_Y1   = 462  # 黒地グラフ枠の下端（これより下の区間は描画しない）
     LINE_RGB  = (255, 0, 0, 255)
     LINE_W    = 15  # 3xキャンバス上の線幅（1x換算で約5px）
 
@@ -9883,16 +9883,44 @@ def draw_slump_graph(
         max_x = max(p["x"] for p in points)
         if max_x > 0:
             x_range = X_END - X_START
-            # グラフ上部（ヘッダー領域）まで線がはみ出してもクリップしない（cats.jpg準拠）。
-            # 下方向は黒地の外（画像外）まではみ出すと線が消えるため、下端でクランプする。
-            coords = [
+            y_limit = DARK_Y1 * SCALE
+            raw = [
                 (
                     (X_START + (p["x"] / max_x) * x_range) * SCALE,
-                    min((Y_ZERO - (p["y"] / 1000) * PX_1000) * SCALE, DARK_Y1 * SCALE),
+                    (Y_ZERO - (p["y"] / 1000) * PX_1000) * SCALE,
                 )
                 for p in points
             ]
-            ImageDraw.Draw(big).line(coords, fill=LINE_RGB, width=LINE_W, joint="curve")
+            # グラフ上部（ヘッダー領域）まで線がはみ出してもクリップしない（cats.jpg準拠）。
+            # 黒地下端(y_limit)より下にはみ出す区間は描画しない。下端を跨ぐ区間は境界でクリップし、
+            # 黒地内へ戻る場合のみ境界点から線を再開する。
+            strokes = []
+            cur = []
+            for i, (x, y) in enumerate(raw):
+                inside = y <= y_limit
+                if i == 0:
+                    if inside:
+                        cur = [(x, y)]
+                    continue
+                px, py = raw[i - 1]
+                prev_inside = py <= y_limit
+                if inside and prev_inside:
+                    cur.append((x, y))
+                elif inside and not prev_inside:
+                    t = (y_limit - py) / (y - py)
+                    cur = [(px + (x - px) * t, y_limit), (x, y)]
+                elif not inside and prev_inside:
+                    t = (y_limit - py) / (y - py)
+                    cur.append((px + (x - px) * t, y_limit))
+                    strokes.append(cur)
+                    cur = []
+            if cur:
+                strokes.append(cur)
+
+            d = ImageDraw.Draw(big)
+            for stroke in strokes:
+                if len(stroke) >= 2:
+                    d.line(stroke, fill=LINE_RGB, width=LINE_W, joint="curve")
 
     # 1x にスケールダウン（ライン AA）
     result = big.resize((w, h), Image.LANCZOS).convert("RGB")

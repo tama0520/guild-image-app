@@ -9869,6 +9869,7 @@ def draw_slump_graph(
     X_END     = 372
     Y_ZERO    = 290
     PX_1000   = 47
+    DARK_Y1   = 462  # 黒地グラフ枠の下端（これより下はみ出さないようクランプ）
     LINE_RGB  = (255, 0, 0, 255)
     LINE_W    = 15  # 3xキャンバス上の線幅（1x換算で約5px）
 
@@ -9882,11 +9883,12 @@ def draw_slump_graph(
         max_x = max(p["x"] for p in points)
         if max_x > 0:
             x_range = X_END - X_START
-            # グラフ上部（ヘッダー領域）まで線がはみ出してもクリップしない
+            # グラフ上部（ヘッダー領域）まで線がはみ出してもクリップしない（cats.jpg準拠）。
+            # 下方向は黒地の外（画像外）まではみ出すと線が消えるため、下端でクランプする。
             coords = [
                 (
                     (X_START + (p["x"] / max_x) * x_range) * SCALE,
-                    (Y_ZERO  - (p["y"] / 1000)  * PX_1000) * SCALE,
+                    min((Y_ZERO - (p["y"] / 1000) * PX_1000) * SCALE, DARK_Y1 * SCALE),
                 )
                 for p in points
             ]

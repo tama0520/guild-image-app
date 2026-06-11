@@ -9866,7 +9866,7 @@ def draw_slump_graph(
     """スランプグラフを template に描画して PIL Image を返す。"""
     SCALE     = 3
     X_START   = 24
-    X_END     = 372
+    X_END     = 364
     Y_ZERO    = 290
     PX_1000   = 47
     DARK_Y1   = 462  # 黒地グラフ枠の下端（これより下はみ出さないようクランプ）

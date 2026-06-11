@@ -35,7 +35,7 @@ import logging as _logging
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 # components.html(height=0) を使う不可視JSインジェクション用に警告を抑制
 # st.iframe は height=0 を受け付けないためレイアウトが崩れる（2026-06-01削除予定）
@@ -3971,10 +3971,89 @@ def show_auto_page() -> None:
     st.caption("全台系・ジャグラー優秀台・その他の優秀台を一括生成します。")
     st.markdown("---")
 
+    # ── ⓪ pision.io から日付データを自動取得（高田馬場専用）───────────────
+    _tb_uploaded = None
+    if store == "高田馬場":
+        st.markdown("### 📈 日付からデータを自動取得（高田馬場）")
+        api_key = _get_pision_api_key()
+        if not api_key:
+            st.caption("⚠️ PISION_API_KEY が未設定のため利用できません。①から手動でアップロードしてください。")
+        else:
+            _tb_date = st.date_input(
+                "日付を選択",
+                value=datetime.date.today() - datetime.timedelta(days=1),
+                key="auto_tb_date",
+            )
+            _tb_refetch = st.button("🔄 再取得", key="auto_tb_refetch")
+            _tb_date_str = _tb_date.strftime("%Y-%m-%d")
+
+            # 初回表示では自動取得しない。日付が変更された場合のみ取得する
+            _tb_seen = st.session_state.get("_auto_tb_seen_date")
+            _tb_date_changed = _tb_seen is not None and _tb_seen != _tb_date_str
+            st.session_state["_auto_tb_seen_date"] = _tb_date_str
+
+            if _tb_date_changed or _tb_refetch:
+                with st.spinner(f"{_tb_date_str} のデータを取得中..."):
+                    try:
+                        _tb_halls = fetch_pision_halls(api_key)
+                    except Exception as e:
+                        st.error(f"❌ ホール一覧取得失敗: {e}")
+                        _tb_halls = []
+                    _tb_hall_id = None
+                    for h in _tb_halls:
+                        _hn = h.get("name") or h.get("displayName") or ""
+                        if "高田馬場" in _hn and "エスパス" in _hn:
+                            _tb_hall_id = str(h.get("id") or h.get("hallId") or "")
+                            break
+                    _tb_fetched = None
+                    if _tb_hall_id is not None:
+                        try:
+                            _tb_fetched = fetch_pision_results(api_key, _tb_hall_id, _tb_date_str)
+                        except Exception as e:
+                            st.error(f"❌ データ取得失敗: {e}")
+                            _tb_fetched = None
+                if not _tb_fetched:
+                    st.session_state["_auto_tb_file_path"] = None
+                else:
+                    _tb_rows = [
+                        {
+                            "台番":     item.get("unitId"),
+                            "機種名":   item.get("displayName") or "",
+                            "差枚":     item.get("diff", 0),
+                            "ゲーム数": item.get("games", 0),
+                            "BB":       item.get("bb", 0),
+                            "RB":       item.get("rb", 0),
+                            "AT":       item.get("art", 0),
+                        }
+                        for item in _tb_fetched
+                    ]
+                    _tb_df    = pd.DataFrame(_tb_rows)
+                    _tb_fname = f"{_tb_date.strftime('%Y%m%d')}_高田馬場_20S.xlsx"
+                    _tb_fpath = os.path.join(BASE_DIR, _tb_fname)
+                    _tb_df.to_excel(_tb_fpath, index=False)
+                    st.session_state["_auto_tb_file_path"] = _tb_fpath
+                    st.session_state["_auto_tb_count"]     = len(_tb_df)
+                st.session_state["_auto_tb_fetched_date"] = _tb_date_str
+
+            if st.session_state.get("_auto_tb_fetched_date") == _tb_date_str:
+                _tb_path = st.session_state.get("_auto_tb_file_path")
+                if _tb_path and os.path.exists(_tb_path):
+                    with open(_tb_path, "rb") as f:
+                        _tb_uploaded = io.BytesIO(f.read())
+                    _tb_uploaded.name = os.path.basename(_tb_path)
+                    st.success(f"✅ {_tb_date_str} のデータ（{st.session_state.get('_auto_tb_count', '?')}台）を取得し、①にセットしました。")
+                else:
+                    st.info(f"📭 {_tb_date_str} のデータを取得できませんでした（404 / 未公開 / 店休日の可能性があります）。①から手動でアップロードしてください。")
+
+    st.markdown("---")
+
     # ── ① Excel アップロード（常に描画）─────────────────────────────
     st.markdown("### ① Excelファイルをアップロード")
     st.caption("ファイル名は `YYYYMMDD_店舗名_20S.xlsx` の形式を想定しています。")
     uploaded = st.file_uploader("xlsx / csv を選択", type=["xlsx", "xls", "csv"], key="auto_upload")
+    if uploaded is None and _tb_uploaded is not None:
+        uploaded = _tb_uploaded
+        st.caption(f"📈 自動取得データを使用中: `{uploaded.name}`（手動でアップロードすると優先されます）")
 
     # 同じExcelが再アップロードされたら前回の入力値を復元（rerunなし・同レンダリング内で反映）
     if uploaded is not None:
@@ -9785,24 +9864,25 @@ def draw_slump_graph(
     points: list,
 ) -> "Image.Image":
     """スランプグラフを template に描画して PIL Image を返す。"""
-    SCALE     = 2
-    X_START   = 23
-    X_END     = 319
-    Y_ZERO    = 240
-    PX_1000   = 38
-    LINE_RGB  = (225, 30, 30, 255)
+    SCALE     = 3
+    X_START   = 24
+    X_END     = 372
+    Y_ZERO    = 290
+    PX_1000   = 47
+    LINE_RGB  = (255, 0, 0, 255)
+    LINE_W    = 15  # 3xキャンバス上の線幅（1x換算で約5px）
 
     base = Image.open(str(template_path)).convert("RGBA")
     w, h = base.size
 
-    # 2倍キャンバスでアンチエイリアス
+    # 高解像度キャンバスでアンチエイリアスを強化
     big      = base.resize((w * SCALE, h * SCALE), Image.NEAREST)
-    draw_big = ImageDraw.Draw(big)
 
     if len(points) >= 2:
         max_x = max(p["x"] for p in points)
         if max_x > 0:
             x_range = X_END - X_START
+            # グラフ上部（ヘッダー領域）まで線がはみ出してもクリップしない
             coords = [
                 (
                     (X_START + (p["x"] / max_x) * x_range) * SCALE,
@@ -9810,26 +9890,39 @@ def draw_slump_graph(
                 )
                 for p in points
             ]
-            for i in range(len(coords) - 1):
-                draw_big.line([coords[i], coords[i + 1]], fill=LINE_RGB, width=2 * SCALE)
+            ImageDraw.Draw(big).line(coords, fill=LINE_RGB, width=LINE_W, joint="curve")
 
     # 1x にスケールダウン（ライン AA）
     result = big.resize((w, h), Image.LANCZOS).convert("RGB")
     draw   = ImageDraw.Draw(result)
 
-    # テキスト描画（1x で中央寄せ）
-    font_name = load_font(13)
-    font_uid  = load_font(11)
+    # ヘッダーテキスト（純白・1回だけ描画）
+    font_name = load_font(24)
+    font_uid  = load_font(24)
 
-    def _cx(text, font):
-        try:
-            bb = font.getbbox(text)
-            return max(0, (w - (bb[2] - bb[0])) // 2)
-        except Exception:
-            return max(0, (w - len(text) * 11) // 2)
+    def _center_xy(text, font, box_y0, box_h):
+        bb = font.getbbox(text)
+        tw = bb[2] - bb[0]
+        th = bb[3] - bb[1]
+        x = (w - tw) // 2 - bb[0]
+        y = box_y0 + (box_h - th) // 2 - bb[1]
+        return x, y
 
-    draw.text((_cx(display_name, font_name), 6),  display_name, fill=(255, 255, 255), font=font_name)
-    draw.text((_cx(str(unit_id),  font_uid),  23), str(unit_id), fill=(200, 200, 200), font=font_uid)
+    name_x, name_y = _center_xy(display_name, font_name, 10, 41)
+    draw.text((name_x, name_y), display_name, fill=(255, 255, 255), font=font_name)
+
+    uid_text = f"{unit_id}番台"
+    uid_x, uid_y = _center_xy(uid_text, font_uid, 57, 41)
+    draw.text((uid_x, uid_y), uid_text, fill=(255, 255, 255), font=font_uid)
+
+    # 差枚テキスト（黄色・中央寄せ）
+    if points:
+        font_diff  = load_font(48)
+        diff_text  = _fmt_diff(_pipeline_calc_d(points[-1]["y"]))
+        bb = font_diff.getbbox(diff_text)
+        diff_x = (w - (bb[2] - bb[0])) // 2 - bb[0]
+        diff_y = (h - 18) - bb[3]
+        draw.text((diff_x, diff_y), diff_text, fill=(255, 255, 0), font=font_diff)
 
     return result
 

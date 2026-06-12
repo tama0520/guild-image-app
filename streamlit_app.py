@@ -1806,8 +1806,20 @@ def _make_zip_bytes(dir_path: str) -> bytes:
     return buf.getvalue()
 
 
+_CIRCLE_TO_ASCII = {
+    "⓪": "0", "①": "1", "②": "2", "③": "3", "④": "4", "⑤": "5",
+    "⑥": "6", "⑦": "7", "⑧": "8", "⑨": "9", "⑩": "10", "⑪": "11",
+    "⑫": "12", "⑬": "13", "⑭": "14", "⑮": "15", "⑯": "16", "⑰": "17",
+    "⑱": "18", "⑲": "19", "⑳": "20",
+}
+
+
 def _make_safe_fn(name: str) -> str:
-    return re.sub(r'[\\/:*?"<>|]', '_', str(name))
+    # 丸囲み数字（⓪①…）は一部環境でファイルが見つからない扱いになるため通常数字へ
+    s = str(name)
+    for _c, _d in _CIRCLE_TO_ASCII.items():
+        s = s.replace(_c, _d)
+    return re.sub(r'[\\/:*?"<>|]', '_', s)
 
 
 def _check_github_token() -> tuple[bool, str]:
@@ -3964,6 +3976,143 @@ def _kojin_yushu_filter(km: str, grp_all: pd.DataFrame, dr_all: pd.Series, cfg: 
     return grp_all[mask.values].copy()
 
 
+def _build_pision_like_html(title: str, summary: dict, rows: list) -> str:
+    """pision記事風のサマリーボックス＋機種別テーブルのHTMLを返す。
+    summary: {total_diff, avg_diff, avg_games, plus, total}
+    rows: [(機種名, 台数, 勝台数, 総差枚, 平均差枚, 平均G数), ...]（バラエティ行は末尾）"""
+    def sdiff(v: int) -> str:
+        if v > 0:
+            return f"+{v:,}"
+        if v < 0:
+            return f"{v:,}"
+        return "±0"
+
+    sum_rows = (
+        f'<tr><th>総差枚</th><td>{sdiff(summary["total_diff"])}</td></tr>'
+        f'<tr><th>平均差枚</th><td>{sdiff(summary["avg_diff"])}</td></tr>'
+        f'<tr><th>平均G数</th><td>{summary["avg_games"]:,}</td></tr>'
+        f'<tr><th>勝率</th><td>{summary["plus"]}/{summary["total"]}</td></tr>'
+    )
+    body = []
+    for name, n, w, td, ad, ag in rows:
+        is_var = (name == "バラエティ")
+        wr = f"{w}/{n} ({round(w / n * 100)}%)" if n else "－"
+        body.append(
+            f'<tr class="{"variety" if is_var else ""}">'
+            f'<td class="name">{name}</td>'
+            f'<td class="num">{sdiff(ad)}</td>'
+            f'<td class="num">{sdiff(td)}</td>'
+            f'<td class="num">{ag:,}</td>'
+            f'<td class="wr">{wr}</td>'
+            f'</tr>'
+        )
+    return f'''
+<style>
+.pis-box {{ font-family:"Meiryo","Yu Gothic",sans-serif; color:#2b3a42; }}
+.pis-title {{ font-size:20px; font-weight:600; margin:2px 0 10px; }}
+.pis-sum {{ border-collapse:collapse; margin-bottom:14px; }}
+.pis-sum th {{ background:#f4f6f7; border:1px solid #dde3e6; padding:6px 14px;
+              text-align:left; font-weight:600; width:90px; white-space:nowrap; }}
+.pis-sum td {{ border:1px solid #dde3e6; padding:6px 18px; min-width:120px;
+              font-variant-numeric:tabular-nums; }}
+.pis-sec {{ font-size:16px; font-weight:700; margin:6px 0 8px; }}
+.pis-wrap {{ max-height:560px; overflow:auto; border:1px solid #e0e0e0; border-radius:4px; }}
+.pis-tbl {{ border-collapse:collapse; width:100%; font-size:13px; }}
+.pis-tbl th {{ background:#eceff1; color:#455a64; padding:8px 10px;
+              border-bottom:2px solid #cfd8dc; position:sticky; top:0; z-index:1; white-space:nowrap; }}
+.pis-tbl th.name {{ text-align:left; }}
+.pis-tbl td {{ padding:7px 10px; border-bottom:1px solid #eceff1; }}
+.pis-tbl td.name {{ text-align:left; color:#1565c0; }}
+.pis-tbl td.num {{ text-align:right; color:#263238; font-variant-numeric:tabular-nums; white-space:nowrap; }}
+.pis-tbl td.wr {{ text-align:center; color:#263238; white-space:nowrap; }}
+.pis-tbl tbody tr:hover td {{ background:#f5f9ff; }}
+.pis-tbl tbody tr.variety td.name {{ color:#5f6368; font-weight:600; }}
+</style>
+<div class="pis-box">
+<div class="pis-title">{title}</div>
+<table class="pis-sum"><tbody>{sum_rows}</tbody></table>
+<div class="pis-sec">機種別データ</div>
+<div class="pis-wrap"><table class="pis-tbl">
+<thead><tr><th class="name">機種</th><th>平均差枚</th><th>総差枚</th><th>平均G数</th><th>勝率</th></tr></thead>
+<tbody>{''.join(body)}</tbody>
+</table></div>
+</div>
+'''
+
+
+def _build_pision_detail_html(name: str, df: pd.DataFrame) -> str:
+    """機種クリック時の台別詳細（pision準拠：台番/差枚/BB/RB/合算/ART/G数＋平均行）。
+    df: その機種の台別行（列: 台番/差枚/BB/RB/AT/ゲーム数 のうち存在するもの）"""
+    def dcell(v: int) -> str:
+        cls = "pos" if v > 0 else ("neg" if v < 0 else "z")
+        s = f"+{v:,}" if v > 0 else (f"{v:,}" if v < 0 else "±0")
+        return f'<td class="dn {cls}">{s}</td>'
+
+    def prob(cnt: int, g: int) -> str:
+        return f"{cnt} (1/{round(g / cnt)})" if cnt > 0 else f"{cnt}"
+
+    has_bb = "BB" in df.columns
+    has_rb = "RB" in df.columns
+    has_at = "AT" in df.columns
+    has_g  = "ゲーム数" in df.columns
+    body = []
+    for _, r in df.sort_values("台番").iterrows():
+        dai = int(r["台番"]); dv = int(r["差枚"])
+        bb = int(r["BB"]) if has_bb else 0
+        rb = int(r["RB"]) if has_rb else 0
+        at = int(r["AT"]) if has_at else 0
+        g  = int(r["ゲーム数"]) if has_g else 0
+        tot = bb + rb
+        gou = f"1/{round(g / tot)}" if tot > 0 and g else "─"
+        body.append(
+            f'<tr><td class="c">{dai}</td>{dcell(dv)}'
+            f'<td class="c">{prob(bb, g)}</td><td class="c">{prob(rb, g)}</td>'
+            f'<td class="c">{gou}</td><td class="c">{at}</td>'
+            f'<td class="r">{g:,}</td></tr>'
+        )
+    n = len(df)
+    avg_row = ""
+    if n:
+        tg = int(df["ゲーム数"].sum()) if has_g else 0
+        tbb = int(df["BB"].sum()) if has_bb else 0
+        trb = int(df["RB"].sum()) if has_rb else 0
+        avg_d = int(round(df["差枚"].mean()))
+        avg_at = int(round(df["AT"].mean())) if has_at else 0
+        avg_g = int(round(df["ゲーム数"].mean())) if has_g else 0
+        tot = tbb + trb
+        avg_gou = f"1/{round(tg / tot)}" if tot > 0 and tg else "─"
+        avg_row = (
+            f'<tr class="avg"><td class="c">平均</td>{dcell(avg_d)}'
+            f'<td class="c"></td><td class="c"></td>'
+            f'<td class="c">{avg_gou}</td><td class="c">{avg_at}</td>'
+            f'<td class="r">{avg_g:,}</td></tr>'
+        )
+    return f'''
+<style>
+.pisd {{ font-family:"Meiryo","Yu Gothic",sans-serif; margin:4px 0 10px; }}
+.pisd-title {{ font-size:15px; font-weight:700; color:#2b3a42; margin:2px 0 6px; }}
+.pisd-tbl {{ border-collapse:collapse; width:100%; font-size:13px; }}
+.pisd-tbl th {{ background:#eceff1; color:#455a64; padding:7px 10px;
+               border-bottom:2px solid #cfd8dc; white-space:nowrap; }}
+.pisd-tbl td {{ padding:6px 10px; border-bottom:1px solid #eceff1; }}
+.pisd-tbl td.c {{ text-align:center; color:#263238; white-space:nowrap; }}
+.pisd-tbl td.r {{ text-align:right; color:#263238; font-variant-numeric:tabular-nums; white-space:nowrap; }}
+.pisd-tbl td.dn {{ text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }}
+.pisd-tbl td.pos {{ color:#2f9e44; font-weight:700; }}
+.pisd-tbl td.neg {{ color:#e03131; }}
+.pisd-tbl td.z {{ color:#868e96; }}
+.pisd-tbl tr.avg td {{ border-top:2px solid #cfd8dc; background:#f7fafb; font-weight:600; }}
+</style>
+<div class="pisd">
+<div class="pisd-title">{name}（{n}台）</div>
+<table class="pisd-tbl">
+<thead><tr><th>台番</th><th>差枚</th><th>BB</th><th>RB</th><th>合算</th><th>ART</th><th>G数</th></tr></thead>
+<tbody>{''.join(body)}{avg_row}</tbody>
+</table>
+</div>
+'''
+
+
 def show_auto_page() -> None:
     """自動処理ページ: PIL パイプラインで全画像を生成する"""
     store = st.session_state.selected_store
@@ -3971,10 +4120,10 @@ def show_auto_page() -> None:
     st.caption("全台系・ジャグラー優秀台・その他の優秀台を一括生成します。")
     st.markdown("---")
 
-    # ── ⓪ pision.io から日付データを自動取得（高田馬場専用）───────────────
+    # ── ⓪ pision.io から日付データを自動取得（全店舗・その店舗のデータ）──────
     _tb_uploaded = None
-    if store == "高田馬場":
-        st.markdown("### 📈 日付からデータを自動取得（高田馬場）")
+    if store in STORES:
+        st.markdown(f"### 📈 日付からデータを自動取得（{store}）")
         api_key = _get_pision_api_key()
         if not api_key:
             st.caption("⚠️ PISION_API_KEY が未設定のため利用できません。①から手動でアップロードしてください。")
@@ -3982,15 +4131,20 @@ def show_auto_page() -> None:
             _tb_date = st.date_input(
                 "日付を選択",
                 value=datetime.date.today() - datetime.timedelta(days=1),
-                key="auto_tb_date",
+                key=f"auto_tb_date_{store}",
             )
-            _tb_refetch = st.button("🔄 再取得", key="auto_tb_refetch")
+            _tb_refetch = st.button("🔄 再取得", key=f"auto_tb_refetch_{store}")
             _tb_date_str = _tb_date.strftime("%Y-%m-%d")
 
+            _tb_seen_key    = f"_auto_tb_seen_date_{store}"
+            _tb_fpath_key   = f"_auto_tb_file_path_{store}"
+            _tb_count_key   = f"_auto_tb_count_{store}"
+            _tb_fetched_key = f"_auto_tb_fetched_date_{store}"
+
             # 初回表示では自動取得しない。日付が変更された場合のみ取得する
-            _tb_seen = st.session_state.get("_auto_tb_seen_date")
+            _tb_seen = st.session_state.get(_tb_seen_key)
             _tb_date_changed = _tb_seen is not None and _tb_seen != _tb_date_str
-            st.session_state["_auto_tb_seen_date"] = _tb_date_str
+            st.session_state[_tb_seen_key] = _tb_date_str
 
             if _tb_date_changed or _tb_refetch:
                 with st.spinner(f"{_tb_date_str} のデータを取得中..."):
@@ -4002,7 +4156,7 @@ def show_auto_page() -> None:
                     _tb_hall_id = None
                     for h in _tb_halls:
                         _hn = h.get("name") or h.get("displayName") or ""
-                        if "高田馬場" in _hn and "エスパス" in _hn:
+                        if store in _hn and "エスパス" in _hn:
                             _tb_hall_id = str(h.get("id") or h.get("hallId") or "")
                             break
                     _tb_fetched = None
@@ -4013,7 +4167,7 @@ def show_auto_page() -> None:
                             st.error(f"❌ データ取得失敗: {e}")
                             _tb_fetched = None
                 if not _tb_fetched:
-                    st.session_state["_auto_tb_file_path"] = None
+                    st.session_state[_tb_fpath_key] = None
                 else:
                     _tb_rows = [
                         {
@@ -4028,20 +4182,20 @@ def show_auto_page() -> None:
                         for item in _tb_fetched
                     ]
                     _tb_df    = pd.DataFrame(_tb_rows)
-                    _tb_fname = f"{_tb_date.strftime('%Y%m%d')}_高田馬場_20S.xlsx"
+                    _tb_fname = f"{_tb_date.strftime('%Y%m%d')}_{store}_20S.xlsx"
                     _tb_fpath = os.path.join(BASE_DIR, _tb_fname)
                     _tb_df.to_excel(_tb_fpath, index=False)
-                    st.session_state["_auto_tb_file_path"] = _tb_fpath
-                    st.session_state["_auto_tb_count"]     = len(_tb_df)
-                st.session_state["_auto_tb_fetched_date"] = _tb_date_str
+                    st.session_state[_tb_fpath_key] = _tb_fpath
+                    st.session_state[_tb_count_key] = len(_tb_df)
+                st.session_state[_tb_fetched_key] = _tb_date_str
 
-            if st.session_state.get("_auto_tb_fetched_date") == _tb_date_str:
-                _tb_path = st.session_state.get("_auto_tb_file_path")
+            if st.session_state.get(_tb_fetched_key) == _tb_date_str:
+                _tb_path = st.session_state.get(_tb_fpath_key)
                 if _tb_path and os.path.exists(_tb_path):
                     with open(_tb_path, "rb") as f:
                         _tb_uploaded = io.BytesIO(f.read())
                     _tb_uploaded.name = os.path.basename(_tb_path)
-                    st.success(f"✅ {_tb_date_str} のデータ（{st.session_state.get('_auto_tb_count', '?')}台）を取得し、①にセットしました。")
+                    st.success(f"✅ {_tb_date_str} のデータ（{st.session_state.get(_tb_count_key, '?')}台）を取得し、①にセットしました。")
                 else:
                     st.info(f"📭 {_tb_date_str} のデータを取得できませんでした（404 / 未公開 / 店休日の可能性があります）。①から手動でアップロードしてください。")
 
@@ -4081,6 +4235,132 @@ def show_auto_page() -> None:
         except Exception:
             pass
     _excel_candidates: list[str] = st.session_state.get(_em_ss_key) or load_machine_candidates()
+
+    # ── 📋 取得データを作業画面内に表示（pisionを開かず照合するため）──────
+    if uploaded is not None:
+        _vt_key       = f"_auto_view_df_{store}"
+        _vt_sum_key   = f"_auto_view_summary_{store}"
+        _vt_meta_key  = f"_auto_view_meta_{store}"
+        _vt_units_key = f"_auto_view_units_{store}"
+        _vt_fn_key    = f"_auto_view_df_fn_{store}"
+        if st.session_state.get(_vt_fn_key) != uploaded.name:
+            try:
+                uploaded.seek(0)
+                _vt_raw = _read_uploaded_df(uploaded)
+                uploaded.seek(0)
+                _vt_df, _ = normalize_df(_vt_raw)
+                _vt_df = apply_name_conversion(_vt_df)
+                # 台別（詳細照合用）
+                _disp = pd.DataFrame()
+                if "台番" in _vt_df.columns:    _disp["台番"]    = _vt_df["台番"]
+                if "機種名" in _vt_df.columns:  _disp["機種名"]  = _vt_df["機種名"]
+                if "ゲーム数" in _vt_df.columns: _disp["G数"]     = _vt_df["ゲーム数"]
+                if "BB" in _vt_df.columns:      _disp["BB"]      = _vt_df["BB"]
+                if "RB" in _vt_df.columns:      _disp["RB"]      = _vt_df["RB"]
+                if "AT" in _vt_df.columns:      _disp["ART"]     = _vt_df["AT"]
+                if {"BB", "RB", "ゲーム数"} <= set(_vt_df.columns):
+                    _tot = (_vt_df["BB"] + _vt_df["RB"]).replace(0, pd.NA)
+                    _disp["合算確率"] = (_vt_df["ゲーム数"] / _tot).map(
+                        lambda v: f"1/{v:.1f}" if pd.notna(v) else "─")
+                if "差枚" in _vt_df.columns:    _disp["差枚"]    = _vt_df["差枚"]
+                if "台番" in _disp.columns:
+                    _disp = _disp.sort_values("台番").reset_index(drop=True)
+                st.session_state[_vt_key] = _disp
+                # 機種別集計（全機種・素データ。表示時に2台以上/バラエティへ振り分け）
+                _agg = None
+                _meta = None
+                if {"機種名", "差枚"} <= set(_vt_df.columns):
+                    _g = _vt_df.groupby("機種名", sort=False)
+                    _agg = pd.DataFrame({
+                        "機種名":   list(_g.groups.keys()),
+                        "台数":     _g["差枚"].size().values,
+                        "勝台数":   _g["差枚"].apply(lambda s: int((s > 0).sum())).values,
+                        "総差枚":   _g["差枚"].sum().astype(int).values,
+                        "平均差枚": _g["差枚"].mean().round().astype(int).values,
+                    })
+                    if "ゲーム数" in _vt_df.columns:
+                        _agg["平均G数"] = _g["ゲーム数"].mean().round().astype(int).values
+                    else:
+                        _agg["平均G数"] = 0
+                    _tot_all = len(_vt_df)
+                    _td_all  = int(_vt_df["差枚"].sum())
+                    _meta = {
+                        "total":      _tot_all,
+                        "plus":       int((_vt_df["差枚"] > 0).sum()),
+                        "total_diff": _td_all,
+                        "avg_diff":   int(round(_td_all / _tot_all)) if _tot_all else 0,
+                        "avg_games":  (int(round(_vt_df["ゲーム数"].mean()))
+                                       if "ゲーム数" in _vt_df.columns and _tot_all else 0),
+                    }
+                # 機種クリック詳細用の台別素データ（必要列のみ）
+                _ucols = [c for c in ["台番", "機種名", "差枚", "BB", "RB", "AT", "ゲーム数"]
+                          if c in _vt_df.columns]
+                st.session_state[_vt_units_key] = _vt_df[_ucols].copy() if _ucols else None
+                st.session_state[_vt_sum_key]   = _agg
+                st.session_state[_vt_meta_key]  = _meta
+                st.session_state[_vt_fn_key]    = uploaded.name
+            except Exception:
+                st.session_state[_vt_key]       = None
+                st.session_state[_vt_sum_key]   = None
+                st.session_state[_vt_meta_key]  = None
+                st.session_state[_vt_units_key] = None
+        _view_df = st.session_state.get(_vt_key)
+        _agg_df  = st.session_state.get(_vt_sum_key)
+        _meta    = st.session_state.get(_vt_meta_key)
+        if _agg_df is not None and not _agg_df.empty and _meta is not None:
+            # 2台以上＝平均差枚の降順ランキング、1台機種＝バラエティに集約（pision準拠）
+            _multi  = _agg_df[_agg_df["台数"] >= 2].sort_values("平均差枚", ascending=False)
+            _single = _agg_df[_agg_df["台数"] == 1]
+            _rows = [
+                (r["機種名"], int(r["台数"]), int(r["勝台数"]),
+                 int(r["総差枚"]), int(r["平均差枚"]), int(r["平均G数"]))
+                for _, r in _multi.iterrows()
+            ]
+            if not _single.empty:
+                _vn  = int(_single["台数"].sum())
+                _vw  = int(_single["勝台数"].sum())
+                _vtd = int(_single["総差枚"].sum())
+                _vad = int(round(_vtd / _vn)) if _vn else 0
+                _vg  = int(round((_single["平均G数"] * _single["台数"]).sum() / _vn)) if _vn else 0
+                _rows.append(("バラエティ", _vn, _vw, _vtd, _vad, _vg))
+            _m = re.match(r"(\d{4})(\d{2})(\d{2})", os.path.basename(uploaded.name))
+            _title = (f"{int(_m.group(1))}/{int(_m.group(2))}/{int(_m.group(3))} エスパス{store}"
+                      if _m else f"エスパス{store}")
+            st.caption("📋 pisionの代わりに照合用（2台以上を平均差枚順・1台機種はバラエティに集約／数値はpisionの生データと一致）")
+            _col_l, _col_r = st.columns([5, 7], gap="large")
+            with _col_l:
+                st.markdown(_build_pision_like_html(_title, _meta, _rows), unsafe_allow_html=True)
+            with _col_r:
+                # 機種を選ぶと台別詳細を表示（pisionの機種名クリック相当）
+                _units_df = st.session_state.get(_vt_units_key)
+                if _units_df is not None and not _units_df.empty:
+                    _VARIETY = "🎲 バラエティ（1台機種すべて）"
+                    _opts = [r[0] for r in _rows if r[0] != "バラエティ"]
+                    if not _single.empty:
+                        _opts.append(_VARIETY)
+                    _sel = st.selectbox(
+                        "🔍 機種を選んで台別詳細を表示", _opts,
+                        index=None, placeholder="機種名を選択…",
+                        key=f"auto_detail_machine_{store}",
+                    )
+                    if _sel:
+                        if _sel == _VARIETY:
+                            _single_names = set(_single["機種名"].tolist())
+                            _detail = _units_df[_units_df["機種名"].isin(_single_names)]
+                            _detail_name = "バラエティ（1台機種すべて）"
+                        else:
+                            _detail = _units_df[_units_df["機種名"] == _sel]
+                            _detail_name = _sel
+                        if not _detail.empty:
+                            st.markdown(
+                                _build_pision_detail_html(_detail_name, _detail),
+                                unsafe_allow_html=True,
+                            )
+                    else:
+                        st.caption("← 左の表の機種名を見ながら、ここで機種を選ぶと台別詳細が出ます。")
+        if _view_df is not None and not _view_df.empty:
+            with st.expander(f"📋 台別データ（全{len(_view_df)}台）", expanded=False):
+                st.dataframe(_view_df, use_container_width=True, hide_index=True, height=520)
 
     # ── ② 処理内容（常に描画）────────────────────────────────────────
     st.caption("処理内容：① 全台系PNG ＋ 全台プラス機種別JPG　② ジャグラーシリーズ優秀台JPG　③ その他の優秀台ピックアップJPG")

@@ -44,9 +44,16 @@ _machine_col = next(
     (c for c in ["機種名", "機種名（正式名）", "機種名（データサイト表記）", "機種名（表記）", "機種"] if c in df.columns),
     "機種名（データサイト表記）",
 )
-_games_col = next((c for c in ["G数", "G数(G)", "ゲーム数", "総ゲーム数", "回転数"] if c in df.columns), "G数")
-_diff_col  = next((c for c in ["差枚", "差枚数", "差玉", "差枚(枚)"] if c in df.columns), "差枚")
-df = df[["台番", _machine_col, _games_col, "BB", "RB", "ART", _diff_col]].copy()
+_games_col = next((c for c in ["G数", "G数(G)", "ゲーム数", "総ゲーム数", "G", "回転数", "スピン数"] if c in df.columns), "G数")
+_diff_col  = next((c for c in ["差枚", "差枚数", "差玉", "差枚(枚)", "差"] if c in df.columns), "差枚")
+_dai_col   = next((c for c in ["台番", "台No", "台no", "台NO", "号機", "番台", "台番号"] if c in df.columns), "台番")
+_bb_col    = next((c for c in ["BB", "bb", "BIG", "big", "BIG回数", "BB回数"] if c in df.columns), "BB")
+_rb_col    = next((c for c in ["RB", "rb", "REG", "reg", "REG回数", "RB回数"] if c in df.columns), "RB")
+_at_col    = next((c for c in ["ART", "art", "AT", "at", "ART回数", "AT回数"] if c in df.columns), None)
+if _at_col is None:
+    df["__AT__"] = 0
+    _at_col = "__AT__"
+df = df[[_dai_col, _machine_col, _games_col, _bb_col, _rb_col, _at_col, _diff_col]].copy()
 df.columns = ["台番", "機種名", "ゲーム数_raw", "BIG", "REG", "AT", "差枚数"]
 df["台番"] = df["台番"].astype(int)
 df["機種名"] = df["機種名"].apply(convert_name)

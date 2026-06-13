@@ -1867,5 +1867,31 @@
     "kojin_narabi_title_溝の口新館": "",
     "kojin_narabi2_range_溝の口新館": "",
     "kojin_narabi2_title_溝の口新館": ""
+  },
+  "20260612_渋谷新館_20S.xlsx": {
+    "kojin_enabled": false,
+    "narabi_enabled": true,
+    "narabi_ranges_input": "2001-2002\n2086-2087,2089-2092,2096-2098,2106-2107\n2007-2008,2010-2011,2013-2014,2032-2033\n2125-2129,2149-2151,2179-2181",
+    "suebangai_enabled": false,
+    "suebangai_tail_input_1": "",
+    "suebangai_tail_input_2": "",
+    "suebangai_tail_input_3": "",
+    "suebangai_mode": "",
+    "kojin_z_0_渋谷新館": "",
+    "kojin_y_0_渋谷新館": "",
+    "kojin_z_1_渋谷新館": "",
+    "kojin_y_1_渋谷新館": "",
+    "kojin_z_2_渋谷新館": "",
+    "kojin_y_2_渋谷新館": "",
+    "kojin_z_3_渋谷新館": "",
+    "kojin_y_3_渋谷新館": "",
+    "kojin_z_4_渋谷新館": "",
+    "kojin_y_4_渋谷新館": "",
+    "kojin_z_5_渋谷新館": "",
+    "kojin_y_5_渋谷新館": "",
+    "kojin_narabi_range_渋谷新館": "",
+    "kojin_narabi_title_渋谷新館": "",
+    "kojin_narabi2_range_渋谷新館": "",
+    "kojin_narabi2_title_渋谷新館": ""
   }
 }

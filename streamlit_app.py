@@ -10242,6 +10242,319 @@ def fetch_pision_results(api_key: str, hall_id: str, date: str) -> "list | None"
     return data.get("details", data.get("data", []))
 
 
+# ── 速報データ（realtime ログインアプリ）────────────────────────────────
+# 確定データ API（X-Api-Key）とは別系統。/login のセッション Cookie を使う。
+# realtime 用 hallId は X-Api-Key 側の hall id とは無関係（/realtime の店舗 select から取得）。
+
+def _get_pision_rt_credentials() -> "tuple[str | None, str | None]":
+    """realtime ログイン情報を st.secrets → .env → 環境変数 の優先順で取得する。"""
+    user = pw = None
+    try:
+        user = st.secrets["PISION_RT_USER"]
+        pw   = st.secrets["PISION_RT_PASS"]
+    except Exception:
+        pass
+    if not user or not pw:
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except ImportError:
+            pass
+        user = user or os.getenv("PISION_RT_USER")
+        pw   = pw   or os.getenv("PISION_RT_PASS")
+    return user, pw
+
+
+def _pision_rt_csrf(session, path: str) -> "str | None":
+    """指定パスの HTML から hidden input[name=csrfToken] の値を取り出す。"""
+    from bs4 import BeautifulSoup
+    r = session.get(f"{_PISION_BASE_URL}{path}", timeout=20)
+    soup = BeautifulSoup(r.text, "html.parser")
+    tok = soup.find("input", {"name": "csrfToken"})
+    return (tok.get("value") if tok else None), r
+
+
+def _pision_rt_login(session) -> "str | None":
+    """realtime にログインする。成功で None、失敗でエラーメッセージ文字列を返す。"""
+    user, pw = _get_pision_rt_credentials()
+    if not user or not pw:
+        return ("ログイン情報が未設定です。.env に PISION_RT_USER / PISION_RT_PASS を設定してください。")
+    csrf, _ = _pision_rt_csrf(session, "/login")
+    if not csrf:
+        return "CSRFトークンの取得に失敗しました（ログインページの構造が変わった可能性があります）。"
+    session.post(
+        f"{_PISION_BASE_URL}/login",
+        data={"csrfToken": csrf, "userName": user, "password": pw},
+        timeout=20, allow_redirects=True,
+    )
+    # ログイン確認：/realtime が /login にリダイレクトされなければ成功
+    chk = session.get(f"{_PISION_BASE_URL}/realtime", timeout=20, allow_redirects=False)
+    loc = chk.headers.get("Location", "")
+    if chk.status_code in (301, 302, 303) and "/login" in loc:
+        return "ログインに失敗しました（ID／パスワードを確認してください）。"
+    return None
+
+
+def _pision_rt_halls(session) -> "tuple[dict, str | None]":
+    """/realtime/create の店舗 select から {店舗名: realtime用hallId} と作成用 csrfToken を取得する。
+    realtime用hallId は X-Api-Key 側の hall id とは別に、この select の値を正とする。"""
+    from bs4 import BeautifulSoup
+    r = session.get(f"{_PISION_BASE_URL}/realtime/create", timeout=20)
+    soup = BeautifulSoup(r.text, "html.parser")
+    sel = soup.find("select", {"name": "hallId"}) or soup.find("select")
+    halls: dict = {}
+    if sel:
+        for opt in sel.find_all("option"):
+            val = (opt.get("value") or "").strip()
+            name = opt.get_text(strip=True)
+            if val and name:
+                halls[name] = val
+    tok = soup.find("input", {"name": "csrfToken"})
+    return halls, (tok.get("value") if tok else None)
+
+
+def _match_rt_hall(halls: dict, hall_name: str) -> "str | None":
+    """店舗名（例: エスパス新小岩）を realtime の店舗 select 候補に突き合わせて hallId を返す。"""
+    if hall_name in halls:
+        return halls[hall_name]
+    # 「エスパス」有無やスペースを無視した緩い一致
+    def norm(s: str) -> str:
+        return _normalize_key(s).replace("エスパス", "")
+    target = norm(hall_name)
+    for name, hid in halls.items():
+        if norm(name) == target:
+            return hid
+    for name, hid in halls.items():
+        if target and (target in norm(name) or norm(name) in target):
+            return hid
+    return None
+
+
+def _pision_rt_find_article_id(html: str, hall_id: str, date_str: str) -> "tuple[int | None, str | None, list]":
+    """/realtime 一覧 HTML から対象ホール・対象日の記事 id を探す。
+    各行の「再実行」リンク (/realtime/create?targetDate=...&hallId=...) で行の (hallId, 日付) を判定し、
+    同じ行の /articles/{id} とペアにする。同一条件で複数あれば最大id（最新の収集）を返す。
+    行内の最後の日時（収集完了時刻）も取り出す。
+    戻り値: (記事id or None, 収集時刻 or None, 候補リスト[(id, hallId, date)])。"""
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "html.parser")
+    cands: list = []   # (article_id, hallId, date)
+    times: dict = {}   # article_id -> 収集完了時刻文字列
+    for tr in soup.find_all("tr"):
+        art = hid = td = None
+        for a in tr.find_all("a", href=True):
+            m1 = re.search(r"/articles/(\d+)", a["href"])
+            if m1:
+                art = int(m1.group(1))
+            m2 = re.search(r"/realtime/create\?targetDate=([\d\-]+)&hallId=(\d+)", a["href"])
+            if m2:
+                td, hid = m2.group(1), m2.group(2)
+        if art and hid and td:
+            cands.append((art, hid, td))
+            # 行内の日時（YYYY/MM/DD HH:MM:SS）の最後＝収集完了時刻
+            ts = re.findall(r"\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}(?::\d{2})?", tr.get_text(" ", strip=True))
+            if ts:
+                times[art] = ts[-1]
+    cands.sort(key=lambda x: x[0], reverse=True)  # id 降順（新しい順）
+
+    # 店舗 hallId と日付が厳密一致するものだけを採用（他店舗の同日記事は拾わない）
+    match = [c for c in cands if str(c[1]) == str(hall_id) and c[2] == date_str]
+    if match:
+        aid = match[0][0]
+        return aid, times.get(aid), cands
+    return None, None, cands
+
+
+def _pision_rt_is_running(html: str, hall_id: str, date_str: str) -> bool:
+    """対象ホール・対象日の収集が「実行中」の行が一覧にあるかを判定する。
+    実行中の行は「再実行」リンク(hallId,date)を持つが /articles/{id} リンクが無く、
+    『実行中』の文字を含む。"""
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "html.parser")
+    for tr in soup.find_all("tr"):
+        has_target = has_article = False
+        for a in tr.find_all("a", href=True):
+            if re.search(r"/articles/(\d+)", a["href"]):
+                has_article = True
+            m = re.search(r"/realtime/create\?targetDate=([\d\-]+)&hallId=(\d+)", a["href"])
+            if m and m.group(1) == date_str and m.group(2) == str(hall_id):
+                has_target = True
+        if has_target and not has_article and "実行中" in tr.get_text(" ", strip=True):
+            return True
+    return False
+
+
+def _rt_int(text: str) -> int:
+    """「-1,800」「+2,900」「±0」などを整数に変換する。"""
+    t = (text or "").replace(",", "").replace("±", "").strip()
+    m = re.match(r"^[+\-]?\d+", t)
+    return int(m.group(0)) if m else 0
+
+
+def _rt_count(text: str) -> int:
+    """「43(1/37)」「0」などBB/RB/ARTセルから回数だけを取り出す。"""
+    m = re.match(r"^\s*(\d+)", text or "")
+    return int(m.group(1)) if m else 0
+
+
+def _parse_pision_rt_detail(html: str) -> "tuple[list, int]":
+    """/articles/{id}/detail HTML から速報データを抽出する。
+    差枚・G数・BB・RB・ART は台別テーブル（ヘッダー: 台番/差枚/前日差枚/BB/RB/合算/ART/G数）の
+    実値を使い、points（時系列 {x,y}）は div.graph の data-points から台番で紐づける。
+    points の x は間引き値で実G数ではないため、グラフ描画専用に使う。
+    戻り値: (items, グラフ用pointsが無い台数)。items は確定APIの details と同形:
+    {unitId, displayName, points, diff, games, bb, rb, art}。"""
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "html.parser")
+
+    # ① div.graph から {台番: (points, 機種短縮名)}
+    gmap: dict = {}
+    for g in soup.select("div.graph"):
+        uid = g.get("data-unit-id")
+        if not uid:
+            continue
+        raw = g.get("data-points")
+        pts = None
+        if raw:
+            try:
+                # BeautifulSoup は属性値の HTML エスケープを復元済み。JSON をパース。
+                pts = json.loads(raw)
+            except (ValueError, TypeError):
+                pts = None
+        gmap[str(uid)] = {
+            "points": pts if (pts and len(pts) >= 2) else None,   # 始点のみは線が引けない
+            "name":   g.get("data-short-name") or g.get("data-model-name") or "",
+        }
+
+    # ② 台別テーブルから実データを集める（台番をキーに）
+    HEAD = ["台番", "差枚", "前日差枚", "BB", "RB", "合算", "ART", "G数"]
+    items: list = []
+    skipped = 0
+    seen: set = set()
+    for t in soup.find_all("table"):
+        ths = [th.get_text(strip=True) for th in t.find_all("th")]
+        if ths[:8] != HEAD:
+            continue
+        for tr in t.find_all("tr"):
+            cells = [c.get_text(strip=True) for c in tr.find_all(["td", "th"])]
+            if len(cells) < 8 or not re.match(r"^\d+$", cells[0]):
+                continue  # ヘッダー行・平均行・空行を除外
+            uid = cells[0]
+            if uid in seen:
+                continue
+            seen.add(uid)
+            g = gmap.get(uid, {})
+            pts = g.get("points")
+            if not pts:
+                skipped += 1
+            items.append({
+                "unitId":      uid,
+                "displayName": g.get("name", ""),
+                "points":      pts,                  # None ならグラフ生成時にスキップされる
+                "diff":        _rt_int(cells[1]),    # 差枚（実値）
+                "bb":          _rt_count(cells[3]),
+                "rb":          _rt_count(cells[4]),
+                "art":         _rt_count(cells[6]),
+                "games":       _rt_int(cells[7]),    # G数（実値）
+            })
+    return items, skipped
+
+
+def fetch_pision_realtime(hall_name: str, date_str: str, trigger: bool = True) -> dict:
+    """速報データを取得する。realtime にログイン → （trigger時のみ）/realtime/create で最新収集を開始 →
+    一覧から直近の完了済み記事idを特定 → /articles/{id}/detail をパースして items を返す。
+    収集は数分かかるため、表示するのは「今すぐ読める最新の完了スナップショット」。
+    trigger=False なら収集を起こさず（実行中にせず）に最新完了分を読むだけ（完了確認用）。
+    戻り値: {ok, items, skipped, article_id, snapshot_time, collect_started, running, error, debug}。"""
+    import requests
+    result = {"ok": False, "items": [], "skipped": 0, "article_id": None,
+              "snapshot_time": None, "collect_started": False, "running": False,
+              "error": None, "debug": {}}
+    try:
+        session = requests.Session()
+        session.headers.update({"User-Agent": "Mozilla/5.0 (slump-graph-app)"})
+
+        err = _pision_rt_login(session)
+        if err:
+            result["error"] = err
+            return result
+
+        halls, csrf = _pision_rt_halls(session)
+        result["debug"]["hall_options"] = list(halls.keys())
+        if not halls:
+            result["error"] = "realtime の店舗一覧（select）の取得に失敗しました。"
+            return result
+
+        hall_id = _match_rt_hall(halls, hall_name)
+        if not hall_id:
+            result["error"] = (f"realtime の店舗一覧に「{hall_name}」が見つかりません。"
+                               f"候補: {', '.join(halls.keys())}")
+            return result
+        result["debug"]["rt_hall_id"] = hall_id
+
+        # 最新収集を開始（POST /realtime/create）→ realtime 上でその店舗が「実行中」になる。
+        # 収集完了まで数分かかるため、ここでは待たずに直近の完了済み記事を読む。
+        if trigger and csrf:
+            try:
+                session.post(
+                    f"{_PISION_BASE_URL}/realtime/create",
+                    data={"csrfToken": csrf, "hallId": hall_id, "targetDate": date_str},
+                    timeout=60, allow_redirects=True,
+                )
+                result["collect_started"] = True
+            except Exception:
+                pass  # 収集開始に失敗しても、既存記事の読み取りは続行する
+
+        # 一覧から対象ホール・対象日の直近完了記事idを特定（新しい順・数ページ走査）
+        article_id = snap_time = None
+        last_cands: list = []
+        first_page_html = None
+        for _page in range(1, 5):
+            list_html = session.get(
+                f"{_PISION_BASE_URL}/realtime?page={_page}", timeout=20).text
+            if _page == 1:
+                first_page_html = list_html
+            aid, ts, cands = _pision_rt_find_article_id(list_html, hall_id, date_str)
+            if cands:
+                last_cands = cands
+            if aid:
+                article_id, snap_time = aid, ts
+                break
+            if not cands:        # これ以上記事が無い
+                break
+        # この店舗・日付の収集が「実行中」かどうか（ページ1で判定）
+        result["running"] = _pision_rt_is_running(first_page_html or "", hall_id, date_str)
+        result["debug"]["article_candidates"] = last_cands[:15]
+        if article_id is None:
+            result["error"] = (
+                f"対象店舗・対象日（{date_str}）の完了済み速報記事が realtime 一覧に見つかりませんでした。"
+                + ("収集を開始したので、数分後にもう一度『速報データを取得』を押してください。"
+                   if result["collect_started"] else
+                   "realtime 側で『新規』収集を実行してから再度お試しください。"))
+            return result
+        result["article_id"]   = article_id
+        result["snapshot_time"] = snap_time
+
+        # 詳細ページを取得してパース
+        dr = session.get(f"{_PISION_BASE_URL}/articles/{article_id}/detail", timeout=30)
+        if dr.status_code != 200 or "/login" in (dr.url or ""):
+            result["error"] = f"詳細ページの取得に失敗しました（status={dr.status_code}）。"
+            return result
+        items, skipped = _parse_pision_rt_detail(dr.text)
+        result["skipped"] = skipped
+        if not items:
+            result["error"] = ("台別データが見つかりませんでした。"
+                               "pointsが無いためスランプグラフは生成できません。")
+            result["debug"]["detail_len"] = len(dr.text)
+            return result
+        result["items"] = items
+        result["ok"] = True
+        return result
+    except Exception as e:
+        result["error"] = f"速報データ取得中にエラー: {e}"
+        return result
+
+
 def draw_slump_graph(
     template_path,
     unit_id: str,
@@ -10359,6 +10672,27 @@ def _safe_filename(name: str) -> str:
     return name
 
 
+def _slump_apply_names(fetched: list) -> list:
+    """取得データ（確定/速報共通）に機種名変換を適用して _convertedName を付与し、
+    points ありの機種名一覧（multiselect 用・五十音ソート）を返す。fetched は in-place で更新。"""
+    _nm, _nm_norm = load_name_map()
+    def _conv(raw: str) -> str:
+        raw = str(raw).strip()
+        if raw in _nm:
+            return _nm[raw]
+        k = _normalize_key(raw)
+        if k in _nm_norm:
+            return _nm_norm[k]
+        return raw
+    for _it in fetched:
+        _it["_convertedName"] = _conv(_it.get("displayName", ""))
+    return sorted({
+        _it["_convertedName"]
+        for _it in fetched
+        if _it.get("points") and _it.get("_convertedName")
+    })
+
+
 def show_slump_graph_page() -> None:
     st.header("📈 スランプグラフ生成")
 
@@ -10375,6 +10709,27 @@ def show_slump_graph_page() -> None:
         st.warning("⚠️ `base_3000_bk.png` が見つかりません。画像作成フォルダまたはアプリと同じフォルダに配置してください。")
     else:
         st.caption(f"✅ テンプレート: `{template_path}`")
+
+    # ── データ種別（確定 / 速報）─────────────────────────────────────
+    _mode = st.radio(
+        "データ種別",
+        ["確定データ", "速報データ（当日・営業中）"],
+        horizontal=True,
+        key="slump_mode",
+        help="確定データ＝前日まで（X-Api-Key）。速報データ＝当日の営業中データ（realtimeログインが必要）。",
+    )
+    is_realtime = _mode.startswith("速報")
+    if is_realtime:
+        _rt_user, _rt_pass = _get_pision_rt_credentials()
+        if not _rt_user or not _rt_pass:
+            st.error("❌ 速報データには realtime のログイン情報が必要です。"
+                     ".env に以下を追記してください。")
+            st.code("PISION_RT_USER=ログインID\nPISION_RT_PASS=ログインパスワード", language="text")
+            return
+        st.caption("🟢 速報モード：取得時に realtime で最新収集を開始します"
+                   "（その店舗が一時的に『実行中』になります）。収集完了まで数分かかるため、"
+                   "表示されるのは『今すぐ読める直近の完了スナップショット』です。"
+                   "完了後にもう一度取得すると、今開始した収集の結果になります。")
 
     # ── ホール一覧（セッションキャッシュ）───────────────────────────
     _hall_key = "_slump_halls"
@@ -10424,42 +10779,49 @@ def show_slump_graph_page() -> None:
         sel_date = st.date_input("日付を選択", key="slump_date")
         date_str = sel_date.strftime("%Y-%m-%d")
 
-    # ── Step1: 機種一覧を取得（ホール・日付ごとにキャッシュ）────────────
-    _data_key  = f"_slump_data_{sel_hall_id}_{date_str}"
-    _names_key = f"_slump_names_{sel_hall_id}_{date_str}"
+    # ── Step1: 機種一覧を取得（ホール・日付・モードごとにキャッシュ）──────
+    _mode_tag  = "rt" if is_realtime else "fix"
+    _data_key  = f"_slump_data_{_mode_tag}_{sel_hall_id}_{date_str}"
+    _names_key = f"_slump_names_{_mode_tag}_{sel_hall_id}_{date_str}"
+    _artid_key = f"_slump_artid_{_mode_tag}_{sel_hall_id}_{date_str}"
+    _btn_label = "🟢 速報データを取得" if is_realtime else "🔍 機種一覧を取得"
 
     if _data_key not in st.session_state:
-        if st.button("🔍 機種一覧を取得", use_container_width=True, key="slump_fetch"):
-            with st.spinner(f"{date_str} のデータを取得中..."):
-                try:
-                    _fetched = fetch_pision_results(api_key, sel_hall_id, date_str)
-                except Exception as e:
-                    st.error(f"❌ データ取得失敗: {e}")
+        if st.button(_btn_label, use_container_width=True, key="slump_fetch"):
+            _fetched = None
+            if is_realtime:
+                # ── 速報データ（realtime ログイン・最新収集を開始して直近完了分を読む）──
+                with st.spinner(f"{date_str} の速報データを取得中...（ログイン→最新収集を開始→直近完了分を取得）"):
+                    _rt = fetch_pision_realtime(hall_names[sel_idx], date_str)
+                if not _rt["ok"]:
+                    st.error(f"❌ {_rt['error']}")
+                    if _rt.get("collect_started"):
+                        st.info("🔄 realtime で最新収集を開始しました（実行中）。完了まで数分かかります。")
+                    if _rt.get("debug"):
+                        with st.expander("🔧 デバッグ情報"):
+                            st.json(_rt["debug"])
                     return
-            if _fetched is None:
-                st.info("📭 データを取得できませんでした（404 / 未公開 / 店休日の可能性があります）。")
-                return
+                _fetched = _rt["items"]
+            else:
+                # ── 確定データ（X-Api-Key）─────────────────────────────
+                with st.spinner(f"{date_str} のデータを取得中..."):
+                    try:
+                        _fetched = fetch_pision_results(api_key, sel_hall_id, date_str)
+                    except Exception as e:
+                        st.error(f"❌ データ取得失敗: {e}")
+                        return
+                if _fetched is None:
+                    st.info("📭 データを取得できませんでした（404 / 未公開 / 店休日の可能性があります）。")
+                    return
             if not _fetched:
                 st.info("📭 この日付のデータがありません。")
                 return
             # 機種名変換マスタを適用して _convertedName を付与
-            _nm, _nm_norm = load_name_map()
-            def _conv_name(raw: str) -> str:
-                raw = str(raw).strip()
-                if raw in _nm:
-                    return _nm[raw]
-                k = _normalize_key(raw)
-                if k in _nm_norm:
-                    return _nm_norm[k]
-                return raw
-            for _it in _fetched:
-                _it["_convertedName"] = _conv_name(_it.get("displayName", ""))
             st.session_state[_data_key]  = _fetched
-            st.session_state[_names_key] = sorted({
-                _it["_convertedName"]
-                for _it in _fetched
-                if _it.get("points") and _it.get("_convertedName")
-            })
+            st.session_state[_names_key] = _slump_apply_names(_fetched)
+            if is_realtime:
+                st.session_state[_artid_key] = _rt.get("article_id")
+                st.session_state[f"{_artid_key}_time"] = _rt.get("snapshot_time")
             st.rerun()
         return  # 取得前はここで終了
 
@@ -10478,10 +10840,51 @@ def show_slump_graph_page() -> None:
         unit_filter = st.text_input("台番号検索（空欄可）", key="slump_unit")
 
     st.caption(f"📋 取得済み: {len(cached_details)} 台 / points あり: {len(cached_names)} 機種")
-    if st.button("🔄 再取得", key="slump_refetch"):
-        st.session_state.pop(_data_key, None)
-        st.session_state.pop(_names_key, None)
-        st.rerun()
+
+    if is_realtime:
+        # 速報モード：現在表示中のスナップショット時刻と、収集完了の確認ボタン
+        _cur_artid = st.session_state.get(_artid_key)
+        _snap = st.session_state.get(f"{_artid_key}_time")
+        if _snap:
+            st.info(f"🕒 表示中データの収集時刻: **{_snap}**　"
+                    "（取得時に最新収集を開始済み。完了したら下の『収集の完了を確認』で最新化できます）")
+        _c_chk, _c_re = st.columns(2)
+        with _c_chk:
+            if st.button("🔄 収集の完了を確認", use_container_width=True, key="slump_rt_check",
+                         help="先ほど開始した収集が完了したか確認します（収集は再実行しません）。"):
+                with st.spinner("収集状況を確認中..."):
+                    _chk = fetch_pision_realtime(hall_names[sel_idx], date_str, trigger=False)
+                if not _chk["ok"]:
+                    st.error(f"❌ {_chk['error']}")
+                else:
+                    _new_id = _chk.get("article_id")
+                    if _cur_artid is not None and _new_id and int(_new_id) > int(_cur_artid):
+                        # 新しい完了スナップショットに更新（収集はトリガーしない）
+                        _items = _chk["items"]
+                        st.session_state[_data_key]  = _items
+                        st.session_state[_names_key] = _slump_apply_names(_items)
+                        st.session_state[_artid_key] = _new_id
+                        st.session_state[f"{_artid_key}_time"] = _chk.get("snapshot_time")
+                        st.success(f"✅ 収集完了！最新データ（収集時刻 {_chk.get('snapshot_time')}）に更新しました。")
+                        st.rerun()
+                    elif _chk.get("running"):
+                        st.info("⏳ まだ実行中です。完了まで数分かかります。少し待ってからもう一度押してください。")
+                    else:
+                        st.info(f"ℹ️ 新しい完了データはまだありません（最新の完了は {_chk.get('snapshot_time')}）。"
+                                "少し待ってからもう一度押してください。")
+        with _c_re:
+            if st.button("🟢 最新を再収集して取得", use_container_width=True, key="slump_refetch",
+                         help="あらためて realtime で収集を開始します（一時的に実行中になります）。"):
+                st.session_state.pop(_data_key, None)
+                st.session_state.pop(_names_key, None)
+                st.session_state.pop(_artid_key, None)
+                st.session_state.pop(f"{_artid_key}_time", None)
+                st.rerun()
+    else:
+        if st.button("🔄 再取得", key="slump_refetch"):
+            st.session_state.pop(_data_key, None)
+            st.session_state.pop(_names_key, None)
+            st.rerun()
 
     with st.expander("🔍 取得済み全機種一覧（機種が見つからない場合に確認）"):
         _all_names_debug = sorted({

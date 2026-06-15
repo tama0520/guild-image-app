@@ -5,3 +5,5 @@ pillow>=10.0.0
 dataframe_image
 matplotlib
 python-dotenv
+requests
+beautifulsoup4

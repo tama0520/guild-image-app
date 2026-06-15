@@ -4137,7 +4137,8 @@ def show_auto_page() -> None:
             _tb_date_str = _tb_date.strftime("%Y-%m-%d")
 
             _tb_seen_key    = f"_auto_tb_seen_date_{store}"
-            _tb_fpath_key   = f"_auto_tb_file_path_{store}"
+            _tb_bytes_key   = f"_auto_tb_file_bytes_{store}"
+            _tb_name_key    = f"_auto_tb_file_name_{store}"
             _tb_count_key   = f"_auto_tb_count_{store}"
             _tb_fetched_key = f"_auto_tb_fetched_date_{store}"
 
@@ -4167,7 +4168,7 @@ def show_auto_page() -> None:
                             st.error(f"❌ データ取得失敗: {e}")
                             _tb_fetched = None
                 if not _tb_fetched:
-                    st.session_state[_tb_fpath_key] = None
+                    st.session_state[_tb_bytes_key] = None
                 else:
                     _tb_rows = [
                         {
@@ -4183,18 +4184,18 @@ def show_auto_page() -> None:
                     ]
                     _tb_df    = pd.DataFrame(_tb_rows)
                     _tb_fname = f"{_tb_date.strftime('%Y%m%d')}_{store}_20S.xlsx"
-                    _tb_fpath = os.path.join(BASE_DIR, _tb_fname)
-                    _tb_df.to_excel(_tb_fpath, index=False)
-                    st.session_state[_tb_fpath_key] = _tb_fpath
+                    _tb_buf   = io.BytesIO()
+                    _tb_df.to_excel(_tb_buf, index=False)
+                    st.session_state[_tb_bytes_key] = _tb_buf.getvalue()
+                    st.session_state[_tb_name_key]  = _tb_fname
                     st.session_state[_tb_count_key] = len(_tb_df)
                 st.session_state[_tb_fetched_key] = _tb_date_str
 
             if st.session_state.get(_tb_fetched_key) == _tb_date_str:
-                _tb_path = st.session_state.get(_tb_fpath_key)
-                if _tb_path and os.path.exists(_tb_path):
-                    with open(_tb_path, "rb") as f:
-                        _tb_uploaded = io.BytesIO(f.read())
-                    _tb_uploaded.name = os.path.basename(_tb_path)
+                _tb_data = st.session_state.get(_tb_bytes_key)
+                if _tb_data:
+                    _tb_uploaded = io.BytesIO(_tb_data)
+                    _tb_uploaded.name = st.session_state.get(_tb_name_key, f"{_tb_date.strftime('%Y%m%d')}_{store}_20S.xlsx")
                     st.success(f"✅ {_tb_date_str} のデータ（{st.session_state.get(_tb_count_key, '?')}台）を取得し、①にセットしました。")
                 else:
                     st.info(f"📭 {_tb_date_str} のデータを取得できませんでした（404 / 未公開 / 店休日の可能性があります）。①から手動でアップロードしてください。")

@@ -4113,6 +4113,110 @@ def _build_pision_detail_html(name: str, df: pd.DataFrame) -> str:
 '''
 
 
+def render_pision_data_view(vt_df: pd.DataFrame, title: str, sel_key: str) -> None:
+    """正規化済みDataFrame（列: 台番/機種名/差枚/ゲーム数/BB/RB/AT のうち存在するもの）から
+    pision記事風の機種別サマリー＋台別詳細＋台別データexpanderを描画する。
+    結果ポスト用ページとスランプグラフ生成ページで共用。"""
+    if vt_df is None or vt_df.empty:
+        return
+    # 台別（詳細照合用）
+    _disp = pd.DataFrame()
+    if "台番" in vt_df.columns:    _disp["台番"]    = vt_df["台番"]
+    if "機種名" in vt_df.columns:  _disp["機種名"]  = vt_df["機種名"]
+    if "ゲーム数" in vt_df.columns: _disp["G数"]     = vt_df["ゲーム数"]
+    if "BB" in vt_df.columns:      _disp["BB"]      = vt_df["BB"]
+    if "RB" in vt_df.columns:      _disp["RB"]      = vt_df["RB"]
+    if "AT" in vt_df.columns:      _disp["ART"]     = vt_df["AT"]
+    if {"BB", "RB", "ゲーム数"} <= set(vt_df.columns):
+        _tot = (vt_df["BB"] + vt_df["RB"]).replace(0, pd.NA)
+        _disp["合算確率"] = (vt_df["ゲーム数"] / _tot).map(
+            lambda v: f"1/{v:.1f}" if pd.notna(v) else "─")
+    if "差枚" in vt_df.columns:    _disp["差枚"]    = vt_df["差枚"]
+    if "台番" in _disp.columns:
+        _disp = _disp.sort_values("台番").reset_index(drop=True)
+
+    # 機種別集計（全機種・素データ）
+    _agg = None
+    _meta = None
+    if {"機種名", "差枚"} <= set(vt_df.columns):
+        _g = vt_df.groupby("機種名", sort=False)
+        _agg = pd.DataFrame({
+            "機種名":   list(_g.groups.keys()),
+            "台数":     _g["差枚"].size().values,
+            "勝台数":   _g["差枚"].apply(lambda s: int((s > 0).sum())).values,
+            "総差枚":   _g["差枚"].sum().astype(int).values,
+            "平均差枚": _g["差枚"].mean().round().astype(int).values,
+        })
+        if "ゲーム数" in vt_df.columns:
+            _agg["平均G数"] = _g["ゲーム数"].mean().round().astype(int).values
+        else:
+            _agg["平均G数"] = 0
+        _tot_all = len(vt_df)
+        _td_all  = int(vt_df["差枚"].sum())
+        _meta = {
+            "total":      _tot_all,
+            "plus":       int((vt_df["差枚"] > 0).sum()),
+            "total_diff": _td_all,
+            "avg_diff":   int(round(_td_all / _tot_all)) if _tot_all else 0,
+            "avg_games":  (int(round(vt_df["ゲーム数"].mean()))
+                           if "ゲーム数" in vt_df.columns and _tot_all else 0),
+        }
+
+    # 機種クリック詳細用の台別素データ
+    _ucols = [c for c in ["台番", "機種名", "差枚", "BB", "RB", "AT", "ゲーム数"]
+              if c in vt_df.columns]
+    _units_df = vt_df[_ucols].copy() if _ucols else None
+
+    if _agg is not None and not _agg.empty and _meta is not None:
+        _multi  = _agg[_agg["台数"] >= 2].sort_values("平均差枚", ascending=False)
+        _single = _agg[_agg["台数"] == 1]
+        _rows = [
+            (r["機種名"], int(r["台数"]), int(r["勝台数"]),
+             int(r["総差枚"]), int(r["平均差枚"]), int(r["平均G数"]))
+            for _, r in _multi.iterrows()
+        ]
+        if not _single.empty:
+            _vn  = int(_single["台数"].sum())
+            _vw  = int(_single["勝台数"].sum())
+            _vtd = int(_single["総差枚"].sum())
+            _vad = int(round(_vtd / _vn)) if _vn else 0
+            _vg  = int(round((_single["平均G数"] * _single["台数"]).sum() / _vn)) if _vn else 0
+            _rows.append(("バラエティ", _vn, _vw, _vtd, _vad, _vg))
+        st.caption("📋 pisionの代わりに照合用（2台以上を平均差枚順・1台機種はバラエティに集約／数値はpisionの生データと一致）")
+        _col_l, _col_r = st.columns([5, 7], gap="large")
+        with _col_l:
+            st.markdown(_build_pision_like_html(title, _meta, _rows), unsafe_allow_html=True)
+        with _col_r:
+            if _units_df is not None and not _units_df.empty:
+                _VARIETY = "🎲 バラエティ（1台機種すべて）"
+                _opts = [r[0] for r in _rows if r[0] != "バラエティ"]
+                if not _single.empty:
+                    _opts.append(_VARIETY)
+                _sel = st.selectbox(
+                    "🔍 機種を選んで台別詳細を表示", _opts,
+                    index=None, placeholder="機種名を選択…",
+                    key=sel_key,
+                )
+                if _sel:
+                    if _sel == _VARIETY:
+                        _single_names = set(_single["機種名"].tolist())
+                        _detail = _units_df[_units_df["機種名"].isin(_single_names)]
+                        _detail_name = "バラエティ（1台機種すべて）"
+                    else:
+                        _detail = _units_df[_units_df["機種名"] == _sel]
+                        _detail_name = _sel
+                    if not _detail.empty:
+                        st.markdown(
+                            _build_pision_detail_html(_detail_name, _detail),
+                            unsafe_allow_html=True,
+                        )
+                else:
+                    st.caption("← 左の表の機種名を見ながら、ここで機種を選ぶと台別詳細が出ます。")
+    if not _disp.empty:
+        with st.expander(f"📋 台別データ（全{len(_disp)}台）", expanded=False):
+            st.dataframe(_disp, use_container_width=True, hide_index=True, height=520)
+
+
 def show_auto_page() -> None:
     """自動処理ページ: PIL パイプラインで全画像を生成する"""
     store = st.session_state.selected_store
@@ -10394,6 +10498,25 @@ def show_slump_graph_page() -> None:
             st.dataframe(_debug_df, use_container_width=True, hide_index=True)
         else:
             st.info("データなし")
+
+    # ── 📋 取得データをpision風に表示（結果ポスト用と同じビュー）──────────
+    _slump_rows = [
+        {
+            "台番":     _it.get("unitId"),
+            "機種名":   _it.get("_convertedName") or _it.get("displayName", ""),
+            "差枚":     _it.get("diff", 0),
+            "ゲーム数": _it.get("games", 0),
+            "BB":       _it.get("bb", 0),
+            "RB":       _it.get("rb", 0),
+            "AT":       _it.get("art", 0),
+        }
+        for _it in cached_details
+    ]
+    _slump_vt_df, _ = normalize_df(pd.DataFrame(_slump_rows))
+    _m_sl = re.match(r"(\d{4})-(\d{2})-(\d{2})", date_str)
+    _sl_title = (f"{int(_m_sl.group(1))}/{int(_m_sl.group(2))}/{int(_m_sl.group(3))} {hall_names[sel_idx]}"
+                 if _m_sl else hall_names[sel_idx])
+    render_pision_data_view(_slump_vt_df, _sl_title, sel_key="slump_detail_machine")
 
     st.divider()
 

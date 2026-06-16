@@ -5940,8 +5940,17 @@ def show_auto_page() -> None:
                     if _hr.get("has_image", False):
                         for _b in _hr.get("bans", []):
                             _ig_preview_bans.add(_b)
-                # 統合画像（ジャグラーシリーズ優秀台・その他の優秀台ピックアップ）の台番
-                for _eld in result.get("excellent_list", []) + result.get("jug_excellent_list", []):
+                # 統合画像（ジャグラーシリーズ優秀台）: jug_pool_df の全台番
+                # ※ jug_excellent_list は diff>=1000 のみで、確率条件通過の diff<1000 台が漏れるため pool_df を使う
+                _jug_pool = result.get("jug_pool_df")
+                if _jug_pool is not None and not _jug_pool.empty:
+                    for _b in _jug_pool["台番"].dropna():
+                        try:
+                            _ig_preview_bans.add(int(str(_b).split(".")[0]))
+                        except (ValueError, TypeError):
+                            pass
+                # 統合画像（その他の優秀台ピックアップ）: excellent_list の台番
+                for _eld in result.get("excellent_list", []):
                     try:
                         _ig_preview_bans.add(int(_eld["ban"]))
                     except (KeyError, ValueError, TypeError):

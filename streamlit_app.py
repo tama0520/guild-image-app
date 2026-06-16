@@ -2862,7 +2862,9 @@ def generate_recommended_result_text(
 
 
 def _fmt_diff(n: int) -> str:
-    sign = "+" if n >= 0 else ""
+    if n == 0:
+        return "±0枚"
+    sign = "+" if n > 0 else ""
     return f"{sign}{n:,}枚"
 
 

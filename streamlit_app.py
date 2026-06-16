@@ -5925,13 +5925,45 @@ def show_auto_page() -> None:
 
             # 稲毛専用：表＋スランプグラフ合成用データをsession_stateに保存
             if store == "稲毛" and result.get("ok"):
+                _df_ig = result.get("df")
+                # ファイル名→機種名 逆引き辞書（_make_safe_fn が変換した名前で照合）
+                _ig_safe_to_mac: dict[str, str] = {}
+                if _df_ig is not None:
+                    for _igm in _df_ig["機種名"].dropna().unique():
+                        _ig_safe_to_mac[_make_safe_fn(str(_igm))] = str(_igm)
+                # プレビューに出た台番セットを収集
+                _ig_preview_bans: set[int] = set()
+                _AGGREGATE_STEMS = {"ジャグラーシリーズ優秀台", "その他の優秀台ピックアップ"}
+                for _ig_fp in result.get("files", []):
+                    _ig_fn = os.path.basename(_ig_fp)
+                    if not _ig_fn.lower().endswith((".jpg", ".jpeg")):
+                        continue
+                    _ig_stem = _ig_fn.rsplit(".", 1)[0]
+                    if _ig_stem in _AGGREGATE_STEMS:
+                        continue  # 統合画像は excellent_list から別途収集
+                    _ig_lookup = _ig_stem[:-len("_高配分")] if _ig_stem.endswith("_高配分") else _ig_stem
+                    _ig_mac = _ig_safe_to_mac.get(_ig_lookup)
+                    if _ig_mac is not None and _df_ig is not None:
+                        for _igb in _df_ig[_df_ig["機種名"] == _ig_mac]["台番"].dropna():
+                            try:
+                                _ig_preview_bans.add(int(str(_igb).split(".")[0]))
+                            except (ValueError, TypeError):
+                                pass
+                # 統合画像の台番を excellent_list / jug_excellent_list から収集
+                for _eld in result.get("excellent_list", []) + result.get("jug_excellent_list", []):
+                    try:
+                        _ig_preview_bans.add(int(_eld["ban"]))
+                    except (KeyError, ValueError, TypeError):
+                        pass
+                # JPGファイルをバイトとして保存
                 _ig_jpgs_save = []
                 for _ig_fp in result.get("files", []):
                     if os.path.exists(_ig_fp) and _ig_fp.lower().endswith((".jpg", ".jpeg")):
                         with open(_ig_fp, "rb") as _ig_fh:
                             _ig_jpgs_save.append((os.path.basename(_ig_fp), _ig_fh.read()))
-                st.session_state[f"_inagawa_jpgs_{store}"] = _ig_jpgs_save
-                st.session_state[f"_inagawa_df_{store}"]   = result.get("df")
+                st.session_state[f"_inagawa_jpgs_{store}"]  = _ig_jpgs_save
+                st.session_state[f"_inagawa_df_{store}"]    = _df_ig
+                st.session_state[f"_inagawa_bans_{store}"]  = _ig_preview_bans
                 _ig_rd = result.get("date")
                 _ig_dt_key = st.session_state.get(f"auto_tb_date_{store}")
                 st.session_state[f"_inagawa_date_{store}"] = (
@@ -6711,6 +6743,7 @@ def show_auto_page() -> None:
     if store == "稲毛":
         _ig_jpgs_ss  = st.session_state.get(f"_inagawa_jpgs_{store}")
         _ig_df_ss    = st.session_state.get(f"_inagawa_df_{store}")
+        _ig_bans_ss  = st.session_state.get(f"_inagawa_bans_{store}", set())
         _ig_date_ss  = st.session_state.get(f"_inagawa_date_{store}", "")
         if _ig_jpgs_ss:
             st.markdown("---")
@@ -6754,14 +6787,18 @@ def show_auto_page() -> None:
                                     pass
                             # pision unitId → item マッピング
                             _ig_by_uid = {str(_it.get("unitId", "")): _it for _it in _ig_pision_items}
-                            # Excelの全台番について pision items を unitId で照合
+                            # ⑦プレビューで表示された機種の台番のみを収集
                             _ig_ban_list: "list[tuple[str, str]]" = []  # (ban_str, machine_name)
                             if _ig_df_ss is not None:
                                 for _, _igrow in _ig_df_ss.iterrows():
-                                    _igban = str(_igrow.get("台番", "")).split(".")[0]
+                                    _igban_s = str(_igrow.get("台番", "")).split(".")[0]
+                                    try:
+                                        _igban_i = int(_igban_s)
+                                    except (ValueError, TypeError):
+                                        continue
                                     _igmac = str(_igrow.get("機種名", ""))
-                                    if _igban:
-                                        _ig_ban_list.append((_igban, _igmac))
+                                    if _igban_i in _ig_bans_ss:
+                                        _ig_ban_list.append((_igban_s, _igmac))
                             # スランプグラフ生成
                             _ig_tmpl = find_slump_template()
                             _ig_graph_imgs: "list[Image.Image]" = []

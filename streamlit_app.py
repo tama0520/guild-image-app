@@ -10576,6 +10576,7 @@ def draw_slump_graph(
     unit_id: str,
     display_name: str,
     points: list,
+    diff: "int | None" = None,
 ) -> "Image.Image":
     """スランプグラフを template に描画して PIL Image を返す。"""
     SCALE     = 3
@@ -10662,7 +10663,8 @@ def draw_slump_graph(
     # 差枚テキスト（黄色・中央寄せ）
     if points:
         font_diff  = load_font(48)
-        diff_text  = _fmt_diff(_pipeline_calc_d(points[-1]["y"]))
+        _raw = diff if diff is not None else points[-1]["y"]
+        diff_text  = _fmt_diff(_pipeline_calc_d(_raw))
         bb = font_diff.getbbox(diff_text)
         diff_x = (w - (bb[2] - bb[0])) // 2 - bb[0]
         diff_y = (h - 18) - bb[3]
@@ -10975,7 +10977,7 @@ def show_slump_graph_page() -> None:
                 uid  = str(item.get("unitId", ""))
                 name = item.get("_convertedName") or item.get("displayName", "")
                 pts  = item["points"]
-                img  = draw_slump_graph(template_path, uid, name, pts)
+                img  = draw_slump_graph(template_path, uid, name, pts, diff=item.get("diff"))
                 fname = _safe_filename(f"{uid}_{name}.png")
                 images.append((fname, img))
             except Exception as e:

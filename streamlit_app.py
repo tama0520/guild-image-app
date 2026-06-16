@@ -1956,7 +1956,7 @@ def _load_pipeline_df(excel_path: str) -> tuple[pd.DataFrame, pd.Series]:
         df, _ = _apply_map(df, nm, nm_norm)
     df["ゲーム数_rounded"] = df["ゲーム数"].apply(round_games)
     df["合算確率_num"] = df.apply(
-        lambda r: (r["ゲーム数_rounded"] / (r["BB"] + r["RB"])
+        lambda r: (r["ゲーム数"] / (r["BB"] + r["RB"])
                    if (r["BB"] + r["RB"]) > 0 else float("inf")),
         axis=1,
     )

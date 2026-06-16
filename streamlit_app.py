@@ -1287,7 +1287,7 @@ def _navigate(page: str, store: str | None = None, itype: str | None = None) -> 
     params: dict[str, str] = {"page": page}
     s = st.session_state.get("selected_store", "")
     t = st.session_state.get("selected_image_type", "")
-    if page in ("image_type", "work", "auto", "rote") and s:
+    if page in ("image_type", "work", "auto", "auto_slump", "rote") and s:
         params["store"] = s
     if page == "work" and t:
         params["type"] = t
@@ -1436,6 +1436,24 @@ def show_image_type_page() -> None:
                     use_container_width=True,
                 ):
                     _navigate("rote")
+        elif store == "稲毛":
+            # 稲毛：結果ポスト用 ＋ スランプ付き結果ポスト
+            _col_l, _col_r = st.columns(2)
+            with _col_l:
+                if st.button(
+                    "⚡ 結果ポスト用",
+                    key="auto_mode_btn",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    _navigate("auto")
+            with _col_r:
+                if st.button(
+                    "📊 スランプ付き結果ポスト",
+                    key="auto_slump_btn",
+                    use_container_width=True,
+                ):
+                    _navigate("auto_slump")
         else:
             # ローテなし：結果ポスト用のみ
             if st.button(
@@ -4236,10 +4254,13 @@ def render_pision_data_view(vt_df: pd.DataFrame, title: str, sel_key: str) -> No
             st.dataframe(_disp, use_container_width=True, hide_index=True, height=520)
 
 
-def show_auto_page() -> None:
+def show_auto_page(with_slump: bool = False) -> None:
     """自動処理ページ: PIL パイプラインで全画像を生成する"""
     store = st.session_state.selected_store
-    st.markdown(f"## 【{store}】結果ポスト用")
+    if with_slump:
+        st.markdown(f"## 【{store}】スランプ付き結果ポスト用")
+    else:
+        st.markdown(f"## 【{store}】結果ポスト用")
     st.caption("全台系・ジャグラー優秀台・その他の優秀台を一括生成します。")
     st.markdown("---")
 
@@ -5926,8 +5947,8 @@ def show_auto_page() -> None:
                 sonota_exclude={m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()},
             )
 
-            # 稲毛専用：表＋スランプグラフ合成用データをsession_stateに保存
-            if store == "稲毛" and result.get("ok"):
+            # スランプ付き結果ポスト用：合成用データをsession_stateに保存
+            if with_slump and result.get("ok"):
                 _df_ig = result.get("df")
                 # プレビューに出た台番セットを収集（各リストの "bans" フィールドを使用）
                 _ig_preview_bans: set[int] = set()
@@ -6739,8 +6760,8 @@ def show_auto_page() -> None:
             >{_safe}</textarea>
             """, height=_h)
 
-    # ── 稲毛専用：表＋スランプグラフ合成 ──────────────────────────────
-    if store == "稲毛":
+    # ── スランプ付き結果ポスト用：表＋スランプグラフ合成 ──────────────
+    if with_slump:
         _ig_jpgs_ss  = st.session_state.get(f"_inagawa_jpgs_{store}")
         _ig_df_ss    = st.session_state.get(f"_inagawa_df_{store}")
         _ig_bans_ss  = st.session_state.get(f"_inagawa_bans_{store}", set())
@@ -11358,6 +11379,9 @@ def main() -> None:
         elif page == "auto":
             st.markdown(f"📍 **{st.session_state.selected_store}**")
             st.markdown("　→ **⚡ 結果ポスト用**")
+        elif page == "auto_slump":
+            st.markdown(f"📍 **{st.session_state.selected_store}**")
+            st.markdown("　→ **📊 スランプ付き結果ポスト用**")
         elif page == "rote":
             st.markdown(f"📍 **{st.session_state.selected_store}**")
             st.markdown("　→ **📋 ローテ用**")
@@ -11381,6 +11405,8 @@ def main() -> None:
         show_work_page()
     elif st.session_state.page == "auto":
         show_auto_page()
+    elif st.session_state.page == "auto_slump":
+        show_auto_page(with_slump=True)
     elif st.session_state.page == "rote":
         show_rote_page()
     elif st.session_state.page == "weekly_result_text":

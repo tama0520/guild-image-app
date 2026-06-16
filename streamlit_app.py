@@ -5923,6 +5923,23 @@ def show_auto_page() -> None:
                 sonota_exclude={m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()},
             )
 
+            # 稲毛専用：表＋スランプグラフ合成用データをsession_stateに保存
+            if store == "稲毛" and result.get("ok"):
+                _ig_jpgs_save = []
+                for _ig_fp in result.get("files", []):
+                    if os.path.exists(_ig_fp) and _ig_fp.lower().endswith((".jpg", ".jpeg")):
+                        with open(_ig_fp, "rb") as _ig_fh:
+                            _ig_jpgs_save.append((os.path.basename(_ig_fp), _ig_fh.read()))
+                st.session_state[f"_inagawa_jpgs_{store}"] = _ig_jpgs_save
+                st.session_state[f"_inagawa_df_{store}"]   = result.get("df")
+                _ig_rd = result.get("date")
+                _ig_dt_key = st.session_state.get(f"auto_tb_date_{store}")
+                st.session_state[f"_inagawa_date_{store}"] = (
+                    _ig_rd.strftime("%Y-%m-%d") if hasattr(_ig_rd, "strftime") else str(_ig_rd)
+                ) if _ig_rd is not None else (
+                    _ig_dt_key.strftime("%Y-%m-%d") if hasattr(_ig_dt_key, "strftime") else str(_ig_dt_key or "")
+                )
+
             # ── ④ 末尾・ジャグラー末尾の保存（プレビュー済みはチェック済みのみ、未生成はオンザフライ）──
             def _compute_sue_stats(tails, mode, is_juggler, df_run) -> list[dict]:
                 """末尾ごとの統計（total/win_count/avg_diff）を返す。
@@ -6689,6 +6706,104 @@ def show_auto_page() -> None:
                      border:1px solid #ccc;padding:8px;box-sizing:border-box;resize:vertical;"
             >{_safe}</textarea>
             """, height=_h)
+
+    # ── 稲毛専用：表＋スランプグラフ合成 ──────────────────────────────
+    if store == "稲毛":
+        _ig_jpgs_ss  = st.session_state.get(f"_inagawa_jpgs_{store}")
+        _ig_df_ss    = st.session_state.get(f"_inagawa_df_{store}")
+        _ig_date_ss  = st.session_state.get(f"_inagawa_date_{store}", "")
+        if _ig_jpgs_ss:
+            st.markdown("---")
+            st.markdown("### 表＋スランプグラフ画像生成")
+            _api_key_ig = _get_pision_api_key()
+            if not _api_key_ig:
+                st.warning("⚠️ PISION_API_KEY が未設定のためスランプグラフを生成できません。")
+            elif st.button("📊 表＋スランプグラフ画像生成", key="inagawa_composite_btn"):
+                with st.spinner("pisionデータを取得してグラフを合成中…"):
+                    # pisionホール一覧取得
+                    _ig_halls_lst = []
+                    try:
+                        _ig_halls_lst = fetch_pision_halls(_api_key_ig)
+                    except Exception as _ige:
+                        st.error(f"❌ ホール一覧取得失敗: {_ige}")
+                    _ig_hall_id = None
+                    for _igh in _ig_halls_lst:
+                        _ighn = _igh.get("name") or _igh.get("displayName") or ""
+                        if store in _ighn and "エスパス" in _ighn:
+                            _ig_hall_id = str(_igh.get("id") or _igh.get("hallId") or "")
+                            break
+                    if _ig_hall_id is None:
+                        st.error("❌ 稲毛（エスパス）のホールIDが見つかりませんでした。")
+                    else:
+                        _ig_pision_items = None
+                        try:
+                            _ig_pision_items = fetch_pision_results(_api_key_ig, _ig_hall_id, _ig_date_ss)
+                        except Exception as _ige2:
+                            st.error(f"❌ pisionデータ取得失敗: {_ige2}")
+                        if not _ig_pision_items:
+                            st.warning("⚠️ pisionデータが取得できませんでした。")
+                        else:
+                            # 機種名変換
+                            _slump_apply_names(_ig_pision_items)
+                            # テーブル画像ロード
+                            _ig_table_imgs = []
+                            for _ig_fn, _ig_fb in _ig_jpgs_ss:
+                                try:
+                                    _ig_table_imgs.append((_ig_fn, Image.open(io.BytesIO(_ig_fb)).convert("RGB")))
+                                except Exception:
+                                    pass
+                            # pision unitId → item マッピング
+                            _ig_by_uid = {str(_it.get("unitId", "")): _it for _it in _ig_pision_items}
+                            # Excelの全台番について pision items を unitId で照合
+                            _ig_ban_list: "list[tuple[str, str]]" = []  # (ban_str, machine_name)
+                            if _ig_df_ss is not None:
+                                for _, _igrow in _ig_df_ss.iterrows():
+                                    _igban = str(_igrow.get("台番", "")).split(".")[0]
+                                    _igmac = str(_igrow.get("機種名", ""))
+                                    if _igban:
+                                        _ig_ban_list.append((_igban, _igmac))
+                            # スランプグラフ生成
+                            _ig_tmpl = find_slump_template()
+                            _ig_graph_imgs: "list[Image.Image]" = []
+                            _ig_skipped: "list[str]" = []
+                            if _ig_tmpl is None:
+                                st.warning("⚠️ base_3000_bk.png が見つかりません。グラフなしで合成します。")
+                            else:
+                                for _igban, _igmac in _ig_ban_list:
+                                    _ig_it = _ig_by_uid.get(_igban)
+                                    if _ig_it is None:
+                                        continue
+                                    if not _ig_it.get("points"):
+                                        _ig_skipped.append(_igban)
+                                        continue
+                                    _ig_disp = _ig_it.get("_convertedName") or _ig_it.get("displayName", _igmac)
+                                    _ig_diff = _ig_it.get("diff")
+                                    try:
+                                        _ig_gimg = draw_slump_graph(
+                                            _ig_tmpl, _igban, _ig_disp,
+                                            _ig_it["points"], diff=_ig_diff,
+                                        )
+                                        _ig_graph_imgs.append(_ig_gimg)
+                                    except Exception as _igge:
+                                        st.warning(f"⚠️ {_igban}番台グラフ生成失敗: {_igge}")
+                            if _ig_skipped:
+                                st.info(f"ℹ️ グラフデータなし（スキップ）: {', '.join(_ig_skipped)} 番台")
+                            # 合成
+                            _ig_comp = _build_inagawa_composite(
+                                _ig_table_imgs, _ig_graph_imgs,
+                                f"稲毛 {_ig_date_ss}",
+                            )
+                            _ig_cbuf = io.BytesIO()
+                            _ig_comp.save(_ig_cbuf, format="PNG")
+                            _ig_cbytes = _ig_cbuf.getvalue()
+                            st.image(_ig_comp, use_container_width=True, caption="合成プレビュー")
+                            st.download_button(
+                                label="📥 合成画像をダウンロード",
+                                data=_ig_cbytes,
+                                file_name=f"稲毛_表＋スランプグラフ_{_ig_date_ss}.png",
+                                mime="image/png",
+                                key="inagawa_composite_dl",
+                            )
 
     # ── ボタン直下スロットにZIPダウンロードボタンを表示（Cloud のみ）──
     if _IS_CLOUD and _auto_zip_slot is not None and st.session_state.get(f"_auto_zip_data_{store}"):
@@ -10709,6 +10824,82 @@ def _slump_apply_names(fetched: list) -> list:
         for _it in fetched
         if _it.get("points") and _it.get("_convertedName")
     })
+
+
+def _build_inagawa_composite(
+    table_imgs: "list[tuple[str, Image.Image]]",
+    graph_imgs: "list[Image.Image]",
+    title: str,
+) -> "Image.Image":
+    """稲毛専用: テーブルJPG群＋スランプグラフを1枚の白背景PNGに合成する。"""
+    MARGIN     = 20
+    TITLE_H    = 70
+    SEC_GAP    = 20
+    CANVAS_W   = 1600
+    BG         = (255, 255, 255)
+
+    # テーブル画像を CANVAS_W 幅にスケール
+    scaled_tables = []
+    for _fn, _img in table_imgs:
+        _w, _h = _img.size
+        _scale = CANVAS_W / _w if _w > 0 else 1.0
+        scaled_tables.append(_img.resize((CANVAS_W, max(1, int(_h * _scale))), Image.LANCZOS))
+
+    # グラフグリッドのレイアウト決定
+    n_graphs = len(graph_imgs)
+    if n_graphs == 0:
+        graph_cols = 1
+    elif n_graphs <= 3:
+        graph_cols = n_graphs
+    else:
+        graph_cols = 3
+
+    scaled_graphs = []
+    g_row_h = 0
+    if graph_imgs:
+        g_cell_w = CANVAS_W // graph_cols
+        for _g in graph_imgs:
+            _gw, _gh = _g.size
+            _gscale = g_cell_w / _gw if _gw > 0 else 1.0
+            scaled_graphs.append(_g.resize((g_cell_w, max(1, int(_gh * _gscale))), Image.LANCZOS))
+        g_row_h = max(g.size[1] for g in scaled_graphs)
+
+    graph_rows = math.ceil(n_graphs / graph_cols) if n_graphs > 0 else 0
+    total_table_h = sum(img.size[1] for img in scaled_tables) + SEC_GAP * max(0, len(scaled_tables) - 1)
+    total_graph_h = graph_rows * g_row_h + SEC_GAP * max(0, graph_rows - 1) if graph_rows > 0 else 0
+
+    canvas_h = TITLE_H + MARGIN + total_table_h
+    if total_graph_h > 0:
+        canvas_h += SEC_GAP * 2 + total_graph_h
+    canvas_h += MARGIN
+
+    canvas = Image.new("RGB", (CANVAS_W, canvas_h), BG)
+    draw   = ImageDraw.Draw(canvas)
+
+    # タイトル描画
+    _fnt = load_font(36)
+    _bb  = _fnt.getbbox(title)
+    _tx  = (CANVAS_W - (_bb[2] - _bb[0])) // 2 - _bb[0]
+    _ty  = (TITLE_H - (_bb[3] - _bb[1])) // 2 - _bb[1]
+    draw.text((_tx, _ty), title, fill=(0, 0, 0), font=_fnt)
+
+    # テーブル画像を縦に配置
+    _y = TITLE_H + MARGIN
+    for _timg in scaled_tables:
+        canvas.paste(_timg, (0, _y))
+        _y += _timg.size[1] + SEC_GAP
+
+    # スランプグラフをグリッドに配置
+    if scaled_graphs:
+        _y += SEC_GAP  # テーブルとグラフの間に余白
+        for _i, _gimg in enumerate(scaled_graphs):
+            _row = _i // graph_cols
+            _col = _i % graph_cols
+            _gx  = _col * (CANVAS_W // graph_cols)
+            _gy  = _y + _row * (g_row_h + SEC_GAP)
+            canvas.paste(_gimg, (_gx, _gy))
+
+    return canvas
 
 
 def show_slump_graph_page() -> None:

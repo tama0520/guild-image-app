@@ -1438,6 +1438,20 @@ def show_image_type_page() -> None:
                     _navigate("rote")
         elif store == "稲毛":
             # 稲毛：結果ポスト用 ＋ スランプ付き結果ポスト
+            st.markdown(
+                """<style>
+                .st-key-auto_slump_btn button {
+                    background-color: #00ACC1 !important;
+                    border-color: #00838F !important;
+                    color: white !important;
+                }
+                .st-key-auto_slump_btn button:hover {
+                    background-color: #00838F !important;
+                    border-color: #00838F !important;
+                }
+                </style>""",
+                unsafe_allow_html=True,
+            )
             _col_l, _col_r = st.columns(2)
             with _col_l:
                 if st.button(

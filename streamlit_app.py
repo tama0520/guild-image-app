@@ -2294,6 +2294,7 @@ def run_step1_main(
             "total":        total_raw,
             "diffs":        sorted([int(d) for d in dr_m.tolist() if int(d) >= 1000], reverse=True),
             "all_avg_diff": int(round(dr_m.mean())),
+            "bans":         [int(b) for b in grp["台番"].tolist()],
         })
 
     return generated, zen_dai_list
@@ -2385,6 +2386,7 @@ def run_step2_juggler(
                 "diffs":      sorted([int(d) for d in dr_f.tolist() if int(d) >= 1000], reverse=True),
                 "all_avg_diff": int(round(diff_raw.loc[all_for_m_orig.index].mean())),
                 "has_image":  True,
+                "bans":       [int(b) for b in filtered["台番"].tolist()],
             })
         else:
             if machine in recommended_machines:
@@ -2596,6 +2598,7 @@ def run_step3_other(
                     "diffs":        sorted([int(d) for d in dr_f.tolist() if int(d) >= 1000], reverse=True),
                     "all_avg_diff": int(round(dr_m.mean())),
                     "has_image":    True,
+                    "bans":         [int(b) for b in filtered["台番"].tolist()],
                 })
         else:
             # 勝率50%以上 → テキストのみ high_ratio_list に追加（画像なし）
@@ -5926,30 +5929,18 @@ def show_auto_page() -> None:
             # 稲毛専用：表＋スランプグラフ合成用データをsession_stateに保存
             if store == "稲毛" and result.get("ok"):
                 _df_ig = result.get("df")
-                # ファイル名→機種名 逆引き辞書（_make_safe_fn が変換した名前で照合）
-                _ig_safe_to_mac: dict[str, str] = {}
-                if _df_ig is not None:
-                    for _igm in _df_ig["機種名"].dropna().unique():
-                        _ig_safe_to_mac[_make_safe_fn(str(_igm))] = str(_igm)
-                # プレビューに出た台番セットを収集
+                # プレビューに出た台番セットを収集（各リストの "bans" フィールドを使用）
                 _ig_preview_bans: set[int] = set()
-                _AGGREGATE_STEMS = {"ジャグラーシリーズ優秀台", "その他の優秀台ピックアップ"}
-                for _ig_fp in result.get("files", []):
-                    _ig_fn = os.path.basename(_ig_fp)
-                    if not _ig_fn.lower().endswith((".jpg", ".jpeg")):
-                        continue
-                    _ig_stem = _ig_fn.rsplit(".", 1)[0]
-                    if _ig_stem in _AGGREGATE_STEMS:
-                        continue  # 統合画像は excellent_list から別途収集
-                    _ig_lookup = _ig_stem[:-len("_高配分")] if _ig_stem.endswith("_高配分") else _ig_stem
-                    _ig_mac = _ig_safe_to_mac.get(_ig_lookup)
-                    if _ig_mac is not None and _df_ig is not None:
-                        for _igb in _df_ig[_df_ig["機種名"] == _ig_mac]["台番"].dropna():
-                            try:
-                                _ig_preview_bans.add(int(str(_igb).split(".")[0]))
-                            except (ValueError, TypeError):
-                                pass
-                # 統合画像の台番を excellent_list / jug_excellent_list から収集
+                # Step1 全台プラス機種別 JPG の台番
+                for _zd in result.get("zen_dai_list", []):
+                    for _b in _zd.get("bans", []):
+                        _ig_preview_bans.add(_b)
+                # Step2/3 高配分個別 JPG の台番（has_image=True のもの）
+                for _hr in result.get("high_ratio_list", []):
+                    if _hr.get("has_image", False):
+                        for _b in _hr.get("bans", []):
+                            _ig_preview_bans.add(_b)
+                # 統合画像（ジャグラーシリーズ優秀台・その他の優秀台ピックアップ）の台番
                 for _eld in result.get("excellent_list", []) + result.get("jug_excellent_list", []):
                     try:
                         _ig_preview_bans.add(int(_eld["ban"]))

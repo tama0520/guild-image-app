@@ -3945,7 +3945,21 @@ def _kojin_yushu_filter(km: str, grp_all: pd.DataFrame, dr_all: pd.Series, cfg: 
     rb_thresh_machines = cfg["rb_threshold_machines"]
     rb_min             = cfg["rb_min"]
     has_g = "ゲーム数_rounded" in grp_all.columns
-    if km in prob_jobs_map:
+    juggler_series   = cfg.get("juggler_series", set())
+    juggler_jobs_map = {m: (p, d) for m, p, d in cfg.get("juggler_jobs", [])}
+    juggler_g_min    = cfg.get("juggler_g_min", 2000)
+    if km in juggler_series and km in juggler_jobs_map:
+        prob_thr, diff_bon = juggler_jobs_map[km]
+        has_prob = "合算確率_num" in grp_all.columns
+        if has_g and has_prob:
+            mask = (grp_all["ゲーム数_rounded"] >= juggler_g_min) & (
+                ((grp_all["合算確率_num"] <= prob_thr) & (dr_all >= 0)) | (dr_all >= diff_bon)
+            )
+        elif has_g:
+            mask = (grp_all["ゲーム数_rounded"] >= juggler_g_min) & (dr_all >= diff_bon)
+        else:
+            mask = dr_all >= diff_bon
+    elif km in prob_jobs_map:
         prob_thr, diff_bon = prob_jobs_map[km]
         has_prob = "合算確率_num" in grp_all.columns
         if has_g and has_prob:

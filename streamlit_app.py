@@ -6793,16 +6793,19 @@ def show_auto_page() -> None:
                             # スランプグラフ生成
                             _ig_tmpl = find_slump_template()
                             _ig_graph_imgs: "list[Image.Image]" = []
-                            _ig_skipped: "list[str]" = []
+                            _ig_skipped_no_points: "list[str]" = []
+                            _ig_skipped_no_pision: "list[str]" = []
+                            _ig_total_bans = len(_ig_ban_list)
                             if _ig_tmpl is None:
                                 st.warning("⚠️ base_3000_bk.png が見つかりません。グラフなしで合成します。")
                             else:
                                 for _igban, _igmac in _ig_ban_list:
                                     _ig_it = _ig_by_uid.get(_igban)
                                     if _ig_it is None:
+                                        _ig_skipped_no_pision.append(_igban)
                                         continue
                                     if not _ig_it.get("points"):
-                                        _ig_skipped.append(_igban)
+                                        _ig_skipped_no_points.append(_igban)
                                         continue
                                     _ig_disp = _ig_it.get("_convertedName") or _ig_it.get("displayName", _igmac)
                                     _ig_diff = _ig_it.get("diff")
@@ -6814,8 +6817,11 @@ def show_auto_page() -> None:
                                         _ig_graph_imgs.append(_ig_gimg)
                                     except Exception as _igge:
                                         st.warning(f"⚠️ {_igban}番台グラフ生成失敗: {_igge}")
-                            if _ig_skipped:
-                                st.info(f"ℹ️ グラフデータなし（スキップ）: {', '.join(_ig_skipped)} 番台")
+                            st.caption(f"📊 表の台数: {_ig_total_bans}台 → グラフ生成: {len(_ig_graph_imgs)}枚")
+                            if _ig_skipped_no_pision:
+                                st.info(f"ℹ️ pisionデータ未収録（スキップ）: {', '.join(_ig_skipped_no_pision)} 番台")
+                            if _ig_skipped_no_points:
+                                st.info(f"ℹ️ グラフデータなし（スキップ）: {', '.join(_ig_skipped_no_points)} 番台")
                             # 合成
                             _ig_comp = _build_inagawa_composite(
                                 _ig_table_imgs, _ig_graph_imgs,

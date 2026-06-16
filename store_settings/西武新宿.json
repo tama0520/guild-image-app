@@ -1,5 +1,5 @@
 {
-  "recommended_title_1": "1台設置機種の優秀台",
+  "recommended_title_1": "",
   "recommended_machines_1": [
     "プリズムナナ",
     "LBシェイク",
@@ -47,7 +47,7 @@
     "",
     ""
   ],
-  "rec_enabled": true,
+  "rec_enabled": false,
   "recommended_filter_1": "プラス台",
   "recommended_filter_2": "プラス台",
   "recommended_filter_3": "プラス台",

@@ -2139,5 +2139,31 @@
     "kojin_narabi_title_上野新館": "",
     "kojin_narabi2_range_上野新館": "",
     "kojin_narabi2_title_上野新館": ""
+  },
+  "20260616_渋谷新館_20S.xlsx": {
+    "kojin_enabled": true,
+    "narabi_enabled": true,
+    "narabi_ranges_input": "2032-2033\n2001-2002、2037-2039、2042-2043、2047-2048\n2078-2079、2094-2095、2103-2104\n2193-2195、2207-2209、2218-2220\n2126-2128、2131-2133、2156-2159\n2135-2137、2240-2242、2235-2237",
+    "suebangai_enabled": false,
+    "suebangai_tail_input_1": "",
+    "suebangai_tail_input_2": "",
+    "suebangai_tail_input_3": "",
+    "suebangai_mode": "",
+    "kojin_z_0_渋谷新館": "",
+    "kojin_y_0_渋谷新館": "",
+    "kojin_z_1_渋谷新館": "",
+    "kojin_y_1_渋谷新館": "",
+    "kojin_z_2_渋谷新館": "",
+    "kojin_y_2_渋谷新館": "",
+    "kojin_z_3_渋谷新館": "",
+    "kojin_y_3_渋谷新館": "",
+    "kojin_z_4_渋谷新館": "",
+    "kojin_y_4_渋谷新館": "",
+    "kojin_z_5_渋谷新館": "",
+    "kojin_y_5_渋谷新館": "",
+    "kojin_narabi_range_渋谷新館": "2143-2160",
+    "kojin_narabi_title_渋谷新館": "ジャグラーの優秀列",
+    "kojin_narabi2_range_渋谷新館": "",
+    "kojin_narabi2_title_渋谷新館": ""
   }
 }

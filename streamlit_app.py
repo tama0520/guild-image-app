@@ -5333,7 +5333,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _rng_bans = ranges_to_bans(parse_ranges(kojin_narabi_ranges_text.strip()))
                                         _rng_df   = _pv_df[_pv_df["台番"].apply(lambda b: int(b) in _rng_bans)].copy()
                                         _rng_diff = _pv_diff.loc[_rng_df.index]
-                                        _rng_p    = _rng_df[(_rng_diff >= 1000).values].copy().reset_index(drop=True)
+                                        _rng_p    = _rng_df.copy().reset_index(drop=True)
                                         if not _rng_p.empty:
                                             _base = kojin_narabi_title.strip() or f"{kojin_narabi_ranges_text.strip()}の優秀台"
                                             _prev_img_list.append((f"{_base}.jpg", _build_machine_img(_rng_p, _base, _stat_from_diff(_rng_diff))))
@@ -5344,7 +5344,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _rng2_bans = ranges_to_bans(parse_ranges(kojin_narabi2_ranges_text.strip()))
                                         _rng2_df   = _pv_df[_pv_df["台番"].apply(lambda b: int(b) in _rng2_bans)].copy()
                                         _rng2_diff = _pv_diff.loc[_rng2_df.index]
-                                        _rng2_p    = _rng2_df[(_rng2_diff >= 1000).values].copy().reset_index(drop=True)
+                                        _rng2_p    = _rng2_df.copy().reset_index(drop=True)
                                         if not _rng2_p.empty:
                                             _base2 = kojin_narabi2_title.strip() or f"{kojin_narabi2_ranges_text.strip()}の優秀台"
                                             _prev_img_list.append((f"{_base2}.jpg", _build_machine_img(_rng2_p, _base2, None)))
@@ -6456,8 +6456,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             if _rng_bans:
                                 _rng_df   = df_k[df_k["台番"].apply(lambda b: int(b) in _rng_bans)].copy()
                                 _rng_diff = diff_k.loc[_rng_df.index]
-                                _rng_mask = _rng_diff >= 1000
-                                _rng_p    = _rng_df[_rng_mask.values].copy().reset_index(drop=True)
+                                _rng_p    = _rng_df.copy().reset_index(drop=True)
                                 if not _rng_p.empty:
                                     _base = kojin_narabi_title.strip() if kojin_narabi_title.strip() else f"{kojin_narabi_ranges_text.strip()}の優秀台"
                                     _rng_stat  = _stat_from_diff(_rng_diff)
@@ -6467,7 +6466,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     result["files"].append(_rng_out)
                                     _log(f"  ✅ 台番範囲(優秀台・ピンクバーあり)「{_base}」({len(_rng_p)}台)")
                                 else:
-                                    _log(f"  台番範囲(優秀台): 台番 {sorted(_rng_bans)} に+1000枚台なし")
+                                    _log(f"  台番範囲(優秀台): 台番 {sorted(_rng_bans)} に台なし")
                         except Exception:
                             _log(f"  ❌ 台番範囲優秀台エラー: {traceback.format_exc()}")
 
@@ -6479,8 +6478,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             if _rng2_bans:
                                 _rng2_df   = df_k[df_k["台番"].apply(lambda b: int(b) in _rng2_bans)].copy()
                                 _rng2_diff = diff_k.loc[_rng2_df.index]
-                                _rng2_mask = _rng2_diff >= 1000
-                                _rng2_p    = _rng2_df[_rng2_mask.values].copy().reset_index(drop=True)
+                                _rng2_p    = _rng2_df.copy().reset_index(drop=True)
                                 if not _rng2_p.empty:
                                     _base2 = kojin_narabi2_title.strip() if kojin_narabi2_title.strip() else f"{kojin_narabi2_ranges_text.strip()}の優秀台"
                                     _rng2_img = _build_machine_img(_rng2_p, _base2, None)
@@ -6489,7 +6487,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     result["files"].append(_rng2_out)
                                     _log(f"  ✅ 台番範囲(優秀台・ピンクバーなし)「{_base2}」({len(_rng2_p)}台)")
                                 else:
-                                    _log(f"  台番範囲(優秀台・ピンクバーなし): 台番 {sorted(_rng2_bans)} に+1000枚台なし")
+                                    _log(f"  台番範囲(優秀台・ピンクバーなし): 台番 {sorted(_rng2_bans)} に台なし")
                         except Exception:
                             _log(f"  ❌ 台番範囲優秀台(ピンクバーなし)エラー: {traceback.format_exc()}")
 
@@ -7323,7 +7321,7 @@ def show_auto_article_page() -> None:
                                             _rb = ranges_to_bans(parse_ranges(_rt.strip()))
                                             _rd = _apdf[_apdf["台番"].apply(lambda b: int(b) in _rb)].copy()
                                             _rdi = _apdi.loc[_rd.index]
-                                            _rp = _rd[(_rdi >= 1000).values].copy().reset_index(drop=True)
+                                            _rp = _rd.copy().reset_index(drop=True)
                                             if not _rp.empty:
                                                 _base = _rts.strip() or f"{_rt.strip()}の優秀台"
                                                 _art_pil.append((f"{_base}.jpg", _build_machine_img(_rp, _base, _stat_from_diff(_rdi))))
@@ -7641,8 +7639,7 @@ def show_auto_article_page() -> None:
                             if _rng_bans:
                                 _rng_df   = df_k[df_k["台番"].apply(lambda b: int(b) in _rng_bans)].copy()
                                 _rng_diff = diff_k.loc[_rng_df.index]
-                                _rng_mask = _rng_diff >= 1000
-                                _rng_p    = _rng_df[_rng_mask.values].copy().reset_index(drop=True)
+                                _rng_p    = _rng_df.copy().reset_index(drop=True)
                                 if not _rng_p.empty:
                                     _base = kojin_narabi_title.strip() if kojin_narabi_title.strip() else f"{kojin_narabi_ranges_text.strip()}の優秀台"
                                     _rng_stat  = _stat_from_diff(_rng_diff)
@@ -7652,7 +7649,7 @@ def show_auto_article_page() -> None:
                                     result["files"].append(_rng_out)
                                     _log(f"  ✅ 台番範囲(優秀台・ピンクバーあり)「{_base}」({len(_rng_p)}台)")
                                 else:
-                                    _log(f"  台番範囲(優秀台): 台番 {sorted(_rng_bans)} に+1000枚台なし")
+                                    _log(f"  台番範囲(優秀台): 台番 {sorted(_rng_bans)} に台なし")
                         except Exception:
                             _log(f"  ❌ 台番範囲優秀台エラー: {traceback.format_exc()}")
 
@@ -7663,8 +7660,7 @@ def show_auto_article_page() -> None:
                             if _rng2_bans:
                                 _rng2_df   = df_k[df_k["台番"].apply(lambda b: int(b) in _rng2_bans)].copy()
                                 _rng2_diff = diff_k.loc[_rng2_df.index]
-                                _rng2_mask = _rng2_diff >= 1000
-                                _rng2_p    = _rng2_df[_rng2_mask.values].copy().reset_index(drop=True)
+                                _rng2_p    = _rng2_df.copy().reset_index(drop=True)
                                 if not _rng2_p.empty:
                                     _base2 = kojin_narabi2_title.strip() if kojin_narabi2_title.strip() else f"{kojin_narabi2_ranges_text.strip()}の優秀台"
                                     _rng2_img = _build_machine_img(_rng2_p, _base2, None)
@@ -7673,7 +7669,7 @@ def show_auto_article_page() -> None:
                                     result["files"].append(_rng2_out)
                                     _log(f"  ✅ 台番範囲(優秀台・ピンクバーなし)「{_base2}」({len(_rng2_p)}台)")
                                 else:
-                                    _log(f"  台番範囲(優秀台・ピンクバーなし): 台番 {sorted(_rng2_bans)} に+1000枚台なし")
+                                    _log(f"  台番範囲(優秀台・ピンクバーなし): 台番 {sorted(_rng2_bans)} に台なし")
                         except Exception:
                             _log(f"  ❌ 台番範囲優秀台(ピンクバーなし)エラー: {traceback.format_exc()}")
 

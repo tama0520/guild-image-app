@@ -6002,7 +6002,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         int(str(_b2).split(".")[0]) for _b2 in _jug_pool["台番"].dropna()
                         if str(_b2).split(".")[0].lstrip("-").isdigit()
                     ]
-                _sonota_bans_ig = [int(_e2["ban"]) for _e2 in result.get("excellent_list", []) if "ban" in _e2]
+                _sonota_bans_ig = sorted({int(_e2["ban"]) for _e2 in result.get("sonota_excellent_list", []) if "ban" in _e2})
                 if _sonota_bans_ig:
                     _ig_ban_map["その他の優秀台ピックアップ.jpg"] = _sonota_bans_ig
                 for _nami2 in result.get("nami_list", []):
@@ -6437,6 +6437,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             "total":        len(_kgrp),
                             "diffs":        sorted([int(d) for d in _kdr.tolist() if int(d) >= 1000], reverse=True),
                             "all_avg_diff": int(round(_kdr.mean())),
+                            "bans":         [int(b) for b in _kgrp["台番"].tolist()],
                         })
                         _log(f"  ✅ 個別(全台)「{_km}」({len(_kgrp)}台)")
                     for _km in kojin_yushu_machines:
@@ -6465,6 +6466,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                             "total":        len(_kgrp_all),
                             "diffs":        sorted([int(d) for d in _kdr_p.tolist() if int(d) >= 1000], reverse=True),
                             "all_avg_diff": int(round(_kdr_all.mean())),
+                            "has_image":    True,
+                            "is_yushu":     True,
+                            "bans":         [int(b) for b in _kgrp_p["台番"].tolist()],
                         })
                         _log(f"  ✅ 個別(優秀台)「{_km}」({len(_kgrp_p)}台)")
 
@@ -6603,7 +6607,30 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _ig_late.append((_lf, _lfh.read()))
                     if _ig_late:
                         st.session_state[f"_inagawa_jpgs_{store}"] = _ig_late
-                    _ig_bm_u = st.session_state.get(f"_inagawa_ban_map_{store}", {})
+                    # ban_map を final result（kojin追加後）ベースで完全再構築
+                    _ig_bm_u: dict[str, list[int]] = {}
+                    for _zd2u in result.get("zen_dai_list", []):
+                        _ig_bm_u[f"{_make_safe_fn(_zd2u['name'])}.jpg"] = _zd2u.get("bans", [])
+                    for _hr2u in result.get("high_ratio_list", []):
+                        if not _hr2u.get("has_image", False):
+                            continue
+                        if _hr2u.get("is_yushu", False):
+                            _fn2u = f"{_make_safe_fn(_hr2u['name'])}（優秀台）.jpg"
+                        else:
+                            _fn2u = f"{_make_safe_fn(_hr2u['name'])}_高配分.jpg"
+                        _ig_bm_u[_fn2u] = _hr2u.get("bans", [])
+                    if _jug_pool is not None and not _jug_pool.empty:
+                        _ig_bm_u["ジャグラーシリーズ優秀台.jpg"] = [
+                            int(str(_b2).split(".")[0]) for _b2 in _jug_pool["台番"].dropna()
+                            if str(_b2).split(".")[0].lstrip("-").isdigit()
+                        ]
+                    _sonota_bans_ig2 = sorted({int(_e2["ban"]) for _e2 in result.get("sonota_excellent_list", []) if "ban" in _e2})
+                    if _sonota_bans_ig2:
+                        _ig_bm_u["その他の優秀台ピックアップ.jpg"] = _sonota_bans_ig2
+                    for _nami2u in result.get("nami_list", []):
+                        _nt2u = _nami2u.get("title", "")
+                        if _nt2u and _nami2u.get("bans"):
+                            _ig_bm_u[f"{_make_safe_fn(_nt2u)}.jpg"] = [int(_b3) for _b3 in _nami2u["bans"]]
                     for _nfn_u, _nbns_u in st.session_state.get(_aprev_narabi_key, {}).items():
                         _bare_u = re.sub(r"^\d{2}_", "", _nfn_u)
                         if _bare_u not in _ig_bm_u:
@@ -6904,12 +6931,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 st.info(f"ℹ️ 取得不可（スキップ）: {', '.join(dict.fromkeys(_ig_skip_all))} 番台")
 
                             if _ig_combined:
-                                # プレビュー（先頭3枚）
-                                _prev_n = min(3, len(_ig_combined))
-                                _pcols5 = st.columns(_prev_n)
-                                for _pi5, (_pfn5, _pb5) in enumerate(_ig_combined[:_prev_n]):
-                                    with _pcols5[_pi5]:
-                                        st.image(_pb5, caption=_pfn5, use_container_width=True)
+                                # プレビュー（全件・2列）
+                                st.caption(f"✅ 合成完了: {len(_ig_combined)}枚")
+                                for _pi5 in range(0, len(_ig_combined), 3):
+                                    _pcols5 = st.columns(3)
+                                    for _ci5, (_pfn5, _pb5) in enumerate(_ig_combined[_pi5:_pi5 + 3]):
+                                        with _pcols5[_ci5]:
+                                            st.image(_pb5, caption=_pfn5, use_container_width=True)
                                 # ZIP生成・ダウンロード
                                 _zip_buf5 = io.BytesIO()
                                 with zipfile.ZipFile(_zip_buf5, "w", zipfile.ZIP_DEFLATED) as _zf5:
@@ -11043,8 +11071,8 @@ def _attach_slump_to_table(
     * bg_path が指定されている場合、グラフエリアの背景に貼り付ける。
     """
     COLS = 3
-    PAD  = 24  # 外周余白 (px)
-    GAP  = 12  # グラフ間隙間 (px)
+    PAD  = 12  # 外周余白 (px)
+    GAP  = 8   # グラフ間隙間 (px)
 
     tw, th = table_img.size
 
@@ -11078,10 +11106,7 @@ def _attach_slump_to_table(
     for i, g in enumerate(scaled):
         row = i // COLS
         col = i % COLS
-        row_start = row * COLS
-        row_count = min(COLS, n - row_start)
-        row_total_w = row_count * cell_w + max(0, row_count - 1) * GAP
-        x_off = (tw - row_total_w) // 2
+        x_off = PAD
         x = x_off + col * (cell_w + GAP)
         y = th + PAD + row * (row_h + GAP)
         canvas.paste(g, (x, y))

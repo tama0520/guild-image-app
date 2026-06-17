@@ -5990,7 +5990,27 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _ig_preview_bans.add(int(_eld["ban"]))
                     except (KeyError, ValueError, TypeError):
                         pass
-                # JPGファイルをバイトとして保存
+                # ファイル名 → 台番 マッピング（表＋スランプグラフ合成用）
+                _ig_ban_map: dict[str, list[int]] = {}
+                for _zd2 in result.get("zen_dai_list", []):
+                    _ig_ban_map[f"{_make_safe_fn(_zd2['name'])}.jpg"] = _zd2.get("bans", [])
+                for _hr2 in result.get("high_ratio_list", []):
+                    if _hr2.get("has_image", False):
+                        _ig_ban_map[f"{_make_safe_fn(_hr2['name'])}_高配分.jpg"] = _hr2.get("bans", [])
+                if _jug_pool is not None and not _jug_pool.empty:
+                    _ig_ban_map["ジャグラーシリーズ優秀台.jpg"] = [
+                        int(str(_b2).split(".")[0]) for _b2 in _jug_pool["台番"].dropna()
+                        if str(_b2).split(".")[0].lstrip("-").isdigit()
+                    ]
+                _sonota_bans_ig = [int(_e2["ban"]) for _e2 in result.get("excellent_list", []) if "ban" in _e2]
+                if _sonota_bans_ig:
+                    _ig_ban_map["その他の優秀台ピックアップ.jpg"] = _sonota_bans_ig
+                for _nami2 in result.get("nami_list", []):
+                    _nt2 = _nami2.get("title", "")
+                    if _nt2 and _nami2.get("bans"):
+                        _ig_ban_map[f"{_make_safe_fn(_nt2)}.jpg"] = [int(_b3) for _b3 in _nami2["bans"]]
+                st.session_state[f"_inagawa_ban_map_{store}"] = _ig_ban_map
+                # JPGファイルをバイトとして保存（後でnarabi含む全ファイルを再収集）
                 _ig_jpgs_save = []
                 for _ig_fp in result.get("files", []):
                     if os.path.exists(_ig_fp) and _ig_fp.lower().endswith((".jpg", ".jpeg")):
@@ -6573,6 +6593,22 @@ def show_auto_page(with_slump: bool = False) -> None:
                     if os.path.exists(_src):
                         os.replace(_src, os.path.join(output_dir, f"{_seq:02d}_{_bn}"))
                         _seq += 1
+                # スランプ付き：narabi含む全JPGを最終収集してセッション更新
+                if with_slump and os.path.isdir(output_dir):
+                    _ig_late = []
+                    for _lf in sorted(os.listdir(output_dir)):
+                        _lfp = os.path.join(output_dir, _lf)
+                        if os.path.isfile(_lfp) and _lf.lower().endswith((".jpg", ".jpeg")):
+                            with open(_lfp, "rb") as _lfh:
+                                _ig_late.append((_lf, _lfh.read()))
+                    if _ig_late:
+                        st.session_state[f"_inagawa_jpgs_{store}"] = _ig_late
+                    _ig_bm_u = st.session_state.get(f"_inagawa_ban_map_{store}", {})
+                    for _nfn_u, _nbns_u in st.session_state.get(_aprev_narabi_key, {}).items():
+                        _bare_u = re.sub(r"^\d{2}_", "", _nfn_u)
+                        if _bare_u not in _ig_bm_u:
+                            _ig_bm_u[_bare_u] = [int(_b4) for _b4 in _nbns_u]
+                    st.session_state[f"_inagawa_ban_map_{store}"] = _ig_bm_u
 
             all_ok = result["ok"] and (narabi_result is None or narabi_result["ok"])
             if all_ok:
@@ -6809,77 +6845,83 @@ def show_auto_page(with_slump: bool = False) -> None:
                         if not _ig_pision_items:
                             st.warning("⚠️ pisionデータが取得できませんでした。")
                         else:
-                            # 機種名変換
                             _slump_apply_names(_ig_pision_items)
-                            # テーブル画像ロード
-                            _ig_table_imgs = []
-                            for _ig_fn, _ig_fb in _ig_jpgs_ss:
-                                try:
-                                    _ig_table_imgs.append((_ig_fn, Image.open(io.BytesIO(_ig_fb)).convert("RGB")))
-                                except Exception:
-                                    pass
-                            # pision unitId → item マッピング
-                            _ig_by_uid = {str(_it.get("unitId", "")): _it for _it in _ig_pision_items}
-                            # ⑦プレビューで表示された機種の台番のみを収集
-                            _ig_ban_list: "list[tuple[str, str]]" = []  # (ban_str, machine_name)
+                            _ig_by_uid   = {str(_it.get("unitId", "")): _it for _it in _ig_pision_items}
+                            _ig_tmpl     = find_slump_template()
+                            _ig_bbb      = _find_slump_bg()
+                            _ig_ban_map_ss = st.session_state.get(f"_inagawa_ban_map_{store}", {})
+                            # 台番 → 機種名 逆引き（pision名前補完用）
+                            _ig_ban2mac: dict[str, str] = {}
                             if _ig_df_ss is not None:
-                                for _, _igrow in _ig_df_ss.iterrows():
-                                    _igban_s = str(_igrow.get("台番", "")).split(".")[0]
+                                for _, _igr in _ig_df_ss.iterrows():
+                                    _bs0 = str(_igr.get("台番", "")).split(".")[0]
+                                    if _bs0.lstrip("-").isdigit():
+                                        _ig_ban2mac[_bs0] = str(_igr.get("機種名", ""))
+
+                            _ig_combined: "list[tuple[str, bytes]]" = []
+                            _ig_ok_cnt   = 0
+                            _ig_skip_all: list[str] = []
+
+                            for _ig_fn, _ig_fb in _ig_jpgs_ss:
+                                # プレフィックス除去してban_map参照
+                                _bare_fn = re.sub(r"^\d{2}_", "", _ig_fn)
+                                _bans_for = _ig_ban_map_ss.get(_bare_fn, [])
+                                try:
+                                    _t_img = Image.open(io.BytesIO(_ig_fb)).convert("RGB")
+                                except Exception:
+                                    continue
+
+                                if not _bans_for or _ig_tmpl is None:
+                                    _buf2 = io.BytesIO()
+                                    _t_img.save(_buf2, format="JPEG", quality=92)
+                                    _ig_combined.append((_ig_fn, _buf2.getvalue()))
+                                    continue
+
+                                _g_imgs: "list[Image.Image]" = []
+                                for _b5 in _bans_for:
+                                    _bs5 = str(_b5)
+                                    _it5 = _ig_by_uid.get(_bs5)
+                                    if _it5 is None or not _it5.get("points"):
+                                        _ig_skip_all.append(_bs5)
+                                        continue
+                                    _dn5 = _it5.get("_convertedName") or _it5.get("displayName", _ig_ban2mac.get(_bs5, _bs5))
                                     try:
-                                        _igban_i = int(_igban_s)
-                                    except (ValueError, TypeError):
-                                        continue
-                                    _igmac = str(_igrow.get("機種名", ""))
-                                    if _igban_i in _ig_bans_ss:
-                                        _ig_ban_list.append((_igban_s, _igmac))
-                            # スランプグラフ生成
-                            _ig_tmpl = find_slump_template()
-                            _ig_graph_imgs: "list[Image.Image]" = []
-                            _ig_skipped_no_points: "list[str]" = []
-                            _ig_skipped_no_pision: "list[str]" = []
-                            _ig_total_bans = len(_ig_ban_list)
-                            if _ig_tmpl is None:
-                                st.warning("⚠️ base_3000_bk.png が見つかりません。グラフなしで合成します。")
-                            else:
-                                for _igban, _igmac in _ig_ban_list:
-                                    _ig_it = _ig_by_uid.get(_igban)
-                                    if _ig_it is None:
-                                        _ig_skipped_no_pision.append(_igban)
-                                        continue
-                                    if not _ig_it.get("points"):
-                                        _ig_skipped_no_points.append(_igban)
-                                        continue
-                                    _ig_disp = _ig_it.get("_convertedName") or _ig_it.get("displayName", _igmac)
-                                    _ig_diff = _ig_it.get("diff")
-                                    try:
-                                        _ig_gimg = draw_slump_graph(
-                                            _ig_tmpl, _igban, _ig_disp,
-                                            _ig_it["points"], diff=_ig_diff,
-                                        )
-                                        _ig_graph_imgs.append(_ig_gimg)
-                                    except Exception as _igge:
-                                        st.warning(f"⚠️ {_igban}番台グラフ生成失敗: {_igge}")
-                            st.caption(f"📊 表の台数: {_ig_total_bans}台 → グラフ生成: {len(_ig_graph_imgs)}枚")
-                            if _ig_skipped_no_pision:
-                                st.info(f"ℹ️ pisionデータ未収録（スキップ）: {', '.join(_ig_skipped_no_pision)} 番台")
-                            if _ig_skipped_no_points:
-                                st.info(f"ℹ️ グラフデータなし（スキップ）: {', '.join(_ig_skipped_no_points)} 番台")
-                            # 合成
-                            _ig_comp = _build_inagawa_composite(
-                                _ig_table_imgs, _ig_graph_imgs,
-                                f"稲毛 {_ig_date_ss}",
-                            )
-                            _ig_cbuf = io.BytesIO()
-                            _ig_comp.save(_ig_cbuf, format="PNG")
-                            _ig_cbytes = _ig_cbuf.getvalue()
-                            st.image(_ig_comp, use_container_width=True, caption="合成プレビュー")
-                            st.download_button(
-                                label="📥 合成画像をダウンロード",
-                                data=_ig_cbytes,
-                                file_name=f"稲毛_表＋スランプグラフ_{_ig_date_ss}.png",
-                                mime="image/png",
-                                key="inagawa_composite_dl",
-                            )
+                                        _g_imgs.append(draw_slump_graph(
+                                            _ig_tmpl, _bs5, _dn5,
+                                            _it5["points"], diff=_it5.get("diff"),
+                                        ))
+                                        _ig_ok_cnt += 1
+                                    except Exception:
+                                        _ig_skip_all.append(_bs5)
+
+                                _combined_img = _attach_slump_to_table(_t_img, _g_imgs, _ig_bbb)
+                                _cbuf5 = io.BytesIO()
+                                _combined_img.save(_cbuf5, format="JPEG", quality=92)
+                                _ig_combined.append((_ig_fn, _cbuf5.getvalue()))
+
+                            st.caption(f"📊 グラフ生成: {_ig_ok_cnt}枚成功 / {len(_ig_jpgs_ss)}ファイル処理")
+                            if _ig_skip_all:
+                                st.info(f"ℹ️ 取得不可（スキップ）: {', '.join(dict.fromkeys(_ig_skip_all))} 番台")
+
+                            if _ig_combined:
+                                # プレビュー（先頭3枚）
+                                _prev_n = min(3, len(_ig_combined))
+                                _pcols5 = st.columns(_prev_n)
+                                for _pi5, (_pfn5, _pb5) in enumerate(_ig_combined[:_prev_n]):
+                                    with _pcols5[_pi5]:
+                                        st.image(_pb5, caption=_pfn5, use_container_width=True)
+                                # ZIP生成・ダウンロード
+                                _zip_buf5 = io.BytesIO()
+                                with zipfile.ZipFile(_zip_buf5, "w", zipfile.ZIP_DEFLATED) as _zf5:
+                                    for _zfn5, _zb5 in _ig_combined:
+                                        _zf5.writestr(_zfn5, _zb5)
+                                st.download_button(
+                                    label="📥 表＋スランプグラフ画像をZIPでダウンロード",
+                                    data=_zip_buf5.getvalue(),
+                                    file_name=f"稲毛_表＋スランプグラフ_{_ig_date_ss}.zip",
+                                    mime="application/zip",
+                                    key="inagawa_composite_dl",
+                                )
 
     # ── ボタン直下スロットにZIPダウンロードボタンを表示（Cloud のみ）──
     if _IS_CLOUD and _auto_zip_slot is not None and st.session_state.get(f"_auto_zip_data_{store}"):
@@ -10972,6 +11014,77 @@ def _build_inagawa_composite(
             _gx  = _col * (CANVAS_W // graph_cols)
             _gy  = _y + _row * (g_row_h + SEC_GAP)
             canvas.paste(_gimg, (_gx, _gy))
+
+    return canvas
+
+
+def _find_slump_bg() -> "object | None":
+    """bbb.jpg（グラフエリア背景）を探してPathを返す。"""
+    from pathlib import Path as _P
+    candidates = [
+        _P(r"C:\Users\23-3\Desktop\bbb.jpg"),
+        _P(os.path.abspath(__file__)).parent / "bbb.jpg",
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return None
+
+
+def _attach_slump_to_table(
+    table_img: "Image.Image",
+    graph_imgs: "list[Image.Image]",
+    bg_path=None,
+) -> "Image.Image":
+    """表画像の下にスランプグラフを3列で並べて合成する（稲毛スランプ付き専用）。
+
+    * グラフは表幅に収まるよう3列グリッドにスケール（縦横比維持）。
+    * 最終行が3未満の場合は中央寄せ。
+    * bg_path が指定されている場合、グラフエリアの背景に貼り付ける。
+    """
+    COLS = 3
+    PAD  = 24  # 外周余白 (px)
+    GAP  = 12  # グラフ間隙間 (px)
+
+    tw, th = table_img.size
+
+    if not graph_imgs:
+        return table_img.copy()
+
+    n    = len(graph_imgs)
+    # 3列基準でセル幅を決定（1列・2列でも同幅セルを使い中央寄せ）
+    cell_w = max(1, (tw - PAD * 2 - GAP * (COLS - 1)) // COLS)
+
+    scaled: "list[Image.Image]" = []
+    for g in graph_imgs:
+        gw, gh = g.size
+        new_h = max(1, round(gh * cell_w / gw)) if gw > 0 else gh
+        scaled.append(g.resize((cell_w, new_h), Image.LANCZOS))
+
+    row_h = max(g.size[1] for g in scaled) if scaled else 0
+    rows  = math.ceil(n / COLS)
+    graph_area_h = PAD + rows * row_h + max(0, rows - 1) * GAP + PAD
+
+    canvas = Image.new("RGB", (tw, th + graph_area_h), (255, 255, 255))
+    canvas.paste(table_img, (0, 0))
+
+    if bg_path is not None:
+        try:
+            _bg = Image.open(str(bg_path)).convert("RGB").resize((tw, graph_area_h), Image.LANCZOS)
+            canvas.paste(_bg, (0, th))
+        except Exception:
+            pass
+
+    for i, g in enumerate(scaled):
+        row = i // COLS
+        col = i % COLS
+        row_start = row * COLS
+        row_count = min(COLS, n - row_start)
+        row_total_w = row_count * cell_w + max(0, row_count - 1) * GAP
+        x_off = (tw - row_total_w) // 2
+        x = x_off + col * (cell_w + GAP)
+        y = th + PAD + row * (row_h + GAP)
+        canvas.paste(g, (x, y))
 
     return canvas
 

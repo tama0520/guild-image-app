@@ -2221,5 +2221,31 @@
     "kojin_narabi_title_稲毛": "",
     "kojin_narabi2_range_稲毛": "",
     "kojin_narabi2_title_稲毛": ""
+  },
+  "20260617_稲毛_20S.xlsx": {
+    "kojin_enabled": true,
+    "narabi_enabled": true,
+    "narabi_ranges_input": "314\tﾏｲｼﾞｬｸﾞﾗｰV\t21841\t22997\t1,156 \n315\tﾏｲｼﾞｬｸﾞﾗｰV\t24705\t26978\t2,273 \n316\tﾏｲｼﾞｬｸﾞﾗｰV\t24728\t24778\t50 \n\n396\tﾈｵｱｲﾑｼﾞｬｸﾞﾗｰEX\t13992\t16505\t2,513 \n397\tﾈｵｱｲﾑｼﾞｬｸﾞﾗｰEX\t25137\t27854\t2,717 \n398\tﾈｵｱｲﾑｼﾞｬｸﾞﾗｰEX\t29195\t32260\t3,065 \n\n402\tﾈｵｱｲﾑｼﾞｬｸﾞﾗｰEX\t18265\t19775\t1,510 \n403\tﾈｵｱｲﾑｼﾞｬｸﾞﾗｰEX\t25015\t26819\t1,804 \n404\tﾈｵｱｲﾑｼﾞｬｸﾞﾗｰEX\t14234\t13496\t-738 \n405\tﾈｵｱｲﾑｼﾞｬｸﾞﾗｰEX\t18347\t19547\t1,200 ",
+    "suebangai_enabled": false,
+    "suebangai_tail_input_1": "",
+    "suebangai_tail_input_2": "",
+    "suebangai_tail_input_3": "",
+    "suebangai_mode": "",
+    "kojin_z_0_稲毛": "",
+    "kojin_y_0_稲毛": "かぐや様",
+    "kojin_z_1_稲毛": "",
+    "kojin_y_1_稲毛": "",
+    "kojin_z_2_稲毛": "",
+    "kojin_y_2_稲毛": "",
+    "kojin_z_3_稲毛": "",
+    "kojin_y_3_稲毛": "",
+    "kojin_z_4_稲毛": "",
+    "kojin_y_4_稲毛": "",
+    "kojin_z_5_稲毛": "",
+    "kojin_y_5_稲毛": "",
+    "kojin_narabi_range_稲毛": "",
+    "kojin_narabi_title_稲毛": "",
+    "kojin_narabi2_range_稲毛": "",
+    "kojin_narabi2_title_稲毛": ""
   }
 }

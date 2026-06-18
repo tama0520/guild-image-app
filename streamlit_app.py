@@ -5516,6 +5516,105 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _sfx = _sfx_map.get(_thr, str(_thr))
                                         _prev_img_list.append((f"オススメ_{_make_safe_fn(_bt)}_{_sfx}.jpg", _rec_img))
 
+                    # ── with_slump=True の場合: pisionデータ取得 → スランプグラフ合成 ──
+                    if with_slump and _prev_result.get("ok"):
+                        _pv_ban_map: dict[str, list[int]] = {}
+                        for _zd2 in _prev_result.get("zen_dai_list", []):
+                            _pv_ban_map[f"{_make_safe_fn(_zd2['name'])}.jpg"] = _zd2.get("bans", [])
+                        for _hr2 in _prev_result.get("high_ratio_list", []):
+                            if _hr2.get("has_image", False):
+                                _pv_ban_map[f"{_make_safe_fn(_hr2['name'])}_高配分.jpg"] = _hr2.get("bans", [])
+                        _jug_pool_pv = _prev_result.get("jug_pool_df")
+                        if _jug_pool_pv is not None and not _jug_pool_pv.empty:
+                            _pv_ban_map["ジャグラーシリーズ優秀台.jpg"] = [
+                                int(str(_b2).split(".")[0]) for _b2 in _jug_pool_pv["台番"].dropna()
+                                if str(_b2).split(".")[0].lstrip("-").isdigit()
+                            ]
+                        _son_bans_pv = sorted({int(_e2["ban"]) for _e2 in _prev_result.get("sonota_excellent_list", []) if "ban" in _e2})
+                        if _son_bans_pv:
+                            _pv_ban_map["その他の優秀台ピックアップ.jpg"] = _son_bans_pv
+                        for _nami_pv in _prev_result.get("nami_list", []):
+                            _nt_pv = _nami_pv.get("title", "")
+                            if _nt_pv and _nami_pv.get("bans"):
+                                _pv_ban_map[f"{_make_safe_fn(_nt_pv)}.jpg"] = [int(_b3) for _b3 in _nami_pv["bans"]]
+                        if kojin_enabled and _pv_df is not None:
+                            for _km_pv in kojin_zentai_machines:
+                                _km_pv = _km_pv.strip()
+                                if not _km_pv:
+                                    continue
+                                _kgr_pv = _pv_df[_pv_df["機種名"] == _km_pv]
+                                if not _kgr_pv.empty:
+                                    _pv_ban_map[f"{_make_safe_fn(_km_pv)}.jpg"] = [int(b) for b in _kgr_pv["台番"].tolist()]
+                        if kojin_enabled and _pv_df is not None and _pv_diff is not None:
+                            for _km_pv in kojin_yushu_machines:
+                                _km_pv = _km_pv.strip()
+                                if not _km_pv:
+                                    continue
+                                _kgr_all_pv = _pv_df[_pv_df["機種名"] == _km_pv]
+                                if _kgr_all_pv.empty:
+                                    continue
+                                _kdr_all_pv = _pv_diff.loc[_kgr_all_pv.index]
+                                _kgrp_p_pv = _kojin_yushu_filter(_km_pv, _kgr_all_pv, _kdr_all_pv, get_store_config(store)).reset_index(drop=True)
+                                if not _kgrp_p_pv.empty:
+                                    _pv_ban_map[f"{_make_safe_fn(_km_pv)}（優秀台）.jpg"] = [int(b) for b in _kgrp_p_pv["台番"].tolist()]
+                        _ig_api_key_pv = _get_pision_api_key()
+                        if _ig_api_key_pv and _pv_ban_map:
+                            _ig_date_pv = st.session_state.get(f"_inagawa_date_{store}", "")
+                            if not _ig_date_pv:
+                                _ig_rd_pv = _prev_result.get("date")
+                                _ig_dt_key_pv = st.session_state.get(f"auto_tb_date_{store}")
+                                _ig_date_pv = (
+                                    _ig_rd_pv.strftime("%Y-%m-%d") if hasattr(_ig_rd_pv, "strftime") else str(_ig_rd_pv)
+                                ) if _ig_rd_pv is not None else (
+                                    _ig_dt_key_pv.strftime("%Y-%m-%d") if hasattr(_ig_dt_key_pv, "strftime") else str(_ig_dt_key_pv or "")
+                                )
+                            try:
+                                _ig_halls_pv = fetch_pision_halls(_ig_api_key_pv)
+                                _ig_hall_id_pv = None
+                                for _igh_pv in _ig_halls_pv:
+                                    _ighn_pv = _igh_pv.get("name") or _igh_pv.get("displayName") or ""
+                                    if store in _ighn_pv and "エスパス" in _ighn_pv:
+                                        _ig_hall_id_pv = str(_igh_pv.get("id") or _igh_pv.get("hallId") or "")
+                                        break
+                                if _ig_hall_id_pv:
+                                    _ig_pision_items_pv = fetch_pision_results(_ig_api_key_pv, _ig_hall_id_pv, _ig_date_pv)
+                                    if _ig_pision_items_pv:
+                                        _slump_apply_names(_ig_pision_items_pv)
+                                        _ig_by_uid_pv = {str(_it.get("unitId", "")): _it for _it in _ig_pision_items_pv}
+                                        _ig_tmpl_pv = find_slump_template()
+                                        _ig_bbb_pv  = _find_slump_bg()
+                                        _ig_ban2mac_pv: dict[str, str] = {}
+                                        if _pv_df is not None:
+                                            for _, _igr_pv in _pv_df.iterrows():
+                                                _bs0_pv = str(_igr_pv.get("台番", "")).split(".")[0]
+                                                if _bs0_pv.lstrip("-").isdigit():
+                                                    _ig_ban2mac_pv[_bs0_pv] = str(_igr_pv.get("機種名", ""))
+                                        _merged_pv: list[tuple[str, "Image.Image"]] = []
+                                        for (_fn_pv, _img_pv) in _prev_img_list:
+                                            _bare_pv = re.sub(r"^\d{2}_", "", _fn_pv)
+                                            _bans_pv = _pv_ban_map.get(_bare_pv, [])
+                                            if not _bans_pv or _ig_tmpl_pv is None:
+                                                _merged_pv.append((_fn_pv, _img_pv))
+                                                continue
+                                            _g_imgs_pv: list["Image.Image"] = []
+                                            for _b_pv in _bans_pv:
+                                                _it_pv = _ig_by_uid_pv.get(str(_b_pv))
+                                                if _it_pv is None or not _it_pv.get("points"):
+                                                    continue
+                                                _dn_pv = (_it_pv.get("_convertedName")
+                                                          or _it_pv.get("displayName")
+                                                          or _ig_ban2mac_pv.get(str(_b_pv), str(_b_pv)))
+                                                try:
+                                                    _g_imgs_pv.append(draw_slump_graph(
+                                                        _ig_tmpl_pv, str(_b_pv), _dn_pv,
+                                                        _it_pv["points"], diff=_it_pv.get("diff"),
+                                                    ))
+                                                except Exception:
+                                                    pass
+                                            _merged_pv.append((_fn_pv, _attach_slump_to_table(_img_pv, _g_imgs_pv, _ig_bbb_pv)))
+                                        _prev_img_list = _merged_pv
+                            except Exception:
+                                pass  # pision取得失敗時は表のみ画像のままプレビュー表示
 
                     st.session_state[_aprev_key]    = _prev_img_list
                     st.session_state[_aprev_df_key] = _prev_result.get("df")
@@ -6638,6 +6737,73 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _ig_bm_u[_bare_u] = [int(_b4) for _b4 in _nbns_u]
                     st.session_state[f"_inagawa_ban_map_{store}"] = _ig_bm_u
 
+                    # ── pisionデータ取得・スランプグラフ合成・output_dir上書き ──
+                    _ig_api_key_exec = _get_pision_api_key()
+                    if _ig_api_key_exec:
+                        _ig_date_exec = st.session_state.get(f"_inagawa_date_{store}", "")
+                        try:
+                            _ig_halls_exec = fetch_pision_halls(_ig_api_key_exec)
+                            _ig_hall_id_exec = None
+                            for _igh_exec in _ig_halls_exec:
+                                _ighn_exec = _igh_exec.get("name") or _igh_exec.get("displayName") or ""
+                                if store in _ighn_exec and "エスパス" in _ighn_exec:
+                                    _ig_hall_id_exec = str(_igh_exec.get("id") or _igh_exec.get("hallId") or "")
+                                    break
+                            if _ig_hall_id_exec:
+                                _ig_pision_exec = fetch_pision_results(_ig_api_key_exec, _ig_hall_id_exec, _ig_date_exec)
+                                if _ig_pision_exec:
+                                    _slump_apply_names(_ig_pision_exec)
+                                    _ig_by_uid_exec = {str(_it.get("unitId", "")): _it for _it in _ig_pision_exec}
+                                    _ig_tmpl_exec = find_slump_template()
+                                    _ig_bbb_exec  = _find_slump_bg()
+                                    _ig_ban2mac_exec: dict[str, str] = {}
+                                    _df_exec = result.get("df")
+                                    if _df_exec is not None:
+                                        for _, _igr_exec in _df_exec.iterrows():
+                                            _bs0_exec = str(_igr_exec.get("台番", "")).split(".")[0]
+                                            if _bs0_exec.lstrip("-").isdigit():
+                                                _ig_ban2mac_exec[_bs0_exec] = str(_igr_exec.get("機種名", ""))
+                                    _ig_composite: list[tuple[str, bytes]] = []
+                                    for _lfn_exec, _lfb_exec in st.session_state.get(f"_inagawa_jpgs_{store}", []):
+                                        _bare_exec = re.sub(r"^\d{2}_", "", _lfn_exec)
+                                        _bans_exec = _ig_bm_u.get(_bare_exec, [])
+                                        try:
+                                            _t_img_exec = Image.open(io.BytesIO(_lfb_exec)).convert("RGB")
+                                        except Exception:
+                                            _ig_composite.append((_lfn_exec, _lfb_exec))
+                                            continue
+                                        if not _bans_exec or _ig_tmpl_exec is None:
+                                            _ig_composite.append((_lfn_exec, _lfb_exec))
+                                            continue
+                                        _g_imgs_exec: list["Image.Image"] = []
+                                        for _b_exec in _bans_exec:
+                                            _it_exec = _ig_by_uid_exec.get(str(_b_exec))
+                                            if _it_exec is None or not _it_exec.get("points"):
+                                                continue
+                                            _dn_exec = (_it_exec.get("_convertedName")
+                                                        or _it_exec.get("displayName")
+                                                        or _ig_ban2mac_exec.get(str(_b_exec), str(_b_exec)))
+                                            try:
+                                                _g_imgs_exec.append(draw_slump_graph(
+                                                    _ig_tmpl_exec, str(_b_exec), _dn_exec,
+                                                    _it_exec["points"], diff=_it_exec.get("diff"),
+                                                ))
+                                            except Exception:
+                                                pass
+                                        _combined_exec = _attach_slump_to_table(_t_img_exec, _g_imgs_exec, _ig_bbb_exec)
+                                        _cbuf_exec = io.BytesIO()
+                                        _combined_exec.save(_cbuf_exec, format="JPEG", quality=92)
+                                        _ig_composite.append((_lfn_exec, _cbuf_exec.getvalue()))
+                                    # output_dirに上書き保存 & session_stateを合成済み画像で更新
+                                    for _cfn_exec, _cb_exec in _ig_composite:
+                                        _cfp_exec = os.path.join(output_dir, _cfn_exec)
+                                        if os.path.exists(_cfp_exec):
+                                            with open(_cfp_exec, "wb") as _cfh_exec:
+                                                _cfh_exec.write(_cb_exec)
+                                    st.session_state[f"_inagawa_jpgs_{store}"] = _ig_composite
+                        except Exception:
+                            pass  # pision取得失敗時は表のみのままにする
+
             all_ok = result["ok"] and (narabi_result is None or narabi_result["ok"])
             if all_ok:
                 status_widget.update(label="✅ 全処理完了！", state="complete", expanded=False)
@@ -6835,122 +7001,6 @@ def show_auto_page(with_slump: bool = False) -> None:
                      border:1px solid #ccc;padding:8px;box-sizing:border-box;resize:vertical;"
             >{_safe}</textarea>
             """, height=_h)
-
-    # ── スランプ付き結果ポスト用：表＋スランプグラフ合成 ──────────────
-    if with_slump:
-        _ig_jpgs_ss  = st.session_state.get(f"_inagawa_jpgs_{store}")
-        _ig_df_ss    = st.session_state.get(f"_inagawa_df_{store}")
-        _ig_bans_ss  = st.session_state.get(f"_inagawa_bans_{store}", set())
-        _ig_date_ss  = st.session_state.get(f"_inagawa_date_{store}", "")
-        if _ig_jpgs_ss:
-            st.markdown("---")
-            st.markdown("### 表＋スランプグラフ画像生成")
-            _api_key_ig = _get_pision_api_key()
-            if not _api_key_ig:
-                st.warning("⚠️ PISION_API_KEY が未設定のためスランプグラフを生成できません。")
-            elif st.button("📊 表＋スランプグラフ画像生成", key="inagawa_composite_btn"):
-                with st.spinner("pisionデータを取得してグラフを合成中…"):
-                    # pisionホール一覧取得
-                    _ig_halls_lst = []
-                    try:
-                        _ig_halls_lst = fetch_pision_halls(_api_key_ig)
-                    except Exception as _ige:
-                        st.error(f"❌ ホール一覧取得失敗: {_ige}")
-                    _ig_hall_id = None
-                    for _igh in _ig_halls_lst:
-                        _ighn = _igh.get("name") or _igh.get("displayName") or ""
-                        if store in _ighn and "エスパス" in _ighn:
-                            _ig_hall_id = str(_igh.get("id") or _igh.get("hallId") or "")
-                            break
-                    if _ig_hall_id is None:
-                        st.error("❌ 稲毛（エスパス）のホールIDが見つかりませんでした。")
-                    else:
-                        _ig_pision_items = None
-                        try:
-                            _ig_pision_items = fetch_pision_results(_api_key_ig, _ig_hall_id, _ig_date_ss)
-                        except Exception as _ige2:
-                            st.error(f"❌ pisionデータ取得失敗: {_ige2}")
-                        if not _ig_pision_items:
-                            st.warning("⚠️ pisionデータが取得できませんでした。")
-                        else:
-                            _slump_apply_names(_ig_pision_items)
-                            _ig_by_uid   = {str(_it.get("unitId", "")): _it for _it in _ig_pision_items}
-                            _ig_tmpl     = find_slump_template()
-                            _ig_bbb      = _find_slump_bg()
-                            _ig_ban_map_ss = st.session_state.get(f"_inagawa_ban_map_{store}", {})
-                            # 台番 → 機種名 逆引き（pision名前補完用）
-                            _ig_ban2mac: dict[str, str] = {}
-                            if _ig_df_ss is not None:
-                                for _, _igr in _ig_df_ss.iterrows():
-                                    _bs0 = str(_igr.get("台番", "")).split(".")[0]
-                                    if _bs0.lstrip("-").isdigit():
-                                        _ig_ban2mac[_bs0] = str(_igr.get("機種名", ""))
-
-                            _ig_combined: "list[tuple[str, bytes]]" = []
-                            _ig_ok_cnt   = 0
-                            _ig_skip_all: list[str] = []
-
-                            for _ig_fn, _ig_fb in _ig_jpgs_ss:
-                                # プレフィックス除去してban_map参照
-                                _bare_fn = re.sub(r"^\d{2}_", "", _ig_fn)
-                                _bans_for = _ig_ban_map_ss.get(_bare_fn, [])
-                                try:
-                                    _t_img = Image.open(io.BytesIO(_ig_fb)).convert("RGB")
-                                except Exception:
-                                    continue
-
-                                if not _bans_for or _ig_tmpl is None:
-                                    _buf2 = io.BytesIO()
-                                    _t_img.save(_buf2, format="JPEG", quality=92)
-                                    _ig_combined.append((_ig_fn, _buf2.getvalue()))
-                                    continue
-
-                                _g_imgs: "list[Image.Image]" = []
-                                for _b5 in _bans_for:
-                                    _bs5 = str(_b5)
-                                    _it5 = _ig_by_uid.get(_bs5)
-                                    if _it5 is None or not _it5.get("points"):
-                                        _ig_skip_all.append(_bs5)
-                                        continue
-                                    _dn5 = _it5.get("_convertedName") or _it5.get("displayName", _ig_ban2mac.get(_bs5, _bs5))
-                                    try:
-                                        _g_imgs.append(draw_slump_graph(
-                                            _ig_tmpl, _bs5, _dn5,
-                                            _it5["points"], diff=_it5.get("diff"),
-                                        ))
-                                        _ig_ok_cnt += 1
-                                    except Exception:
-                                        _ig_skip_all.append(_bs5)
-
-                                _combined_img = _attach_slump_to_table(_t_img, _g_imgs, _ig_bbb)
-                                _cbuf5 = io.BytesIO()
-                                _combined_img.save(_cbuf5, format="JPEG", quality=92)
-                                _ig_combined.append((_ig_fn, _cbuf5.getvalue()))
-
-                            st.caption(f"📊 グラフ生成: {_ig_ok_cnt}枚成功 / {len(_ig_jpgs_ss)}ファイル処理")
-                            if _ig_skip_all:
-                                st.info(f"ℹ️ 取得不可（スキップ）: {', '.join(dict.fromkeys(_ig_skip_all))} 番台")
-
-                            if _ig_combined:
-                                # プレビュー（全件・2列）
-                                st.caption(f"✅ 合成完了: {len(_ig_combined)}枚")
-                                for _pi5 in range(0, len(_ig_combined), 3):
-                                    _pcols5 = st.columns(3)
-                                    for _ci5, (_pfn5, _pb5) in enumerate(_ig_combined[_pi5:_pi5 + 3]):
-                                        with _pcols5[_ci5]:
-                                            st.image(_pb5, caption=_pfn5, use_container_width=True)
-                                # ZIP生成・ダウンロード
-                                _zip_buf5 = io.BytesIO()
-                                with zipfile.ZipFile(_zip_buf5, "w", zipfile.ZIP_DEFLATED) as _zf5:
-                                    for _zfn5, _zb5 in _ig_combined:
-                                        _zf5.writestr(_zfn5, _zb5)
-                                st.download_button(
-                                    label="📥 表＋スランプグラフ画像をZIPでダウンロード",
-                                    data=_zip_buf5.getvalue(),
-                                    file_name=f"稲毛_表＋スランプグラフ_{_ig_date_ss}.zip",
-                                    mime="application/zip",
-                                    key="inagawa_composite_dl",
-                                )
 
     # ── ボタン直下スロットにZIPダウンロードボタンを表示（Cloud のみ）──
     if _IS_CLOUD and _auto_zip_slot is not None and st.session_state.get(f"_auto_zip_data_{store}"):

@@ -376,7 +376,7 @@ STORE_NARABI_SCRIPT: dict[str, str] = {
     "新小岩":       _NARABI_GENERIC,
     "溝の口本館":   _NARABI_GENERIC,
     "溝の口新館":   _NARABI_GENERIC,
-    "稲毛": os.path.join(BASE_DIR, "convert_narabi_稲毛_20260415.py"),
+    "稲毛": _NARABI_GENERIC,
 }
 
 # 列ごとの最低表示幅（px）― 旧スクリプトの CSS 幅と同値。scale=150/96 で乗算して実使用

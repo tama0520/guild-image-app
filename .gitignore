@@ -19,10 +19,16 @@ output/
 # Temporary / debug files
 _tmp_*
 _ref_files.txt
+fix_check.txt
+fix_done.txt
+fix_result.py
+fix_result2.py
 
 # Test images
 centering_check.png
 centering_test.png
+aaa.jpg
+cats.jpg
 
 # Generated data PNGs in root (e.g. 20260404_エスパス上野新館_20S.png)
 20260*.png

@@ -417,12 +417,12 @@ C_ZERO            = "#000000"   # 差枚ゼロ・通常文字
 C_SUMMARY_BG_RGBA = (255, 182, 193, 255)  # ピンクバー背景（RGBA）
 
 IMG_FONT_SZ     = 14
-TITLE_FONT_SZ   = 32    # タイトルバーの文字サイズ（既存スクリプトの 36pt に近い大きさ）
+TITLE_FONT_SZ   = 34    # タイトルバーの文字サイズ（既存スクリプトの 36pt に近い大きさ）
 SUMMARY_FONT_SZ = 14    # ピンクバーの文字サイズ
 CELL_PAD        = 8     # セル内水平余白(px)
 ROW_H           = 28    # font=14px + padding=4px×2 → ×1.5625 ≈ 44px
 HEADER_H        = 28    # 同上
-TITLE_H         = 70    # タイトルバーの高さ（文字サイズに合わせて拡大）
+TITLE_H         = 75    # タイトルバーの高さ（文字サイズに合わせて拡大）
 REDLINE_H       = 5     # タイトル下の赤ラインの高さ(px)
 GAP_SUM         = -8    # ピンクバー内 % と（の間のカーニング調整(px)
 
@@ -2037,12 +2037,12 @@ def _build_machine_img(
     )
     w = table_img.width
 
-    # ── タイトルバー（旧スクリプトと同寸法）──────────────────────────
-    BAR_H   = 62
+    # ── タイトルバー（横幅に比例してBAR_Hを自動計算・視覚的に統一）──────
     LINE_H  = 6
-    FONT_SZ = round(BAR_H * 0.58)  # ≈ 36
+    BAR_H   = round(w * 73 / 950)   # 標準幅950pxのとき73px
+    FONT_SZ = round(BAR_H * 40 / 73)
 
-    bar  = Image.new("RGBA", (w, BAR_H),  (47, 85, 164, 255))
+    bar  = Image.new("RGBA", (w, BAR_H),  (38, 76, 161, 255))
     line = Image.new("RGBA", (w, LINE_H), (204, 0, 0, 255))
     bd   = ImageDraw.Draw(bar)
     font = load_font(FONT_SZ)

@@ -1437,8 +1437,8 @@ def show_image_type_page() -> None:
                     use_container_width=True,
                 ):
                     _navigate("rote")
-        elif store == "稲毛":
-            # 稲毛：結果ポスト用 ＋ スランプ付き結果ポスト
+        elif store in ("稲毛", "上野新館"):
+            # 稲毛・上野新館：結果ポスト用 ＋ スランプ付き結果ポスト
             st.markdown(
                 """<style>
                 .st-key-auto_slump_btn button {
@@ -5581,6 +5581,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     if _ig_pision_items_pv:
                                         _slump_apply_names(_ig_pision_items_pv)
                                         _ig_by_uid_pv = {str(_it.get("unitId", "")): _it for _it in _ig_pision_items_pv}
+                                        st.session_state[f"_slump_by_uid_{store}"] = _ig_by_uid_pv
                                         _ig_tmpl_pv = find_slump_template()
                                         _ig_bbb_pv  = _find_slump_bg()
                                         _ig_ban2mac_pv: dict[str, str] = {}
@@ -5706,9 +5707,35 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _mrows = _pv_df[_pv_df["機種名"] == _m]
                                     if not _mrows.empty:
                                         _mdiff = _pv_diff.loc[_mrows.index]
-                                        _mmask = _mdiff >= 1000
-                                        _mgood = _mrows[_mmask.values].copy().reset_index(drop=True)
-                                        _mgood_diff = _mdiff[_mmask].reset_index(drop=True)
+                                        if _m in _jug_series_set:
+                                            # ジャグラー：juggler_jobsの合算確率条件で判定
+                                            _jcfg_chk = get_store_config(store)
+                                            _jg_min_chk = _jcfg_chk["juggler_g_min"]
+                                            _jthresh_chk = {_jm: (_jp, _jd) for _jm, _jp, _jd in _jcfg_chk["juggler_jobs"]}
+                                            _mrows_j = _mrows.copy().reset_index(drop=True)
+                                            _mdiff_j = _mdiff.reset_index(drop=True)
+                                            if "ゲーム数_rounded" not in _mrows_j.columns:
+                                                _mrows_j["ゲーム数_rounded"] = _mrows_j["ゲーム数"].apply(round_games)
+                                            if "合算確率_num" not in _mrows_j.columns:
+                                                _mrows_j["合算確率_num"] = _mrows_j.apply(
+                                                    lambda r: r["ゲーム数_rounded"] / (r["BB"] + r["RB"])
+                                                              if (r["BB"] + r["RB"]) > 0 else float("inf"), axis=1)
+                                            _g_ok_chk = _mrows_j["ゲーム数_rounded"] >= _jg_min_chk
+                                            _mrows_j = _mrows_j[_g_ok_chk.values].reset_index(drop=True)
+                                            _mdiff_j = _mdiff_j[_g_ok_chk.values].reset_index(drop=True)
+                                            if not _mrows_j.empty:
+                                                _ps_chk = _mrows_j["機種名"].apply(lambda _mm: _jthresh_chk.get(_mm, (float("inf"), float("inf")))[0])
+                                                _ds_chk = _mrows_j["機種名"].apply(lambda _mm: _jthresh_chk.get(_mm, (float("inf"), float("inf")))[1])
+                                                _jcond_chk = ((_mrows_j["合算確率_num"] <= _ps_chk.values) & (_mdiff_j.values >= 0)) | (_mdiff_j.values >= _ds_chk.values)
+                                                _mgood = _mrows_j[_jcond_chk].copy().reset_index(drop=True)
+                                                _mgood_diff = _mdiff_j[_jcond_chk].reset_index(drop=True)
+                                            else:
+                                                _mgood = pd.DataFrame()
+                                                _mgood_diff = pd.Series(dtype=float)
+                                        else:
+                                            _mmask = _mdiff >= 1000
+                                            _mgood = _mrows[_mmask.values].copy().reset_index(drop=True)
+                                            _mgood_diff = _mdiff[_mmask].reset_index(drop=True)
                                         # チェック済み並び画像に含まれる台番は除外（並びと優秀台の重複防止）
                                         _narabi_excl_m: set[int] = set()
                                         for _nci2, (_npname2, _) in enumerate(_auto_previews):
@@ -5954,6 +5981,45 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _new_prev.append((_tgt_r, _rec_img_r))
                                         st.session_state[f"auto_prev_ck_{store}_{len(_new_prev)-1}"] = True
                             _updated = True
+                        # with_slump=True の場合、更新された画像にスランプグラフを合成
+                        if _updated and with_slump:
+                            _s_uid_upd = st.session_state.get(f"_slump_by_uid_{store}")
+                            if _s_uid_upd:
+                                _upd_tmpl = find_slump_template()
+                                _upd_bbb  = _find_slump_bg()
+                                _upd_ban2mac: dict[str, str] = {}
+                                if _pv_df is not None:
+                                    for _, _r_upd in _pv_df.iterrows():
+                                        _bs_upd = str(_r_upd.get("台番", "")).split(".")[0]
+                                        if _bs_upd.lstrip("-").isdigit():
+                                            _upd_ban2mac[_bs_upd] = str(_r_upd.get("機種名", ""))
+                                # 更新対象画像のban_mapを「その他を更新」時のDataFrameから動的に構築
+                                _upd_dyn_ban_map: dict[str, list[int]] = {}
+                                if _jug_extra_dfs:
+                                    _jug_bans_upd = []
+                                    for _jdf in ([_pv_jug_pool.copy()] if _pv_jug_pool is not None and not _pv_jug_pool.empty else []) + _jug_extra_dfs:
+                                        _jug_bans_upd += [int(str(b).split(".")[0]) for b in _jdf["台番"].dropna() if str(b).split(".")[0].lstrip("-").isdigit()]
+                                    _upd_dyn_ban_map["ジャグラーシリーズ優秀台.jpg"] = sorted(dict.fromkeys(_jug_bans_upd))
+                                if _all_dfs:
+                                    _son_bans_upd = [int(str(b).split(".")[0]) for b in _son_comb["台番"].dropna() if str(b).split(".")[0].lstrip("-").isdigit()]
+                                    _upd_dyn_ban_map["その他の優秀台ピックアップ.jpg"] = _son_bans_upd
+                                for _ui, (_ufn, _uimg) in enumerate(_new_prev):
+                                    if _ufn not in _upd_dyn_ban_map:
+                                        continue
+                                    _bans_u2 = _upd_dyn_ban_map[_ufn]
+                                    if not _bans_u2 or _upd_tmpl is None:
+                                        continue
+                                    _g_imgs_u2: list["Image.Image"] = []
+                                    for _b_u2 in _bans_u2:
+                                        _it_u2 = _s_uid_upd.get(str(_b_u2))
+                                        if _it_u2 is None or not _it_u2.get("points"):
+                                            continue
+                                        _dn_u2 = (_it_u2.get("_convertedName") or _it_u2.get("displayName") or _upd_ban2mac.get(str(_b_u2), str(_b_u2)))
+                                        try:
+                                            _g_imgs_u2.append(draw_slump_graph(_upd_tmpl, str(_b_u2), _dn_u2, _it_u2["points"], diff=_it_u2.get("diff")))
+                                        except Exception:
+                                            pass
+                                    _new_prev[_ui] = (_ufn, _attach_slump_to_table(_uimg, _g_imgs_u2, _upd_bbb))
                         if _updated:
                             st.session_state[_aprev_key] = _new_prev
                             st.rerun()

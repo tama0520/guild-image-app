@@ -2310,5 +2310,31 @@
     "kojin_narabi_title_上野新館": "",
     "kojin_narabi2_range_上野新館": "",
     "kojin_narabi2_title_上野新館": ""
+  },
+  "20260618_渋谷新館_20S.xlsx": {
+    "kojin_enabled": false,
+    "narabi_enabled": true,
+    "narabi_ranges_input": "2012-2013\n2061-2063\n2092-2093\n2099-2100\n2106-2107\n2190-2192\n2200-2203\n2215-2216\n2152-2154",
+    "suebangai_enabled": false,
+    "suebangai_tail_input_1": "",
+    "suebangai_tail_input_2": "",
+    "suebangai_tail_input_3": "",
+    "suebangai_mode": "",
+    "kojin_z_0_渋谷新館": "",
+    "kojin_y_0_渋谷新館": "",
+    "kojin_z_1_渋谷新館": "",
+    "kojin_y_1_渋谷新館": "",
+    "kojin_z_2_渋谷新館": "",
+    "kojin_y_2_渋谷新館": "",
+    "kojin_z_3_渋谷新館": "",
+    "kojin_y_3_渋谷新館": "",
+    "kojin_z_4_渋谷新館": "",
+    "kojin_y_4_渋谷新館": "",
+    "kojin_z_5_渋谷新館": "",
+    "kojin_y_5_渋谷新館": "",
+    "kojin_narabi_range_渋谷新館": "",
+    "kojin_narabi_title_渋谷新館": "",
+    "kojin_narabi2_range_渋谷新館": "",
+    "kojin_narabi2_title_渋谷新館": ""
   }
 }

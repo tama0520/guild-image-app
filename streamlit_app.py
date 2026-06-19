@@ -4512,22 +4512,6 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _tb_uploaded.name = st.session_state.get(_tb_name_key, f"{_tb_date.strftime('%Y%m%d')}_{store}_20S.xlsx")
                     _tb_label = "速報" if _tb_is_rt else "確定"
                     st.success(f"✅ {_tb_date_str} の{_tb_label}データ（{st.session_state.get(_tb_count_key, '?')}台）を取得し、①にセットしました。")
-                    if _tb_is_rt:
-                        _rt_items_dbg = st.session_state.get(f"_auto_tb_rt_items_{store}", [])
-                        if _rt_items_dbg:
-                            with st.expander("🔧 速報名前デバッグ（先頭10件）"):
-                                import pandas as _pd_dbg
-                                _dbg_rows = [
-                                    {
-                                        "unitId":         it.get("unitId"),
-                                        "displayName":    it.get("displayName"),
-                                        "modelName":      it.get("modelName"),
-                                        "_convertedName": it.get("_convertedName"),
-                                        "_machineName":   it.get("_machineName"),
-                                    }
-                                    for it in _rt_items_dbg[:10]
-                                ]
-                                st.dataframe(_pd_dbg.DataFrame(_dbg_rows), use_container_width=True)
                 elif not _is_collecting:
                     st.info(f"📭 {_tb_date_str} のデータを取得できませんでした（404 / 未公開 / 店休日の可能性があります）。①から手動でアップロードしてください。")
 

@@ -4289,52 +4289,204 @@ def show_auto_page(with_slump: bool = False) -> None:
         if not api_key:
             st.caption("⚠️ PISION_API_KEY が未設定のため利用できません。①から手動でアップロードしてください。")
         else:
-            _tb_date = st.date_input(
-                "日付を選択",
-                value=datetime.date.today() - datetime.timedelta(days=1),
-                key=f"auto_tb_date_{store}",
+            _tb_mode = st.radio(
+                "データ種別",
+                ["確定データ", "速報データ（当日・営業中）"],
+                horizontal=True,
+                key=f"auto_tb_mode_{store}",
+                help="確定データ＝前日まで（X-Api-Key）。速報データ＝当日の営業中データ（realtimeログインが必要）。",
             )
-            _tb_refetch = st.button("🔄 再取得", key=f"auto_tb_refetch_{store}")
+            _tb_is_rt = _tb_mode.startswith("速報")
+            _tb_rt_ok = True
+            if _tb_is_rt:
+                _rt_user, _rt_pass = _get_pision_rt_credentials()
+                if not _rt_user or not _rt_pass:
+                    st.error("❌ 速報データには realtime のログイン情報が必要です。"
+                             ".env に PISION_RT_USER / PISION_RT_PASS を設定してください。")
+                    _tb_rt_ok = False
+
+            if _tb_is_rt:
+                import datetime as _dt
+                _now = _dt.datetime.now()
+                _rt_default = _now.date() if _now.hour >= 7 else _now.date() - _dt.timedelta(days=1)
+                _tb_date = st.date_input(
+                    "日付を選択（速報は営業日に合わせて選択・日付変更では自動取得しません）",
+                    value=st.session_state.get(f"auto_tb_date_rt_{store}", _rt_default),
+                    key=f"auto_tb_date_rt_{store}",
+                )
+            else:
+                _tb_date = st.date_input(
+                    "日付を選択",
+                    value=datetime.date.today() - datetime.timedelta(days=1),
+                    key=f"auto_tb_date_{store}",
+                )
             _tb_date_str = _tb_date.strftime("%Y-%m-%d")
 
-            _tb_seen_key    = f"_auto_tb_seen_date_{store}"
-            _tb_bytes_key   = f"_auto_tb_file_bytes_{store}"
-            _tb_name_key    = f"_auto_tb_file_name_{store}"
-            _tb_count_key   = f"_auto_tb_count_{store}"
-            _tb_fetched_key = f"_auto_tb_fetched_date_{store}"
+            _tb_mode_tag       = "rt" if _tb_is_rt else "fix"
+            _tb_seen_key       = f"_auto_tb_seen_{_tb_mode_tag}_{store}"
+            _tb_bytes_key      = f"_auto_tb_file_bytes_{_tb_mode_tag}_{store}"
+            _tb_name_key       = f"_auto_tb_file_name_{_tb_mode_tag}_{store}"
+            _tb_count_key      = f"_auto_tb_count_{_tb_mode_tag}_{store}"
+            _tb_fetched_key    = f"_auto_tb_fetched_{_tb_mode_tag}_{store}"
+            _tb_collecting_key    = f"_auto_tb_collecting_rt_{store}"
+            _tb_rt_items_key      = f"_auto_tb_rt_items_{store}"
+            _tb_rt_items_date_key = f"_auto_tb_rt_items_date_{store}"
+            _tb_baseline_artid_key = f"_auto_tb_baseline_artid_{store}"  # 収集開始時点の article_id
 
-            # 初回表示では自動取得しない。日付が変更された場合のみ取得する
+            # 収集中かどうか（速報で、今表示中の日付に対して収集を開始済み）
+            _is_collecting = _tb_is_rt and st.session_state.get(_tb_collecting_key) == _tb_date_str
+
+            # ── ボタン描画 ───────────────────────────────────────────────
+            _do_rt_check    = False
+            _do_rt_existing = False
+            if _is_collecting:
+                _btn_c1, _btn_c2 = st.columns(2)
+                with _btn_c1:
+                    _tb_refetch = st.button("⏳ 収集中...", key=f"auto_tb_refetch_{store}",
+                                            disabled=True, use_container_width=True)
+                with _btn_c2:
+                    _do_rt_check = st.button("🔍 今すぐ確認", key=f"auto_tb_rt_check_{store}",
+                                             use_container_width=True,
+                                             help="30秒待たずに今すぐ収集完了を確認します。")
+            elif _tb_is_rt and _tb_rt_ok:
+                _btn_c1, _btn_c2 = st.columns(2)
+                with _btn_c1:
+                    _tb_refetch = st.button("⚡ 速報を取得", key=f"auto_tb_refetch_{store}",
+                                            use_container_width=True, type="primary")
+                with _btn_c2:
+                    _do_rt_existing = st.button("📂 既存のデータを取得", key=f"auto_tb_rt_existing_{store}",
+                                                use_container_width=True,
+                                                help="新しい収集を開始せず、過去に取得済みの直近データを読み込みます。")
+            else:
+                _tb_refetch = st.button("🔄 取得", key=f"auto_tb_refetch_{store}")
+
+            # 確定データのみ日付変更で自動取得。速報はボタン押下のみトリガー。
             _tb_seen = st.session_state.get(_tb_seen_key)
-            _tb_date_changed = _tb_seen is not None and _tb_seen != _tb_date_str
+            _tb_date_changed = (not _tb_is_rt) and _tb_seen is not None and _tb_seen != _tb_date_str
             st.session_state[_tb_seen_key] = _tb_date_str
 
-            if _tb_date_changed or _tb_refetch:
+            def _save_rt_items_to_session(items: list) -> None:
+                """速報 items を変換・セッション保存する共通処理。"""
+                _slump_apply_names(items)
+                _rows = [
+                    {
+                        "台番":     it.get("unitId"),
+                        "機種名":   it.get("_machineName") or it.get("_convertedName") or it.get("displayName") or "",
+                        "差枚":     it.get("diff", 0),
+                        "ゲーム数": it.get("games", 0),
+                        "BB":       it.get("bb", 0),
+                        "RB":       it.get("rb", 0),
+                        "AT":       it.get("art", 0),
+                    }
+                    for it in items
+                ]
+                _df  = pd.DataFrame(_rows)
+                _buf = io.BytesIO()
+                _df.to_excel(_buf, index=False)
+                st.session_state[_tb_bytes_key]         = _buf.getvalue()
+                st.session_state[_tb_name_key]          = f"{_tb_date.strftime('%Y%m%d')}_{store}_20S.xlsx"
+                st.session_state[_tb_count_key]         = len(_df)
+                st.session_state[_tb_fetched_key]       = _tb_date_str
+                st.session_state[_tb_rt_items_key]      = items
+                st.session_state[_tb_rt_items_date_key] = _tb_date_str
+                st.session_state.pop(_tb_collecting_key, None)
+
+            def _is_new_artid(poll_result: dict) -> bool:
+                """ベースラインより新しい article_id かどうか判定する。"""
+                _baseline = st.session_state.get(_tb_baseline_artid_key)
+                _new_id   = poll_result.get("article_id")
+                if _baseline is None:
+                    return True  # ベースランなし → 最初に取れたものが新データ
+                try:
+                    return int(_new_id) > int(_baseline)
+                except (TypeError, ValueError):
+                    return False
+
+            # ── 手動確認（「今すぐ確認」ボタン）────────────────────────────
+            if _do_rt_check:
+                with st.spinner("収集状況を確認中..."):
+                    _chk = fetch_pision_realtime(store, _tb_date_str, trigger=False)
+                if _chk["ok"] and _is_new_artid(_chk):
+                    _save_rt_items_to_session(_chk["items"])
+                    st.rerun()
+                elif _chk["ok"]:
+                    st.info("⏳ 収集はまだ完了していません（前回と同じスナップショット）。自動確認に戻ります。")
+                    st.rerun()
+                else:
+                    st.rerun()  # 完了していない → 自動ポーリングに戻す
+
+            # ── 自動ポーリング（収集中かつ手動確認なし）─────────────────
+            if _is_collecting and not _do_rt_check:
+                import time as _time
+                _ap_ph = st.empty()
+                _ap_ph.info("⏳ 速報データを収集中... 30秒後に自動で確認します。")
+                _time.sleep(30)
+                _ap_ph.empty()
+                with st.spinner("収集状況を自動確認中..."):
+                    _auto_poll = fetch_pision_realtime(store, _tb_date_str, trigger=False)
+                if _auto_poll["ok"] and _is_new_artid(_auto_poll):
+                    _save_rt_items_to_session(_auto_poll["items"])
+                    st.rerun()
+                elif _auto_poll.get("running") or (_auto_poll["ok"] and not _is_new_artid(_auto_poll)):
+                    st.rerun()  # まだ収集中 or 古いデータ → 30秒ループを継続
+                else:
+                    st.warning("⚠️ 収集が完了しましたがデータが取得できませんでした。「⚡ 速報を取得」をもう一度押してください。")
+                    st.session_state.pop(_tb_collecting_key, None)
+                    st.rerun()
+
+            # ── 既存データ取得（新規収集なし）────────────────────────────
+            if _do_rt_existing:
+                with st.spinner("既存の速報データを確認中（新しい収集は開始しません）..."):
+                    _exist = fetch_pision_realtime(store, _tb_date_str, trigger=False)
+                if _exist["ok"]:
+                    _save_rt_items_to_session(_exist["items"])
+                    st.rerun()
+                else:
+                    st.warning("⚠️ 既存の速報データが見つかりませんでした。「⚡ 速報を取得」で新しい収集を開始してください。")
+
+            # ── 新規取得（速報を取得ボタン or 確定取得ボタン or 日付変更）──
+            if (_tb_date_changed or _tb_refetch) and _tb_rt_ok:
                 with st.spinner(f"{_tb_date_str} のデータを取得中..."):
-                    try:
-                        _tb_halls = fetch_pision_halls(api_key)
-                    except Exception as e:
-                        st.error(f"❌ ホール一覧取得失敗: {e}")
-                        _tb_halls = []
-                    _tb_hall_id = None
-                    for h in _tb_halls:
-                        _hn = h.get("name") or h.get("displayName") or ""
-                        if store in _hn and "エスパス" in _hn:
-                            _tb_hall_id = str(h.get("id") or h.get("hallId") or "")
-                            break
                     _tb_fetched = None
-                    if _tb_hall_id is not None:
+                    if _tb_is_rt:
+                        _rt = fetch_pision_realtime(store, _tb_date_str)
+                        if not _rt["ok"]:
+                            st.error(f"❌ {_rt['error']}")
+                            if _rt.get("collect_started"):
+                                # 既存スナップショットなし → ベースライン=None で収集待ち
+                                st.session_state[_tb_collecting_key]     = _tb_date_str
+                                st.session_state[_tb_baseline_artid_key] = None
+                        else:
+                            # 既存スナップショットあり → ベースラインを保存して新収集を待つ
+                            st.session_state[_tb_collecting_key]     = _tb_date_str
+                            st.session_state[_tb_baseline_artid_key] = _rt.get("article_id")
+                    else:
+                        st.session_state.pop(_tb_collecting_key, None)
+                        st.session_state.pop(_tb_rt_items_key, None)
+                        st.session_state.pop(_tb_rt_items_date_key, None)
                         try:
-                            _tb_fetched = fetch_pision_results(api_key, _tb_hall_id, _tb_date_str)
+                            _tb_halls = fetch_pision_halls(api_key)
                         except Exception as e:
-                            st.error(f"❌ データ取得失敗: {e}")
-                            _tb_fetched = None
+                            st.error(f"❌ ホール一覧取得失敗: {e}")
+                            _tb_halls = []
+                        _tb_hall_id = None
+                        for h in _tb_halls:
+                            _hn = h.get("name") or h.get("displayName") or ""
+                            if store in _hn and "エスパス" in _hn:
+                                _tb_hall_id = str(h.get("id") or h.get("hallId") or "")
+                                break
+                        if _tb_hall_id is not None:
+                            try:
+                                _tb_fetched = fetch_pision_results(api_key, _tb_hall_id, _tb_date_str)
+                            except Exception as e:
+                                st.error(f"❌ データ取得失敗: {e}")
                 if not _tb_fetched:
                     st.session_state[_tb_bytes_key] = None
                 else:
                     _tb_rows = [
                         {
                             "台番":     item.get("unitId"),
-                            "機種名":   item.get("displayName") or "",
+                            "機種名":   item.get("_machineName") or item.get("_convertedName") or item.get("displayName") or "",
                             "差枚":     item.get("diff", 0),
                             "ゲーム数": item.get("games", 0),
                             "BB":       item.get("bb", 0),
@@ -4351,14 +4503,32 @@ def show_auto_page(with_slump: bool = False) -> None:
                     st.session_state[_tb_name_key]  = _tb_fname
                     st.session_state[_tb_count_key] = len(_tb_df)
                 st.session_state[_tb_fetched_key] = _tb_date_str
+                st.rerun()
 
             if st.session_state.get(_tb_fetched_key) == _tb_date_str:
                 _tb_data = st.session_state.get(_tb_bytes_key)
                 if _tb_data:
                     _tb_uploaded = io.BytesIO(_tb_data)
                     _tb_uploaded.name = st.session_state.get(_tb_name_key, f"{_tb_date.strftime('%Y%m%d')}_{store}_20S.xlsx")
-                    st.success(f"✅ {_tb_date_str} のデータ（{st.session_state.get(_tb_count_key, '?')}台）を取得し、①にセットしました。")
-                else:
+                    _tb_label = "速報" if _tb_is_rt else "確定"
+                    st.success(f"✅ {_tb_date_str} の{_tb_label}データ（{st.session_state.get(_tb_count_key, '?')}台）を取得し、①にセットしました。")
+                    if _tb_is_rt:
+                        _rt_items_dbg = st.session_state.get(f"_auto_tb_rt_items_{store}", [])
+                        if _rt_items_dbg:
+                            with st.expander("🔧 速報名前デバッグ（先頭10件）"):
+                                import pandas as _pd_dbg
+                                _dbg_rows = [
+                                    {
+                                        "unitId":         it.get("unitId"),
+                                        "displayName":    it.get("displayName"),
+                                        "modelName":      it.get("modelName"),
+                                        "_convertedName": it.get("_convertedName"),
+                                        "_machineName":   it.get("_machineName"),
+                                    }
+                                    for it in _rt_items_dbg[:10]
+                                ]
+                                st.dataframe(_pd_dbg.DataFrame(_dbg_rows), use_container_width=True)
+                elif not _is_collecting:
                     st.info(f"📭 {_tb_date_str} のデータを取得できませんでした（404 / 未公開 / 店休日の可能性があります）。①から手動でアップロードしてください。")
 
     st.markdown("---")
@@ -5571,51 +5741,57 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _ig_dt_key_pv.strftime("%Y-%m-%d") if hasattr(_ig_dt_key_pv, "strftime") else str(_ig_dt_key_pv or "")
                                 )
                             try:
-                                _ig_halls_pv = fetch_pision_halls(_ig_api_key_pv)
-                                _ig_hall_id_pv = None
-                                for _igh_pv in _ig_halls_pv:
-                                    _ighn_pv = _igh_pv.get("name") or _igh_pv.get("displayName") or ""
-                                    if store in _ighn_pv and "エスパス" in _ighn_pv:
-                                        _ig_hall_id_pv = str(_igh_pv.get("id") or _igh_pv.get("hallId") or "")
-                                        break
-                                if _ig_hall_id_pv:
-                                    _ig_pision_items_pv = fetch_pision_results(_ig_api_key_pv, _ig_hall_id_pv, _ig_date_pv)
+                                # 速報モードで取得済みの items（points 込み）を優先使用
+                                _rt_cached_pv = st.session_state.get(f"_auto_tb_rt_items_{store}")
+                                _rt_cached_date_pv = st.session_state.get(f"_auto_tb_rt_items_date_{store}", "")
+                                if _rt_cached_pv and _rt_cached_date_pv == _ig_date_pv:
+                                    _ig_pision_items_pv = _rt_cached_pv  # _slump_apply_names は取得時に適用済み
+                                else:
+                                    _ig_halls_pv = fetch_pision_halls(_ig_api_key_pv)
+                                    _ig_hall_id_pv = None
+                                    for _igh_pv in _ig_halls_pv:
+                                        _ighn_pv = _igh_pv.get("name") or _igh_pv.get("displayName") or ""
+                                        if store in _ighn_pv and "エスパス" in _ighn_pv:
+                                            _ig_hall_id_pv = str(_igh_pv.get("id") or _igh_pv.get("hallId") or "")
+                                            break
+                                    _ig_pision_items_pv = fetch_pision_results(_ig_api_key_pv, _ig_hall_id_pv, _ig_date_pv) if _ig_hall_id_pv else None
                                     if _ig_pision_items_pv:
                                         _slump_apply_names(_ig_pision_items_pv)
-                                        _ig_by_uid_pv = {str(_it.get("unitId", "")): _it for _it in _ig_pision_items_pv}
-                                        st.session_state[f"_slump_by_uid_{store}"] = _ig_by_uid_pv
-                                        _ig_tmpl_pv = find_slump_template()
-                                        _ig_bbb_pv  = _find_slump_bg()
-                                        _ig_ban2mac_pv: dict[str, str] = {}
-                                        if _pv_df is not None:
-                                            for _, _igr_pv in _pv_df.iterrows():
-                                                _bs0_pv = str(_igr_pv.get("台番", "")).split(".")[0]
-                                                if _bs0_pv.lstrip("-").isdigit():
-                                                    _ig_ban2mac_pv[_bs0_pv] = str(_igr_pv.get("機種名", ""))
-                                        _merged_pv: list[tuple[str, "Image.Image"]] = []
-                                        for (_fn_pv, _img_pv) in _prev_img_list:
-                                            _bare_pv = re.sub(r"^\d{2}_", "", _fn_pv)
-                                            _bans_pv = _pv_ban_map.get(_bare_pv, [])
-                                            if not _bans_pv or _ig_tmpl_pv is None:
-                                                _merged_pv.append((_fn_pv, _img_pv))
+                                if _ig_pision_items_pv:
+                                    _ig_by_uid_pv = {str(_it.get("unitId", "")): _it for _it in _ig_pision_items_pv}
+                                    st.session_state[f"_slump_by_uid_{store}"] = _ig_by_uid_pv
+                                    _ig_tmpl_pv = find_slump_template()
+                                    _ig_bbb_pv  = _find_slump_bg()
+                                    _ig_ban2mac_pv: dict[str, str] = {}
+                                    if _pv_df is not None:
+                                        for _, _igr_pv in _pv_df.iterrows():
+                                            _bs0_pv = str(_igr_pv.get("台番", "")).split(".")[0]
+                                            if _bs0_pv.lstrip("-").isdigit():
+                                                _ig_ban2mac_pv[_bs0_pv] = str(_igr_pv.get("機種名", ""))
+                                    _merged_pv: list[tuple[str, "Image.Image"]] = []
+                                    for (_fn_pv, _img_pv) in _prev_img_list:
+                                        _bare_pv = re.sub(r"^\d{2}_", "", _fn_pv)
+                                        _bans_pv = _pv_ban_map.get(_bare_pv, [])
+                                        if not _bans_pv or _ig_tmpl_pv is None:
+                                            _merged_pv.append((_fn_pv, _img_pv))
+                                            continue
+                                        _g_imgs_pv: list["Image.Image"] = []
+                                        for _b_pv in _bans_pv:
+                                            _it_pv = _ig_by_uid_pv.get(str(_b_pv))
+                                            if _it_pv is None or not _it_pv.get("points"):
                                                 continue
-                                            _g_imgs_pv: list["Image.Image"] = []
-                                            for _b_pv in _bans_pv:
-                                                _it_pv = _ig_by_uid_pv.get(str(_b_pv))
-                                                if _it_pv is None or not _it_pv.get("points"):
-                                                    continue
-                                                _dn_pv = (_it_pv.get("_convertedName")
-                                                          or _it_pv.get("displayName")
-                                                          or _ig_ban2mac_pv.get(str(_b_pv), str(_b_pv)))
-                                                try:
-                                                    _g_imgs_pv.append(draw_slump_graph(
-                                                        _ig_tmpl_pv, str(_b_pv), _dn_pv,
-                                                        _it_pv["points"], diff=_it_pv.get("diff"),
-                                                    ))
-                                                except Exception:
-                                                    pass
-                                            _merged_pv.append((_fn_pv, _attach_slump_to_table(_img_pv, _g_imgs_pv, _ig_bbb_pv)))
-                                        _prev_img_list = _merged_pv
+                                            _dn_pv = (_it_pv.get("_convertedName")
+                                                      or _it_pv.get("displayName")
+                                                      or _ig_ban2mac_pv.get(str(_b_pv), str(_b_pv)))
+                                            try:
+                                                _g_imgs_pv.append(draw_slump_graph(
+                                                    _ig_tmpl_pv, str(_b_pv), _dn_pv,
+                                                    _it_pv["points"], diff=_it_pv.get("diff"),
+                                                ))
+                                            except Exception:
+                                                pass
+                                        _merged_pv.append((_fn_pv, _attach_slump_to_table(_img_pv, _g_imgs_pv, _ig_bbb_pv)))
+                                    _prev_img_list = _merged_pv
                             except Exception:
                                 pass  # pision取得失敗時は表のみ画像のままプレビュー表示
 
@@ -10345,7 +10521,7 @@ def show_name_conversion_page() -> None:
     st.markdown("## 機種名変換")
     st.markdown("---")
 
-    tab_convert, tab_master = st.tabs(["🔄 変換実行", "📋 マスタ管理"])
+    tab_convert, tab_master, tab_pision = st.tabs(["🔄 変換実行", "📋 マスタ管理", "🔍 pisionチェック"])
 
     # ================================================================
     # TAB1: マスタ管理
@@ -10500,52 +10676,185 @@ def show_name_conversion_page() -> None:
 
         if df_src is None:
             st.info("⬆️ まず変換元Excelを選択してください。")
-            return
+        elif run_clicked:
+            if not out_folder.strip():
+                st.error("❌ 出力先フォルダを指定してください。")
+            elif not os.path.isdir(out_folder):
+                st.error(f"❌ 出力先フォルダが存在しません: {out_folder}")
+            else:
+                with st.spinner("変換中..."):
+                    try:
+                        cur_map, cur_norm = load_name_map()
+                        if not cur_map:
+                            st.error(f"❌ 変換マスタの読み込みに失敗しました: {NAME_MAP_PATH}")
+                        else:
+                            df_converted, conv_count = _apply_map(df_src, cur_map, cur_norm)
+                            base_name = os.path.splitext(src_file.name)[0]
+                            out_name  = f"{base_name}_機種名変換済.xlsx"
+                            st.success(f"✅ 変換完了！{conv_count:,} 件を変換しました。")
+                            if not _IS_CLOUD:
+                                out_path = os.path.join(out_folder, out_name)
+                                df_converted.to_excel(out_path, index=False)
+                                st.info(f"📁 保存先: {out_path}")
+                            buf = io.BytesIO()
+                            df_converted.to_excel(buf, index=False)
+                            st.download_button(
+                                label="💾 変換済みExcelをダウンロード",
+                                data=buf.getvalue(),
+                                file_name=out_name,
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="nc_download",
+                            )
+                            with st.expander("📋 変換後プレビュー（先頭5行）"):
+                                st.dataframe(df_converted.head(), use_container_width=True)
+                    except Exception as e:
+                        st.error(f"❌ エラーが発生しました: {e}")
+                        with st.expander("詳細（開発者向け）"):
+                            st.code(traceback.format_exc())
 
-        if not run_clicked:
-            return
+    # ================================================================
+    # TAB3: pisionチェック
+    # ================================================================
+    with tab_pision:
+        st.markdown("### 🔍 pisionデータ取得 → 変換マスタ照合")
+        st.caption("pisionから各店舗のデータを取得し、変換マスタへの登録状況を確認します。")
 
-        if not out_folder.strip():
-            st.error("❌ 出力先フォルダを指定してください。")
-            return
-        if not os.path.isdir(out_folder):
-            st.error(f"❌ 出力先フォルダが存在しません: {out_folder}")
-            return
-
-        with st.spinner("変換中..."):
-            try:
-                cur_map, cur_norm = load_name_map()
-                if not cur_map:
-                    st.error(f"❌ 変換マスタの読み込みに失敗しました: {NAME_MAP_PATH}")
-                    return
-
-                df_converted, conv_count = _apply_map(df_src, cur_map, cur_norm)
-
-                base_name = os.path.splitext(src_file.name)[0]
-                out_name  = f"{base_name}_機種名変換済.xlsx"
-                st.success(f"✅ 変換完了！{conv_count:,} 件を変換しました。")
-                if not _IS_CLOUD:
-                    out_path = os.path.join(out_folder, out_name)
-                    df_converted.to_excel(out_path, index=False)
-                    st.info(f"📁 保存先: {out_path}")
-
-                buf = io.BytesIO()
-                df_converted.to_excel(buf, index=False)
-                st.download_button(
-                    label="💾 変換済みExcelをダウンロード",
-                    data=buf.getvalue(),
-                    file_name=out_name,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="nc_download",
+        _nc_api_key = _get_pision_api_key()
+        if not _nc_api_key:
+            st.error("❌ PISION_API_KEY が未設定のため利用できません。")
+        else:
+            _nc_col1, _nc_col2 = st.columns(2)
+            with _nc_col1:
+                _nc_store = st.selectbox("店舗を選択", STORES, key="nc_pision_store")
+            with _nc_col2:
+                _nc_mode = st.radio(
+                    "データ種別",
+                    ["確定データ", "速報データ（当日）"],
+                    horizontal=True,
+                    key="nc_pision_mode",
                 )
+            _nc_is_rt = _nc_mode.startswith("速報")
+            if _nc_is_rt:
+                _nc_rt_user, _nc_rt_pass = _get_pision_rt_credentials()
+                if not _nc_rt_user or not _nc_rt_pass:
+                    st.error("❌ 速報データには PISION_RT_USER / PISION_RT_PASS が必要です。")
+                    _nc_is_rt = False
 
-                with st.expander("📋 変換後プレビュー（先頭5行）"):
-                    st.dataframe(df_converted.head(), use_container_width=True)
+            _nc_date = st.date_input(
+                "日付",
+                value=datetime.date.today() - datetime.timedelta(days=1),
+                key="nc_pision_date",
+            )
+            _nc_date_str = _nc_date.strftime("%Y-%m-%d")
 
-            except Exception as e:
-                st.error(f"❌ エラーが発生しました: {e}")
-                with st.expander("詳細（開発者向け）"):
-                    st.code(traceback.format_exc())
+            _nc_items_key  = f"_nc_pision_items_{_nc_store}_{_nc_date_str}_{'rt' if _nc_is_rt else 'fix'}"
+
+            if st.button("📥 データを取得", key="nc_pision_fetch", type="primary"):
+                with st.spinner(f"{_nc_store} / {_nc_date_str} を取得中..."):
+                    _nc_fetched = None
+                    if _nc_is_rt:
+                        _nc_rt = fetch_pision_realtime(_nc_store, _nc_date_str)
+                        if not _nc_rt["ok"]:
+                            st.error(f"❌ {_nc_rt['error']}")
+                        else:
+                            _nc_fetched = _nc_rt["items"]
+                    else:
+                        try:
+                            _nc_halls = fetch_pision_halls(_nc_api_key)
+                        except Exception as _e:
+                            st.error(f"❌ ホール一覧取得失敗: {_e}")
+                            _nc_halls = []
+                        _nc_hall_id = None
+                        for _h in _nc_halls:
+                            _hname = _h.get("name") or _h.get("displayName") or ""
+                            if _nc_store in _hname and "エスパス" in _hname:
+                                _nc_hall_id = str(_h.get("id") or _h.get("hallId") or "")
+                                break
+                        if _nc_hall_id:
+                            try:
+                                _nc_fetched = fetch_pision_results(_nc_api_key, _nc_hall_id, _nc_date_str)
+                            except Exception as _e:
+                                st.error(f"❌ データ取得失敗: {_e}")
+                        else:
+                            st.error(f"❌ {_nc_store} のホールIDが見つかりません。")
+                if _nc_fetched:
+                    st.session_state[_nc_items_key] = _nc_fetched
+                    st.success(f"✅ {len(_nc_fetched)} 台分のデータを取得しました。")
+                    st.rerun()
+                elif _nc_fetched is not None:
+                    st.info("📭 データが空です（404 / 未公開 / 店休日の可能性があります）。")
+
+            _nc_items = st.session_state.get(_nc_items_key)
+            if _nc_items:
+                st.markdown("---")
+                _nc_nm, _nc_nm_norm = load_name_map()
+
+                def _nc_conv(raw: str) -> str:
+                    raw = str(raw).strip()
+                    if raw in _nc_nm:
+                        return _nc_nm[raw]
+                    k = _normalize_key(raw)
+                    if k in _nc_nm_norm:
+                        return _nc_nm_norm[k]
+                    return ""
+
+                # 機種名の重複排除（displayName / modelName 両方チェック）
+                _nc_seen: dict[str, str] = {}  # raw_name → "displayName" or "modelName"
+                for _it in _nc_items:
+                    for _field, _label in [("displayName", "short"), ("modelName", "model")]:
+                        _raw = str(_it.get(_field) or "").strip()
+                        if _raw and _raw != "nan" and _raw not in _nc_seen:
+                            _nc_seen[_raw] = _label
+
+                _nc_rows = []
+                for _raw, _src in sorted(_nc_seen.items()):
+                    _conv = _nc_conv(_raw)
+                    _nc_rows.append({
+                        "pision名":    _raw,
+                        "種別":        _src,
+                        "変換後":      _conv,
+                        "登録済み":    "✅" if _conv else "❌ 未登録",
+                    })
+
+                _nc_df = pd.DataFrame(_nc_rows)
+                _unreg = _nc_df[_nc_df["登録済み"] == "❌ 未登録"]
+                _reg   = _nc_df[_nc_df["登録済み"] == "✅"]
+
+                st.markdown(f"**登録済み: {len(_reg)} 件　／　未登録: {len(_unreg)} 件**")
+
+                if not _unreg.empty:
+                    st.warning(f"⚠️ {len(_unreg)} 件が変換マスタに未登録です。")
+                    _nc_edit = st.data_editor(
+                        _unreg[["pision名", "種別"]].assign(**{"変換後（入力）": ""}),
+                        key="nc_pision_unreg_edit",
+                        use_container_width=True,
+                        disabled=["pision名", "種別"],
+                        hide_index=True,
+                    )
+                    _nc_new = [
+                        (str(r["pision名"]).strip(), str(r["変換後（入力）"]).strip())
+                        for _, r in _nc_edit.iterrows()
+                        if str(r["変換後（入力）"]).strip()
+                    ]
+                    if _nc_new:
+                        if st.button(f"📝 {len(_nc_new)} 件をマスタに追加", key="nc_pision_add", type="secondary"):
+                            try:
+                                from openpyxl import load_workbook as _lw
+                                _wb = _lw(NAME_MAP_PATH)
+                                _ws = _wb.active
+                                for _orig, _cv in _nc_new:
+                                    _ws.append([None, _orig, _cv])
+                                _wb.save(NAME_MAP_PATH)
+                                load_name_map.clear()
+                                st.success(f"✅ {len(_nc_new)} 件を追加しました。")
+                                st.rerun()
+                            except Exception as _e:
+                                st.error(f"❌ 追加に失敗しました: {_e}")
+                    else:
+                        st.info("「変換後（入力）」列に変換後の名前を入力すると追加ボタンが表示されます。")
+
+                with st.expander(f"✅ 登録済み一覧（{len(_reg)} 件）"):
+                    st.dataframe(_reg[["pision名", "変換後"]], use_container_width=True, hide_index=True)
 
 
 # =============================================================================
@@ -10816,8 +11125,9 @@ def _parse_pision_rt_detail(html: str) -> "tuple[list, int]":
             except (ValueError, TypeError):
                 pts = None
         gmap[str(uid)] = {
-            "points": pts if (pts and len(pts) >= 2) else None,   # 始点のみは線が引けない
-            "name":   g.get("data-short-name") or g.get("data-model-name") or "",
+            "points":     pts if (pts and len(pts) >= 2) else None,
+            "name":       g.get("data-short-name") or g.get("data-model-name") or "",
+            "model_name": g.get("data-model-name") or g.get("data-short-name") or "",
         }
 
     # ② 台別テーブルから実データを集める（台番をキーに）
@@ -10843,13 +11153,14 @@ def _parse_pision_rt_detail(html: str) -> "tuple[list, int]":
                 skipped += 1
             items.append({
                 "unitId":      uid,
-                "displayName": g.get("name", ""),
-                "points":      pts,                  # None ならグラフ生成時にスキップされる
-                "diff":        _rt_int(cells[1]),    # 差枚（実値）
+                "displayName": g.get("name", ""),        # data-short-name（グラフラベル用）
+                "modelName":   g.get("model_name", ""),  # data-model-name（機種名変換用）
+                "points":      pts,
+                "diff":        _rt_int(cells[1]),
                 "bb":          _rt_count(cells[3]),
                 "rb":          _rt_count(cells[4]),
                 "art":         _rt_count(cells[6]),
-                "games":       _rt_int(cells[7]),    # G数（実値）
+                "games":       _rt_int(cells[7]),
             })
     return items, skipped
 
@@ -11081,7 +11392,20 @@ def _slump_apply_names(fetched: list) -> list:
             return _nm_norm[k]
         return raw
     for _it in fetched:
-        _it["_convertedName"] = _conv(_it.get("displayName", ""))
+        _raw = _it.get("displayName", "")
+        _converted = _conv(_raw)
+        # data-short-name で変換できなかった場合は data-model-name を試す
+        if _converted == _raw:
+            _model = _it.get("modelName", "")
+            if _model and _model != _raw:
+                _cm = _conv(_model)
+                if _cm != _model:
+                    _converted = _cm
+        _it["_convertedName"] = _converted
+        # Excel の機種名列用：modelName が変換マスタにあればそれを優先
+        _model2 = _it.get("modelName", "")
+        _cm2 = _conv(_model2) if _model2 else _raw
+        _it["_machineName"] = _cm2 if _cm2 != _model2 else _converted
     return sorted({
         _it["_convertedName"]
         for _it in fetched

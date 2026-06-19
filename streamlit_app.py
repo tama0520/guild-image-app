@@ -6517,6 +6517,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _jug_sue_stats_data = _compute_sue_stats(_jug_tails_r, _jug_sue_mode_r, True, _run_df_for_sue)
 
             # ── プレビューでチェックを外した画像を削除 / 高配分・並び外しはその他/ジャグラーに追加 ──
+            _sonota_extra_bans: list[int] = []  # チェック外し再生成後の全台番（スランプ合成に渡す）
             _aprev_imgs = st.session_state.get(f"auto_preview_imgs_{store}")
             if _aprev_imgs and result["ok"]:
                 _df_res   = result.get("df")
@@ -6640,6 +6641,25 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             _nb_jug_part = _nb_jug_part[_nb_jug_no_img_ex.values].copy().reset_index(drop=True)
                                         if not _nb_jug_part.empty:
                                             _jug_ex_dfs.append(_nb_jug_part)
+                        # （優秀台）.jpgをチェック外した → kojin_yushu機種をジャグラー/その他へ
+                        _YUSHU_SFX_EX = "（優秀台）.jpg"
+                        if _pname.endswith(_YUSHU_SFX_EX) and not _m and not _mz and not _nb_bans:
+                            _km_y_ex = _pname[:-len(_YUSHU_SFX_EX)]
+                            _kojin_y_ex_set = {m.strip() for m in kojin_yushu_machines if m.strip()}
+                            if _km_y_ex in _kojin_y_ex_set:
+                                _myrows_ex = _df_res[_df_res["機種名"] == _km_y_ex]
+                                if not _myrows_ex.empty:
+                                    _mydiff_ex = _diff_res.loc[_myrows_ex.index]
+                                    _mymask_ex = _mydiff_ex >= 1000
+                                    _mygood_ex = _myrows_ex[_mymask_ex.values].copy().reset_index(drop=True)
+                                    _mygood_ex_diff = _mydiff_ex[_mymask_ex].reset_index(drop=True)
+                                    if not _mygood_ex.empty:
+                                        _has_jug_img_ex = any(_pn == "ジャグラーシリーズ優秀台.jpg" for _pn, _ in _aprev_imgs)
+                                        if _km_y_ex in _ex_jug_series_set and _has_jug_img_ex:
+                                            _jug_ex_dfs.append(_mygood_ex)
+                                        else:
+                                            _extra_dfs.append(_mygood_ex)
+                                            _extra_diffs.append(_mygood_ex_diff)
 
                 # その他の優秀台ピックアップを再生成
                 if _extra_dfs and _df_res is not None and _diff_res is not None:
@@ -6659,6 +6679,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _son_img = _build_machine_img(_son_combined, "その他の優秀台ピックアップ", None)
                     _save_jpeg(_son_img, _sonota_path, target_kb=800)
                     _log(f"  ✅ その他の優秀台ピックアップ再生成: {len(_son_combined)}台")
+                    _sonota_extra_bans = [int(str(b).split(".")[0]) for b in _son_combined["台番"].dropna()
+                                          if str(b).split(".")[0].lstrip("-").isdigit()]
                 # ジャグラーシリーズ優秀台を再生成（jug_pool_dfを基底・なければjug_excellent_listにフォールバック）
                 if _jug_ex_dfs and _df_res is not None:
                     _jug_path = os.path.join(output_dir, "ジャグラーシリーズ優秀台.jpg")
@@ -6975,6 +6997,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                             if str(_b2).split(".")[0].lstrip("-").isdigit()
                         ]
                     _sonota_bans_ig2 = sorted({int(_e2["ban"]) for _e2 in result.get("sonota_excellent_list", []) if "ban" in _e2})
+                    if _sonota_extra_bans:
+                        _sonota_bans_ig2 = sorted(set(_sonota_bans_ig2) | set(_sonota_extra_bans))
                     if _sonota_bans_ig2:
                         _ig_bm_u["その他の優秀台ピックアップ.jpg"] = _sonota_bans_ig2
                     for _nami2u in result.get("nami_list", []):
@@ -6989,23 +7013,43 @@ def show_auto_page(with_slump: bool = False) -> None:
 
                     # ── pisionデータ取得・スランプグラフ合成・output_dir上書き ──
                     _ig_api_key_exec = _get_pision_api_key()
-                    if _ig_api_key_exec:
+                    if not _ig_api_key_exec:
+                        _log("⚠️ スランプ: PISION_API_KEY が未設定のためスランプグラフをスキップ")
+                    else:
                         _ig_date_exec = st.session_state.get(f"_inagawa_date_{store}", "")
+                        _log(f"📡 スランプ: pisionデータ取得中（日付={_ig_date_exec}）")
                         try:
                             _ig_halls_exec = fetch_pision_halls(_ig_api_key_exec)
                             _ig_hall_id_exec = None
+                            _ig_all_hall_names: list[str] = []
                             for _igh_exec in _ig_halls_exec:
                                 _ighn_exec = _igh_exec.get("name") or _igh_exec.get("displayName") or ""
+                                _ig_all_hall_names.append(_ighn_exec)
                                 if store in _ighn_exec and "エスパス" in _ighn_exec:
                                     _ig_hall_id_exec = str(_igh_exec.get("id") or _igh_exec.get("hallId") or "")
                                     break
-                            if _ig_hall_id_exec:
+                            if not _ig_hall_id_exec:
+                                _log(f"⚠️ スランプ: '{store}' に対応するホールが見つかりません。pisionホール一覧: {_ig_all_hall_names}")
+                            else:
+                                _log(f"✅ スランプ: ホール発見（hall_id={_ig_hall_id_exec}）")
                                 _ig_pision_exec = fetch_pision_results(_ig_api_key_exec, _ig_hall_id_exec, _ig_date_exec)
+                                if not _ig_pision_exec:
+                                    _log(f"⚠️ スランプ: {_ig_date_exec} の確定データなし（404/未公開）→ 速報キャッシュを確認")
+                                    _rt_cached = st.session_state.get(f"_auto_tb_rt_items_{store}")
+                                    _rt_cached_date = st.session_state.get(f"_auto_tb_rt_items_date_{store}", "")
+                                    if _rt_cached and _rt_cached_date == _ig_date_exec:
+                                        _ig_pision_exec = _rt_cached
+                                        _log(f"✅ スランプ: 速報キャッシュ使用（{len(_ig_pision_exec)}台）")
+                                    else:
+                                        _log(f"⚠️ スランプ: 速報キャッシュもなし（⓪で速報取得済みか確認してください）")
                                 if _ig_pision_exec:
+                                    _log(f"✅ スランプ: {len(_ig_pision_exec)}台分のデータ取得")
                                     _slump_apply_names(_ig_pision_exec)
                                     _ig_by_uid_exec = {str(_it.get("unitId", "")): _it for _it in _ig_pision_exec}
                                     _ig_tmpl_exec = find_slump_template()
                                     _ig_bbb_exec  = _find_slump_bg()
+                                    if _ig_tmpl_exec is None:
+                                        _log("⚠️ スランプ: テンプレート画像(base_3000_bk.png)が見つかりません")
                                     _ig_ban2mac_exec: dict[str, str] = {}
                                     _df_exec = result.get("df")
                                     if _df_exec is not None:
@@ -7014,6 +7058,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             if _bs0_exec.lstrip("-").isdigit():
                                                 _ig_ban2mac_exec[_bs0_exec] = str(_igr_exec.get("機種名", ""))
                                     _ig_composite: list[tuple[str, bytes]] = []
+                                    _ig_slump_cnt = 0
                                     for _lfn_exec, _lfb_exec in st.session_state.get(f"_inagawa_jpgs_{store}", []):
                                         _bare_exec = re.sub(r"^\d{2}_", "", _lfn_exec)
                                         _bans_exec = _ig_bm_u.get(_bare_exec, [])
@@ -7044,6 +7089,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _cbuf_exec = io.BytesIO()
                                         _combined_exec.save(_cbuf_exec, format="JPEG", quality=92)
                                         _ig_composite.append((_lfn_exec, _cbuf_exec.getvalue()))
+                                        if _g_imgs_exec:
+                                            _ig_slump_cnt += 1
+                                    _log(f"✅ スランプ: {_ig_slump_cnt}枚にスランプグラフを合成")
                                     # output_dirに上書き保存 & session_stateを合成済み画像で更新
                                     for _cfn_exec, _cb_exec in _ig_composite:
                                         _cfp_exec = os.path.join(output_dir, _cfn_exec)
@@ -7051,8 +7099,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             with open(_cfp_exec, "wb") as _cfh_exec:
                                                 _cfh_exec.write(_cb_exec)
                                     st.session_state[f"_inagawa_jpgs_{store}"] = _ig_composite
-                        except Exception:
-                            pass  # pision取得失敗時は表のみのままにする
+                        except Exception as _ig_exc_exec:
+                            _log(f"❌ スランプグラフ合成エラー: {_ig_exc_exec}")
 
             all_ok = result["ok"] and (narabi_result is None or narabi_result["ok"])
             if all_ok:

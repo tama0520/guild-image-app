@@ -3698,7 +3698,7 @@ def _auto_input_keys(store: str) -> list[str]:
         keys += ["jug_sue_enabled",
                  "jug_sue_tail_input_1", "jug_sue_tail_input_2", "jug_sue_tail_input_3",
                  "jug_sue_mode"]
-    for i in range(6):
+    for i in range(12):
         keys += [f"kojin_z_{i}_{store}", f"kojin_y_{i}_{store}"]
     keys += [
         f"kojin_narabi_range_{store}", f"kojin_narabi_title_{store}",
@@ -4713,22 +4713,20 @@ def show_auto_page(with_slump: bool = False) -> None:
         col_kz, col_ky = st.columns(2, gap="large")
         with col_kz:
             st.markdown("**全台**")
-            _kz_top = st.columns(3)
-            _kz_bot = st.columns(3)
-            for _i, _col in enumerate(list(_kz_top) + list(_kz_bot)):
+            _kz_rows = [st.columns(3) for _ in range(4)]
+            for _i, _col in enumerate([c for row in _kz_rows for c in row]):
                 with _col:
                     render_machine_autocomplete_input(str(_i + 1), f"kojin_z_{_i}_{store}", _kojin_candidates,
                                                       on_change=_save_auto_inputs, on_change_args=(store,))
-            kojin_zentai_machines = [st.session_state.get(f"kojin_z_{_i}_{store}", "") for _i in range(6)]
+            kojin_zentai_machines = [st.session_state.get(f"kojin_z_{_i}_{store}", "") for _i in range(12)]
         with col_ky:
             st.markdown("**優秀台**")
-            _ky_top = st.columns(3)
-            _ky_bot = st.columns(3)
-            for _i, _col in enumerate(list(_ky_top) + list(_ky_bot)):
+            _ky_rows = [st.columns(3) for _ in range(4)]
+            for _i, _col in enumerate([c for row in _ky_rows for c in row]):
                 with _col:
                     render_machine_autocomplete_input(str(_i + 1), f"kojin_y_{_i}_{store}", _kojin_candidates,
                                                       on_change=_save_auto_inputs, on_change_args=(store,))
-            kojin_yushu_machines = [st.session_state.get(f"kojin_y_{_i}_{store}", "") for _i in range(6)]
+            kojin_yushu_machines = [st.session_state.get(f"kojin_y_{_i}_{store}", "") for _i in range(12)]
         st.markdown("**並び台番範囲 優秀台**")
         _col_nr, _col_nt = st.columns([2, 3])
         with _col_nr:
@@ -6029,6 +6027,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                                 (_nb_jug_diff_base.values >= 0)) | \
                                                                (_nb_jug_diff_base.values >= _ds_nb.values)
                                                 _nb_jug_part = _nb_jug_base[_jug_cond_nb].copy().reset_index(drop=True)
+                                                # 高配分・全台系画像がチェック済みの機種はジャグラー優秀台へ追加しない
+                                                if not _nb_jug_part.empty and _checked_img_machines:
+                                                    _nb_jug_no_img = ~_nb_jug_part["機種名"].isin(_checked_img_machines)
+                                                    _nb_jug_part = _nb_jug_part[_nb_jug_no_img.values].copy().reset_index(drop=True)
                                                 if not _nb_jug_part.empty:
                                                     _jug_extra_dfs.append(_nb_jug_part)
                                 # kojin_yushu 画像（{機種名}（優秀台）.jpg）がチェック外された場合
@@ -6554,6 +6556,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                 _extra_diffs: list[pd.Series]    = []
                 _jug_ex_dfs:  list[pd.DataFrame] = []
 
+                # チェック済みの高配分・全台系画像がある機種セット（並び外しで重複追加しないため）
+                _checked_img_machines_ex: set[str] = set()
+                for _si2, (_spn2, _) in enumerate(_aprev_imgs):
+                    if st.session_state.get(f"auto_prev_ck_{store}_{_si2}", True):
+                        _hm2 = _hr_map.get(_spn2)
+                        if _hm2:
+                            _checked_img_machines_ex.add(_hm2)
+                        _zm2 = _zen_map.get(_spn2)
+                        if _zm2:
+                            _checked_img_machines_ex.add(_zm2)
+
                 for _ci, (_pname, _) in enumerate(_aprev_imgs):
                     if not st.session_state.get(f"auto_prev_ck_{store}_{_ci}", True):
                         _del_path = os.path.join(output_dir, _pname)
@@ -6603,6 +6616,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _nb_non_jug_m = ~_nb_rows["機種名"].isin(_ex_jug_series_set)
                                 _nb_oth_part = _nb_rows[(_nb_non_jug_m) & (_nb_diff >= 1000).values].copy().reset_index(drop=True)
                                 _nb_oth_diff = _nb_diff[(_nb_non_jug_m) & (_nb_diff >= 1000).values].reset_index(drop=True)
+                                # 高配分・全台系画像がチェック済みの機種はその他へ追加しない
+                                if not _nb_oth_part.empty and _checked_img_machines_ex:
+                                    _nb_oth_no_img = ~_nb_oth_part["機種名"].isin(_checked_img_machines_ex)
+                                    _nb_oth_part = _nb_oth_part[_nb_oth_no_img.values].copy().reset_index(drop=True)
+                                    _nb_oth_diff = _nb_oth_diff[_nb_oth_no_img.values].reset_index(drop=True)
                                 if not _nb_oth_part.empty:
                                     _extra_dfs.append(_nb_oth_part)
                                     _extra_diffs.append(_nb_oth_diff)
@@ -6632,6 +6650,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                         (_nb_jug_diff2.values >= 0)) | \
                                                        (_nb_jug_diff2.values >= _ds_ex.values)
                                         _nb_jug_part = _nb_jug_base[_jug_cond_ex].copy().reset_index(drop=True)
+                                        # 高配分・全台系画像がチェック済みの機種はジャグラー優秀台へ追加しない
+                                        if not _nb_jug_part.empty and _checked_img_machines_ex:
+                                            _nb_jug_no_img_ex = ~_nb_jug_part["機種名"].isin(_checked_img_machines_ex)
+                                            _nb_jug_part = _nb_jug_part[_nb_jug_no_img_ex.values].copy().reset_index(drop=True)
                                         if not _nb_jug_part.empty:
                                             _jug_ex_dfs.append(_nb_jug_part)
 

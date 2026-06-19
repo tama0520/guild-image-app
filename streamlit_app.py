@@ -309,7 +309,7 @@ DEFAULT_STORE_CONFIG: dict = {
     # ※ この機種は全台プラスでも全台系（Step1）には入れない
     "prob_jobs": [
         ("Lハナビ",          152, 1000),
-        ("新ハナビ",         142, 1000),
+        ("新ハナビ",         150, 1000),
         ("スマートキンハナV", 165, 1000),
         ("アレックスB",      166, 1000),
         ("LBサンダーV",    152, 1000),
@@ -2294,9 +2294,10 @@ def run_step1_main(
                 _all_q = bool(((grp["合算確率_num"] <= prob_thr) & (_dr_check > 0)).all())
             else:
                 _all_q = False
-            if not _all_g or not _all_q or len(grp) <= 1:
+            _all_1k = bool((_dr_check >= 1000).all())
+            if (not (_all_g and _all_q) and not _all_1k) or len(grp) <= 1:
                 continue  # 全台条件未達 → Step3で処理
-            # 全台が確率条件を満たす → 全台系として処理（fall-through）
+            # 全台が確率条件を満たす OR 全台+1000枚以上 → 全台系として処理（fall-through）
         total_raw = len(grp)
         dr_all = diff_raw.loc[grp.index]  # G数フィルター前の全台差枚
         _g_all = grp["ゲーム数_rounded"] if "ゲーム数_rounded" in grp.columns else None
@@ -2545,13 +2546,14 @@ def run_step3_other(
                         _step1_ok = bool(((grp["合算確率_num"] <= _p_thr) & (dr_m > 0)).all())
                     else:
                         _step1_ok = False
-                    if _step1_ok:
-                        continue  # Step 1 で生成済み
+                    _all_1k_s3 = bool((dr_m >= 1000).all())
+                    if _step1_ok or _all_1k_s3:
+                        continue  # Step 1 で生成済み（確率条件 or 全台+1000枚）
                     # Step 1 を確率条件未達でスキップ → 高配分フィルターへ fall-through
                 else:
                     continue  # 全台G数>2000 → Step 1 で生成済み
-            elif total > 1 and machine not in prob_jobs_map:
-                continue  # all_plus かつ 2台以上（非prob_jobs）→ Step 1 で生成済み
+            elif total > 1 and (machine not in prob_jobs_map or bool((dr_m >= 1000).all())):
+                continue  # all_plus かつ 2台以上（非prob_jobs or 全台+1000枚）→ Step 1 で生成済み
             # prob_jobs で確率条件未達またはG数条件未達 → 高配分フィルターへ fall-through
 
         if machine in manual_exclude:
@@ -10163,7 +10165,7 @@ def show_weekly_result_text_page() -> None:
     """週間結果テキスト抽出ページ"""
     store = st.session_state.selected_store
     _WRT_DAYS = ["月", "火", "水", "木", "金", "土", "日"]
-    _N_DAILY = 12
+    _N_DAILY = 15
     _wrt_cands = load_machine_candidates()
 
     # ページ初回表示時にJSONから init キーへ復元（ローテと同じパターン）
@@ -10178,7 +10180,7 @@ def show_weekly_result_text_page() -> None:
                 if _wi < len(_saved.get("weekly", [])) else ""
             )
         for _di in range(7):
-            for _idx in range(12):
+            for _idx in range(15):
                 st.session_state[f"_wrt_init_{store}_daily_{_di}_{_idx}"] = (
                     _saved.get("daily", {}).get(str(_di), [])[_idx]
                     if _idx < len(_saved.get("daily", {}).get(str(_di), [])) else ""
@@ -10277,8 +10279,8 @@ def show_weekly_result_text_page() -> None:
                 else:
                     st.info(f"📂 一括アップロード: {_effective_f.name}")
 
-            st.markdown(f"**{_WRT_DAYS[di]}曜オススメ機種**（12機種まで）")
-            for _ri in range(4):
+            st.markdown(f"**{_WRT_DAYS[di]}曜オススメ機種**（15機種まで）")
+            for _ri in range(5):
                 _row_cols = st.columns(3)
                 for _ci, _rc in enumerate(_row_cols):
                     _idx = _ri * 3 + _ci

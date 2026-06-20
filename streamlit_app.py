@@ -3269,9 +3269,13 @@ def generate_report_text(
 
     header = f"{date_str}📝分析結果📝" if date_str else "📝分析結果📝"
     e1, e2 = STORE_EMOJI_CONFIG.get(store_name, ("💫", "👑"))
+    _STORE_DISPLAY_NAMES: dict[str, str] = {
+        "西武新宿": "エスパス 西武 新宿",
+    }
+    store_display = _STORE_DISPLAY_NAMES.get(store_name, f"エスパス{store_name}")
     parts = [
         header,
-        f"エスパス{store_name}",
+        store_display,
         "",
         f"{e1}本日は注目ポイント多数！",
         f"{e1}全台系、並び、優秀台を確認！",

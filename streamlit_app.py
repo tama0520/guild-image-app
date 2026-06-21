@@ -3442,6 +3442,7 @@ def run_auto_pipeline(
             "sonota_excellent_list": sonota_excellent,
             "jug_excellent_list":    jug_excellent,
             "jug_pool_df":           jug_pool_df,
+            "jug_overflow_df":       ov_df,
             "date":                  date_obj,
             "df":             df,
             "diff_raw":       diff_raw,
@@ -5320,11 +5321,12 @@ def show_auto_page(with_slump: bool = False) -> None:
         _aprev_zen_key      = f"auto_preview_zen_{store}"
         _aprev_jug_ex_key   = f"auto_preview_jug_ex_{store}"
         _aprev_jug_pool_key = f"auto_preview_jug_pool_{store}"
+        _aprev_jug_ov_key   = f"auto_preview_jug_ov_{store}"
         _aprev_narabi_key   = f"auto_preview_narabi_{store}"
         _aprev_hr_img_key   = f"auto_preview_hr_img_{store}"
         # Excel が変わったらプレビューをクリア
         if st.session_state.get(_aprev_fname) != uploaded.name:
-            for _k in (_aprev_key, _aprev_df_key, _aprev_di_key, _aprev_ex_key, _aprev_hr_key, _aprev_zen_key, _aprev_jug_ex_key, _aprev_jug_pool_key, _aprev_narabi_key):
+            for _k in (_aprev_key, _aprev_df_key, _aprev_di_key, _aprev_ex_key, _aprev_hr_key, _aprev_zen_key, _aprev_jug_ex_key, _aprev_jug_pool_key, _aprev_jug_ov_key, _aprev_narabi_key):
                 st.session_state.pop(_k, None)
             st.session_state.pop(f"sue_preview_{store}", None)
             st.session_state.pop(f"sue_prev_tails_{store}", None)
@@ -5795,6 +5797,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     }
                     st.session_state[_aprev_jug_ex_key]   = _prev_result.get("jug_excellent_list", [])
                     st.session_state[_aprev_jug_pool_key] = _prev_result.get("jug_pool_df")
+                    st.session_state[_aprev_jug_ov_key]   = _prev_result.get("jug_overflow_df")
                     st.session_state[_aprev_hr_img_key]   = {
                         item["name"]
                         for item in _prev_result.get("high_ratio_list", [])
@@ -5825,6 +5828,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _pv_ex     = st.session_state.get(_aprev_ex_key, [])
                     _pv_jug_ex   = st.session_state.get(_aprev_jug_ex_key, [])
                     _pv_jug_pool = st.session_state.get(_aprev_jug_pool_key)
+                    _pv_jug_ov   = st.session_state.get(_aprev_jug_ov_key)
                     _pv_hr       = st.session_state.get(_aprev_hr_key, {})
                     _pv_zen    = st.session_state.get(_aprev_zen_key, {})
                     _pv_narabi = st.session_state.get(_aprev_narabi_key, {})
@@ -6046,12 +6050,20 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                     _upd_extra_diffs.append(_mygood_diff)
                         _new_prev = list(_auto_previews)
                         _updated  = False
-                        # その他の優秀台ピックアップ更新（非ジャグラー画像がチェック外された場合のみ）
-                        if _upd_extra_dfs:
-                            _ex_bans = {item["ban"] for item in _pv_ex}
-                            if _ex_bans:
-                                _ex_rows = _pv_df[_pv_df["台番"].apply(lambda b: int(b) in _ex_bans)].copy().reset_index(drop=True)
-                                _ex_diff = _pv_diff.loc[_pv_df[_pv_df["台番"].apply(lambda b: int(b) in _ex_bans)].index].reset_index(drop=True)
+                        # overflowデータ（ジャグラー）がジャグラーシリーズ優秀台に移る台番を事前計算
+                        _jug_ov_used_bans: set[int] = set()
+                        if _jug_extra_dfs:
+                            _pool_empty = _pv_jug_pool is None or (_pv_jug_pool is not None and _pv_jug_pool.empty)
+                            if _pool_empty and _pv_jug_ov is not None and not _pv_jug_ov.empty:
+                                _jug_hr_pre = set(_pv_hr.values())
+                                _ov_pre = _pv_jug_ov[~_pv_jug_ov["機種名"].isin(_jug_hr_pre)]
+                                _jug_ov_used_bans = {int(b) for b in _ov_pre["台番"].dropna()}
+                        # その他の優秀台ピックアップ更新（非ジャグラーチェック外し or overflowジャグラー台を除去する場合）
+                        _ex_bans_for_son = {item["ban"] for item in _pv_ex} - _jug_ov_used_bans
+                        if _upd_extra_dfs or _jug_ov_used_bans:
+                            if _ex_bans_for_son:
+                                _ex_rows = _pv_df[_pv_df["台番"].apply(lambda b: int(b) in _ex_bans_for_son)].copy().reset_index(drop=True)
+                                _ex_diff = _pv_diff.loc[_pv_df[_pv_df["台番"].apply(lambda b: int(b) in _ex_bans_for_son)].index].reset_index(drop=True)
                                 _all_dfs   = [_ex_rows] + _upd_extra_dfs
                                 _all_diffs = [_ex_diff] + _upd_extra_diffs
                             else:
@@ -6075,11 +6087,16 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _updated = True
                         # ジャグラーシリーズ優秀台更新
                         if _jug_extra_dfs:
-                            # jug_pool_df（プール全体）を基底として使う。なければ+1000台だけにフォールバック
+                            # 優先順: jug_pool_df（通常生成時） → jug_overflow_df（overflow時） → jug_excellent_list(+1000台)フォールバック
                             if _pv_jug_pool is not None and not _pv_jug_pool.empty:
                                 _jug_base = [_pv_jug_pool.copy()]
+                            elif _pv_jug_ov is not None and not _pv_jug_ov.empty:
+                                _jug_hr_names_pv = set(_pv_hr.values())
+                                _jug_ov_filt = _pv_jug_ov[~_pv_jug_ov["機種名"].isin(_jug_hr_names_pv)].copy().reset_index(drop=True)
+                                _jug_base = [_jug_ov_filt] if not _jug_ov_filt.empty else []
                             else:
-                                _jug_ex_bans = {item["ban"] for item in _pv_jug_ex}
+                                _jug_hr_names_pv = set(_pv_hr.values())
+                                _jug_ex_bans = {item["ban"] for item in _pv_jug_ex if item["name"] not in _jug_hr_names_pv}
                                 _jug_base = [_pv_df[_pv_df["台番"].apply(lambda b: int(b) in _jug_ex_bans)].copy().reset_index(drop=True)] if _jug_ex_bans else []
                             _jug_all_dfs = _jug_base + _jug_extra_dfs
                             _jug_comb = pd.concat(_jug_all_dfs, ignore_index=True)
@@ -6685,14 +6702,20 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _log(f"  ✅ その他の優秀台ピックアップ再生成: {len(_son_combined)}台")
                     _sonota_extra_bans = [int(str(b).split(".")[0]) for b in _son_combined["台番"].dropna()
                                           if str(b).split(".")[0].lstrip("-").isdigit()]
-                # ジャグラーシリーズ優秀台を再生成（jug_pool_dfを基底・なければjug_excellent_listにフォールバック）
+                # ジャグラーシリーズ優秀台を再生成（優先: jug_pool_df → jug_overflow_df → jug_excellent_listフォールバック）
                 if _jug_ex_dfs and _df_res is not None:
                     _jug_path = os.path.join(output_dir, "ジャグラーシリーズ優秀台.jpg")
                     _jug_pool_res = result.get("jug_pool_df")
+                    _jug_ov_res   = result.get("jug_overflow_df")
                     if _jug_pool_res is not None and not _jug_pool_res.empty:
                         _jug_base = [_jug_pool_res.copy()]
+                    elif _jug_ov_res is not None and not _jug_ov_res.empty:
+                        _jug_hr_names_r = {item["name"] for item in result.get("high_ratio_list", []) if item.get("has_image", False)}
+                        _jug_ov_filt = _jug_ov_res[~_jug_ov_res["機種名"].isin(_jug_hr_names_r)].copy().reset_index(drop=True)
+                        _jug_base = [_jug_ov_filt] if not _jug_ov_filt.empty else []
                     else:
-                        _jug_ex_bans = {item["ban"] for item in result.get("jug_excellent_list", [])}
+                        _jug_hr_names_r = {item["name"] for item in result.get("high_ratio_list", []) if item.get("has_image", False)}
+                        _jug_ex_bans = {item["ban"] for item in result.get("jug_excellent_list", []) if item["name"] not in _jug_hr_names_r}
                         _jug_base = [_df_res[_df_res["台番"].apply(lambda b: int(b) in _jug_ex_bans)].copy().reset_index(drop=True)] if _jug_ex_bans else []
                     _jug_all = _jug_base + _jug_ex_dfs
                     _jug_comb = pd.concat(_jug_all, ignore_index=True)

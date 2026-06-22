@@ -2068,12 +2068,10 @@ def _build_machine_img(
         ty = (BAR_H - (bb[3]-bb[1])) // 2 - bb[1]
         bd.text((tx, ty), disp_title, fill=(255, 255, 255, 255), font=font)
 
-    # ── ピンクサマリーバー（旧スクリプトと同計算）────────────────────
+    # ── ピンクサマリーバー（全機種固定高さ）─────────────────────────
     if summary_stat:
-        n_rows     = len(rows)
-        base_row_h = max(30, table_img.height // (n_rows + 2))
-        pink_h     = int(base_row_h * 1.2)
-        font_sum   = load_font(round(14 * 150 / 96))  # ≈ 22
+        pink_h = int(round(ROW_H * 150 / 96) * 1.2)  # 44px × 1.2 = 52px 固定
+        font_sum   = load_font(24)
 
         s        = summary_stat
         win_rate = s["win_count"] / s["total_count"] * 100 if s["total_count"] > 0 else 0.0

@@ -24,16 +24,7 @@
         ],
         [
           false,
-          true,
           false,
-          false,
-          false,
-          false,
-          false
-        ],
-        [
-          false,
-          true,
           false,
           false,
           false,
@@ -41,8 +32,17 @@
           false
         ],
         [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
           true,
-          true,
+          false,
           false,
           false,
           false,
@@ -86,16 +86,16 @@
           false
         ]
       ],
-      "start_date": "2026-06-15",
+      "start_date": "2026-06-22",
       "machine_name": "スマスロ北斗の拳",
       "blank_days": [
         false,
         false,
-        true,
-        true,
-        true,
-        true,
-        true
+        false,
+        false,
+        false,
+        false,
+        false
       ]
     },
     "t2": {
@@ -187,16 +187,6 @@
       ],
       "machine_name": "東京喰種",
       "date_checks": {
-        "2026-06-15": [
-          false,
-          false,
-          true,
-          true,
-          false,
-          false,
-          false,
-          false
-        ],
         "2026-06-16": [
           false,
           false,
@@ -256,6 +246,16 @@
           true,
           false,
           false
+        ],
+        "2026-06-22": [
+          false,
+          false,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false
         ]
       },
       "blank_days": [
@@ -268,13 +268,13 @@
         false
       ],
       "blank_date_checks": {
-        "2026-06-15": false,
         "2026-06-16": false,
         "2026-06-17": false,
         "2026-06-18": false,
         "2026-06-19": false,
         "2026-06-20": false,
-        "2026-06-21": false
+        "2026-06-21": false,
+        "2026-06-22": false
       }
     },
     "t3": {
@@ -291,73 +291,15 @@
       "title": "週間オススメ ジャグラーシリーズ",
       "machine_name": "ジャグラー系",
       "cell_machines": {
-        "0,1": [
-          "ファンキー2",
-          "ミスジャグ",
-          "ウルトラミラジャグ"
-        ],
         "2,0": [
-          "ファンキー2"
-        ],
-        "2,1": [
-          "ゴージャグ3"
-        ],
-        "2,4": [
-          "ジャグラーガールズ"
-        ],
-        "2,6": [
-          "ハピジャグV",
-          "ジャグラーガールズ"
-        ],
-        "3,1": [
-          "ミスジャグ",
-          "ウルトラミラジャグ"
+          "ハピジャグV"
         ],
         "4,0": [
           "マイジャグV",
-          "ゴージャグ3",
-          "ジャグラーガールズ"
-        ],
-        "4,1": [
-          "マイジャグV",
-          "ネオアイム",
-          "ファンキー2",
-          "ジャグラーガールズ"
-        ],
-        "4,2": [
-          "マイジャグV",
           "ネオアイム"
-        ],
-        "4,3": [
-          "マイジャグV",
-          "ファンキー2"
-        ],
-        "4,4": [
-          "ファンキー2"
-        ],
-        "4,5": [
-          "マイジャグV",
-          "ネオアイム",
-          "ファンキー2",
-          "ゴージャグ3"
-        ],
-        "4,6": [
-          "マイジャグV",
-          "ネオアイム",
-          "ファンキー2"
-        ],
-        "6,2": [
-          "ゴージャグ3"
-        ],
-        "6,4": [
-          "ファンキー2",
-          "ジャグラーガールズ"
-        ],
-        "6,6": [
-          "ジャグラーガールズ"
         ]
       },
-      "start_date": "2026-06-15",
+      "start_date": "2026-06-22",
       "blank_days": [
         false,
         false,

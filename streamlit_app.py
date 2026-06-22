@@ -5764,6 +5764,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             _merged_pv.append((_fn_pv, _img_pv))
                                             continue
                                         _g_imgs_pv: list["Image.Image"] = []
+                                        _show_mn_pv = _bare_pv in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
                                         for _b_pv in _bans_pv:
                                             _it_pv = _ig_by_uid_pv.get(str(_b_pv))
                                             if _it_pv is None or not _it_pv.get("points"):
@@ -5775,6 +5776,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                 _g_imgs_pv.append(draw_slump_graph(
                                                     _ig_tmpl_pv, str(_b_pv), _dn_pv,
                                                     _it_pv["points"], diff=_it_pv.get("diff"),
+                                                    machine_name=_dn_pv if _show_mn_pv else None,
                                                 ))
                                             except Exception:
                                                 pass
@@ -6201,7 +6203,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             continue
                                         _dn_u2 = (_it_u2.get("_convertedName") or _it_u2.get("displayName") or _upd_ban2mac.get(str(_b_u2), str(_b_u2)))
                                         try:
-                                            _g_imgs_u2.append(draw_slump_graph(_upd_tmpl, str(_b_u2), _dn_u2, _it_u2["points"], diff=_it_u2.get("diff")))
+                                            _g_imgs_u2.append(draw_slump_graph(_upd_tmpl, str(_b_u2), _dn_u2, _it_u2["points"], diff=_it_u2.get("diff"),
+                                                                               machine_name=_dn_u2))
                                         except Exception:
                                             pass
                                     _new_prev[_ui] = (_ufn, _attach_slump_to_table(_uimg, _g_imgs_u2, _upd_bbb))
@@ -7098,6 +7101,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             _ig_composite.append((_lfn_exec, _lfb_exec))
                                             continue
                                         _g_imgs_exec: list["Image.Image"] = []
+                                        _show_mn_exec = _bare_exec in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
                                         for _b_exec in _bans_exec:
                                             _it_exec = _ig_by_uid_exec.get(str(_b_exec))
                                             if _it_exec is None or not _it_exec.get("points"):
@@ -7109,6 +7113,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                 _g_imgs_exec.append(draw_slump_graph(
                                                     _ig_tmpl_exec, str(_b_exec), _dn_exec,
                                                     _it_exec["points"], diff=_it_exec.get("diff"),
+                                                    machine_name=_dn_exec if _show_mn_exec else None,
                                                 ))
                                             except Exception:
                                                 pass
@@ -11347,6 +11352,7 @@ def draw_slump_graph(
     display_name: str,
     points: list,
     diff: "int | None" = None,
+    machine_name: "str | None" = None,
 ) -> "Image.Image":
     """スランプグラフを template に描画して PIL Image を返す。"""
     SCALE     = 3
@@ -11432,13 +11438,31 @@ def draw_slump_graph(
 
     # 差枚テキスト（黄色・中央寄せ）
     if points:
-        font_diff  = load_font(48)
+        font_diff  = load_font(42)
         _raw = diff if diff is not None else points[-1]["y"]
         diff_text  = _fmt_diff(_pipeline_calc_d(_raw))
         bb = font_diff.getbbox(diff_text)
         diff_x = (w - (bb[2] - bb[0])) // 2 - bb[0]
         diff_y = (h - 18) - bb[3]
         draw.text((diff_x, diff_y), diff_text, fill=(255, 255, 0), font=font_diff)
+
+        # 機種名テキスト（差枚数の直上・黄色・縁取り）
+        if machine_name:
+            _mn_sz = 34
+            _mn_font = load_font(_mn_sz)
+            _mn_bb = _mn_font.getbbox(machine_name)
+            _mn_w  = _mn_bb[2] - _mn_bb[0]
+            while _mn_w > w - 8 and _mn_sz > 14:
+                _mn_sz -= 2
+                _mn_font = load_font(_mn_sz)
+                _mn_bb = _mn_font.getbbox(machine_name)
+                _mn_w  = _mn_bb[2] - _mn_bb[0]
+            _mn_h  = _mn_bb[3] - _mn_bb[1]
+            _mn_x  = (w - _mn_w) // 2 - _mn_bb[0]
+            _mn_y  = diff_y - _mn_h - 4 - _mn_bb[1]
+            for _ox, _oy in ((-1,-1),(1,-1),(-1,1),(1,1),(0,-1),(0,1),(-1,0),(1,0)):
+                draw.text((_mn_x + _ox, _mn_y + _oy), machine_name, fill=(0, 0, 0), font=_mn_font)
+            draw.text((_mn_x, _mn_y), machine_name, fill=(255, 255, 0), font=_mn_font)
 
     return result
 

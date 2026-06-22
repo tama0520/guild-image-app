@@ -8009,16 +8009,16 @@ def show_auto_article_page() -> None:
                 )
                 narabi_result = {"ok": ok_n, "stdout": out_n, "stderr": err_n}
                 st.write(f"{'✅' if ok_n else '❌'} 並び画像{'完了' if ok_n else 'エラー'}")
-                # 記事用: 青タイトルバー（62px）＋赤ライン（6px）をトップから除去
+                # 記事用: 青タイトルバー＋赤ライン（6px）をトップから除去
                 if ok_n and os.path.isdir(narabi_dir):
-                    _NARABI_BAR_H = 62 + 6
                     for _nf in os.listdir(narabi_dir):
                         if not _nf.lower().endswith((".jpg", ".jpeg", ".png")):
                             continue
                         _np = os.path.join(narabi_dir, _nf)
                         try:
                             _nim = Image.open(_np)
-                            _nim = _nim.crop((0, _NARABI_BAR_H, _nim.width, _nim.height))
+                            _narabi_bar_h = round(_nim.width * 73 / 950) + 6
+                            _nim = _nim.crop((0, _narabi_bar_h, _nim.width, _nim.height))
                             _save_jpeg(_nim.convert("RGB"), _np)
                         except Exception:
                             pass

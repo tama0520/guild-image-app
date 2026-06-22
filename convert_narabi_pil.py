@@ -289,11 +289,11 @@ for run_idx, run in enumerate(runs):
     w = top_img.width
 
     # --- タイトルバー（青バー＋赤ライン） ---
-    bar_h  = 62
+    bar_h  = round(w * 73 / 950)   # 標準幅950pxのとき73px（_build_machine_imgと統一）
     line_h = 6
-    font_size_bar = round(bar_h * 0.58)   # ≈ 36px
+    font_size_bar = round(bar_h * 40 / 73)
 
-    blue_bar = Image.new("RGBA", (w, bar_h),  (47, 85, 164, 255))
+    blue_bar = Image.new("RGBA", (w, bar_h),  (38, 76, 161, 255))
     red_line = Image.new("RGBA", (w, line_h), (204, 0, 0, 255))
     bar_draw = ImageDraw.Draw(blue_bar)
     bar_font = _load_font(font_size_bar)

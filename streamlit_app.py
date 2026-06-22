@@ -5781,6 +5781,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             except Exception:
                                                 pass
                                         _merged_pv.append((_fn_pv, _attach_slump_to_table(_img_pv, _g_imgs_pv, _ig_bbb_pv)))
+                                        if len(_g_imgs_pv) >= 16:
+                                            try:
+                                                _side_fn_pv = os.path.splitext(_fn_pv)[0] + "_side.jpg"
+                                                _merged_pv.append((_side_fn_pv, _attach_slump_to_table_side(_img_pv, _g_imgs_pv, _ig_bbb_pv)))
+                                            except Exception:
+                                                pass
                                     _prev_img_list = _merged_pv
                             except Exception:
                                 pass  # pision取得失敗時は表のみ画像のままプレビュー表示
@@ -6208,6 +6214,19 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         except Exception:
                                             pass
                                     _new_prev[_ui] = (_ufn, _attach_slump_to_table(_uimg, _g_imgs_u2, _upd_bbb))
+                                    if len(_g_imgs_u2) >= 16:
+                                        try:
+                                            _side_ufn = os.path.splitext(_ufn)[0] + "_side.jpg"
+                                            _side_u2  = _attach_slump_to_table_side(_uimg, _g_imgs_u2, _upd_bbb)
+                                            for _si2, (_spn2, _) in enumerate(_new_prev):
+                                                if _spn2 == _side_ufn:
+                                                    _new_prev[_si2] = (_spn2, _side_u2)
+                                                    break
+                                            else:
+                                                _new_prev.append((_side_ufn, _side_u2))
+                                                st.session_state[f"auto_prev_ck_{store}_{len(_new_prev)-1}"] = True
+                                        except Exception:
+                                            pass
                         if _updated:
                             st.session_state[_aprev_key] = _new_prev
                             st.rerun()
@@ -7123,11 +7142,21 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _ig_composite.append((_lfn_exec, _cbuf_exec.getvalue()))
                                         if _g_imgs_exec:
                                             _ig_slump_cnt += 1
+                                        # 横レイアウト（16台以上のみ）
+                                        if len(_g_imgs_exec) >= 16:
+                                            try:
+                                                _side_img_exec = _attach_slump_to_table_side(_t_img_exec, _g_imgs_exec, _ig_bbb_exec)
+                                                _side_buf_exec = io.BytesIO()
+                                                _side_img_exec.save(_side_buf_exec, format="JPEG", quality=92)
+                                                _side_fn_exec = os.path.splitext(_lfn_exec)[0] + "_side.jpg"
+                                                _ig_composite.append((_side_fn_exec, _side_buf_exec.getvalue()))
+                                            except Exception:
+                                                pass
                                     _log(f"✅ スランプ: {_ig_slump_cnt}枚にスランプグラフを合成")
                                     # output_dirに上書き保存 & session_stateを合成済み画像で更新
                                     for _cfn_exec, _cb_exec in _ig_composite:
                                         _cfp_exec = os.path.join(output_dir, _cfn_exec)
-                                        if os.path.exists(_cfp_exec):
+                                        if os.path.exists(_cfp_exec) or _cfn_exec.endswith("_side.jpg"):
                                             with open(_cfp_exec, "wb") as _cfh_exec:
                                                 _cfh_exec.write(_cb_exec)
                                     st.session_state[f"_inagawa_jpgs_{store}"] = _ig_composite
@@ -11590,6 +11619,69 @@ def _build_inagawa_composite(
             _gx  = _col * (CANVAS_W // graph_cols)
             _gy  = _y + _row * (g_row_h + SEC_GAP)
             canvas.paste(_gimg, (_gx, _gy))
+
+    return canvas
+
+
+def _attach_slump_to_table_side(
+    table_img: "Image.Image",
+    graph_imgs: "list[Image.Image]",
+    bg_path=None,
+) -> "Image.Image":
+    """表画像（左）＋スランプグラフ4列（右）の横レイアウト合成（16台以上用）。"""
+    COLS     = 4
+    PAD      = 12
+    GAP      = 8
+    SIDE_GAP = 24  # 表とグラフエリアの間隔
+
+    tw, th = table_img.size
+    if not graph_imgs:
+        return table_img.copy()
+
+    n    = len(graph_imgs)
+    rows = math.ceil(n / COLS)
+
+    # グラフエリア幅を表と同じ幅に固定（縦レイアウトと同幅）
+    graph_area_w = tw
+    cell_w = max(1, (graph_area_w - PAD * 2 - GAP * (COLS - 1)) // COLS)
+
+    scaled: "list[Image.Image]" = []
+    for g in graph_imgs:
+        gw, gh = g.size
+        new_h = max(1, round(gh * cell_w / gw)) if gw > 0 else gh
+        scaled.append(g.resize((cell_w, new_h), Image.LANCZOS))
+
+    row_h        = max(g.size[1] for g in scaled) if scaled else 0
+    graph_area_h = PAD + rows * row_h + max(0, rows - 1) * GAP + PAD
+    total_h      = max(th, graph_area_h)
+
+    # 表をキャンバス高さに合わせて縦横比維持で拡大
+    if total_h > th:
+        new_tw       = max(1, round(tw * total_h / th))
+        table_scaled = table_img.resize((new_tw, total_h), Image.LANCZOS)
+    else:
+        new_tw       = tw
+        table_scaled = table_img
+
+    total_w  = new_tw + SIDE_GAP + graph_area_w
+
+    canvas = Image.new("RGB", (total_w, total_h), (255, 255, 255))
+    canvas.paste(table_scaled, (0, 0))
+
+    graph_x0 = new_tw + SIDE_GAP
+    if bg_path is not None:
+        try:
+            _bg = Image.open(str(bg_path)).convert("RGB").resize((graph_area_w, total_h), Image.LANCZOS)
+            canvas.paste(_bg, (graph_x0, 0))
+        except Exception:
+            pass
+
+    for i, g in enumerate(scaled):
+        row = i // COLS
+        col = i % COLS
+        x = graph_x0 + PAD + col * (cell_w + GAP)
+        y = PAD + row * (row_h + GAP)
+        canvas.paste(g, (x, y))
 
     return canvas
 

@@ -69,6 +69,7 @@ STORES: dict[str, list[str]] = {
     "溝の口本館":   _IMAGE_TYPES,
     "溝の口新館":   _IMAGE_TYPES,
     "稲毛":         _IMAGE_TYPES,
+    "秋葉原":       _IMAGE_TYPES,
 }
 
 # オススメ機種ピックアップ・素材メモ・詳細結果テキスト機能を持つ店舗
@@ -345,6 +346,7 @@ STORE_CONFIG: dict[str, dict] = {
     "溝の口本館":   {},
     "溝の口新館":   {},
     "稲毛":         {},
+    "秋葉原":       {},
     # ── 新店舗を追加する場合は STORES とここに同時追記 ───────────────
     # "○○店": {
     #     "juggler_jobs": [...],   # ジャグラー機種が違う場合
@@ -376,7 +378,8 @@ STORE_NARABI_SCRIPT: dict[str, str] = {
     "新小岩":       _NARABI_GENERIC,
     "溝の口本館":   _NARABI_GENERIC,
     "溝の口新館":   _NARABI_GENERIC,
-    "稲毛": _NARABI_GENERIC,
+    "稲毛":   _NARABI_GENERIC,
+    "秋葉原": _NARABI_GENERIC,
 }
 
 # 列ごとの最低表示幅（px）― 旧スクリプトの CSS 幅と同値。scale=150/96 で乗算して実使用
@@ -1469,6 +1472,46 @@ def show_image_type_page() -> None:
                     use_container_width=True,
                 ):
                     _navigate("auto_slump")
+        elif store == "秋葉原":
+            # 秋葉原：スランプ付き結果ポスト（左）＋ 記事用（右）
+            st.markdown(
+                """<style>
+                .st-key-auto_slump_btn button {
+                    background-color: #00ACC1 !important;
+                    border-color: #00838F !important;
+                    color: white !important;
+                }
+                .st-key-auto_slump_btn button:hover {
+                    background-color: #00838F !important;
+                    border-color: #00838F !important;
+                }
+                .st-key-auto_article_btn button {
+                    background-color: #7B1FA2 !important;
+                    border-color: #6A1B9A !important;
+                    color: white !important;
+                }
+                .st-key-auto_article_btn button:hover {
+                    background-color: #6A1B9A !important;
+                    border-color: #6A1B9A !important;
+                }
+                </style>""",
+                unsafe_allow_html=True,
+            )
+            _col_l, _col_r = st.columns(2)
+            with _col_l:
+                if st.button(
+                    "📊 スランプ付き結果ポスト",
+                    key="auto_slump_btn",
+                    use_container_width=True,
+                ):
+                    _navigate("auto_slump")
+            with _col_r:
+                if st.button(
+                    "📰 記事用",
+                    key="auto_article_btn",
+                    use_container_width=True,
+                ):
+                    _navigate("auto_article")
         else:
             # ローテなし：結果ポスト用のみ
             if st.button(
@@ -5695,6 +5738,19 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _nt_pv = _nami_pv.get("title", "")
                             if _nt_pv and _nami_pv.get("bans"):
                                 _pv_ban_map[f"{_make_safe_fn(_nt_pv)}.jpg"] = [int(_b3) for _b3 in _nami_pv["bans"]]
+                        # ファイル名 → 表示タイトル（秋葉原専用・_prev_resultから構築）
+                        _pv_title_map: dict[str, str] = {}
+                        for _zd_t in _prev_result.get("zen_dai_list", []):
+                            _pv_title_map[f"{_make_safe_fn(_zd_t['name'])}.jpg"] = _zd_t['name']
+                        for _hr_t in _prev_result.get("high_ratio_list", []):
+                            if _hr_t.get("has_image", False):
+                                _pv_title_map[f"{_make_safe_fn(_hr_t['name'])}_高配分.jpg"] = _hr_t['name'] + "（優秀台）"
+                        _pv_title_map["ジャグラーシリーズ優秀台.jpg"] = "ジャグラーシリーズ優秀台"
+                        _pv_title_map["その他の優秀台ピックアップ.jpg"] = "その他の優秀台ピックアップ"
+                        for _nami_t in _prev_result.get("nami_list", []):
+                            _nt_t = _nami_t.get("title", "")
+                            if _nt_t:
+                                _pv_title_map[f"{_make_safe_fn(_nt_t)}.jpg"] = _nt_t
                         if kojin_enabled and _pv_df is not None:
                             for _km_pv in kojin_zentai_machines:
                                 _km_pv = _km_pv.strip()
@@ -5759,10 +5815,22 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _bare_pv = re.sub(r"^\d{2}_", "", _fn_pv)
                                         _bans_pv = _pv_ban_map.get(_bare_pv, [])
                                         if not _bans_pv or _ig_tmpl_pv is None:
-                                            _merged_pv.append((_fn_pv, _img_pv))
+                                            if store != "秋葉原":
+                                                _merged_pv.append((_fn_pv, _img_pv))
                                             continue
                                         _g_imgs_pv: list["Image.Image"] = []
                                         _show_mn_pv = _bare_pv in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
+                                        _is_zentai_pv = (not _bare_pv.endswith("_高配分.jpg") and
+                                                         _bare_pv not in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg"))
+                                        _ban2diff_pv: dict[str, int] = {}
+                                        if _pv_df is not None and _pv_diff is not None:
+                                            for _idx_p, _row_p in _pv_df.iterrows():
+                                                _bp = str(_row_p.get("台番", "")).split(".")[0]
+                                                if _bp.lstrip("-").isdigit():
+                                                    try:
+                                                        _ban2diff_pv[_bp] = int(_pv_diff.loc[_idx_p])
+                                                    except Exception:
+                                                        pass
                                         for _b_pv in _bans_pv:
                                             _it_pv = _ig_by_uid_pv.get(str(_b_pv))
                                             if _it_pv is None or not _it_pv.get("points"):
@@ -5770,16 +5838,24 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             _dn_pv = (_it_pv.get("_convertedName")
                                                       or _it_pv.get("displayName")
                                                       or _ig_ban2mac_pv.get(str(_b_pv), str(_b_pv)))
+                                            _sd_pv = not (_is_zentai_pv and _ban2diff_pv.get(str(_b_pv), 0) < 0)
                                             try:
                                                 _g_imgs_pv.append(draw_slump_graph(
                                                     _ig_tmpl_pv, str(_b_pv), _dn_pv,
                                                     _it_pv["points"], diff=_it_pv.get("diff"),
                                                     machine_name=_dn_pv if _show_mn_pv else None,
+                                                    show_diff=_sd_pv,
                                                 ))
                                             except Exception:
                                                 pass
-                                        _merged_pv.append((_fn_pv, _attach_slump_to_table(_img_pv, _g_imgs_pv, _ig_bbb_pv)))
-                                        if len(_g_imgs_pv) >= 16:
+                                        if store == "秋葉原":
+                                            _pv_title = _pv_title_map.get(_bare_pv, os.path.splitext(_bare_pv)[0])
+                                            _pv_slump = _build_slump_title_img(_pv_title, _g_imgs_pv, _ig_bbb_pv)
+                                            if _pv_slump is not None:
+                                                _merged_pv.append((_fn_pv, _pv_slump))
+                                        else:
+                                            _merged_pv.append((_fn_pv, _attach_slump_to_table(_img_pv, _g_imgs_pv, _ig_bbb_pv)))
+                                        if len(_g_imgs_pv) >= 16 and store != "秋葉原":
                                             try:
                                                 _side_fn_pv = os.path.splitext(_fn_pv)[0] + "_side.jpg"
                                                 _merged_pv.append((_side_fn_pv, _attach_slump_to_table_side(_img_pv, _g_imgs_pv, _ig_bbb_pv)))
@@ -6211,8 +6287,15 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                                                machine_name=_dn_u2))
                                         except Exception:
                                             pass
-                                    _new_prev[_ui] = (_ufn, _attach_slump_to_table(_uimg, _g_imgs_u2, _upd_bbb))
-                                    if len(_g_imgs_u2) >= 16:
+                                    if store == "秋葉原":
+                                        _u2_bare  = re.sub(r"^\d{2}_", "", _ufn)
+                                        _u2_title = st.session_state.get(f"_inagawa_title_map_{store}", {}).get(_u2_bare, os.path.splitext(_u2_bare)[0])
+                                        _u2_slump = _build_slump_title_img(_u2_title, _g_imgs_u2, _upd_bbb)
+                                        if _u2_slump is not None:
+                                            _new_prev[_ui] = (_ufn, _u2_slump)
+                                    else:
+                                        _new_prev[_ui] = (_ufn, _attach_slump_to_table(_uimg, _g_imgs_u2, _upd_bbb))
+                                    if len(_g_imgs_u2) >= 16 and store != "秋葉原":
                                         try:
                                             _side_ufn = os.path.splitext(_ufn)[0] + "_side.jpg"
                                             _side_u2  = _attach_slump_to_table_side(_uimg, _g_imgs_u2, _upd_bbb)
@@ -6363,24 +6446,34 @@ def show_auto_page(with_slump: bool = False) -> None:
                         pass
                 # ファイル名 → 台番 マッピング（表＋スランプグラフ合成用）
                 _ig_ban_map: dict[str, list[int]] = {}
+                _ig_title_map: dict[str, str] = {}  # ファイル名 → 表示タイトル
                 for _zd2 in result.get("zen_dai_list", []):
-                    _ig_ban_map[f"{_make_safe_fn(_zd2['name'])}.jpg"] = _zd2.get("bans", [])
+                    _fn2 = f"{_make_safe_fn(_zd2['name'])}.jpg"
+                    _ig_ban_map[_fn2]   = _zd2.get("bans", [])
+                    _ig_title_map[_fn2] = _zd2['name']
                 for _hr2 in result.get("high_ratio_list", []):
                     if _hr2.get("has_image", False):
-                        _ig_ban_map[f"{_make_safe_fn(_hr2['name'])}_高配分.jpg"] = _hr2.get("bans", [])
+                        _fn2 = f"{_make_safe_fn(_hr2['name'])}_高配分.jpg"
+                        _ig_ban_map[_fn2]   = _hr2.get("bans", [])
+                        _ig_title_map[_fn2] = _hr2['name'] + "（優秀台）"
                 if _jug_pool is not None and not _jug_pool.empty:
                     _ig_ban_map["ジャグラーシリーズ優秀台.jpg"] = [
                         int(str(_b2).split(".")[0]) for _b2 in _jug_pool["台番"].dropna()
                         if str(_b2).split(".")[0].lstrip("-").isdigit()
                     ]
+                    _ig_title_map["ジャグラーシリーズ優秀台.jpg"] = "ジャグラーシリーズ優秀台"
                 _sonota_bans_ig = sorted({int(_e2["ban"]) for _e2 in result.get("sonota_excellent_list", []) if "ban" in _e2})
                 if _sonota_bans_ig:
                     _ig_ban_map["その他の優秀台ピックアップ.jpg"] = _sonota_bans_ig
+                    _ig_title_map["その他の優秀台ピックアップ.jpg"] = "その他の優秀台ピックアップ"
                 for _nami2 in result.get("nami_list", []):
                     _nt2 = _nami2.get("title", "")
                     if _nt2 and _nami2.get("bans"):
-                        _ig_ban_map[f"{_make_safe_fn(_nt2)}.jpg"] = [int(_b3) for _b3 in _nami2["bans"]]
-                st.session_state[f"_inagawa_ban_map_{store}"] = _ig_ban_map
+                        _fn2 = f"{_make_safe_fn(_nt2)}.jpg"
+                        _ig_ban_map[_fn2]   = [int(_b3) for _b3 in _nami2["bans"]]
+                        _ig_title_map[_fn2] = _nt2
+                st.session_state[f"_inagawa_ban_map_{store}"]   = _ig_ban_map
+                st.session_state[f"_inagawa_title_map_{store}"] = _ig_title_map
                 # JPGファイルをバイトとして保存（後でnarabi含む全ファイルを再収集）
                 _ig_jpgs_save = []
                 for _ig_fp in result.get("files", []):
@@ -7098,12 +7191,19 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     if _ig_tmpl_exec is None:
                                         _log("⚠️ スランプ: テンプレート画像(base_3000_bk.png)が見つかりません")
                                     _ig_ban2mac_exec: dict[str, str] = {}
+                                    _ban2diff_exec:  dict[str, int]  = {}
                                     _df_exec = result.get("df")
+                                    _dr_exec = result.get("diff_raw")
                                     if _df_exec is not None:
-                                        for _, _igr_exec in _df_exec.iterrows():
+                                        for _idx_e, _igr_exec in _df_exec.iterrows():
                                             _bs0_exec = str(_igr_exec.get("台番", "")).split(".")[0]
                                             if _bs0_exec.lstrip("-").isdigit():
                                                 _ig_ban2mac_exec[_bs0_exec] = str(_igr_exec.get("機種名", ""))
+                                                if _dr_exec is not None:
+                                                    try:
+                                                        _ban2diff_exec[_bs0_exec] = int(_dr_exec.loc[_idx_e])
+                                                    except Exception:
+                                                        pass
                                     _ig_composite: list[tuple[str, bytes]] = []
                                     _ig_slump_cnt = 0
                                     for _lfn_exec, _lfb_exec in st.session_state.get(f"_inagawa_jpgs_{store}", []):
@@ -7112,13 +7212,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         try:
                                             _t_img_exec = Image.open(io.BytesIO(_lfb_exec)).convert("RGB")
                                         except Exception:
-                                            _ig_composite.append((_lfn_exec, _lfb_exec))
+                                            if store != "秋葉原":
+                                                _ig_composite.append((_lfn_exec, _lfb_exec))
                                             continue
                                         if not _bans_exec or _ig_tmpl_exec is None:
-                                            _ig_composite.append((_lfn_exec, _lfb_exec))
+                                            if store != "秋葉原":
+                                                _ig_composite.append((_lfn_exec, _lfb_exec))
                                             continue
                                         _g_imgs_exec: list["Image.Image"] = []
                                         _show_mn_exec = _bare_exec in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
+                                        _is_zentai_exec = (not _bare_exec.endswith("_高配分.jpg") and
+                                                           _bare_exec not in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg"))
                                         for _b_exec in _bans_exec:
                                             _it_exec = _ig_by_uid_exec.get(str(_b_exec))
                                             if _it_exec is None or not _it_exec.get("points"):
@@ -7126,22 +7230,34 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             _dn_exec = (_it_exec.get("_convertedName")
                                                         or _it_exec.get("displayName")
                                                         or _ig_ban2mac_exec.get(str(_b_exec), str(_b_exec)))
+                                            _sd_exec = not (_is_zentai_exec and _ban2diff_exec.get(str(_b_exec), 0) < 0)
                                             try:
                                                 _g_imgs_exec.append(draw_slump_graph(
                                                     _ig_tmpl_exec, str(_b_exec), _dn_exec,
                                                     _it_exec["points"], diff=_it_exec.get("diff"),
                                                     machine_name=_dn_exec if _show_mn_exec else None,
+                                                    show_diff=_sd_exec,
                                                 ))
                                             except Exception:
                                                 pass
-                                        _combined_exec = _attach_slump_to_table(_t_img_exec, _g_imgs_exec, _ig_bbb_exec)
-                                        _cbuf_exec = io.BytesIO()
-                                        _combined_exec.save(_cbuf_exec, format="JPEG", quality=92)
-                                        _ig_composite.append((_lfn_exec, _cbuf_exec.getvalue()))
-                                        if _g_imgs_exec:
-                                            _ig_slump_cnt += 1
-                                        # 横レイアウト（16台以上のみ）
-                                        if len(_g_imgs_exec) >= 16:
+                                        if store == "秋葉原":
+                                            if _g_imgs_exec:
+                                                _ex_title = st.session_state.get(f"_inagawa_title_map_{store}", {}).get(_bare_exec, os.path.splitext(_bare_exec)[0])
+                                                _ex_slump = _build_slump_title_img(_ex_title, _g_imgs_exec, _ig_bbb_exec)
+                                                if _ex_slump is not None:
+                                                    _ex_buf = io.BytesIO()
+                                                    _ex_slump.save(_ex_buf, format="JPEG", quality=92)
+                                                    _ig_composite.append((_lfn_exec, _ex_buf.getvalue()))
+                                                    _ig_slump_cnt += 1
+                                        else:
+                                            _combined_exec = _attach_slump_to_table(_t_img_exec, _g_imgs_exec, _ig_bbb_exec)
+                                            _cbuf_exec = io.BytesIO()
+                                            _combined_exec.save(_cbuf_exec, format="JPEG", quality=92)
+                                            _ig_composite.append((_lfn_exec, _cbuf_exec.getvalue()))
+                                            if _g_imgs_exec:
+                                                _ig_slump_cnt += 1
+                                        # 横レイアウト（16台以上・秋葉原除く）
+                                        if len(_g_imgs_exec) >= 16 and store != "秋葉原":
                                             try:
                                                 _side_img_exec = _attach_slump_to_table_side(_t_img_exec, _g_imgs_exec, _ig_bbb_exec)
                                                 _side_buf_exec = io.BytesIO()
@@ -10838,7 +10954,7 @@ def show_name_conversion_page() -> None:
         else:
             _nc_col1, _nc_col2 = st.columns(2)
             with _nc_col1:
-                _nc_store = st.selectbox("店舗を選択", STORES, key="nc_pision_store")
+                _nc_store = st.selectbox("店舗を選択", list(STORES.keys()) + ["秋葉原"], key="nc_pision_store")
             with _nc_col2:
                 _nc_mode = st.radio(
                     "データ種別",
@@ -10860,17 +10976,59 @@ def show_name_conversion_page() -> None:
             )
             _nc_date_str = _nc_date.strftime("%Y-%m-%d")
 
-            _nc_items_key  = f"_nc_pision_items_{_nc_store}_{_nc_date_str}_{'rt' if _nc_is_rt else 'fix'}"
+            _nc_items_key      = f"_nc_pision_items_{_nc_store}_{_nc_date_str}_{'rt' if _nc_is_rt else 'fix'}"
+            _nc_collecting_key = f"_nc_pision_collecting_{_nc_store}"
+            _nc_baseline_key   = f"_nc_pision_baseline_{_nc_store}"
+            _nc_is_collecting  = _nc_is_rt and st.session_state.get(_nc_collecting_key) == _nc_date_str
 
-            if st.button("📥 データを取得", key="nc_pision_fetch", type="primary"):
+            def _nc_is_new_artid(poll_result: dict) -> bool:
+                _baseline = st.session_state.get(_nc_baseline_key)
+                _new_id   = poll_result.get("article_id")
+                if _baseline is None:
+                    return True
+                try:
+                    return int(_new_id) > int(_baseline)
+                except (TypeError, ValueError):
+                    return False
+
+            # ── ボタン描画 ──────────────────────────────────────────────
+            _nc_do_rt_check   = False
+            _nc_fetch_clicked = False
+            _nc_do_existing   = False
+            if _nc_is_collecting:
+                _nc_bc1, _nc_bc2 = st.columns(2)
+                with _nc_bc1:
+                    st.button("⏳ 収集中...", key="nc_pision_fetch_col", disabled=True, use_container_width=True)
+                with _nc_bc2:
+                    _nc_do_rt_check = st.button("🔍 今すぐ確認", key="nc_pision_rt_check",
+                                                 use_container_width=True, help="30秒待たずに今すぐ確認します。")
+            elif _nc_is_rt and _nc_is_rt:
+                _nc_bc1, _nc_bc2 = st.columns(2)
+                with _nc_bc1:
+                    _nc_fetch_clicked = st.button("📥 データを取得", key="nc_pision_fetch",
+                                                   type="primary", use_container_width=True)
+                with _nc_bc2:
+                    _nc_do_existing = st.button("📂 既存のデータを取得", key="nc_pision_existing",
+                                                 use_container_width=True,
+                                                 help="新しい収集を開始せず、過去の直近データを読み込みます。")
+            else:
+                _nc_fetch_clicked = st.button("📥 データを取得", key="nc_pision_fetch", type="primary")
+
+            # ── 取得ボタン押下時 ─────────────────────────────────────────
+            if _nc_fetch_clicked:
                 with st.spinner(f"{_nc_store} / {_nc_date_str} を取得中..."):
                     _nc_fetched = None
                     if _nc_is_rt:
                         _nc_rt = fetch_pision_realtime(_nc_store, _nc_date_str)
-                        if not _nc_rt["ok"]:
-                            st.error(f"❌ {_nc_rt['error']}")
-                        else:
+                        if _nc_rt["ok"] and _nc_is_new_artid(_nc_rt):
                             _nc_fetched = _nc_rt["items"]
+                        elif _nc_rt.get("collect_started") and not _nc_rt["ok"]:
+                            st.session_state[_nc_collecting_key] = _nc_date_str
+                            st.session_state[_nc_baseline_key]   = None
+                            st.rerun()
+                        else:
+                            if _nc_rt.get("error"):
+                                st.error(f"❌ {_nc_rt['error']}")
                     else:
                         try:
                             _nc_halls = fetch_pision_halls(_nc_api_key)
@@ -10892,10 +11050,56 @@ def show_name_conversion_page() -> None:
                             st.error(f"❌ {_nc_store} のホールIDが見つかりません。")
                 if _nc_fetched:
                     st.session_state[_nc_items_key] = _nc_fetched
+                    st.session_state.pop(_nc_collecting_key, None)
                     st.success(f"✅ {len(_nc_fetched)} 台分のデータを取得しました。")
                     st.rerun()
                 elif _nc_fetched is not None:
                     st.info("📭 データが空です（404 / 未公開 / 店休日の可能性があります）。")
+
+            # ── 既存データ取得（新規収集なし）────────────────────────────
+            if _nc_do_existing:
+                with st.spinner("既存の速報データを確認中（新しい収集は開始しません）..."):
+                    _nc_exist = fetch_pision_realtime(_nc_store, _nc_date_str, trigger=False)
+                if _nc_exist["ok"]:
+                    st.session_state[_nc_items_key] = _nc_exist["items"]
+                    st.session_state.pop(_nc_collecting_key, None)
+                    st.rerun()
+                else:
+                    st.warning("⚠️ 既存の速報データが見つかりませんでした。「📥 データを取得」で新しい収集を開始してください。")
+
+            # ── 手動確認（「今すぐ確認」ボタン）───────────────────────────
+            if _nc_do_rt_check:
+                with st.spinner("収集状況を確認中..."):
+                    _nc_chk = fetch_pision_realtime(_nc_store, _nc_date_str, trigger=False)
+                if _nc_chk["ok"] and _nc_is_new_artid(_nc_chk):
+                    st.session_state[_nc_items_key] = _nc_chk["items"]
+                    st.session_state.pop(_nc_collecting_key, None)
+                    st.rerun()
+                elif _nc_chk["ok"]:
+                    st.info("⏳ まだ完了していません。自動確認に戻ります。")
+                    st.rerun()
+                else:
+                    st.rerun()
+
+            # ── 自動ポーリング（収集中・手動確認なし）─────────────────────
+            if _nc_is_collecting and not _nc_do_rt_check:
+                import time as _nc_time
+                _nc_ph = st.empty()
+                _nc_ph.info("⏳ 速報データを収集中... 30秒後に自動で確認します。")
+                _nc_time.sleep(30)
+                _nc_ph.empty()
+                with st.spinner("収集状況を自動確認中..."):
+                    _nc_auto = fetch_pision_realtime(_nc_store, _nc_date_str, trigger=False)
+                if _nc_auto["ok"] and _nc_is_new_artid(_nc_auto):
+                    st.session_state[_nc_items_key] = _nc_auto["items"]
+                    st.session_state.pop(_nc_collecting_key, None)
+                    st.rerun()
+                elif _nc_auto.get("running") or (_nc_auto["ok"] and not _nc_is_new_artid(_nc_auto)):
+                    st.rerun()  # まだ収集中 → 30秒ループ継続
+                else:
+                    st.warning("⚠️ 収集が完了しましたがデータが取得できませんでした。「📥 データを取得」をもう一度押してください。")
+                    st.session_state.pop(_nc_collecting_key, None)
+                    st.rerun()
 
             _nc_items = st.session_state.get(_nc_items_key)
             if _nc_items:
@@ -10990,6 +11194,7 @@ _PISION_ALLOWED_HALLS: list[str] = [
     "溝の口本館",
     "溝の口新館",
     "稲毛",
+    "秋葉原",
 ]
 
 
@@ -11380,6 +11585,7 @@ def draw_slump_graph(
     points: list,
     diff: "int | None" = None,
     machine_name: "str | None" = None,
+    show_diff: bool = True,
 ) -> "Image.Image":
     """スランプグラフを template に描画して PIL Image を返す。"""
     SCALE     = 3
@@ -11464,7 +11670,7 @@ def draw_slump_graph(
     draw.text((uid_x, uid_y), uid_text, fill=(255, 255, 255), font=font_uid)
 
     # 差枚テキスト（黄色・中央寄せ）
-    if points:
+    if points and show_diff:
         font_diff  = load_font(42)
         _raw = diff if diff is not None else points[-1]["y"]
         diff_text  = _fmt_diff(_pipeline_calc_d(_raw))
@@ -11680,6 +11886,91 @@ def _attach_slump_to_table_side(
         x = graph_x0 + PAD + col * (cell_w + GAP)
         y = PAD + row * (row_h + GAP)
         canvas.paste(g, (x, y))
+
+    return canvas
+
+
+def _build_slump_title_img(
+    title: str,
+    graph_imgs: "list[Image.Image]",
+    bg_path=None,
+) -> "Image.Image | None":
+    """青タイトルバー＋スランプグラフのみの画像（表なし・秋葉原スランプ付き結果ポスト用）。"""
+    if not graph_imgs:
+        return None
+
+    COLS   = 3
+    PAD    = 12
+    GAP    = 8
+    LINE_H = 6
+
+    gw0, gh0 = graph_imgs[0].size
+    cell_w   = gw0
+    total_w  = PAD * 2 + GAP * (COLS - 1) + cell_w * COLS
+
+    # 青タイトルバー（横幅比例・_build_machine_imgと同じ描画ロジック）
+    BAR_H   = round(total_w * 73 / 950)
+    FONT_SZ = round(BAR_H * 40 / 73)
+    font    = load_font(FONT_SZ)
+    SUB     = "（優秀台）"
+    GAP_TITLE = -22
+    _dummy  = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    while FONT_SZ > 12:
+        if title.endswith(SUB):
+            _mt = title[:-len(SUB)]
+            _b1 = _dummy.textbbox((0, 0), _mt,  font=font)
+            _b2 = _dummy.textbbox((0, 0), SUB,   font=font)
+            _tw = (_b1[2]-_b1[0]) + GAP_TITLE + (_b2[2]-_b2[0])
+        else:
+            _bb = _dummy.textbbox((0, 0), title, font=font)
+            _tw = _bb[2] - _bb[0]
+        if _tw <= total_w - 20:
+            break
+        FONT_SZ -= 2
+        font = load_font(FONT_SZ)
+
+    rows         = math.ceil(len(graph_imgs) / COLS)
+    graph_area_h = PAD + rows * gh0 + max(0, rows - 1) * GAP + PAD
+    total_h      = BAR_H + LINE_H + graph_area_h
+
+    canvas = Image.new("RGB", (total_w, total_h), (255, 255, 255))
+
+    bar = Image.new("RGBA", (total_w, BAR_H), (38, 76, 161, 255))
+    bd  = ImageDraw.Draw(bar)
+    if title.endswith(SUB):
+        main_text = title[:-len(SUB)].replace('･', '・')
+        b1 = bd.textbbox((0, 0), main_text, font=font)
+        b2 = bd.textbbox((0, 0), SUB,       font=font)
+        w1, w2   = b1[2]-b1[0], b2[2]-b2[0]
+        _tw2     = w1 + GAP_TITLE + w2
+        x1 = (total_w - _tw2) // 2 - b1[0]
+        x2 = x1 + w1 + GAP_TITLE - b2[0]
+        ty = (BAR_H - (b1[3]-b1[1])) // 2 - b1[1]
+        bd.text((x1, ty), main_text, fill=(255, 255, 255, 255), font=font)
+        bd.text((x2, ty), SUB,       fill=(255, 255, 255, 255), font=font)
+    else:
+        disp_title = title.replace('･', '・')
+        _bb = bd.textbbox((0, 0), disp_title, font=font)
+        bd.text(
+            ((total_w - (_bb[2]-_bb[0])) // 2 - _bb[0],
+             (BAR_H  - (_bb[3]-_bb[1])) // 2 - _bb[1]),
+            disp_title, fill=(255, 255, 255, 255), font=font,
+        )
+    canvas.paste(bar.convert("RGB"), (0, 0))
+    canvas.paste(Image.new("RGB", (total_w, LINE_H), (204, 0, 0)), (0, BAR_H))
+
+    y0 = BAR_H + LINE_H
+    if bg_path is not None:
+        try:
+            _bg = Image.open(str(bg_path)).convert("RGB").resize((total_w, graph_area_h), Image.LANCZOS)
+            canvas.paste(_bg, (0, y0))
+        except Exception:
+            pass
+
+    for i, g in enumerate(graph_imgs):
+        row = i // COLS
+        col = i % COLS
+        canvas.paste(g, (PAD + col * (cell_w + GAP), y0 + PAD + row * (gh0 + GAP)))
 
     return canvas
 

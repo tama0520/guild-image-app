@@ -4213,6 +4213,134 @@ def _build_pision_detail_html(name: str, df: pd.DataFrame) -> str:
 '''
 
 
+def _build_pision_interactive_html(title: str, summary: dict, rows: list,
+                                    units_df, single_names=None) -> str:
+    """機種名クリックで台別詳細を右パネルに表示する自己完結型HTMLを返す。
+    units_df: 台番/機種名/差枚/BB/RB/AT/ゲーム数 のうち存在する列のDataFrame。
+    single_names: バラエティ集約対象の機種名set（Noneなら追加しない）。"""
+    import json as _json
+
+    def sdiff(v: int) -> str:
+        if v > 0: return f"+{v:,}"
+        if v < 0: return f"{v:,}"
+        return "±0"
+
+    sum_rows = (
+        f'<tr><th>総差枚</th><td>{sdiff(summary["total_diff"])}</td></tr>'
+        f'<tr><th>平均差枚</th><td>{sdiff(summary["avg_diff"])}</td></tr>'
+        f'<tr><th>平均G数</th><td>{summary["avg_games"]:,}</td></tr>'
+        f'<tr><th>勝率</th><td>{summary["plus"]}/{summary["total"]}</td></tr>'
+    )
+
+    body = []
+    for name, n, w, td, ad, ag in rows:
+        is_var = (name == "バラエティ")
+        wr = f"{w}/{n} ({round(w / n * 100)}%)" if n else "－"
+        body.append(
+            f'<tr class="{"variety " if is_var else ""}mac-row" data-name="{name}">'
+            f'<td class="name">{name}</td>'
+            f'<td class="num">{sdiff(ad)}</td>'
+            f'<td class="num">{sdiff(td)}</td>'
+            f'<td class="num">{ag:,}</td>'
+            f'<td class="wr">{wr}</td>'
+            f'</tr>'
+        )
+
+    detail_map: dict = {}
+    if units_df is not None and len(units_df) > 0:
+        for name, *_ in rows:
+            if name == "バラエティ":
+                if single_names:
+                    _df = units_df[units_df["機種名"].isin(single_names)]
+                    detail_map[name] = _build_pision_detail_html("バラエティ（1台機種すべて）", _df)
+            else:
+                _df = units_df[units_df["機種名"] == name]
+                if not _df.empty:
+                    detail_map[name] = _build_pision_detail_html(name, _df)
+
+    detail_json = _json.dumps(detail_map, ensure_ascii=False)
+    hint_init = '<div class="pis-sec">&nbsp;</div><p class="hint-txt">← 機種名をクリックすると台別詳細が表示されます</p>'
+
+    return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+*{{box-sizing:border-box;}}
+body{{margin:0;padding:0;font-family:"Meiryo","Yu Gothic",sans-serif;color:#2b3a42;}}
+.layout{{display:flex;gap:20px;align-items:flex-start;}}
+.col-l{{flex:5;min-width:0;}}
+.col-r{{flex:7;min-width:0;overflow-y:auto;}}
+.pis-title{{font-size:20px;font-weight:600;margin:2px 0 10px;}}
+.pis-sum{{border-collapse:collapse;margin-bottom:14px;}}
+.pis-sum th{{background:#f4f6f7;border:1px solid #dde3e6;padding:6px 14px;
+             text-align:left;font-weight:600;width:90px;white-space:nowrap;}}
+.pis-sum td{{border:1px solid #dde3e6;padding:6px 18px;min-width:120px;
+             font-variant-numeric:tabular-nums;}}
+.pis-sec{{font-size:16px;font-weight:700;margin:6px 0 8px;}}
+.hint{{font-size:11px;font-weight:400;color:#888;}}
+.hint-txt{{color:#888;font-size:13px;margin-top:50px;}}
+.pis-wrap{{max-height:520px;overflow:auto;border:1px solid #e0e0e0;border-radius:4px;}}
+.pis-tbl{{border-collapse:collapse;width:100%;font-size:13px;}}
+.pis-tbl th{{background:#eceff1;color:#455a64;padding:8px 10px;
+             border-bottom:2px solid #cfd8dc;position:sticky;top:0;z-index:1;white-space:nowrap;}}
+.pis-tbl th.name{{text-align:left;}}
+.pis-tbl td{{padding:7px 10px;border-bottom:1px solid #eceff1;}}
+.pis-tbl td.name{{text-align:left;color:#1565c0;cursor:pointer;text-decoration:underline dotted;}}
+.pis-tbl td.num{{text-align:right;color:#263238;font-variant-numeric:tabular-nums;white-space:nowrap;}}
+.pis-tbl td.wr{{text-align:center;color:#263238;white-space:nowrap;}}
+.pis-tbl tbody tr.mac-row:hover td{{background:#f5f9ff;}}
+.pis-tbl tbody tr.mac-row:hover td.name{{background:#e3f2fd;}}
+.pis-tbl tbody tr.mac-row.active td{{background:#e3f2fd;}}
+.pis-tbl tbody tr.variety td.name{{color:#5f6368;font-weight:600;}}
+.pisd{{margin:4px 0 10px;}}
+.pisd-title{{font-size:15px;font-weight:700;color:#2b3a42;margin:2px 0 6px;}}
+.pisd-tbl{{border-collapse:collapse;width:100%;font-size:13px;}}
+.pisd-tbl th{{background:#eceff1;color:#455a64;padding:7px 10px;
+              border-bottom:2px solid #cfd8dc;white-space:nowrap;}}
+.pisd-tbl td{{padding:6px 10px;border-bottom:1px solid #eceff1;}}
+.pisd-tbl td.c{{text-align:center;color:#263238;white-space:nowrap;}}
+.pisd-tbl td.r{{text-align:right;color:#263238;font-variant-numeric:tabular-nums;white-space:nowrap;}}
+.pisd-tbl td.dn{{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}}
+.pisd-tbl td.pos{{color:#2f9e44;font-weight:700;}}
+.pisd-tbl td.neg{{color:#e03131;}}
+.pisd-tbl td.z{{color:#868e96;}}
+.pisd-tbl tr.avg td{{border-top:2px solid #cfd8dc;background:#f7fafb;font-weight:600;}}
+</style>
+</head><body>
+<div class="pis-title">{title}</div>
+<table class="pis-sum"><tbody>{sum_rows}</tbody></table>
+<div class="layout">
+  <div class="col-l">
+    <div class="pis-sec">機種別データ <span class="hint">（機種名をクリックで台別詳細）</span></div>
+    <div class="pis-wrap"><table class="pis-tbl">
+    <thead><tr><th class="name">機種</th><th>平均差枚</th><th>総差枚</th><th>平均G数</th><th>勝率</th></tr></thead>
+    <tbody>{"".join(body)}</tbody>
+    </table></div>
+  </div>
+  <div class="col-r" id="detail-panel">{hint_init}</div>
+</div>
+<script>
+var details={detail_json};
+var activeRow=null;
+var hintHtml={_json.dumps(hint_init, ensure_ascii=False)};
+document.querySelectorAll('.mac-row').forEach(function(row){{
+  row.addEventListener('click',function(){{
+    var name=this.getAttribute('data-name');
+    var panel=document.getElementById('detail-panel');
+    if(activeRow===this){{
+      this.classList.remove('active');
+      activeRow=null;
+      panel.innerHTML=hintHtml;
+      return;
+    }}
+    if(activeRow)activeRow.classList.remove('active');
+    this.classList.add('active');
+    activeRow=this;
+    panel.innerHTML=details[name]||'<p style="color:#888">台別データなし</p>';
+  }});
+}});
+</script>
+</body></html>'''
+
+
 def render_pision_data_view(vt_df: pd.DataFrame, title: str, sel_key: str) -> None:
     """正規化済みDataFrame（列: 台番/機種名/差枚/ゲーム数/BB/RB/AT のうち存在するもの）から
     pision記事風の機種別サマリー＋台別詳細＋台別データexpanderを描画する。
@@ -4283,35 +4411,12 @@ def render_pision_data_view(vt_df: pd.DataFrame, title: str, sel_key: str) -> No
             _vg  = int(round((_single["平均G数"] * _single["台数"]).sum() / _vn)) if _vn else 0
             _rows.append(("バラエティ", _vn, _vw, _vtd, _vad, _vg))
         st.caption("📋 pisionの代わりに照合用（2台以上を平均差枚順・1台機種はバラエティに集約／数値はpisionの生データと一致）")
-        _col_l, _col_r = st.columns([5, 7], gap="large")
-        with _col_l:
-            st.markdown(_build_pision_like_html(title, _meta, _rows), unsafe_allow_html=True)
-        with _col_r:
-            if _units_df is not None and not _units_df.empty:
-                _VARIETY = "🎲 バラエティ（1台機種すべて）"
-                _opts = [r[0] for r in _rows if r[0] != "バラエティ"]
-                if not _single.empty:
-                    _opts.append(_VARIETY)
-                _sel = st.selectbox(
-                    "🔍 機種を選んで台別詳細を表示", _opts,
-                    index=None, placeholder="機種名を選択…",
-                    key=sel_key,
-                )
-                if _sel:
-                    if _sel == _VARIETY:
-                        _single_names = set(_single["機種名"].tolist())
-                        _detail = _units_df[_units_df["機種名"].isin(_single_names)]
-                        _detail_name = "バラエティ（1台機種すべて）"
-                    else:
-                        _detail = _units_df[_units_df["機種名"] == _sel]
-                        _detail_name = _sel
-                    if not _detail.empty:
-                        st.markdown(
-                            _build_pision_detail_html(_detail_name, _detail),
-                            unsafe_allow_html=True,
-                        )
-                else:
-                    st.caption("← 左の表の機種名を見ながら、ここで機種を選ぶと台別詳細が出ます。")
+        _snames = set(_single["機種名"].tolist()) if not _single.empty else None
+        _comp_h = max(480, min(820, len(_rows) * 42 + 350))
+        components.html(
+            _build_pision_interactive_html(title, _meta, _rows, _units_df, _snames),
+            height=_comp_h, scrolling=True,
+        )
     if not _disp.empty:
         with st.expander(f"📋 台別データ（全{len(_disp)}台）", expanded=False):
             st.dataframe(_disp, use_container_width=True, hide_index=True, height=520)
@@ -4689,37 +4794,13 @@ def show_auto_page(with_slump: bool = False) -> None:
             _title = (f"{int(_m.group(1))}/{int(_m.group(2))}/{int(_m.group(3))} エスパス{store}"
                       if _m else f"エスパス{store}")
             st.caption("📋 pisionの代わりに照合用（2台以上を平均差枚順・1台機種はバラエティに集約／数値はpisionの生データと一致）")
-            _col_l, _col_r = st.columns([5, 7], gap="large")
-            with _col_l:
-                st.markdown(_build_pision_like_html(_title, _meta, _rows), unsafe_allow_html=True)
-            with _col_r:
-                # 機種を選ぶと台別詳細を表示（pisionの機種名クリック相当）
-                _units_df = st.session_state.get(_vt_units_key)
-                if _units_df is not None and not _units_df.empty:
-                    _VARIETY = "🎲 バラエティ（1台機種すべて）"
-                    _opts = [r[0] for r in _rows if r[0] != "バラエティ"]
-                    if not _single.empty:
-                        _opts.append(_VARIETY)
-                    _sel = st.selectbox(
-                        "🔍 機種を選んで台別詳細を表示", _opts,
-                        index=None, placeholder="機種名を選択…",
-                        key=f"auto_detail_machine_{store}",
-                    )
-                    if _sel:
-                        if _sel == _VARIETY:
-                            _single_names = set(_single["機種名"].tolist())
-                            _detail = _units_df[_units_df["機種名"].isin(_single_names)]
-                            _detail_name = "バラエティ（1台機種すべて）"
-                        else:
-                            _detail = _units_df[_units_df["機種名"] == _sel]
-                            _detail_name = _sel
-                        if not _detail.empty:
-                            st.markdown(
-                                _build_pision_detail_html(_detail_name, _detail),
-                                unsafe_allow_html=True,
-                            )
-                    else:
-                        st.caption("← 左の表の機種名を見ながら、ここで機種を選ぶと台別詳細が出ます。")
+            _units_df = st.session_state.get(_vt_units_key)
+            _snames = set(_single["機種名"].tolist()) if not _single.empty else None
+            _comp_h = max(480, min(820, len(_rows) * 42 + 350))
+            components.html(
+                _build_pision_interactive_html(_title, _meta, _rows, _units_df, _snames),
+                height=_comp_h, scrolling=True,
+            )
         if _view_df is not None and not _view_df.empty:
             with st.expander(f"📋 台別データ（全{len(_view_df)}台）", expanded=False):
                 st.dataframe(_view_df, use_container_width=True, hide_index=True, height=520)

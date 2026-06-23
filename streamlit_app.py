@@ -2470,6 +2470,16 @@ def run_step2_juggler(
                 pool_dfs.append(filtered_ex)
                 pool_diffs.append(dr_f_ex)
                 log(f"  {machine} →統合({len(filtered_ex)}/{len(all_for_m)}台)")
+                # 統合画像に入った機種も勝率50%以上ならテキストのみ high_ratio_list に追加
+                if count_orig >= math.ceil(total_orig / 2):
+                    high_ratio_list.append({
+                        "name":         machine,
+                        "count":        count_orig,
+                        "total":        total_orig,
+                        "diffs":        sorted([int(d) for d in dr_f.tolist() if int(d) >= 1000], reverse=True),
+                        "all_avg_diff": int(round(_dr_all_orig.mean())),
+                        "has_image":    False,
+                    })
 
     if not pool_dfs:
         return generated, None, None, high_ratio_list, jug_excellent_list, None

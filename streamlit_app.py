@@ -3755,10 +3755,13 @@ def _auto_input_keys(store: str) -> list[str]:
                  "jug_sue_tail_input_1", "jug_sue_tail_input_2", "jug_sue_tail_input_3",
                  "jug_sue_mode"]
     for i in range(12):
-        keys += [f"kojin_z_{i}_{store}", f"kojin_y_{i}_{store}"]
+        keys += [f"kojin_z_{i}_{store}"]
+    for i in range(21):
+        keys += [f"kojin_y_{i}_{store}"]
     keys += [
         f"kojin_narabi_range_{store}", f"kojin_narabi_title_{store}",
         f"kojin_narabi2_range_{store}", f"kojin_narabi2_title_{store}",
+        "variety_enabled", f"variety_range_{store}", "variety_mode",
     ]
     return keys
 
@@ -4035,8 +4038,12 @@ def generate_recommended_block_image(
     return _build_machine_img(combined, title, None)
 
 
-def _kojin_yushu_filter(km: str, grp_all: pd.DataFrame, dr_all: pd.Series, cfg: dict) -> pd.DataFrame:
-    """個別優秀台のマスク: Step3高配分と同じ条件でフィルター（index は元のまま）。"""
+def _kojin_yushu_filter(km: str, grp_all: pd.DataFrame, dr_all: pd.Series, cfg: dict,
+                        force_1k: bool = False) -> pd.DataFrame:
+    """個別優秀台のマスク: Step3高配分と同じ条件でフィルター（index は元のまま）。
+    force_1k=True のとき差枚+1,000枚以上のみに絞る（秋葉原スランプ付き専用）。"""
+    if force_1k:
+        return grp_all[dr_all.values >= 1000].copy()
     prob_jobs_map      = cfg["prob_jobs_map"]
     rb_thresh_machines = cfg["rb_threshold_machines"]
     rb_min             = cfg["rb_min"]
@@ -4690,6 +4697,16 @@ def show_auto_page(with_slump: bool = False) -> None:
     if uploaded is not None:
         st.session_state["auto_current_excel"] = uploaded.name
         if st.session_state.get("_auto_prev_excel") != uploaded.name:
+            # 切り替え前の入力値を旧ファイル名で先に保存（再フェッチ時の値消え防止）
+            _prev_excel = st.session_state.get("_auto_prev_excel")
+            if _prev_excel:
+                _cur_save = _load_auto_inputs_json()
+                _cur_save[_prev_excel] = {k: st.session_state[k] for k in _auto_input_keys(store) if k in st.session_state}
+                try:
+                    with open(_AUTO_INPUTS_JSON, "w", encoding="utf-8") as _sf:
+                        json.dump(_cur_save, _sf, ensure_ascii=False, indent=2)
+                except Exception:
+                    pass
             _restore_auto_inputs(uploaded.name, store)
             st.session_state["_auto_prev_excel"] = uploaded.name
         # 毎レンダーで自動保存（ボタン未押下でブラウザを閉じても値が残るようにする）
@@ -4826,6 +4843,9 @@ def show_auto_page(with_slump: bool = False) -> None:
     kojin_narabi2_ranges_text: str = ""
     kojin_narabi2_title: str = ""
     st.markdown("### ② 個別画像")
+    variety_enabled: bool = False
+    variety_ranges_text: str = ""
+    variety_mode: str = "全台"
     kojin_enabled = st.checkbox("個別画像も生成する", key="kojin_enabled",
                                 on_change=_save_auto_inputs, args=(store,))
     if kojin_enabled:
@@ -4842,43 +4862,46 @@ def show_auto_page(with_slump: bool = False) -> None:
             kojin_zentai_machines = [st.session_state.get(f"kojin_z_{_i}_{store}", "") for _i in range(12)]
         with col_ky:
             st.markdown("**優秀台**")
-            _ky_rows = [st.columns(3) for _ in range(4)]
+            _akihab_slump = with_slump and store == "秋葉原"
+            _ky_count = 21 if _akihab_slump else 12
+            _ky_rows = [st.columns(3) for _ in range(_ky_count // 3)]
             for _i, _col in enumerate([c for row in _ky_rows for c in row]):
                 with _col:
                     render_machine_autocomplete_input(str(_i + 1), f"kojin_y_{_i}_{store}", _kojin_candidates,
                                                       on_change=_save_auto_inputs, on_change_args=(store,))
-            kojin_yushu_machines = [st.session_state.get(f"kojin_y_{_i}_{store}", "") for _i in range(12)]
-        st.markdown("**並び台番範囲 優秀台**")
-        _col_nr, _col_nt = st.columns([2, 3])
-        with _col_nr:
-            st.text_input(
-                "台番範囲（例: 409-413）　ピンクバーあり",
-                key=f"kojin_narabi_range_{store}",
-                placeholder="例: 409-413",
-                on_change=_save_auto_inputs, args=(store,),
-            )
-        with _col_nt:
-            st.text_input(
-                "タイトル（省略時は台番範囲をそのまま使用）",
-                key=f"kojin_narabi_title_{store}",
-                placeholder="例: 4・5列目の優秀台",
-                on_change=_save_auto_inputs, args=(store,),
-            )
-        _col_nr2, _col_nt2 = st.columns([2, 3])
-        with _col_nr2:
-            st.text_input(
-                "台番範囲（例: 409-413）　ピンクバーなし",
-                key=f"kojin_narabi2_range_{store}",
-                placeholder="例: 409-413",
-                on_change=_save_auto_inputs, args=(store,),
-            )
-        with _col_nt2:
-            st.text_input(
-                "タイトル（省略時は台番範囲をそのまま使用）",
-                key=f"kojin_narabi2_title_{store}",
-                placeholder="例: 4・5列目の優秀台",
-                on_change=_save_auto_inputs, args=(store,),
-            )
+            kojin_yushu_machines = [st.session_state.get(f"kojin_y_{_i}_{store}", "") for _i in range(_ky_count)]
+        if not (with_slump and store == "秋葉原"):
+            st.markdown("**並び台番範囲 優秀台**")
+            _col_nr, _col_nt = st.columns([2, 3])
+            with _col_nr:
+                st.text_input(
+                    "台番範囲（例: 409-413）　ピンクバーあり",
+                    key=f"kojin_narabi_range_{store}",
+                    placeholder="例: 409-413",
+                    on_change=_save_auto_inputs, args=(store,),
+                )
+            with _col_nt:
+                st.text_input(
+                    "タイトル（省略時は台番範囲をそのまま使用）",
+                    key=f"kojin_narabi_title_{store}",
+                    placeholder="例: 4・5列目の優秀台",
+                    on_change=_save_auto_inputs, args=(store,),
+                )
+            _col_nr2, _col_nt2 = st.columns([2, 3])
+            with _col_nr2:
+                st.text_input(
+                    "台番範囲（例: 409-413）　ピンクバーなし",
+                    key=f"kojin_narabi2_range_{store}",
+                    placeholder="例: 409-413",
+                    on_change=_save_auto_inputs, args=(store,),
+                )
+            with _col_nt2:
+                st.text_input(
+                    "タイトル（省略時は台番範囲をそのまま使用）",
+                    key=f"kojin_narabi2_title_{store}",
+                    placeholder="例: 4・5列目の優秀台",
+                    on_change=_save_auto_inputs, args=(store,),
+                )
         kojin_narabi_ranges_text  = st.session_state.get(f"kojin_narabi_range_{store}", "")
         kojin_narabi_title        = st.session_state.get(f"kojin_narabi_title_{store}", "")
         kojin_narabi2_ranges_text = st.session_state.get(f"kojin_narabi2_range_{store}", "")
@@ -5007,7 +5030,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                                           on_change=_save_auto_inputs, args=(store,))
             _sue_tails_ui = [t.strip() for t in [_sue_ti1, _sue_ti2, _sue_ti3] if t.strip()]
             if _sue_tails_ui:
-                _sue_mode = st.radio("モード", ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）", "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"], key="suebangai_mode",
+                _sue_mode_opts = (["全台", "+1,000枚以上の優秀台", "プラス台"]
+                                  if with_slump and store == "秋葉原"
+                                  else ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）", "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"])
+                _sue_mode = st.radio("モード", _sue_mode_opts, key="suebangai_mode",
                                      horizontal=True, on_change=_save_auto_inputs, args=(store,))
                 _sue_prev_key    = f"sue_preview_{store}"
                 _sue_prev_rt_key = f"sue_prev_tails_{store}"
@@ -5046,9 +5072,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         if _filtered.empty:
                                             st.error(f"❌ {_base_label} の台が見つかりません。")
                                             continue
-                                        _is_plus_s  = _sue_mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）")
-                                        _is_yushu_s = _sue_mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
-                                        if _is_plus_s or _is_yushu_s:
+                                        _is_plus_s   = _sue_mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）", "プラス台")
+                                        _is_yushu_s  = _sue_mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
+                                        _is_1k_s     = _sue_mode == "+1,000枚以上の優秀台"
+                                        if _is_plus_s or _is_yushu_s or _is_1k_s:
                                             _sue_total      = len(_filtered)
                                             _sue_total_diff = int(_filtered["差枚"].sum())
                                             _sue_avg_diff   = int(round(_filtered["差枚"].mean()))
@@ -5056,6 +5083,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             if _is_plus_s:
                                                 _filtered = _filtered[_filtered["差枚"] > 0].copy()
                                                 _img_title = f"{_base_label}のプラス台"
+                                            elif _is_1k_s:
+                                                _filtered = _filtered[_filtered["差枚"] >= 1000].copy()
+                                                _img_title = f"{_base_label}の優秀台"
                                             else:
                                                 _sg_col = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _filtered.columns), None)
                                                 if _sg_col:
@@ -5254,6 +5284,26 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 st.image(_jimg, caption=_jtit, use_container_width=True)
                 else:
                     st.info("末尾を入力してください。")
+
+    # ── ⑤ バラエティ画像（秋葉原スランプ付きのみ）──────────────────────
+    if with_slump and store == "秋葉原":
+        st.markdown("### ⑤ バラエティ画像")
+        variety_enabled = st.checkbox("個別画像も生成する", key="variety_enabled",
+                                      on_change=_save_auto_inputs, args=(store,))
+        if variety_enabled:
+            st.markdown("**バラエティの台番範囲**")
+            variety_ranges_text = st.text_input(
+                "台番範囲（例: 1-50）",
+                key=f"variety_range_{store}",
+                placeholder="例: 1-50",
+                on_change=_save_auto_inputs, args=(store,),
+            )
+            variety_mode = st.radio(
+                "モード", ["全台", "+1,000枚以上の優秀台", "プラス台"],
+                key="variety_mode",
+                horizontal=True,
+                on_change=_save_auto_inputs, args=(store,),
+            )
 
     # ── ⑤ オススメ機種ピックアップ（拡張機能店舗）──────────────────────
 
@@ -5567,7 +5617,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     if _kgrp_all.empty:
                                         continue
                                     _kdr_all = _pv_diff.loc[_kgrp_all.index]
-                                    _kgrp_p = _kojin_yushu_filter(_km, _kgrp_all, _kdr_all, get_store_config(store)).reset_index(drop=True)
+                                    _kgrp_p = _kojin_yushu_filter(_km, _kgrp_all, _kdr_all, get_store_config(store), force_1k=(with_slump and store == "秋葉原")).reset_index(drop=True)
                                     if _kgrp_p.empty:
                                         continue
                                     _kavg = int(round(_kdr_all.mean()))
@@ -5644,6 +5694,37 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     except Exception:
                                         pass
 
+                            # ─ ⑤ バラエティ画像（秋葉原スランプ付きのみ）─
+                            _variety_ban_map: dict[str, list[int]] = {}
+                            if with_slump and store == "秋葉原" and variety_enabled and variety_ranges_text.strip() and _pv_df is not None and _pv_diff is not None:
+                                try:
+                                    _var_bans = ranges_to_bans(parse_ranges(variety_ranges_text.strip()))
+                                    _var_df = _pv_df[_pv_df["台番"].apply(lambda b: int(b) in _var_bans)].copy()
+                                    if not _var_df.empty:
+                                        _var_dr = _pv_diff.loc[_var_df.index]
+                                        if variety_mode == "プラス台":
+                                            _vmask = _var_dr > 0
+                                            _var_df = _var_df[_vmask.values].copy()
+                                            _var_dr = _var_dr[_vmask]
+                                            _var_title = "バラエティのプラス台"
+                                        elif variety_mode == "+1,000枚以上の優秀台":
+                                            _vmask = _var_dr >= 1000
+                                            _var_df = _var_df[_vmask.values].copy()
+                                            _var_dr = _var_dr[_vmask]
+                                            _var_title = "バラエティの優秀台"
+                                        else:
+                                            _var_title = "バラエティ"
+                                        if not _var_df.empty:
+                                            _var_sort = _var_dr.argsort()[::-1].values
+                                            _var_df = _var_df.iloc[_var_sort].reset_index(drop=True)
+                                            _var_dr = _var_dr.iloc[_var_sort].reset_index(drop=True)
+                                            _var_stat = {"total_diff": int(_var_dr.sum()), "avg_diff": int(round(_var_dr.mean())), "win_count": int((_var_dr > 0).sum()), "total_count": len(_var_df)} if variety_mode == "全台" else None
+                                            _var_fn = f"{_make_safe_fn(_var_title)}.jpg"
+                                            _prev_img_list.append((_var_fn, _build_machine_img(_var_df, _var_title, _var_stat)))
+                                            _variety_ban_map[_var_fn] = [int(b) for b in _var_df["台番"].dropna()]
+                                except Exception:
+                                    pass
+
                             # ─ ④ 末尾・ジャグラー末尾画像（プレビュー済みはチェック済みのみ、未生成は直接生成）─
                             def _gen_sue_imgs_on_fly(tails, mode, is_juggler=False):
                                 _imgs = []
@@ -5714,14 +5795,18 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                             "win_count": int((_filt["差枚"] > 0).sum()),
                                                             "total_count": len(_filt)}
                                         else:
-                                            _p_of  = mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）")
+                                            _p_of  = mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）", "プラス台")
                                             _y_of  = mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
+                                            _1k_of = mode == "+1,000枚以上の優秀台"
                                             _b_of  = mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
-                                            if _p_of or _y_of:
+                                            if _p_of or _y_of or _1k_of:
                                                 _of_total = len(_filt); _of_td = int(_filt["差枚"].sum()); _of_ad = int(round(_filt["差枚"].mean())); _of_wc = int((_filt["差枚"] > 0).sum())
                                                 if _p_of:
                                                     _filt = _filt[_filt["差枚"] > 0].copy()
                                                     _title = f"{_lbl_base}のプラス台"
+                                                elif _1k_of:
+                                                    _filt = _filt[_filt["差枚"] >= 1000].copy()
+                                                    _title = f"{_lbl_base}の優秀台"
                                                 else:
                                                     _og_col = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _filt.columns), None)
                                                     _ofm = (_filt["差枚"] >= 1000) | ((_filt[_og_col] >= 1800) & (_filt["差枚"] > 0)) if _og_col else (_filt["差枚"] >= 1000)
@@ -5842,6 +5927,21 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _nt_t = _nami_t.get("title", "")
                             if _nt_t:
                                 _pv_title_map[f"{_make_safe_fn(_nt_t)}.jpg"] = _nt_t
+                        # 並び画像（UI直接入力から生成）の台番・タイトルを追加
+                        # _narabi_ban_map は ③並び画像セクションで構築。NameError は narabi_ok=False 時
+                        try:
+                            _pv_ban_map.update(_narabi_ban_map)
+                            for _fn_nb in _narabi_ban_map:
+                                _pv_title_map.setdefault(_fn_nb, os.path.splitext(_fn_nb)[0])
+                        except NameError:
+                            pass
+                        # バラエティ画像の台番・タイトルを追加（_variety_ban_map はプレビュー生成時に構築）
+                        try:
+                            _pv_ban_map.update(_variety_ban_map)
+                            for _fn_var in _variety_ban_map:
+                                _pv_title_map.setdefault(_fn_var, os.path.splitext(_fn_var)[0])
+                        except NameError:
+                            pass
                         if kojin_enabled and _pv_df is not None:
                             for _km_pv in kojin_zentai_machines:
                                 _km_pv = _km_pv.strip()
@@ -5859,9 +5959,52 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 if _kgr_all_pv.empty:
                                     continue
                                 _kdr_all_pv = _pv_diff.loc[_kgr_all_pv.index]
-                                _kgrp_p_pv = _kojin_yushu_filter(_km_pv, _kgr_all_pv, _kdr_all_pv, get_store_config(store)).reset_index(drop=True)
+                                _kgrp_p_pv = _kojin_yushu_filter(_km_pv, _kgr_all_pv, _kdr_all_pv, get_store_config(store), force_1k=(with_slump and store == "秋葉原")).reset_index(drop=True)
                                 if not _kgrp_p_pv.empty:
                                     _pv_ban_map[f"{_make_safe_fn(_km_pv)}（優秀台）.jpg"] = [int(b) for b in _kgrp_p_pv["台番"].tolist()]
+                        # 末尾画像の台番を _pv_ban_map に追加（モードと末尾入力から算出）
+                        if st.session_state.get("suebangai_enabled", False) and _pv_df is not None:
+                            _sue_tails_bm = [t for i in range(1, 4)
+                                             if (t := st.session_state.get(f"suebangai_tail_input_{i}", "").strip())]
+                            _sue_mode_bm  = st.session_state.get("suebangai_mode", "全台")
+                            _sue_circle_bm = {"0":"⓪","1":"①","2":"②","3":"③","4":"④",
+                                              "5":"⑤","6":"⑥","7":"⑦","8":"⑧","9":"⑨"}
+                            for _tail_bm in _sue_tails_bm:
+                                try:
+                                    if _tail_bm == "ゾロ目":
+                                        _filt_bm = _pv_df[_pv_df["台番"].apply(
+                                            lambda b: (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]
+                                        )]
+                                        _base_bm = "末尾ゾロ目の台"
+                                    elif _tail_bm.isdigit() and len(_tail_bm) in (1, 2):
+                                        _filt_bm = _pv_df[_pv_df["台番"].astype(str).str[-len(_tail_bm):] == _tail_bm]
+                                        _base_bm = f"末尾{_sue_circle_bm.get(_tail_bm, _tail_bm)}番台"
+                                    else:
+                                        continue
+                                    if _filt_bm.empty:
+                                        continue
+                                    _is_plus_bm  = _sue_mode_bm in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）", "プラス台")
+                                    _is_yushu_bm = _sue_mode_bm in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
+                                    _is_1k_bm    = _sue_mode_bm == "+1,000枚以上の優秀台"
+                                    if _is_plus_bm:
+                                        _filt_bm = _filt_bm[_filt_bm["差枚"] > 0]
+                                        _title_bm = f"{_base_bm}のプラス台"
+                                    elif _is_1k_bm:
+                                        _filt_bm = _filt_bm[_filt_bm["差枚"] >= 1000]
+                                        _title_bm = f"{_base_bm}の優秀台"
+                                    elif _is_yushu_bm:
+                                        _sg_bm = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _filt_bm.columns), None)
+                                        _smask_bm = (_filt_bm["差枚"] >= 1000) | ((_filt_bm[_sg_bm] >= 1800) & (_filt_bm["差枚"] > 0)) if _sg_bm else (_filt_bm["差枚"] >= 1000)
+                                        _filt_bm = _filt_bm[_smask_bm]
+                                        _title_bm = f"{_base_bm}の優秀台"
+                                    else:
+                                        _title_bm = _base_bm
+                                    if not _filt_bm.empty:
+                                        _fn_bm = f"{_make_safe_fn(_title_bm)}.jpg"
+                                        _pv_ban_map[_fn_bm] = [int(b) for b in _filt_bm["台番"].dropna()]
+                                        _pv_title_map[_fn_bm] = _title_bm
+                                except Exception:
+                                    pass
                         _ig_api_key_pv = _get_pision_api_key()
                         if _ig_api_key_pv and _pv_ban_map:
                             _ig_date_pv = st.session_state.get(f"_inagawa_date_{store}", "")
@@ -5910,7 +6053,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                 _merged_pv.append((_fn_pv, _img_pv))
                                             continue
                                         _g_imgs_pv: list["Image.Image"] = []
-                                        _show_mn_pv = _bare_pv in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
+                                        _show_mn_pv = (_bare_pv in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
+                                                       or _bare_pv.startswith("末尾") or _bare_pv.startswith("バラエティ"))
                                         _is_zentai_pv = (not _bare_pv.endswith("_高配分.jpg") and
                                                          _bare_pv not in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg"))
                                         _ban2diff_pv: dict[str, int] = {}
@@ -6706,12 +6850,18 @@ def show_auto_page(with_slump: bool = False) -> None:
             _sue_saved_fns: list[str] = []  # リネーム順序に追加するため収集
             _sue_stats_data: list[dict] = []      # 結果テキスト用・通常末尾
             _jug_sue_stats_data: list[dict] = []  # 結果テキスト用・ジャグラー末尾
+            _sue_tails_r: list[str] = []   # banmap追加で参照するため先に初期化
+            _sue_mode_r: str = "全台"
             _run_df_for_sue = result.get("df")
             if _run_df_for_sue is not None:
                 _sue_tails_r = [t for i in range(1, 4) if (t := st.session_state.get(f"suebangai_tail_input_{i}", "").strip())]
                 _sue_mode_r = st.session_state.get("suebangai_mode", "全台")
                 _sue_prevs_run = st.session_state.get(f"sue_preview_{store}", [])
                 if _sue_prevs_run:
+                    # プレビュー生成時のモードを sue_prev_tails_{store} から復元
+                    _cached_sue_rt = st.session_state.get(f"sue_prev_tails_{store}", "")
+                    if "|" in _cached_sue_rt:
+                        _sue_mode_r = _cached_sue_rt.split("|", 1)[1]
                     for _ci, (_sm_fn, _sm_img) in enumerate(_sue_prevs_run):
                         if st.session_state.get(f"sue_ck_{store}_{_ci}", True):
                             _save_jpeg(_sm_img, os.path.join(output_dir, _sm_fn))
@@ -7052,7 +7202,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _log(f"  個別(優秀台)「{_km}」: 該当台なし")
                             continue
                         _kdr_all  = diff_k.loc[_kgrp_all.index]
-                        _kgrp_p   = _kojin_yushu_filter(_km, _kgrp_all, _kdr_all, get_store_config(store))
+                        _kgrp_p   = _kojin_yushu_filter(_km, _kgrp_all, _kdr_all, get_store_config(store), force_1k=(with_slump and store == "秋葉原"))
                         if _kgrp_p.empty:
                             _log(f"  個別(優秀台)「{_km}」: 条件を満たす台なし")
                             continue
@@ -7118,6 +7268,38 @@ def show_auto_page(with_slump: bool = False) -> None:
                         except Exception:
                             _log(f"  ❌ 台番範囲優秀台(ピンクバーなし)エラー: {traceback.format_exc()}")
 
+            # ── バラエティ画像生成（秋葉原スランプ付きのみ）──────────────────────
+            if with_slump and store == "秋葉原" and variety_enabled and variety_ranges_text.strip() and result["ok"]:
+                df_v = result.get("df"); diff_v = result.get("diff_raw")
+                if df_v is not None and diff_v is not None:
+                    try:
+                        _var_bans_ex = ranges_to_bans(parse_ranges(variety_ranges_text.strip()))
+                        _var_df_ex = df_v[df_v["台番"].apply(lambda b: int(b) in _var_bans_ex)].copy()
+                        if not _var_df_ex.empty:
+                            _var_dr_ex = diff_v.loc[_var_df_ex.index]
+                            if variety_mode == "プラス台":
+                                _vm_ex = _var_dr_ex > 0
+                                _var_df_ex = _var_df_ex[_vm_ex.values].copy(); _var_dr_ex = _var_dr_ex[_vm_ex]
+                                _var_title_ex = "バラエティのプラス台"
+                            elif variety_mode == "+1,000枚以上の優秀台":
+                                _vm_ex = _var_dr_ex >= 1000
+                                _var_df_ex = _var_df_ex[_vm_ex.values].copy(); _var_dr_ex = _var_dr_ex[_vm_ex]
+                                _var_title_ex = "バラエティの優秀台"
+                            else:
+                                _var_title_ex = "バラエティ"
+                            if not _var_df_ex.empty:
+                                _vs_ex = _var_dr_ex.argsort()[::-1].values
+                                _var_df_ex = _var_df_ex.iloc[_vs_ex].reset_index(drop=True)
+                                _var_dr_ex = _var_dr_ex.iloc[_vs_ex].reset_index(drop=True)
+                                _var_stat_ex = {"total_diff": int(_var_dr_ex.sum()), "avg_diff": int(round(_var_dr_ex.mean())), "win_count": int((_var_dr_ex > 0).sum()), "total_count": len(_var_df_ex)} if variety_mode == "全台" else None
+                                _var_img_ex = _build_machine_img(_var_df_ex, _var_title_ex, _var_stat_ex)
+                                _var_out_ex = os.path.join(output_dir, f"{_make_safe_fn(_var_title_ex)}.jpg")
+                                _save_jpeg(_var_img_ex, _var_out_ex)
+                                result["files"].append(_var_out_ex)
+                                _log(f"  ✅ バラエティ「{_var_title_ex}」({len(_var_df_ex)}台)")
+                    except Exception:
+                        _log(f"  ❌ バラエティ画像エラー: {traceback.format_exc()}")
+
             # ── 全台系→高配分→並び→ジャグラー優秀台→その他 の順にリネーム ──
             if result["ok"]:
                 def _hr_avg_k(x):
@@ -7177,6 +7359,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                 for _sfn in _sue_saved_fns:
                     if _sfn not in _order:
                         _order.append(_sfn)
+                # ⑤ バラエティ画像
+                if with_slump and store == "秋葉原" and variety_enabled and variety_ranges_text.strip():
+                    _var_title_ord = "バラエティのプラス台" if variety_mode == "プラス台" else ("バラエティの優秀台" if variety_mode == "+1,000枚以上の優秀台" else "バラエティ")
+                    _vfn_ord = f"{_make_safe_fn(_var_title_ord)}.jpg"
+                    if _vfn_ord not in _order:
+                        _order.append(_vfn_ord)
                 # ⑤ ジャグラーシリーズ優秀台
                 _order.append("ジャグラーシリーズ優秀台.jpg")
                 # ⑤ その他の優秀台ピックアップ
@@ -7240,6 +7428,78 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _bare_u = re.sub(r"^\d{2}_", "", _nfn_u)
                         if _bare_u not in _ig_bm_u:
                             _ig_bm_u[_bare_u] = [int(_b4) for _b4 in _nbns_u]
+                    # 末尾画像のbansを追加
+                    # 末尾桁+現在モードで直接フィルターし、保存済みファイル名・モード由来ファイル名の両方にセット
+                    if st.session_state.get("suebangai_enabled", False) and _sue_tails_r and result.get("df") is not None:
+                        _run_df_ig = result.get("df")
+                        _run_dr_ig = result.get("diff_raw")
+                        _sue_cir_ig = {"0":"⓪","1":"①","2":"②","3":"③","4":"④","5":"⑤","6":"⑥","7":"⑦","8":"⑧","9":"⑨"}
+                        _is_plus_ig  = _sue_mode_r in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）", "プラス台")
+                        _is_1k_ig    = _sue_mode_r == "+1,000枚以上の優秀台"
+                        _is_yushu_ig = _sue_mode_r in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
+                        for _tail_ig in _sue_tails_r:
+                            try:
+                                if _tail_ig == "ゾロ目":
+                                    _filt_ig = _run_df_ig[_run_df_ig["台番"].apply(
+                                        lambda b: (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1])].copy()
+                                    _base_ig = "末尾ゾロ目の台"
+                                elif _tail_ig.isdigit() and len(_tail_ig) in (1, 2):
+                                    _filt_ig = _run_df_ig[_run_df_ig["台番"].astype(str).str[-len(_tail_ig):] == _tail_ig].copy()
+                                    _base_ig = f"末尾{_sue_cir_ig.get(_tail_ig, _tail_ig)}番台"
+                                else:
+                                    continue
+                                if _filt_ig.empty:
+                                    continue
+                                if _is_plus_ig and _run_dr_ig is not None:
+                                    _filt_ig = _filt_ig[_run_dr_ig.loc[_filt_ig.index] > 0]
+                                    _title_ig = f"{_base_ig}のプラス台"
+                                elif _is_1k_ig and _run_dr_ig is not None:
+                                    _filt_ig = _filt_ig[_run_dr_ig.loc[_filt_ig.index] >= 1000]
+                                    _title_ig = f"{_base_ig}の優秀台"
+                                elif _is_yushu_ig and _run_dr_ig is not None:
+                                    _sg_ig = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _filt_ig.columns), None)
+                                    if _sg_ig:
+                                        _sm_ig = (_run_dr_ig.loc[_filt_ig.index] >= 1000) | ((_filt_ig[_sg_ig] >= 1800) & (_run_dr_ig.loc[_filt_ig.index] > 0))
+                                        _filt_ig = _filt_ig[_sm_ig.values]
+                                    else:
+                                        _filt_ig = _filt_ig[_run_dr_ig.loc[_filt_ig.index] >= 1000]
+                                    _title_ig = f"{_base_ig}の優秀台"
+                                else:
+                                    _title_ig = _base_ig
+                                if not _filt_ig.empty:
+                                    _bans_ig = [int(b) for b in _filt_ig["台番"].dropna()]
+                                    # モードから導出されるファイル名にセット
+                                    _fn_from_mode = f"{_make_safe_fn(_title_ig)}.jpg"
+                                    if _fn_from_mode not in _ig_bm_u:
+                                        _ig_bm_u[_fn_from_mode] = _bans_ig
+                                        _log(f"  📌 末尾banmap追加: {_fn_from_mode} ({len(_filt_ig)}台)")
+                                    # 実際に保存されたファイル名にも同じbansをセット（モード不一致でも正しく合成）
+                                    for _sfn_saved in _sue_saved_fns:
+                                        _m_saved = re.match(r"末尾(\d+)番台", _sfn_saved)
+                                        if _m_saved and _m_saved.group(1) == _tail_ig and _sfn_saved not in _ig_bm_u:
+                                            _ig_bm_u[_sfn_saved] = _bans_ig
+                                            _log(f"  📌 末尾banmap追加(saved): {_sfn_saved} → bans={len(_bans_ig)}台")
+                            except Exception as _eig:
+                                _log(f"  ⚠️ 末尾banmap追加エラー: {_eig}")
+                    # バラエティ画像のbansを追加
+                    if with_slump and store == "秋葉原" and variety_enabled and variety_ranges_text.strip():
+                        _var_title_bm = "バラエティのプラス台" if variety_mode == "プラス台" else ("バラエティの優秀台" if variety_mode == "+1,000枚以上の優秀台" else "バラエティ")
+                        _vfn_bm = f"{_make_safe_fn(_var_title_bm)}.jpg"
+                        if _vfn_bm not in _ig_bm_u:
+                            try:
+                                _vbns_bm = ranges_to_bans(parse_ranges(variety_ranges_text.strip()))
+                                _vdf_bm = result.get("df")
+                                if _vdf_bm is not None:
+                                    _vdr_bm = result.get("diff_raw")
+                                    _vfilt = _vdf_bm[_vdf_bm["台番"].apply(lambda b: int(b) in _vbns_bm)]
+                                    if not _vfilt.empty and _vdr_bm is not None:
+                                        if variety_mode == "プラス台":
+                                            _vfilt = _vfilt[_vdr_bm.loc[_vfilt.index] > 0]
+                                        elif variety_mode == "+1,000枚以上の優秀台":
+                                            _vfilt = _vfilt[_vdr_bm.loc[_vfilt.index] >= 1000]
+                                        _ig_bm_u[_vfn_bm] = [int(b) for b in _vfilt["台番"].dropna()]
+                            except Exception:
+                                pass
                     st.session_state[f"_inagawa_ban_map_{store}"] = _ig_bm_u
 
                     # ── pisionデータ取得・スランプグラフ合成・output_dir上書き ──
@@ -7311,7 +7571,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                 _ig_composite.append((_lfn_exec, _lfb_exec))
                                             continue
                                         _g_imgs_exec: list["Image.Image"] = []
-                                        _show_mn_exec = _bare_exec in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
+                                        _show_mn_exec = (_bare_exec in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
+                                                        or _bare_exec.startswith("末尾") or _bare_exec.startswith("バラエティ"))
                                         _is_zentai_exec = (not _bare_exec.endswith("_高配分.jpg") and
                                                            _bare_exec not in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg"))
                                         for _b_exec in _bans_exec:

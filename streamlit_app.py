@@ -2957,7 +2957,7 @@ def _fmt_diff(n: int) -> str:
     return f"{sign}{n:,}枚"
 
 
-def _format_diffs(diffs: list[int], wrap: int = 4) -> str:
+def _format_diffs(diffs: list[int], wrap: int = 3) -> str:
     """差枚リストを重複×N統合・wrap台ごと折り返しフォーマット"""
     if not diffs:
         return ""

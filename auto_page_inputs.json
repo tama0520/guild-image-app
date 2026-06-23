@@ -2696,8 +2696,8 @@
   },
   "20260622_高田馬場_20S.xlsx": {
     "kojin_enabled": true,
-    "narabi_enabled": true,
-    "narabi_ranges_input": "・2050-2053\n・2171-2173\n・3003-3005\n・3009-3011　\n・3041-3043 ",
+    "narabi_enabled": false,
+    "narabi_ranges_input": "",
     "suebangai_enabled": false,
     "suebangai_tail_input_1": "",
     "suebangai_tail_input_2": "",

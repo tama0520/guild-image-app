@@ -3857,6 +3857,7 @@ def _auto_input_keys(store: str) -> list[str]:
     keys += [
         f"kojin_narabi_range_{store}", f"kojin_narabi_title_{store}",
         f"kojin_narabi2_range_{store}", f"kojin_narabi2_title_{store}",
+        f"sonota_extra_title_{store}", f"sonota_extra_text_{store}",
         "variety_enabled", f"variety_range_{store}", "variety_mode",
     ]
     return keys
@@ -4950,6 +4951,8 @@ def show_auto_page(with_slump: bool = False) -> None:
     kojin_narabi_title: str = ""
     kojin_narabi2_ranges_text: str = ""
     kojin_narabi2_title: str = ""
+    sonota_extra_title: str = ""
+    sonota_extra_text: str = ""
     st.markdown("### ② 個別画像")
     variety_enabled: bool = False
     variety_ranges_text: str = ""
@@ -4978,7 +4981,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     render_machine_autocomplete_input(str(_i + 1), f"kojin_y_{_i}_{store}", _kojin_candidates,
                                                       on_change=_save_auto_inputs, on_change_args=(store,))
             kojin_yushu_machines = [st.session_state.get(f"kojin_y_{_i}_{store}", "") for _i in range(_ky_count)]
-        if not (with_slump and store == "秋葉原"):
+        if not (with_slump and store == "秋葉原") and store != "溝の口新館":
             st.markdown("**並び台番範囲 優秀台**")
             _col_nr, _col_nt = st.columns([2, 3])
             with _col_nr:
@@ -5014,6 +5017,27 @@ def show_auto_page(with_slump: bool = False) -> None:
         kojin_narabi_title        = st.session_state.get(f"kojin_narabi_title_{store}", "")
         kojin_narabi2_ranges_text = st.session_state.get(f"kojin_narabi2_range_{store}", "")
         kojin_narabi2_title       = st.session_state.get(f"kojin_narabi2_title_{store}", "")
+        if store == "溝の口新館":
+            st.markdown("**その他の優秀台ピックアップ**")
+            _col_set, _col_seb = st.columns([2, 3])
+            with _col_set:
+                st.text_input(
+                    "タイトル",
+                    value=st.session_state.get(f"sonota_extra_title_{store}", ""),
+                    key=f"sonota_extra_title_{store}",
+                    placeholder="例: その他の優秀台ピックアップ",
+                    on_change=_save_auto_inputs, args=(store,),
+                )
+            with _col_seb:
+                st.text_area(
+                    "台番テキスト（台番を含むテキストをそのまま貼り付け）",
+                    value=st.session_state.get(f"sonota_extra_text_{store}", ""),
+                    key=f"sonota_extra_text_{store}",
+                    height=80,
+                    on_change=_save_auto_inputs, args=(store,),
+                )
+        sonota_extra_title = st.session_state.get(f"sonota_extra_title_{store}", "")
+        sonota_extra_text  = st.session_state.get(f"sonota_extra_text_{store}", "")
 
     # ── ③ 並び画像オプション（常に描画）──────────────────────────────
     narabi_ok     = False
@@ -5641,7 +5665,17 @@ def show_auto_page(with_slump: bool = False) -> None:
 
         _auto_previews = st.session_state.get(_aprev_key)
         if _auto_previews is None:
-            if st.button("🔍 プレビュー生成", key="auto_preview_btn"):
+            if store == "溝の口新館":
+                _mc1, _mc2 = st.columns(2)
+                with _mc1:
+                    _full_prev_btn = st.button("🔍 プレビュー生成", key="auto_preview_btn", use_container_width=True)
+                with _mc2:
+                    _manual_prev_btn = st.button("📝 記入部分のみプレビュー作成", key="manual_only_preview_btn", use_container_width=True)
+            else:
+                _full_prev_btn = st.button("🔍 プレビュー生成", key="auto_preview_btn")
+                _manual_prev_btn = False
+            if _full_prev_btn:
+                st.session_state.pop(f"_manual_preview_mode_{store}", None)
                 _save_auto_inputs(store)
                 with st.spinner("画像を生成中（しばらくお待ちください）…"):
                     import tempfile as _tempfile
@@ -6288,6 +6322,131 @@ def show_auto_page(with_slump: bool = False) -> None:
                     }
                     st.session_state[_aprev_narabi_key]   = _narabi_ban_map if narabi_ok and narabi_ranges else {}
                 st.rerun()
+            if _manual_prev_btn:
+                _save_auto_inputs(store)
+                with st.spinner("記入部分のみプレビュー生成中…"):
+                    try:
+                        uploaded.seek(0)
+                        _raw_m = _read_uploaded_df(uploaded)
+                        _df_m, _ = normalize_df(_raw_m)
+                        _df_m = apply_name_conversion(_df_m)
+                        if "差枚" in _df_m.columns:
+                            _df_m["差枚"] = _df_m["差枚"].apply(_pipeline_calc_d)
+                        _diff_m = _df_m["差枚"].copy()
+                        _manual_imgs: list[tuple[str, "Image.Image"]] = []
+
+                        # ② 個別画像 - 全台
+                        if kojin_enabled:
+                            for _km in kojin_zentai_machines:
+                                _km = _km.strip()
+                                if not _km:
+                                    continue
+                                _mg = _df_m[_df_m["機種名"] == _km].copy().reset_index(drop=True)
+                                if _mg.empty:
+                                    continue
+                                _md = _diff_m.loc[_df_m[_df_m["機種名"] == _km].index].reset_index(drop=True)
+                                _manual_imgs.append((f"{_make_safe_fn(_km)}.jpg", _build_machine_img(_mg, _km, _stat_from_diff(_md))))
+
+                            # ② 個別画像 - 優秀台
+                            _m_cfg = get_store_config(store)
+                            for _km in kojin_yushu_machines:
+                                _km = _km.strip()
+                                if not _km:
+                                    continue
+                                _mga = _df_m[_df_m["機種名"] == _km]
+                                if _mga.empty:
+                                    continue
+                                _mda = _diff_m.loc[_mga.index]
+                                _mgp = _kojin_yushu_filter(_km, _mga, _mda, _m_cfg).reset_index(drop=True)
+                                if _mgp.empty:
+                                    continue
+                                _mtit = f"{_km}（優秀台）"
+                                _manual_imgs.append((f"{_make_safe_fn(_mtit)}.jpg", _build_machine_img(_mgp, _mtit, None)))
+
+                            # ② その他の優秀台ピックアップ（溝の口新館専用）
+                            if sonota_extra_text.strip():
+                                _se_bans_m = set(expand_machine_numbers(sonota_extra_text))
+                                if _se_bans_m:
+                                    _se_df_m = _df_m[_df_m["台番"].apply(lambda b: int(b) in _se_bans_m)].copy().reset_index(drop=True)
+                                    if not _se_df_m.empty:
+                                        _se_tit_m = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
+                                        _manual_imgs.append((f"{_make_safe_fn(_se_tit_m)}.jpg", _build_machine_img(_se_df_m, _se_tit_m, None)))
+
+                        # ③ 並び画像
+                        if narabi_ok and narabi_ranges:
+                            _ban_map_m = {int(row["台番"]): i for i, row in _df_m.iterrows()}
+                            # 重複タイトルを事前検出（フルプレビューと同じ方式）
+                            _nb_infos_m = []
+                            for _n_bans in narabi_ranges:
+                                _n_idxs = [_ban_map_m[b] for b in _n_bans if b in _ban_map_m]
+                                if not _n_idxs:
+                                    continue
+                                _ngrp = _df_m.loc[_n_idxs].copy().reset_index(drop=True)
+                                _nms  = list(dict.fromkeys(str(m) for m in _ngrp["機種名"]))
+                                _nn   = len(_ngrp)
+                                if len(_nms) == 1: _ntit = f"{_nms[0]}({_nn}台並び)"
+                                elif len(_nms) == 2: _ntit = f"{_nms[0]}+{_nms[1]}({_nn}台並び)"
+                                else: _ntit = f"{_nms[0]}～{_nms[-1]}({_nn}台並び)"
+                                _nb_infos_m.append((_ngrp, _ntit, list(_n_bans)))
+                            from collections import Counter as _CtrM
+                            _dup_tits_m = {t for t, c in _CtrM(i[1] for i in _nb_infos_m).items() if c > 1}
+                            for _ngrp, _ntit, _n_blist_m in _nb_infos_m:
+                                _nds  = _ngrp["差枚"]
+                                _nstat = {"total_diff": int(_nds.sum()), "avg_diff": int(round(_nds.mean())), "win_count": int((_nds > 0).sum()), "total_count": len(_ngrp)}
+                                if _ntit in _dup_tits_m:
+                                    _nb_s = int(_ngrp.iloc[0]["台番"]); _nb_e = int(_ngrp.iloc[-1]["台番"])
+                                    _file_tit_m = f"{_ntit}（{_nb_s}～{_nb_e}）"
+                                else:
+                                    _file_tit_m = _ntit
+                                _manual_imgs.append((f"{_make_safe_fn(_file_tit_m)}.jpg", _build_machine_img(_ngrp, _ntit, _nstat)))
+
+                        # ④ 末尾画像
+                        if st.session_state.get("suebangai_enabled", False):
+                            _m_sue_tails = [t for _i in range(1, 4) if (t := st.session_state.get(f"suebangai_tail_input_{_i}", "").strip())]
+                            _m_sue_mode = st.session_state.get("suebangai_mode", "全台")
+                            for _item in _gen_sue_imgs_on_fly(_m_sue_tails, _m_sue_mode, is_juggler=False):
+                                _manual_imgs.append(_item)
+                        if st.session_state.get("jug_sue_enabled", False):
+                            _m_jug_tails = [t for _i in range(1, 4) if (t := st.session_state.get(f"jug_sue_tail_input_{_i}", "").strip())]
+                            _m_jug_mode = st.session_state.get("jug_sue_mode", "全台")
+                            for _item in _gen_sue_imgs_on_fly(_m_jug_tails, _m_jug_mode, is_juggler=True):
+                                _manual_imgs.append(_item)
+
+                        # ⑤ オススメ機種ピックアップ
+                        if recommended_blocks:
+                            _ms_cfg = get_store_config(store)
+                            _mj_cfg = {
+                                "series":     _ms_cfg["juggler_series"],
+                                "jobs_map":   {j[0]: j[1] for j in _ms_cfg["juggler_jobs"]},
+                                "g_min":      _ms_cfg["juggler_g_min"],
+                                "diff_bonus": _ms_cfg["diff_bonus"],
+                            }
+                            _ms_sfx = {1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
+                            for _blk in recommended_blocks:
+                                _mbt = _blk["title"].strip() or "オススメ機種"
+                                _mbm = [m.strip() for m in _blk["machines"] if m.strip()]
+                                if not _mbm:
+                                    continue
+                                for _mthr in _blk.get("thresholds", [1]):
+                                    _mrimg = generate_recommended_block_image(
+                                        _mbt, _mbm, _df_m, _diff_m, set(),
+                                        min_diff=_mthr, juggler_cfg=_mj_cfg,
+                                    )
+                                    if _mrimg is None:
+                                        continue
+                                    _ms_sfxv = _ms_sfx.get(_mthr, str(_mthr))
+                                    _manual_imgs.append((f"オススメ_{_make_safe_fn(_mbt)}_{_ms_sfxv}.jpg", _mrimg))
+
+                        if _manual_imgs:
+                            st.session_state[_aprev_key] = _manual_imgs
+                            st.session_state[f"_manual_preview_mode_{store}"] = True
+                        else:
+                            st.warning("⚠️ 記入された項目がないか、該当台が見つかりませんでした。")
+                    except Exception as _me:
+                        st.error(f"❌ エラー: {_me}")
+                        with st.expander("詳細"):
+                            st.code(traceback.format_exc())
+                st.rerun()
         else:
             st.caption(f"📋 {len(_auto_previews)}枚の画像プレビュー　チェックした画像のみ生成されます")
             for _row_start in range(0, len(_auto_previews), 3):
@@ -6820,6 +6979,303 @@ def show_auto_page(with_slump: bool = False) -> None:
         with open(excel_path, "wb") as f:
             f.write(uploaded.getvalue())
         os.makedirs(output_dir, exist_ok=True)
+
+        _is_manual_mode = store == "溝の口新館" and st.session_state.get(f"_manual_preview_mode_{store}", False)
+        if _is_manual_mode:
+            with st.status("記入部分のみ処理を実行中…", expanded=True) as _m_status:
+                def _m_log(msg: str) -> None:
+                    st.write(msg)
+                try:
+                    uploaded.seek(0)
+                    _raw_exec_m = _read_uploaded_df(uploaded)
+                    _df_exec_m, _ = normalize_df(_raw_exec_m)
+                    _df_exec_m = apply_name_conversion(_df_exec_m)
+                    if "差枚" in _df_exec_m.columns:
+                        _df_exec_m["差枚"] = _df_exec_m["差枚"].apply(_pipeline_calc_d)
+                    _diff_exec_m = _df_exec_m["差枚"].copy()
+                    _exec_order: list[str] = []
+                    _used_fns_e: set[str] = set()
+                    _m_zen:  list[dict] = []
+                    _m_high: list[dict] = []
+                    _m_nami: list[dict] = []
+
+                    def _unique_fn_e(base: str) -> str:
+                        stem, ext = os.path.splitext(base)
+                        candidate = base
+                        ctr = 2
+                        while candidate in _used_fns_e:
+                            candidate = f"{stem}_{ctr}{ext}"
+                            ctr += 1
+                        _used_fns_e.add(candidate)
+                        return candidate
+
+                    # ② 個別画像 - 全台
+                    if kojin_enabled:
+                        for _km_e in kojin_zentai_machines:
+                            _km_e = _km_e.strip()
+                            if not _km_e:
+                                continue
+                            _mg_e = _df_exec_m[_df_exec_m["機種名"] == _km_e].copy().reset_index(drop=True)
+                            if _mg_e.empty:
+                                continue
+                            _md_e = _diff_exec_m.loc[_df_exec_m[_df_exec_m["機種名"] == _km_e].index].reset_index(drop=True)
+                            _mfn_e = _unique_fn_e(f"{_make_safe_fn(_km_e)}.jpg")
+                            _mout = os.path.join(output_dir, _mfn_e)
+                            _save_jpeg(_build_machine_img(_mg_e, _km_e, _stat_from_diff(_md_e)), _mout)
+                            _exec_order.append(_mfn_e)
+                            _m_log(f"  ✅ 全台「{_km_e}」({len(_mg_e)}台)")
+                            _m_zen.append({"name": _km_e, "count": int((_md_e > 0).sum()), "total": len(_mg_e), "diffs": sorted([int(d) for d in _md_e.tolist() if int(d) >= 1000], reverse=True), "all_avg_diff": int(round(_md_e.mean()))})
+
+                        # ② 個別画像 - 優秀台
+                        _me_cfg = get_store_config(store)
+                        for _km_e in kojin_yushu_machines:
+                            _km_e = _km_e.strip()
+                            if not _km_e:
+                                continue
+                            _mga_e = _df_exec_m[_df_exec_m["機種名"] == _km_e]
+                            if _mga_e.empty:
+                                continue
+                            _mda_e = _diff_exec_m.loc[_mga_e.index]
+                            _mgp_e = _kojin_yushu_filter(_km_e, _mga_e, _mda_e, _me_cfg).reset_index(drop=True)
+                            if _mgp_e.empty:
+                                continue
+                            _metit = f"{_km_e}（優秀台）"
+                            _mefn_e = _unique_fn_e(f"{_make_safe_fn(_metit)}.jpg")
+                            _meout = os.path.join(output_dir, _mefn_e)
+                            _save_jpeg(_build_machine_img(_mgp_e, _metit, None), _meout)
+                            _exec_order.append(_mefn_e)
+                            _m_log(f"  ✅ 優秀台「{_metit}」({len(_mgp_e)}台)")
+                            _mga_all_e = _df_exec_m[_df_exec_m["機種名"] == _km_e]
+                            _mda_all_e = _diff_exec_m.loc[_mga_all_e.index]
+                            _m_high.append({"name": _km_e, "count": int((_mda_all_e > 0).sum()), "total": len(_mga_all_e), "diffs": sorted([int(d) for d in _mda_e.tolist() if int(d) >= 1000], reverse=True), "all_avg_diff": int(round(_mda_all_e.mean())), "has_image": True})
+
+                        # ② その他の優秀台ピックアップ
+                        if sonota_extra_text.strip():
+                            _se_bans_e = set(expand_machine_numbers(sonota_extra_text))
+                            if _se_bans_e:
+                                _se_df_e = _df_exec_m[_df_exec_m["台番"].apply(lambda b: int(b) in _se_bans_e)].copy().reset_index(drop=True)
+                                if not _se_df_e.empty:
+                                    _se_tit_e = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
+                                    _sefn_e = _unique_fn_e(f"{_make_safe_fn(_se_tit_e)}.jpg")
+                                    _se_out_e = os.path.join(output_dir, _sefn_e)
+                                    _save_jpeg(_build_machine_img(_se_df_e, _se_tit_e, None), _se_out_e)
+                                    _exec_order.append(_sefn_e)
+                                    _m_log(f"  ✅ その他の優秀台ピックアップ「{_se_tit_e}」({len(_se_df_e)}台)")
+
+                    # ③ 並び画像（重複タイトルは台番範囲サフィックスで区別）
+                    if narabi_ok and narabi_ranges:
+                        _ban_map_e = {int(row["台番"]): i for i, row in _df_exec_m.iterrows()}
+                        _nb_infos_e = []
+                        for _n_bans_e in narabi_ranges:
+                            _n_idxs_e = [_ban_map_e[b] for b in _n_bans_e if b in _ban_map_e]
+                            if not _n_idxs_e:
+                                continue
+                            _ngrp_e = _df_exec_m.loc[_n_idxs_e].copy().reset_index(drop=True)
+                            _nms_e  = list(dict.fromkeys(str(m) for m in _ngrp_e["機種名"]))
+                            _nn_e   = len(_ngrp_e)
+                            if len(_nms_e) == 1: _ntit_e = f"{_nms_e[0]}({_nn_e}台並び)"
+                            elif len(_nms_e) == 2: _ntit_e = f"{_nms_e[0]}+{_nms_e[1]}({_nn_e}台並び)"
+                            else: _ntit_e = f"{_nms_e[0]}～{_nms_e[-1]}({_nn_e}台並び)"
+                            _nb_infos_e.append((_ngrp_e, _ntit_e, list(_n_bans_e)))
+                        from collections import Counter as _CtrE
+                        _dup_tits_e = {t for t, c in _CtrE(i[1] for i in _nb_infos_e).items() if c > 1}
+                        for _ngrp_e, _ntit_e, _n_blist_e in _nb_infos_e:
+                            _nds_e = _ngrp_e["差枚"]
+                            _nstat_e = {"total_diff": int(_nds_e.sum()), "avg_diff": int(round(_nds_e.mean())), "win_count": int((_nds_e > 0).sum()), "total_count": len(_ngrp_e)}
+                            if _ntit_e in _dup_tits_e:
+                                _nb_s_e = int(_ngrp_e.iloc[0]["台番"]); _nb_e_e = int(_ngrp_e.iloc[-1]["台番"])
+                                _file_tit_e = f"{_ntit_e}（{_nb_s_e}～{_nb_e_e}）"
+                            else:
+                                _file_tit_e = _ntit_e
+                            _nfn_e = _unique_fn_e(f"{_make_safe_fn(_file_tit_e)}.jpg")
+                            _nout_e = os.path.join(output_dir, _nfn_e)
+                            _save_jpeg(_build_machine_img(_ngrp_e, _ntit_e, _nstat_e), _nout_e)
+                            _exec_order.append(_nfn_e)
+                            _m_log(f"  ✅ 並び「{_file_tit_e}」")
+                            _nms_e2 = list(dict.fromkeys(str(m) for m in _ngrp_e["機種名"]))
+                            if len(_nms_e2) == 1: _mach_e = _nms_e2[0]
+                            elif len(_nms_e2) == 2: _mach_e = f"{_nms_e2[0]}+{_nms_e2[1]}"
+                            else: _mach_e = f"{_nms_e2[0]}～{_nms_e2[-1]}"
+                            _bls_e = sorted(_n_blist_e)
+                            _is_consec_e = len(_bls_e) >= 2 and (_bls_e[-1] - _bls_e[0] + 1 == len(_bls_e))
+                            _br_e = (f"{_bls_e[0]}-{_bls_e[-1]}" if _is_consec_e else (str(_bls_e[0]) if len(_bls_e)==1 else "+".join(str(b) for b in _bls_e)))
+                            _m_nami.append({"title": _ntit_e, "count": _nstat_e["total_count"], "avg_diff": _nstat_e["avg_diff"], "machine": _mach_e, "ban_range": _br_e, "bans": _bls_e})
+
+                    # ④ 末尾画像
+                    if st.session_state.get("suebangai_enabled", False):
+                        _m_sue_tails_e = [t for _i in range(1, 4) if (t := st.session_state.get(f"suebangai_tail_input_{_i}", "").strip())]
+                        _m_sue_mode_e = st.session_state.get("suebangai_mode", "全台")
+                        for _fn_e, _img_e in _gen_sue_imgs_on_fly(_m_sue_tails_e, _m_sue_mode_e, is_juggler=False):
+                            _fn_e = _unique_fn_e(_fn_e)
+                            _sout_e = os.path.join(output_dir, _fn_e)
+                            _save_jpeg(_img_e, _sout_e)
+                            _exec_order.append(_fn_e)
+                            _m_log(f"  ✅ 末尾画像「{_fn_e}」")
+                    if st.session_state.get("jug_sue_enabled", False):
+                        _m_jt_e = [t for _i in range(1, 4) if (t := st.session_state.get(f"jug_sue_tail_input_{_i}", "").strip())]
+                        _m_jm_e = st.session_state.get("jug_sue_mode", "全台")
+                        for _fn_e, _img_e in _gen_sue_imgs_on_fly(_m_jt_e, _m_jm_e, is_juggler=True):
+                            _fn_e = _unique_fn_e(_fn_e)
+                            _sout_e = os.path.join(output_dir, _fn_e)
+                            _save_jpeg(_img_e, _sout_e)
+                            _exec_order.append(_fn_e)
+                            _m_log(f"  ✅ ジャグラー末尾画像「{_fn_e}」")
+
+                    # ⑤ オススメ機種ピックアップ
+                    if recommended_blocks:
+                        _ms_cfg_e = get_store_config(store)
+                        _mj_cfg_e = {"series": _ms_cfg_e["juggler_series"], "jobs_map": {j[0]: j[1] for j in _ms_cfg_e["juggler_jobs"]}, "g_min": _ms_cfg_e["juggler_g_min"], "diff_bonus": _ms_cfg_e["diff_bonus"]}
+                        _ms_sfx_e = {1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
+                        for _blk_e in recommended_blocks:
+                            _mbt_e = _blk_e["title"].strip() or "オススメ機種"
+                            _mbm_e = [m.strip() for m in _blk_e["machines"] if m.strip()]
+                            if not _mbm_e:
+                                continue
+                            for _mthr_e in _blk_e.get("thresholds", [1]):
+                                _mrimg_e = generate_recommended_block_image(_mbt_e, _mbm_e, _df_exec_m, _diff_exec_m, set(), min_diff=_mthr_e, juggler_cfg=_mj_cfg_e)
+                                if _mrimg_e is None:
+                                    continue
+                                _ms_sfxv_e = _ms_sfx_e.get(_mthr_e, str(_mthr_e))
+                                _mrfn_e = f"オススメ_{_make_safe_fn(_mbt_e)}_{_ms_sfxv_e}.jpg"
+                                _mrfn_e = _unique_fn_e(_mrfn_e)
+                                _mrout_e = os.path.join(output_dir, _mrfn_e)
+                                _save_jpeg(_mrimg_e, _mrout_e)
+                                _exec_order.append(_mrfn_e)
+                                _m_log(f"  ✅ オススメ「{_mbt_e}」({_ms_sfxv_e})")
+
+                    # 連番プレフィックス付与
+                    _seq_e = 1
+                    for _bfn_e in _exec_order:
+                        _src_e = os.path.join(output_dir, _bfn_e)
+                        if os.path.exists(_src_e):
+                            os.replace(_src_e, os.path.join(output_dir, f"{_seq_e:02d}_{_bfn_e}"))
+                            _seq_e += 1
+
+                    # 結果テキスト生成
+                    _m_report_text = ""
+                    try:
+                        import datetime as _dt_rt
+                        _m_date = None
+                        _m_stem_rt = os.path.splitext(uploaded.name)[0]
+                        _m_dp = _m_stem_rt.split("_")[0]
+                        if len(_m_dp) == 8 and _m_dp.isdigit():
+                            _m_date = _dt_rt.date(int(_m_dp[:4]), int(_m_dp[4:6]), int(_m_dp[6:8]))
+                        _m_excel: list[dict] = []
+                        if sonota_extra_text.strip():
+                            _se_bns_rt = set(expand_machine_numbers(sonota_extra_text))
+                            if _se_bns_rt:
+                                for _idx_rt, _row_rt in _df_exec_m.iterrows():
+                                    if int(_row_rt["台番"]) in _se_bns_rt:
+                                        _m_excel.append({"name": str(_row_rt["機種名"]), "diff": int(_diff_exec_m.loc[_idx_rt]), "ban": int(_row_rt["台番"])})
+                        _m_sue_data: list[dict] = []
+                        if st.session_state.get("suebangai_enabled", False):
+                            for _t_rt in [t for _i in range(1, 4) if (t := st.session_state.get(f"suebangai_tail_input_{_i}", "").strip())]:
+                                _sf_rt = _df_exec_m[_df_exec_m["台番"].apply(lambda b: (str(int(b))[-len(_t_rt):] == _t_rt) if _t_rt.isdigit() and len(_t_rt) in (1,2) else ((s:=str(int(b))) and len(s)>=2 and s[-2]==s[-1]))]
+                                if _sf_rt.empty: continue
+                                _sfd_rt = _diff_exec_m.loc[_sf_rt.index]
+                                _m_sue_data.append({"tail": _t_rt, "total": len(_sf_rt), "win_count": int((_sfd_rt > 0).sum()), "avg_diff": int(round(_sfd_rt.mean()))})
+                        _m_jug_data: list[dict] = []
+                        if st.session_state.get("jug_sue_enabled", False):
+                            _jug_ser_rt = set(get_store_config(store)["juggler_series"])
+                            for _t_rt in [t for _i in range(1, 4) if (t := st.session_state.get(f"jug_sue_tail_input_{_i}", "").strip())]:
+                                _sf_rt = _df_exec_m[_df_exec_m["台番"].apply(lambda b: (str(int(b))[-len(_t_rt):] == _t_rt) if _t_rt.isdigit() and len(_t_rt) in (1,2) else ((s:=str(int(b))) and len(s)>=2 and s[-2]==s[-1]))]
+                                _sf_rt = _sf_rt[_sf_rt["機種名"].isin(_jug_ser_rt)]
+                                if _sf_rt.empty: continue
+                                _sfd_rt = _diff_exec_m.loc[_sf_rt.index]
+                                _m_jug_data.append({"tail": _t_rt, "total": len(_sf_rt), "win_count": int((_sfd_rt > 0).sum()), "avg_diff": int(round(_sfd_rt.mean()))})
+                        _m_report_text = generate_report_text(
+                            store_name=store, date=_m_date,
+                            zen_dai_list=_m_zen, high_ratio_list=_m_high,
+                            nami_list=_m_nami, excellent_list=_m_excel,
+                            diff_raw=_diff_exec_m, df=_df_exec_m,
+                            suebangai_data=_m_sue_data or None,
+                            jug_sue_data=_m_jug_data or None,
+                        )
+                        for _old_rt, _new_rt in STORE_RESULT_TRANSFORMS.get(store, []):
+                            _m_report_text = _m_report_text.replace(_old_rt, _new_rt)
+                        _txt_name_m = (f"{_m_date.month:02d}{_m_date.day:02d}_結果.txt" if _m_date else "結果.txt")
+                        with open(os.path.join(output_dir, _txt_name_m), "w", encoding="utf-8") as _f_rt:
+                            _f_rt.write(_m_report_text)
+                    except Exception as _rte:
+                        _m_log(f"  ⚠️ 結果テキスト生成エラー: {_rte}")
+                        import traceback as _tbe
+                        _m_log(_tbe.format_exc())
+                    _m_status.update(label="✅ 全処理完了！", state="complete", expanded=False)
+
+                    pass  # ZIP は status 外で生成
+                except Exception as _me:
+                    _m_status.update(label="⚠️ エラーあり", state="error", expanded=True)
+                    st.error(f"❌ エラー: {_me}")
+                    with st.expander("詳細"):
+                        st.code(traceback.format_exc())
+            st.markdown("### 生成されたファイル")
+            if not _IS_CLOUD:
+                st.info(f"📁 `{output_dir}`")
+            if os.path.isdir(output_dir):
+                _m_imgs = sorted(
+                    f for f in os.listdir(output_dir)
+                    if f.lower().endswith((".png", ".jpg", ".jpeg"))
+                )
+                if _m_imgs:
+                    for _mf in _m_imgs:
+                        with st.expander(_mf, expanded=False):
+                            st.image(os.path.join(output_dir, _mf), use_container_width=True)
+                else:
+                    st.warning("画像ファイルが見つかりませんでした。")
+            if _m_report_text:
+                st.markdown("---")
+                if _IS_CLOUD:
+                    st.caption(f"📄 {_txt_name_m} をZIPに含めます")
+                else:
+                    st.caption(f"📄 {_txt_name_m} を保存しました")
+                import html as _html_m
+                _safe_m = _html_m.escape(_m_report_text)
+                _lines_m = _m_report_text.count("\n") + 1
+                _h_m = min(600, max(200, _lines_m * 20 + 110))
+                st.iframe(f"""
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+              <span style="font-size:1.4rem;font-weight:700;">結果報告</span>
+              <button id="cb_m" onclick="
+                var t=document.getElementById('rt_m');
+                t.select();t.setSelectionRange(0,99999);
+                document.execCommand('copy');
+                this.textContent='✅ コピー済み';this.style.background='#4CAF50';
+                var b=this;setTimeout(function(){{b.textContent='📋 コピー';b.style.background='#2F559E';}},2000);
+              " style="padding:5px 14px;background:#2F559E;color:#fff;
+                       border:none;border-radius:4px;cursor:pointer;font-size:14px;">
+                📋 コピー
+              </button>
+            </div>
+            <textarea id="rt_m" readonly
+              style="width:100%;height:{_h_m - 70}px;font-family:monospace;font-size:13px;
+                     border:1px solid #ccc;padding:8px;box-sizing:border-box;resize:vertical;"
+            >{_safe_m}</textarea>
+            """, height=_h_m)
+            if os.path.isdir(output_dir):
+                try:
+                    _m_zip_data = _make_zip_bytes(output_dir)
+                    if _IS_CLOUD:
+                        if _auto_zip_slot is not None:
+                            with _auto_zip_slot:
+                                st.download_button(
+                                    "⬇️ 生成画像をダウンロード (ZIP)",
+                                    data=_m_zip_data,
+                                    file_name=f"{dir_stem}.zip",
+                                    mime="application/zip",
+                                    key="manual_zip_dl",
+                                )
+                    else:
+                        st.download_button(
+                            label="📥 画像・テキストをZIPでダウンロード",
+                            data=_m_zip_data,
+                            file_name=f"{dir_stem}.zip",
+                            mime="application/zip",
+                            key="manual_zip_dl",
+                            type="secondary",
+                        )
+                except Exception as _mze:
+                    st.warning(f"ZIP生成に失敗: {_mze}")
+            st.stop()
 
         log_lines: list[str] = []
         recommended_exclusion_logs: list[str] = []
@@ -7531,6 +7987,24 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _log(f"  台番範囲(優秀台・ピンクバーなし): 台番 {sorted(_rng2_bans)} に台なし")
                         except Exception:
                             _log(f"  ❌ 台番範囲優秀台(ピンクバーなし)エラー: {traceback.format_exc()}")
+
+                    # その他の優秀台ピックアップ（溝の口新館）
+                    if store == "溝の口新館" and sonota_extra_text.strip():
+                        try:
+                            _se_bans = set(expand_machine_numbers(sonota_extra_text))
+                            if _se_bans:
+                                _se_df = df_k[df_k["台番"].apply(lambda b: int(b) in _se_bans)].copy().reset_index(drop=True)
+                                if not _se_df.empty:
+                                    _se_title = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
+                                    _se_img = _build_machine_img(_se_df, _se_title, None)
+                                    _se_out = os.path.join(output_dir, f"{_make_safe_fn(_se_title)}.jpg")
+                                    _save_jpeg(_se_img, _se_out)
+                                    result["files"].append(_se_out)
+                                    _log(f"  ✅ その他の優秀台ピックアップ「{_se_title}」({len(_se_df)}台)")
+                                else:
+                                    _log(f"  その他の優秀台ピックアップ: 台番 {sorted(_se_bans)} に台なし")
+                        except Exception:
+                            _log(f"  ❌ その他の優秀台ピックアップエラー: {traceback.format_exc()}")
 
             # ── バラエティ画像生成（秋葉原スランプ付きのみ）──────────────────────
             if with_slump and store == "秋葉原" and variety_enabled and variety_ranges_text.strip() and result["ok"]:

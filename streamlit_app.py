@@ -3433,6 +3433,7 @@ def run_auto_pipeline(
     suebangai_tails: list[str] = [],
     article_mode: bool = False,
     sonota_exclude: set[str] = frozenset(),
+    jug_suebangai_tails: list[str] = [],
 ) -> dict:
     """3ステップパイプラインを実行する。
     戻り値: {"ok": bool, "files": list[str], "error": str | None,
@@ -3465,6 +3466,20 @@ def run_auto_pipeline(
                     int(b) for b in df["台番"]
                     if str(int(b))[-len(_st):] == _st
                 }
+        # ジャグラー末尾台番セット（Step2のジャグラー優秀台から除外・Step3には影響しない）
+        jug_sue_bans: set[int] = set()
+        for _jt in jug_suebangai_tails:
+            _jts = _jt.strip()
+            if _jts == "ゾロ目":
+                jug_sue_bans |= {
+                    int(b) for b in df["台番"]
+                    if (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]
+                }
+            elif _jts.isdigit() and len(_jts) in (1, 2):
+                jug_sue_bans |= {
+                    int(b) for b in df["台番"]
+                    if str(int(b))[-len(_jts):] == _jts
+                }
 
         log("① 全台系PNG ＋ 全台プラス機種別JPG")
         f1, zen_dai_list = run_step1_main(df, diff_raw, output_dir, stem, cfg, log, article_mode=article_mode)
@@ -3472,7 +3487,7 @@ def run_auto_pipeline(
         log("② ジャグラーシリーズ優秀台")
         _jug_series = cfg["juggler_series"]
         _zen_dai_jug = {item["name"] for item in zen_dai_list if item["name"] in _jug_series}
-        f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude)
+        f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude)
 
         log("③ その他の優秀台ピックアップ")
         f3, oth_hr, sonota_excellent = run_step3_other(df, diff_raw, output_dir, cfg, narabi_bans, ov_df, ov_diff, log, recommended_machines, suebangai_bans, article_mode=article_mode, sonota_exclude=sonota_exclude)
@@ -3832,10 +3847,9 @@ def _auto_input_keys(store: str) -> list[str]:
             "suebangai_enabled",
             "suebangai_tail_input_1", "suebangai_tail_input_2", "suebangai_tail_input_3",
             "suebangai_mode"]
-    if store == "西武新宿":
-        keys += ["jug_sue_enabled",
-                 "jug_sue_tail_input_1", "jug_sue_tail_input_2", "jug_sue_tail_input_3",
-                 "jug_sue_mode"]
+    keys += ["jug_sue_enabled",
+             "jug_sue_tail_input_1", "jug_sue_tail_input_2", "jug_sue_tail_input_3",
+             "jug_sue_mode"]
     for i in range(12):
         keys += [f"kojin_z_{i}_{store}"]
     for i in range(21):
@@ -5236,148 +5250,147 @@ def show_auto_page(with_slump: bool = False) -> None:
             else:
                 st.info("末尾を入力してください。")
 
-        # ジャグラー専用末尾画像（西武新宿のみ）
-        if store == "西武新宿":
-            st.markdown("##### ジャグラー末尾画像")
-            jug_sue_enabled = st.checkbox("ジャグラー機種の末尾画像も生成する", key="jug_sue_enabled",
-                                           on_change=_save_auto_inputs, args=(store,))
-            if jug_sue_enabled:
-                _jtc1, _jtc2, _jtc3 = st.columns(3)
-                with _jtc1:
-                    _jt1 = st.text_input("末尾①（ジャグラー）", value="", key="jug_sue_tail_input_1",
-                                          placeholder="例: 7",
-                                          on_change=_save_auto_inputs, args=(store,))
-                with _jtc2:
-                    _jt2 = st.text_input("末尾②（ジャグラー）", value="", key="jug_sue_tail_input_2",
-                                          placeholder="例: 3",
-                                          on_change=_save_auto_inputs, args=(store,))
-                with _jtc3:
-                    _jt3 = st.text_input("末尾③（ジャグラー）", value="", key="jug_sue_tail_input_3",
-                                          placeholder="ゾロ目",
-                                          on_change=_save_auto_inputs, args=(store,))
-                _jug_tails_ui = [t.strip() for t in [_jt1, _jt2, _jt3] if t.strip()]
-                if _jug_tails_ui:
-                    _jug_sue_mode = st.radio("モード（ジャグラー）", ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）", "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"], key="jug_sue_mode",
-                                             horizontal=True, on_change=_save_auto_inputs, args=(store,))
-                    _jsue_prev_key    = f"jug_sue_preview_{store}"
-                    _jsue_prev_rt_key = f"jug_sue_prev_tails_{store}"
-                    _jsue_cur_rt      = ",".join(_jug_tails_ui) + "|" + _jug_sue_mode
-                    if st.session_state.get(_jsue_prev_rt_key, "") != _jsue_cur_rt:
-                        st.session_state.pop(_jsue_prev_key, None)
-                        for _ci in range(20):
-                            st.session_state.pop(f"jug_sue_ck_{store}_{_ci}", None)
-                    _jsue_previews = st.session_state.get(_jsue_prev_key)
-                    if _jsue_previews is None:
-                        if uploaded is not None:
-                            if st.button("🔍 プレビュー生成（ジャグラー末尾）", key="jug_sue_preview_btn", use_container_width=True):
-                                with st.spinner("ジャグラー末尾画像のプレビュー生成中..."):
-                                    try:
-                                        _raw_j = _read_uploaded_df(uploaded)
-                                        _df_j, _ = normalize_df(_raw_j)
-                                        _nm_j, _nm_norm_j = load_name_map()
-                                        if _nm_j:
-                                            _df_j, _ = _apply_map(_df_j, _nm_j, _nm_norm_j)
-                                        _df_j["ゲーム数_rounded"] = _df_j["ゲーム数"].apply(round_games)
-                                        _df_j["合算確率_num"] = _df_j.apply(
-                                            lambda r: (r["ゲーム数_rounded"] / (r["BB"] + r["RB"])
-                                                       if (r["BB"] + r["RB"]) > 0 else float("inf")),
-                                            axis=1,
-                                        )
-                                        _jcfg      = get_store_config(store)
-                                        _jug_ser   = set(_jcfg["juggler_series"])
-                                        _jug_g_min = _jcfg["juggler_g_min"]
-                                        _jug_thresh = {m: (p, d) for m, p, d in _jcfg["juggler_jobs"]}
-                                        _circle_map = {"0":"⓪","1":"①","2":"②","3":"③","4":"④",
-                                                       "5":"⑤","6":"⑥","7":"⑦","8":"⑧","9":"⑨"}
-                                        _jprev_list = []
-                                        for _jtail in _jug_tails_ui:
-                                            if _jtail == "ゾロ目":
-                                                _jfilt = _df_j[_df_j["台番"].apply(
-                                                    lambda b: (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]
-                                                )].copy()
-                                                _jbase_label = "末尾ゾロ目"
-                                                _jcircle = "ゾロ目"
-                                            elif _jtail.isdigit() and len(_jtail) in (1, 2):
-                                                _jfilt = _df_j[_df_j["台番"].astype(str).str[-len(_jtail):] == _jtail].copy()
-                                                _jbase_label = f"末尾{_jtail}"
-                                                _jcircle = _circle_map.get(_jtail, _jtail)
+        # ジャグラー専用末尾画像
+        st.markdown("##### ジャグラー末尾画像")
+        jug_sue_enabled = st.checkbox("ジャグラー機種の末尾画像も生成する", key="jug_sue_enabled",
+                                       on_change=_save_auto_inputs, args=(store,))
+        if jug_sue_enabled:
+            _jtc1, _jtc2, _jtc3 = st.columns(3)
+            with _jtc1:
+                _jt1 = st.text_input("末尾①（ジャグラー）", value="", key="jug_sue_tail_input_1",
+                                      placeholder="例: 7",
+                                      on_change=_save_auto_inputs, args=(store,))
+            with _jtc2:
+                _jt2 = st.text_input("末尾②（ジャグラー）", value="", key="jug_sue_tail_input_2",
+                                      placeholder="例: 3",
+                                      on_change=_save_auto_inputs, args=(store,))
+            with _jtc3:
+                _jt3 = st.text_input("末尾③（ジャグラー）", value="", key="jug_sue_tail_input_3",
+                                      placeholder="ゾロ目",
+                                      on_change=_save_auto_inputs, args=(store,))
+            _jug_tails_ui = [t.strip() for t in [_jt1, _jt2, _jt3] if t.strip()]
+            if _jug_tails_ui:
+                _jug_sue_mode = st.radio("モード（ジャグラー）", ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）", "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"], key="jug_sue_mode",
+                                         horizontal=True, on_change=_save_auto_inputs, args=(store,))
+                _jsue_prev_key    = f"jug_sue_preview_{store}"
+                _jsue_prev_rt_key = f"jug_sue_prev_tails_{store}"
+                _jsue_cur_rt      = ",".join(_jug_tails_ui) + "|" + _jug_sue_mode
+                if st.session_state.get(_jsue_prev_rt_key, "") != _jsue_cur_rt:
+                    st.session_state.pop(_jsue_prev_key, None)
+                    for _ci in range(20):
+                        st.session_state.pop(f"jug_sue_ck_{store}_{_ci}", None)
+                _jsue_previews = st.session_state.get(_jsue_prev_key)
+                if _jsue_previews is None:
+                    if uploaded is not None:
+                        if st.button("🔍 プレビュー生成（ジャグラー末尾）", key="jug_sue_preview_btn", use_container_width=True):
+                            with st.spinner("ジャグラー末尾画像のプレビュー生成中..."):
+                                try:
+                                    _raw_j = _read_uploaded_df(uploaded)
+                                    _df_j, _ = normalize_df(_raw_j)
+                                    _nm_j, _nm_norm_j = load_name_map()
+                                    if _nm_j:
+                                        _df_j, _ = _apply_map(_df_j, _nm_j, _nm_norm_j)
+                                    _df_j["ゲーム数_rounded"] = _df_j["ゲーム数"].apply(round_games)
+                                    _df_j["合算確率_num"] = _df_j.apply(
+                                        lambda r: (r["ゲーム数_rounded"] / (r["BB"] + r["RB"])
+                                                   if (r["BB"] + r["RB"]) > 0 else float("inf")),
+                                        axis=1,
+                                    )
+                                    _jcfg      = get_store_config(store)
+                                    _jug_ser   = set(_jcfg["juggler_series"])
+                                    _jug_g_min = _jcfg["juggler_g_min"]
+                                    _jug_thresh = {m: (p, d) for m, p, d in _jcfg["juggler_jobs"]}
+                                    _circle_map = {"0":"⓪","1":"①","2":"②","3":"③","4":"④",
+                                                   "5":"⑤","6":"⑥","7":"⑦","8":"⑧","9":"⑨"}
+                                    _jprev_list = []
+                                    for _jtail in _jug_tails_ui:
+                                        if _jtail == "ゾロ目":
+                                            _jfilt = _df_j[_df_j["台番"].apply(
+                                                lambda b: (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]
+                                            )].copy()
+                                            _jbase_label = "末尾ゾロ目"
+                                            _jcircle = "ゾロ目"
+                                        elif _jtail.isdigit() and len(_jtail) in (1, 2):
+                                            _jfilt = _df_j[_df_j["台番"].astype(str).str[-len(_jtail):] == _jtail].copy()
+                                            _jbase_label = f"末尾{_jtail}"
+                                            _jcircle = _circle_map.get(_jtail, _jtail)
+                                        else:
+                                            st.error(f"❌ 「{_jtail}」は不正な値です（例: 7、ゾロ目）。")
+                                            continue
+                                        _jfilt = _jfilt[_jfilt["機種名"].isin(_jug_ser)].copy()
+                                        _jfilt = _jfilt[_jfilt["ゲーム数_rounded"] >= _jug_g_min].copy()
+                                        if _jfilt.empty:
+                                            st.error(f"❌ {_jbase_label}番台でジャグラー機種が見つかりません。")
+                                            continue
+                                        _is_jplus  = _jug_sue_mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）")
+                                        _is_jyushu = _jug_sue_mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
+                                        if _is_jplus or _is_jyushu:
+                                            _jsue_total      = len(_jfilt)
+                                            _jsue_total_diff = int(_jfilt["差枚"].sum())
+                                            _jsue_avg_diff   = int(round(_jfilt["差枚"].mean()))
+                                            _jsue_win_count  = int((_jfilt["差枚"] > 0).sum())
+                                            if _is_jplus:
+                                                _jfilt = _jfilt[_jfilt["差枚"] > 0].copy()
+                                                _jimg_title = f"ジャグラーの末尾{_jcircle}番台のプラス台"
                                             else:
-                                                st.error(f"❌ 「{_jtail}」は不正な値です（例: 7、ゾロ目）。")
-                                                continue
-                                            _jfilt = _jfilt[_jfilt["機種名"].isin(_jug_ser)].copy()
-                                            _jfilt = _jfilt[_jfilt["ゲーム数_rounded"] >= _jug_g_min].copy()
+                                                # 優秀台: 確率フィルター + 差枚 > 0
+                                                if not _jfilt.empty:
+                                                    _p_ser = _jfilt["機種名"].map(
+                                                        lambda m: _jug_thresh.get(m, (float("inf"), float("inf")))[0])
+                                                    _d_ser = _jfilt["機種名"].map(
+                                                        lambda m: _jug_thresh.get(m, (float("inf"), float("inf")))[1])
+                                                    _jmask = ((_jfilt["合算確率_num"] <= _p_ser) & (_jfilt["差枚"] >= 0)) | (_jfilt["差枚"] >= _d_ser)
+                                                    _jfilt = _jfilt[_jmask].copy().reset_index(drop=True)
+                                                _jfilt = _jfilt[_jfilt["差枚"] > 0].copy()
+                                                _jimg_title = f"ジャグラーの末尾{_jcircle}番台の優秀台"
                                             if _jfilt.empty:
-                                                st.error(f"❌ {_jbase_label}番台でジャグラー機種が見つかりません。")
+                                                st.error(f"❌ {_jbase_label}番台のジャグラー条件を満たす台がありません。")
                                                 continue
-                                            _is_jplus  = _jug_sue_mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）")
-                                            _is_jyushu = _jug_sue_mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
-                                            if _is_jplus or _is_jyushu:
-                                                _jsue_total      = len(_jfilt)
-                                                _jsue_total_diff = int(_jfilt["差枚"].sum())
-                                                _jsue_avg_diff   = int(round(_jfilt["差枚"].mean()))
-                                                _jsue_win_count  = int((_jfilt["差枚"] > 0).sum())
-                                                if _is_jplus:
-                                                    _jfilt = _jfilt[_jfilt["差枚"] > 0].copy()
-                                                    _jimg_title = f"ジャグラーの末尾{_jcircle}番台のプラス台"
-                                                else:
-                                                    # 優秀台: 確率フィルター + 差枚 > 0
-                                                    if not _jfilt.empty:
-                                                        _p_ser = _jfilt["機種名"].map(
-                                                            lambda m: _jug_thresh.get(m, (float("inf"), float("inf")))[0])
-                                                        _d_ser = _jfilt["機種名"].map(
-                                                            lambda m: _jug_thresh.get(m, (float("inf"), float("inf")))[1])
-                                                        _jmask = ((_jfilt["合算確率_num"] <= _p_ser) & (_jfilt["差枚"] >= 0)) | (_jfilt["差枚"] >= _d_ser)
-                                                        _jfilt = _jfilt[_jmask].copy().reset_index(drop=True)
-                                                    _jfilt = _jfilt[_jfilt["差枚"] > 0].copy()
-                                                    _jimg_title = f"ジャグラーの末尾{_jcircle}番台の優秀台"
-                                                if _jfilt.empty:
-                                                    st.error(f"❌ {_jbase_label}番台のジャグラー条件を満たす台がありません。")
-                                                    continue
-                                                _has_jbar = _jug_sue_mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
-                                                if _has_jbar:
-                                                    _jstat = {
-                                                        "total_diff":  _jsue_total_diff,
-                                                        "avg_diff":    _jsue_avg_diff,
-                                                        "win_count":   _jsue_win_count,
-                                                        "total_count": _jsue_total,
-                                                    }
-                                                else:
-                                                    _jstat = None
-                                            else:
-                                                # 全台: G数フィルターのみ（確率・差枚条件なし）
-                                                _jimg_title = f"ジャグラーの末尾{_jcircle}番台"
+                                            _has_jbar = _jug_sue_mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
+                                            if _has_jbar:
                                                 _jstat = {
-                                                    "total_diff":  int(_jfilt["差枚"].sum()),
-                                                    "avg_diff":    int(round(_jfilt["差枚"].mean())),
-                                                    "win_count":   int((_jfilt["差枚"] > 0).sum()),
-                                                    "total_count": len(_jfilt),
+                                                    "total_diff":  _jsue_total_diff,
+                                                    "avg_diff":    _jsue_avg_diff,
+                                                    "win_count":   _jsue_win_count,
+                                                    "total_count": _jsue_total,
                                                 }
-                                            _jimg_s = _build_machine_img(_jfilt, _jimg_title, _jstat)
-                                            _jprev_list.append((f"{_make_safe_fn(_jimg_title)}.jpg", _jimg_s))
-                                        if _jprev_list:
-                                            st.session_state[_jsue_prev_key]    = _jprev_list
-                                            st.session_state[_jsue_prev_rt_key] = _jsue_cur_rt
-                                            for _ci in range(len(_jprev_list)):
-                                                st.session_state[f"jug_sue_ck_{store}_{_ci}"] = True
-                                            st.rerun()
-                                    except Exception as _e:
-                                        st.error(f"❌ エラー: {_e}")
-                                        with st.expander("詳細"):
-                                            st.code(traceback.format_exc())
-                    else:
-                        st.caption(f"📋 {len(_jsue_previews)}件のプレビュー　チェックしたジャグラー末尾のみ生成されます")
-                        for _ci, (_jfn, _jimg) in enumerate(_jsue_previews):
-                            _jck_key = f"jug_sue_ck_{store}_{_ci}"
-                            _jcol_ck, _jcol_img = st.columns([1, 12])
-                            with _jcol_ck:
-                                if _jck_key not in st.session_state:
-                                    st.session_state[_jck_key] = True
-                                st.checkbox("", key=_jck_key, label_visibility="collapsed")
-                            with _jcol_img:
-                                _jtit = os.path.splitext(_jfn)[0]
-                                st.image(_jimg, caption=_jtit, use_container_width=True)
+                                            else:
+                                                _jstat = None
+                                        else:
+                                            # 全台: G数フィルターのみ（確率・差枚条件なし）
+                                            _jimg_title = f"ジャグラーの末尾{_jcircle}番台"
+                                            _jstat = {
+                                                "total_diff":  int(_jfilt["差枚"].sum()),
+                                                "avg_diff":    int(round(_jfilt["差枚"].mean())),
+                                                "win_count":   int((_jfilt["差枚"] > 0).sum()),
+                                                "total_count": len(_jfilt),
+                                            }
+                                        _jimg_s = _build_machine_img(_jfilt, _jimg_title, _jstat)
+                                        _jprev_list.append((f"{_make_safe_fn(_jimg_title)}.jpg", _jimg_s))
+                                    if _jprev_list:
+                                        st.session_state[_jsue_prev_key]    = _jprev_list
+                                        st.session_state[_jsue_prev_rt_key] = _jsue_cur_rt
+                                        for _ci in range(len(_jprev_list)):
+                                            st.session_state[f"jug_sue_ck_{store}_{_ci}"] = True
+                                        st.rerun()
+                                except Exception as _e:
+                                    st.error(f"❌ エラー: {_e}")
+                                    with st.expander("詳細"):
+                                        st.code(traceback.format_exc())
                 else:
-                    st.info("末尾を入力してください。")
+                    st.caption(f"📋 {len(_jsue_previews)}件のプレビュー　チェックしたジャグラー末尾のみ生成されます")
+                    for _ci, (_jfn, _jimg) in enumerate(_jsue_previews):
+                        _jck_key = f"jug_sue_ck_{store}_{_ci}"
+                        _jcol_ck, _jcol_img = st.columns([1, 12])
+                        with _jcol_ck:
+                            if _jck_key not in st.session_state:
+                                st.session_state[_jck_key] = True
+                            st.checkbox("", key=_jck_key, label_visibility="collapsed")
+                        with _jcol_img:
+                            _jtit = os.path.splitext(_jfn)[0]
+                            st.image(_jimg, caption=_jtit, use_container_width=True)
+            else:
+                st.info("末尾を入力してください。")
 
     # ── ⑤ バラエティ画像（秋葉原スランプ付きのみ）──────────────────────
     if with_slump and store == "秋葉原":
@@ -5661,8 +5674,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _prev_sue_tails: list[str] = []
                         if st.session_state.get("suebangai_enabled", False):
                             _prev_sue_tails += [t for i in range(1, 4) if (t := st.session_state.get(f"suebangai_tail_input_{i}", "").strip())]
-                        if store == "西武新宿" and st.session_state.get("jug_sue_enabled", False):
-                            _prev_sue_tails += [t for i in range(1, 4) if (t := st.session_state.get(f"jug_sue_tail_input_{i}", "").strip())]
+                        _prev_jug_sue_tails: list[str] = []
+                        if st.session_state.get("jug_sue_enabled", False):
+                            _prev_jug_sue_tails += [t for i in range(1, 4) if (t := st.session_state.get(f"jug_sue_tail_input_{i}", "").strip())]
                         _prev_result = run_auto_pipeline(
                             _tmp_excel, _tmpdir, store, _prev_narabi_bans,
                             lambda _m: None,
@@ -5670,6 +5684,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             recommended_machines=_prev_rec_names,
                             suebangai_tails=_prev_sue_tails,
                             sonota_exclude={m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()},
+                            jug_suebangai_tails=_prev_jug_sue_tails,
                         )
                         _prev_img_list: list[tuple[str, "Image.Image"]] = []
                         if _prev_result["ok"]:
@@ -5946,18 +5961,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 for _item in _gen_sue_imgs_on_fly(_sue_tails_of, _sue_mode_of, is_juggler=False):
                                     _prev_img_list.append(_item)
 
-                            if store == "西武新宿":
-                                _jsue_prevs = st.session_state.get(f"jug_sue_preview_{store}", [])
-                                if _jsue_prevs:
-                                    for _ci, (_jm_fn, _jm_img) in enumerate(_jsue_prevs):
-                                        if st.session_state.get(f"jug_sue_ck_{store}_{_ci}", True):
-                                            _prev_img_list.append((_jm_fn, _jm_img))
-                                elif st.session_state.get("jug_sue_enabled", False):
-                                    _jug_tails_of = [t for i in range(1, 4)
-                                                     if (t := st.session_state.get(f"jug_sue_tail_input_{i}", "").strip())]
-                                    _jug_sue_mode_of = st.session_state.get("jug_sue_mode", "全台")
-                                    for _item in _gen_sue_imgs_on_fly(_jug_tails_of, _jug_sue_mode_of, is_juggler=True):
-                                        _prev_img_list.append(_item)
+                            _jsue_prevs = st.session_state.get(f"jug_sue_preview_{store}", [])
+                            if _jsue_prevs:
+                                for _ci, (_jm_fn, _jm_img) in enumerate(_jsue_prevs):
+                                    if st.session_state.get(f"jug_sue_ck_{store}_{_ci}", True):
+                                        _prev_img_list.append((_jm_fn, _jm_img))
+                            elif st.session_state.get("jug_sue_enabled", False):
+                                _jug_tails_of = [t for i in range(1, 4)
+                                                 if (t := st.session_state.get(f"jug_sue_tail_input_{i}", "").strip())]
+                                _jug_sue_mode_of = st.session_state.get("jug_sue_mode", "全台")
+                                for _item in _gen_sue_imgs_on_fly(_jug_tails_of, _jug_sue_mode_of, is_juggler=True):
+                                    _prev_img_list.append(_item)
 
                             # ─ ⑤ ジャグラーシリーズ優秀台（秋葉原スランプ付きは除外）─
                             if "ジャグラーシリーズ優秀台.jpg" in _fp_map and not (with_slump and store == "秋葉原"):
@@ -6829,14 +6843,16 @@ def show_auto_page(with_slump: bool = False) -> None:
             _sue_tails_run: list[str] = []
             if st.session_state.get("suebangai_enabled", False):
                 _sue_tails_run += [t for i in range(1, 4) if (t := st.session_state.get(f"suebangai_tail_input_{i}", "").strip())]
-            if store == "西武新宿" and st.session_state.get("jug_sue_enabled", False):
-                _sue_tails_run += [t for i in range(1, 4) if (t := st.session_state.get(f"jug_sue_tail_input_{i}", "").strip())]
+            _jug_sue_tails_run: list[str] = []
+            if st.session_state.get("jug_sue_enabled", False):
+                _jug_sue_tails_run += [t for i in range(1, 4) if (t := st.session_state.get(f"jug_sue_tail_input_{i}", "").strip())]
             result = run_auto_pipeline(
                 excel_path, output_dir, store, narabi_bans, _log,
                 narabi_ranges=narabi_ranges if narabi_ok else None,
                 recommended_machines=_rec_names,
                 suebangai_tails=_sue_tails_run,
                 sonota_exclude={m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()},
+                jug_suebangai_tails=_jug_sue_tails_run,
             )
 
             # スランプ付き結果ポスト用：合成用データをsession_stateに保存
@@ -7063,22 +7079,21 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _sue_saved_fns += _save_sue_imgs_run(_sue_tails_r, _sue_mode_r, False, _run_df_for_sue)
                         _sue_stats_data = _compute_sue_stats(_sue_tails_r, _sue_mode_r, False, _run_df_for_sue)
 
-                if store == "西武新宿":
-                    _jug_tails_r = [t for i in range(1, 4) if (t := st.session_state.get(f"jug_sue_tail_input_{i}", "").strip())]
-                    _jug_sue_mode_r = st.session_state.get("jug_sue_mode", "全台")
-                    _jsue_prevs_run = st.session_state.get(f"jug_sue_preview_{store}", [])
-                    if _jsue_prevs_run:
-                        for _ci, (_jm_fn, _jm_img) in enumerate(_jsue_prevs_run):
-                            if st.session_state.get(f"jug_sue_ck_{store}_{_ci}", True):
-                                _save_jpeg(_jm_img, os.path.join(output_dir, _jm_fn))
-                                _log(f"  ✅ ジャグラー末尾画像保存: {_jm_fn}")
-                                _sue_saved_fns.append(_jm_fn)
-                        if _jug_tails_r:
-                            _jug_sue_stats_data = _compute_sue_stats(_jug_tails_r, _jug_sue_mode_r, True, _run_df_for_sue)
-                    elif st.session_state.get("jug_sue_enabled", False):
-                        if _jug_tails_r:
-                            _sue_saved_fns += _save_sue_imgs_run(_jug_tails_r, _jug_sue_mode_r, True, _run_df_for_sue)
-                            _jug_sue_stats_data = _compute_sue_stats(_jug_tails_r, _jug_sue_mode_r, True, _run_df_for_sue)
+                _jug_tails_r = [t for i in range(1, 4) if (t := st.session_state.get(f"jug_sue_tail_input_{i}", "").strip())]
+                _jug_sue_mode_r = st.session_state.get("jug_sue_mode", "全台")
+                _jsue_prevs_run = st.session_state.get(f"jug_sue_preview_{store}", [])
+                if _jsue_prevs_run:
+                    for _ci, (_jm_fn, _jm_img) in enumerate(_jsue_prevs_run):
+                        if st.session_state.get(f"jug_sue_ck_{store}_{_ci}", True):
+                            _save_jpeg(_jm_img, os.path.join(output_dir, _jm_fn))
+                            _log(f"  ✅ ジャグラー末尾画像保存: {_jm_fn}")
+                            _sue_saved_fns.append(_jm_fn)
+                    if _jug_tails_r:
+                        _jug_sue_stats_data = _compute_sue_stats(_jug_tails_r, _jug_sue_mode_r, True, _run_df_for_sue)
+                elif st.session_state.get("jug_sue_enabled", False):
+                    if _jug_tails_r:
+                        _sue_saved_fns += _save_sue_imgs_run(_jug_tails_r, _jug_sue_mode_r, True, _run_df_for_sue)
+                        _jug_sue_stats_data = _compute_sue_stats(_jug_tails_r, _jug_sue_mode_r, True, _run_df_for_sue)
 
             # ── プレビューでチェックを外した画像を削除 / 高配分・並び外しはその他/ジャグラーに追加 ──
             _sonota_extra_bans: list[int] = []  # チェック外し再生成後の全台番（スランプ合成に渡す）

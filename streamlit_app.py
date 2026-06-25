@@ -4323,11 +4323,12 @@ def _build_pision_detail_html(name: str, df: pd.DataFrame) -> str:
 '''
 
 
-def _build_pision_interactive_html(title: str, summary: dict, rows: list,
+def _build_pision_interactive_html(title: str, summary: "dict | None", rows: list,
                                     units_df, single_names=None) -> str:
     """機種名クリックで台別詳細を右パネルに表示する自己完結型HTMLを返す。
     units_df: 台番/機種名/差枚/BB/RB/AT/ゲーム数 のうち存在する列のDataFrame。
-    single_names: バラエティ集約対象の機種名set（Noneなら追加しない）。"""
+    single_names: バラエティ集約対象の機種名set（Noneなら追加しない）。
+    summary=None のときサマリーボックスを非表示にする。"""
     import json as _json
 
     def sdiff(v: int) -> str:
@@ -4335,7 +4336,7 @@ def _build_pision_interactive_html(title: str, summary: dict, rows: list,
         if v < 0: return f"{v:,}"
         return "±0"
 
-    sum_rows = (
+    sum_rows = "" if not summary else (
         f'<tr><th>総差枚</th><td>{sdiff(summary["total_diff"])}</td></tr>'
         f'<tr><th>平均差枚</th><td>{sdiff(summary["avg_diff"])}</td></tr>'
         f'<tr><th>平均G数</th><td>{summary["avg_games"]:,}</td></tr>'
@@ -10522,11 +10523,289 @@ def show_rote_page() -> None:
                         )
                         st.session_state.pop(f"weekly_blank_{store}_t{_tn}_{_cj}", None)
 
+    # ── ⓪ pision.io から日付データを自動取得 ──────────────────────────
+    _rote_tb_uploaded = None
+    if store in STORES:
+        st.markdown(f"### 📈 日付からデータを自動取得（{store}）")
+        _rote_api_key = _get_pision_api_key()
+        if not _rote_api_key:
+            st.caption("⚠️ PISION_API_KEY が未設定のため利用できません。手動でアップロードしてください。")
+        else:
+            _rote_mode = st.radio(
+                "データ種別",
+                ["確定データ", "速報データ（当日・営業中）"],
+                horizontal=True,
+                key=f"rote_tb_mode_{store}",
+                help="確定データ＝前日まで（X-Api-Key）。速報データ＝当日の営業中データ（realtimeログインが必要）。",
+            )
+            _rote_is_rt = _rote_mode.startswith("速報")
+            _rote_rt_ok = True
+            if _rote_is_rt:
+                _rote_rt_user, _rote_rt_pass = _get_pision_rt_credentials()
+                if not _rote_rt_user or not _rote_rt_pass:
+                    st.error("❌ 速報データには realtime のログイン情報が必要です。"
+                             ".env に PISION_RT_USER / PISION_RT_PASS を設定してください。")
+                    _rote_rt_ok = False
+
+            if _rote_is_rt:
+                import datetime as _dt_r
+                _now_r = _dt_r.datetime.now()
+                _rt_def_r = _now_r.date() if _now_r.hour >= 7 else _now_r.date() - _dt_r.timedelta(days=1)
+                _rote_date = st.date_input(
+                    "日付を選択（速報は営業日に合わせて選択・日付変更では自動取得しません）",
+                    value=st.session_state.get(f"rote_tb_date_rt_{store}", _rt_def_r),
+                    key=f"rote_tb_date_rt_{store}",
+                )
+            else:
+                _rote_date = st.date_input(
+                    "日付を選択",
+                    value=datetime.date.today() - datetime.timedelta(days=1),
+                    key=f"rote_tb_date_{store}",
+                )
+            _rote_date_str = _rote_date.strftime("%Y-%m-%d")
+
+            _rote_mode_tag          = "rt" if _rote_is_rt else "fix"
+            _rote_seen_key          = f"_rote_tb_seen_{_rote_mode_tag}_{store}"
+            _rote_bytes_key         = f"_rote_tb_file_bytes_{_rote_mode_tag}_{store}"
+            _rote_name_key          = f"_rote_tb_file_name_{_rote_mode_tag}_{store}"
+            _rote_count_key         = f"_rote_tb_count_{_rote_mode_tag}_{store}"
+            _rote_fetched_key       = f"_rote_tb_fetched_{_rote_mode_tag}_{store}"
+            _rote_collecting_key    = f"_rote_tb_collecting_rt_{store}"
+            _rote_rt_items_key      = f"_rote_tb_rt_items_{store}"
+            _rote_rt_items_date_key = f"_rote_tb_rt_items_date_{store}"
+            _rote_baseline_key      = f"_rote_tb_baseline_artid_{store}"
+
+            _rote_is_collecting = _rote_is_rt and st.session_state.get(_rote_collecting_key) == _rote_date_str
+
+            # ── ボタン描画 ─────────────────────────────────────────────
+            _rote_do_rt_check    = False
+            _rote_do_rt_existing = False
+            if _rote_is_collecting:
+                _btn_r1, _btn_r2 = st.columns(2)
+                with _btn_r1:
+                    _rote_refetch = st.button("⏳ 収集中...", key=f"rote_tb_refetch_{store}",
+                                              disabled=True, use_container_width=True)
+                with _btn_r2:
+                    _rote_do_rt_check = st.button("🔍 今すぐ確認", key=f"rote_tb_rt_check_{store}",
+                                                  use_container_width=True)
+            elif _rote_is_rt and _rote_rt_ok:
+                _btn_r1, _btn_r2 = st.columns(2)
+                with _btn_r1:
+                    _rote_refetch = st.button("⚡ 速報を取得", key=f"rote_tb_refetch_{store}",
+                                              use_container_width=True, type="primary")
+                with _btn_r2:
+                    _rote_do_rt_existing = st.button("📂 既存のデータを取得", key=f"rote_tb_rt_existing_{store}",
+                                                     use_container_width=True)
+            else:
+                _rote_refetch = st.button("🔄 取得", key=f"rote_tb_refetch_{store}")
+
+            _rote_seen = st.session_state.get(_rote_seen_key)
+            _rote_date_changed = (not _rote_is_rt) and _rote_seen is not None and _rote_seen != _rote_date_str
+            st.session_state[_rote_seen_key] = _rote_date_str
+
+            def _rote_save_rt_items(items: list) -> None:
+                _slump_apply_names(items)
+                _rows_r = [
+                    {"台番": it.get("unitId"),
+                     "機種名": it.get("_machineName") or it.get("_convertedName") or it.get("displayName") or "",
+                     "差枚": it.get("diff", 0), "ゲーム数": it.get("games", 0),
+                     "BB": it.get("bb", 0), "RB": it.get("rb", 0), "AT": it.get("art", 0)}
+                    for it in items
+                ]
+                _df_r = pd.DataFrame(_rows_r)
+                _buf_r = io.BytesIO()
+                _df_r.to_excel(_buf_r, index=False)
+                st.session_state[_rote_bytes_key]         = _buf_r.getvalue()
+                st.session_state[_rote_name_key]          = f"{_rote_date.strftime('%Y%m%d')}_{store}_20S.xlsx"
+                st.session_state[_rote_count_key]         = len(_df_r)
+                st.session_state[_rote_fetched_key]       = _rote_date_str
+                st.session_state[_rote_rt_items_key]      = items
+                st.session_state[_rote_rt_items_date_key] = _rote_date_str
+                st.session_state.pop(_rote_collecting_key, None)
+
+            def _rote_is_new_artid(poll_result: dict) -> bool:
+                _baseline = st.session_state.get(_rote_baseline_key)
+                _new_id   = poll_result.get("article_id")
+                if _baseline is None:
+                    return True
+                try:
+                    return int(_new_id) > int(_baseline)
+                except (TypeError, ValueError):
+                    return False
+
+            # 今すぐ確認
+            if _rote_do_rt_check:
+                with st.spinner("収集状況を確認中..."):
+                    _chk_r = fetch_pision_realtime(store, _rote_date_str, trigger=False)
+                if _chk_r["ok"] and _rote_is_new_artid(_chk_r):
+                    _rote_save_rt_items(_chk_r["items"])
+                    st.rerun()
+                elif _chk_r["ok"]:
+                    st.info("⏳ 収集はまだ完了していません（前回と同じスナップショット）。自動確認に戻ります。")
+                    st.rerun()
+                else:
+                    st.rerun()
+
+            # 自動ポーリング
+            if _rote_is_collecting and not _rote_do_rt_check:
+                import time as _time_r
+                _ap_ph_r = st.empty()
+                _ap_ph_r.info("⏳ 速報データを収集中... 30秒後に自動で確認します。")
+                _time_r.sleep(30)
+                _ap_ph_r.empty()
+                with st.spinner("収集状況を自動確認中..."):
+                    _poll_r = fetch_pision_realtime(store, _rote_date_str, trigger=False)
+                if _poll_r["ok"] and _rote_is_new_artid(_poll_r):
+                    _rote_save_rt_items(_poll_r["items"])
+                    st.rerun()
+                elif _poll_r.get("running") or (_poll_r["ok"] and not _rote_is_new_artid(_poll_r)):
+                    st.rerun()
+                else:
+                    st.warning("⚠️ 収集が完了しましたがデータが取得できませんでした。「⚡ 速報を取得」をもう一度押してください。")
+                    st.session_state.pop(_rote_collecting_key, None)
+                    st.rerun()
+
+            # 既存データ取得
+            if _rote_do_rt_existing:
+                with st.spinner("既存の速報データを確認中..."):
+                    _exist_r = fetch_pision_realtime(store, _rote_date_str, trigger=False)
+                if _exist_r["ok"]:
+                    _rote_save_rt_items(_exist_r["items"])
+                    st.rerun()
+                else:
+                    st.warning("⚠️ 既存の速報データが見つかりませんでした。「⚡ 速報を取得」で新しい収集を開始してください。")
+
+            # 新規取得（確定 or 速報ボタン or 日付変更）
+            if (_rote_date_changed or _rote_refetch) and _rote_rt_ok:
+                with st.spinner(f"{_rote_date_str} のデータを取得中..."):
+                    _rote_fetched_data = None
+                    if _rote_is_rt:
+                        _rt_r = fetch_pision_realtime(store, _rote_date_str)
+                        if not _rt_r["ok"]:
+                            st.error(f"❌ {_rt_r['error']}")
+                            if _rt_r.get("collect_started"):
+                                st.session_state[_rote_collecting_key] = _rote_date_str
+                                st.session_state[_rote_baseline_key]   = None
+                        else:
+                            st.session_state[_rote_collecting_key] = _rote_date_str
+                            st.session_state[_rote_baseline_key]   = _rt_r.get("article_id")
+                    else:
+                        st.session_state.pop(_rote_collecting_key, None)
+                        st.session_state.pop(_rote_rt_items_key, None)
+                        st.session_state.pop(_rote_rt_items_date_key, None)
+                        try:
+                            _rote_halls = fetch_pision_halls(_rote_api_key)
+                        except Exception as _e_r:
+                            st.error(f"❌ ホール一覧取得失敗: {_e_r}")
+                            _rote_halls = []
+                        _rote_hall_id = None
+                        for _h_r in _rote_halls:
+                            _hn_r = _h_r.get("name") or _h_r.get("displayName") or ""
+                            if store in _hn_r and "エスパス" in _hn_r:
+                                _rote_hall_id = str(_h_r.get("id") or _h_r.get("hallId") or "")
+                                break
+                        if _rote_hall_id is not None:
+                            try:
+                                _rote_fetched_data = fetch_pision_results(_rote_api_key, _rote_hall_id, _rote_date_str)
+                            except Exception as _e_r:
+                                st.error(f"❌ データ取得失敗: {_e_r}")
+                    if not _rote_fetched_data:
+                        st.session_state[_rote_bytes_key] = None
+                    else:
+                        _rote_rows2 = [
+                            {"台番": _it.get("unitId"),
+                             "機種名": _it.get("_machineName") or _it.get("_convertedName") or _it.get("displayName") or "",
+                             "差枚": _it.get("diff", 0), "ゲーム数": _it.get("games", 0),
+                             "BB": _it.get("bb", 0), "RB": _it.get("rb", 0), "AT": _it.get("art", 0)}
+                            for _it in _rote_fetched_data
+                        ]
+                        _rote_df2  = pd.DataFrame(_rote_rows2)
+                        _rote_buf2 = io.BytesIO()
+                        _rote_df2.to_excel(_rote_buf2, index=False)
+                        st.session_state[_rote_bytes_key] = _rote_buf2.getvalue()
+                        st.session_state[_rote_name_key]  = f"{_rote_date.strftime('%Y%m%d')}_{store}_20S.xlsx"
+                        st.session_state[_rote_count_key] = len(_rote_df2)
+                    st.session_state[_rote_fetched_key] = _rote_date_str
+                    st.rerun()
+
+            if st.session_state.get(_rote_fetched_key) == _rote_date_str:
+                _rote_tb_data = st.session_state.get(_rote_bytes_key)
+                if _rote_tb_data:
+                    _rote_tb_uploaded = io.BytesIO(_rote_tb_data)
+                    _rote_tb_uploaded.name = st.session_state.get(
+                        _rote_name_key, f"{_rote_date.strftime('%Y%m%d')}_{store}_20S.xlsx")
+                    _rote_label = "速報" if _rote_is_rt else "確定"
+                    st.success(f"✅ {_rote_date_str} の{_rote_label}データ"
+                               f"（{st.session_state.get(_rote_count_key, '?')}台）を取得しました。")
+                    # 機種別データ表示（機種名入力①②に絞り込み・サマリー非表示）
+                    try:
+                        _rv_df = pd.read_excel(io.BytesIO(_rote_tb_data))
+                        _rv_df, _ = normalize_df(_rv_df)
+                        _rv_df = apply_name_conversion(_rv_df)
+                        # 入力①②で指定された機種名をセッションから収集
+                        _rv_filter: set[str] = set()
+                        for _rfi in range(6):
+                            for _rset in ("1", "2"):
+                                _rv_m = (
+                                    st.session_state.get(f"rote{_rset}_mname_{_rfi}", "")
+                                    or st.session_state.get(f"_rote_init_{store}_{_rset}_{_rfi}", "")
+                                ).strip()
+                                if _rv_m:
+                                    _rv_filter.add(_rv_m)
+                        if _rv_filter and "機種名" in _rv_df.columns:
+                            _rv_df = _rv_df[_rv_df["機種名"].isin(_rv_filter)]
+                        _rv_title = (f"{_rote_date.year}/{_rote_date.month}/{_rote_date.day}"
+                                     f" エスパス{store}")
+                        # summary=None でサマリーボックスを非表示にして機種テーブルのみ描画
+                        if {"機種名", "差枚"} <= set(_rv_df.columns):
+                            _rv_g = _rv_df.groupby("機種名", sort=False)
+                            _rv_agg = pd.DataFrame({
+                                "機種名":   list(_rv_g.groups.keys()),
+                                "台数":     _rv_g["差枚"].size().values,
+                                "勝台数":   _rv_g["差枚"].apply(lambda s: int((s > 0).sum())).values,
+                                "総差枚":   _rv_g["差枚"].sum().astype(int).values,
+                                "平均差枚": _rv_g["差枚"].mean().round().astype(int).values,
+                                "平均G数":  (_rv_g["ゲーム数"].mean().round().astype(int).values
+                                             if "ゲーム数" in _rv_df.columns else [0]*len(_rv_g)),
+                            })
+                            _rv_multi  = _rv_agg[_rv_agg["台数"] >= 2].sort_values("平均差枚", ascending=False)
+                            _rv_single = _rv_agg[_rv_agg["台数"] == 1]
+                            _rv_rows = [
+                                (r["機種名"], int(r["台数"]), int(r["勝台数"]),
+                                 int(r["総差枚"]), int(r["平均差枚"]), int(r["平均G数"]))
+                                for _, r in _rv_multi.iterrows()
+                            ]
+                            if not _rv_single.empty:
+                                _rvvn = int(_rv_single["台数"].sum())
+                                _rvvw = int(_rv_single["勝台数"].sum())
+                                _rvvd = int(_rv_single["総差枚"].sum())
+                                _rvva = int(round(_rvvd / _rvvn)) if _rvvn else 0
+                                _rvvg = int(round((_rv_single["平均G数"] * _rv_single["台数"]).sum() / _rvvn)) if _rvvn else 0
+                                _rv_rows.append(("バラエティ", _rvvn, _rvvw, _rvvd, _rvva, _rvvg))
+                            _rv_ucols = [c for c in ["台番", "機種名", "差枚", "BB", "RB", "AT", "ゲーム数"] if c in _rv_df.columns]
+                            _rv_units = _rv_df[_rv_ucols].copy() if _rv_ucols else None
+                            _rv_snames = set(_rv_single["機種名"].tolist()) if not _rv_single.empty else None
+                            _rv_h = max(300, min(700, len(_rv_rows) * 42 + 180))
+                            components.html(
+                                _build_pision_interactive_html(_rv_title, None, _rv_rows, _rv_units, _rv_snames),
+                                height=_rv_h, scrolling=True,
+                            )
+                    except Exception:
+                        pass
+                elif not _rote_is_collecting:
+                    st.info(f"📭 {_rote_date_str} のデータを取得できませんでした"
+                            "（404 / 未公開 / 店休日の可能性があります）。")
+
+    st.markdown("---")
+
     uploaded = st.file_uploader(
         "Excelファイルをアップロード",
         type=["xlsx", "xls"],
         key="rote_excel_upload",
     )
+    if uploaded is None and _rote_tb_uploaded is not None:
+        uploaded = _rote_tb_uploaded
+        st.caption(f"📈 自動取得データを使用中: `{uploaded.name}`（手動でアップロードすると優先されます）")
 
     # 台番→機種名マップをキャッシュ（週間オススメ表②の台番ルックアップ用）
     if uploaded is not None:

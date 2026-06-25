@@ -3506,7 +3506,10 @@
     "variety_mode": ""
   },
   "20260624_上野新館_20S.xlsx": {
+    "kojin_enabled": false,
+    "narabi_enabled": false,
     "narabi_ranges_input": "",
+    "suebangai_enabled": false,
     "suebangai_tail_input_1": "",
     "suebangai_tail_input_2": "",
     "suebangai_tail_input_3": "",

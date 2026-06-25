@@ -1487,8 +1487,8 @@ def show_image_type_page() -> None:
                     use_container_width=True,
                 ):
                     _navigate("rote")
-        elif store in ("稲毛", "上野新館"):
-            # 稲毛・上野新館：結果ポスト用 ＋ スランプ付き結果ポスト
+        elif store in ("稲毛", "上野新館", "新小岩"):
+            # 稲毛・上野新館・新小岩：結果ポスト用 ＋ スランプ付き結果ポスト
             st.markdown(
                 """<style>
                 .st-key-auto_slump_btn button {

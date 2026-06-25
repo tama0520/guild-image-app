@@ -2365,10 +2365,7 @@ def run_step1_main(
         header_fg=C_HEADER_FG,
         scale=150/96,
     )
-    main_png = os.path.join(output_dir, f"{stem}.png")
-    img_all.save(main_png, format="PNG")
-    generated.append(main_png)
-    log(f"全台系PNG: {os.path.basename(main_png)}")
+    # 全台系PNG は全店舗で生成しない（不使用のため）
 
     # ── 機種別 JPG（全台プラスのみ）──────────────────────────────
     for machine, grp in df.groupby("機種名", sort=False):
@@ -5023,7 +5020,7 @@ def show_auto_page(with_slump: bool = False) -> None:
             with _col_set:
                 st.text_input(
                     "タイトル",
-                    value=st.session_state.get(f"sonota_extra_title_{store}", ""),
+                    value=st.session_state.get(f"sonota_extra_title_{store}", "") or "その他の優秀台ピックアップ",
                     key=f"sonota_extra_title_{store}",
                     placeholder="例: その他の優秀台ピックアップ",
                     on_change=_save_auto_inputs, args=(store,),

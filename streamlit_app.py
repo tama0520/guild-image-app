@@ -1408,7 +1408,54 @@ def show_image_type_page() -> None:
                 _navigate("weekly_result_text")
     else:
         # 高田馬場以外
-        if store in ("溝の口本館", "溝の口新館", "西武新宿", "渋谷新館", "新宿歌舞伎町", "新大久保", "上野本館"):
+        if store == "上野本館":
+            # 上野本館：結果ポスト用 ＋ スランプ付き結果ポスト ＋ ローテ用
+            st.markdown(
+                """<style>
+                .st-key-auto_slump_btn button {
+                    background-color: #00ACC1 !important;
+                    border-color: #00838F !important;
+                    color: white !important;
+                }
+                .st-key-auto_slump_btn button:hover {
+                    background-color: #00838F !important;
+                    border-color: #00838F !important;
+                }
+                .st-key-rote_mode_btn button {
+                    background-color: #1976D2 !important;
+                    border-color: #1565C0 !important;
+                    color: white !important;
+                }
+                .st-key-rote_mode_btn button:hover {
+                    background-color: #1565C0 !important;
+                    border-color: #1565C0 !important;
+                }
+                </style>""",
+                unsafe_allow_html=True,
+            )
+            _col_l, _col_r = st.columns(2)
+            with _col_l:
+                if st.button(
+                    "⚡ 結果ポスト用",
+                    key="auto_mode_btn",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    _navigate("auto")
+            with _col_r:
+                if st.button(
+                    "📊 スランプ付き結果ポスト",
+                    key="auto_slump_btn",
+                    use_container_width=True,
+                ):
+                    _navigate("auto_slump")
+            if st.button(
+                "📋 ローテ用",
+                key="rote_mode_btn",
+                use_container_width=True,
+            ):
+                _navigate("rote")
+        elif store in ("溝の口本館", "溝の口新館", "西武新宿", "渋谷新館", "新宿歌舞伎町", "新大久保"):
             # ローテあり：2列横並び
             st.markdown(
                 """<style>
@@ -3904,15 +3951,14 @@ def _init_recommended_settings(store: str) -> None:
     m5 = saved.get("recommended_machines_5", [""] * 5)
     m6 = saved.get("recommended_machines_6", [""] * 5)
     defaults: dict = {
-        f"rec_enabled_{store}":  saved.get("rec_enabled",
-            bool(saved.get("recommended_title_1") or saved.get("recommended_machines_1"))),
+        f"rec_enabled_{store}":  False,
         f"rec_title_1_{store}": saved.get("recommended_title_1", "月間オススメ機種"),
         f"rec_title_2_{store}": saved.get("recommended_title_2", "週間オススメ機種"),
         f"rec_title_3_{store}": saved.get("recommended_title_3", ""),
         f"rec_title_4_{store}": saved.get("recommended_title_4", ""),
         f"rec_title_5_{store}": saved.get("recommended_title_5", ""),
         f"rec_title_6_{store}": saved.get("recommended_title_6", ""),
-        f"rec_f_1_{store}": saved.get("recommended_filter_1", "プラス台"),
+        f"rec_f_1_{store}": saved.get("recommended_filter_1", "+1,000枚以上"),
         f"rec_f_2_{store}": saved.get("recommended_filter_2", "プラス台"),
         f"rec_f_3_{store}": saved.get("recommended_filter_3", "プラス台"),
         f"rec_f_4_{store}": saved.get("recommended_filter_4", "プラス台"),
@@ -5377,6 +5423,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 st.markdown("**ブロック1**")
                 title_1 = st.text_input(
                     "タイトル（青バー）",
+                    value=st.session_state.get(f"rec_title_1_{store}", ""),
                     key=f"rec_title_1_{store}",
                     placeholder="例: 月間オススメ機種",
                     on_change=_save_rec_titles,
@@ -5391,13 +5438,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                             str(_i + 1), f"rec_m1_{_i}_{store}", _machine_candidates
                         )
                 machines_1 = [st.session_state.get(f"rec_m1_{_i}_{store}", "") for _i in range(9)]
-                _sel1 = st.radio("抽出条件", ["プラス台", "+1,000枚以上", "+2,000枚以上"], key=f"rec_f_1_{store}", horizontal=True, on_change=_save_rec_titles, args=(store,))
+                _opts_f1 = ["プラス台", "+1,000枚以上", "+2,000枚以上"]
+                _f1_val = st.session_state.get(f"rec_f_1_{store}", "+1,000枚以上")
+                _f1_idx = _opts_f1.index(_f1_val) if _f1_val in _opts_f1 else 1
+                _sel1 = st.radio("抽出条件", _opts_f1, index=_f1_idx, key=f"rec_f_1_{store}", horizontal=True, on_change=_save_rec_titles, args=(store,))
                 thresholds_1 = [{"プラス台": 1, "+1,000枚以上": 1000, "+2,000枚以上": 2000}.get(_sel1, 1)]
 
             with col_b2:
                 st.markdown("**ブロック2**")
                 title_2 = st.text_input(
                     "タイトル（青バー）",
+                    value=st.session_state.get(f"rec_title_2_{store}", ""),
                     key=f"rec_title_2_{store}",
                     placeholder="例: 週間オススメ機種",
                     on_change=_save_rec_titles,
@@ -5423,6 +5474,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 st.markdown("**ブロック3**")
                 title_3 = st.text_input(
                     "タイトル（青バー）",
+                    value=st.session_state.get(f"rec_title_3_{store}", ""),
                     key=f"rec_title_3_{store}",
                     placeholder="例: 注目機種",
                     on_change=_save_rec_titles,
@@ -5444,6 +5496,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 st.markdown("**ブロック4**")
                 title_4 = st.text_input(
                     "タイトル（青バー）",
+                    value=st.session_state.get(f"rec_title_4_{store}", ""),
                     key=f"rec_title_4_{store}",
                     placeholder="例: 特選機種",
                     on_change=_save_rec_titles,
@@ -5469,6 +5522,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 st.markdown("**ブロック5**")
                 title_5 = st.text_input(
                     "タイトル（青バー）",
+                    value=st.session_state.get(f"rec_title_5_{store}", ""),
                     key=f"rec_title_5_{store}",
                     placeholder="例: 注目機種",
                     on_change=_save_rec_titles,
@@ -5490,6 +5544,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 st.markdown("**ブロック6**")
                 title_6 = st.text_input(
                     "タイトル（青バー）",
+                    value=st.session_state.get(f"rec_title_6_{store}", ""),
                     key=f"rec_title_6_{store}",
                     placeholder="例: 特選機種",
                     on_change=_save_rec_titles,
@@ -5910,6 +5965,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             # ─ ⑥ その他の優秀台ピックアップ + オススメ ─
                             if "その他の優秀台ピックアップ.jpg" in _fp_map:
                                 _prev_img_list.append(_fp_map["その他の優秀台ピックアップ.jpg"])
+                            _rec_ban_map: dict[str, list[int]] = {}
                             if recommended_blocks and _pv_df is not None and _pv_diff is not None:
                                 _pv_scfg = get_store_config(store)
                                 _pv_jug_cfg = {
@@ -5942,7 +5998,33 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         if _rec_img is None:
                                             continue
                                         _sfx = _sfx_map.get(_thr, str(_thr))
-                                        _prev_img_list.append((f"オススメ_{_make_safe_fn(_bt)}_{_sfx}.jpg", _rec_img))
+                                        _rec_fn = f"オススメ_{_make_safe_fn(_bt)}_{_sfx}.jpg"
+                                        _prev_img_list.append((_rec_fn, _rec_img))
+                                        # スランプグラフ合成用：画像に含まれる台番を収集
+                                        _rec_bans: list[int] = []
+                                        for _rvm in _valid:
+                                            _rgrp = _pv_df[_pv_df["機種名"] == _rvm].copy()
+                                            if _prev_narabi_bans:
+                                                _rgrp = _rgrp[~_rgrp["台番"].isin(_prev_narabi_bans)]
+                                            if _rgrp.empty:
+                                                continue
+                                            _rdr = _pv_diff.loc[_rgrp.index]
+                                            if _pv_jug_cfg and _rvm in _pv_jug_cfg.get("series", set()):
+                                                _jg_col = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _rgrp.columns), None)
+                                                if _jg_col:
+                                                    _jgmask = _rgrp[_jg_col] >= _pv_jug_cfg.get("g_min", 2000)
+                                                    _rgrp = _rgrp[_jgmask]
+                                                    _rdr  = _rdr[_jgmask]
+                                                _jpthr = _pv_jug_cfg["jobs_map"].get(_rvm)
+                                                if _jpthr is not None and "合算確率_num" in _rgrp.columns:
+                                                    _rmask = ((_rgrp["合算確率_num"] <= _jpthr) & (_rdr >= 0)) | (_rdr >= _pv_jug_cfg.get("diff_bonus", 1000))
+                                                else:
+                                                    _rmask = _rdr >= 0
+                                            else:
+                                                _rmask = _rdr >= _thr
+                                            _rec_bans.extend([int(b) for b in _rgrp[_rmask]["台番"].dropna()])
+                                        if _rec_bans:
+                                            _rec_ban_map[_rec_fn] = sorted(_rec_bans)
 
                     # ── with_slump=True の場合: pisionデータ取得 → スランプグラフ合成 ──
                     if with_slump and _prev_result.get("ok"):
@@ -6072,6 +6154,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _pv_title_map[_fn_bm] = _title_bm
                                 except Exception:
                                     pass
+                        # オススメ機種の台番を ban_map に追加
+                        _pv_ban_map.update(_rec_ban_map)
                         _ig_api_key_pv = _get_pision_api_key()
                         if _ig_api_key_pv and _pv_ban_map:
                             _ig_date_pv = st.session_state.get(f"_inagawa_date_{store}", "")
@@ -7254,6 +7338,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         pass
 
             # ── オススメ機種ピックアップ画像（拡張機能店舗）─────────────
+            _exec_rec_ban_map: dict[str, list[int]] = {}
             if store in EXTENDED_FEATURE_STORES and result["ok"] and recommended_blocks:
                 df_pipe   = result.get("df")
                 diff_pipe = result.get("diff_raw")
@@ -7295,12 +7380,36 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _log(f"  オススメ「{b_title}」({_threshold_suffix.get(_thr, str(_thr))}): 該当台なし")
                                 continue
                             _sfx = _threshold_suffix.get(_thr, str(_thr))
-                            out_rec = os.path.join(
-                                output_dir, f"オススメ_{_make_safe_fn(b_title)}_{_sfx}.jpg"
-                            )
+                            _rec_fn_exec = f"オススメ_{_make_safe_fn(b_title)}_{_sfx}.jpg"
+                            out_rec = os.path.join(output_dir, _rec_fn_exec)
                             _save_jpeg(img, out_rec)
                             result["files"].append(out_rec)
                             _log(f"  ✅ オススメ「{b_title}」({_sfx}/{len(valid)}機種)")
+                            # スランプグラフ合成用：画像に含まれる台番を収集
+                            _exec_bans: list[int] = []
+                            for _rvm in valid:
+                                _rgrp = df_pipe[df_pipe["機種名"] == _rvm].copy()
+                                if narabi_bans:
+                                    _rgrp = _rgrp[~_rgrp["台番"].isin(narabi_bans)]
+                                if _rgrp.empty:
+                                    continue
+                                _rdr = diff_pipe.loc[_rgrp.index]
+                                if _juggler_cfg and _rvm in _juggler_cfg.get("series", set()):
+                                    _jg_col = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _rgrp.columns), None)
+                                    if _jg_col:
+                                        _jgmask = _rgrp[_jg_col] >= _juggler_cfg.get("g_min", 2000)
+                                        _rgrp = _rgrp[_jgmask]
+                                        _rdr  = _rdr[_jgmask]
+                                    _jpthr = _juggler_cfg["jobs_map"].get(_rvm)
+                                    if _jpthr is not None and "合算確率_num" in _rgrp.columns:
+                                        _rmask = ((_rgrp["合算確率_num"] <= _jpthr) & (_rdr >= 0)) | (_rdr >= _juggler_cfg.get("diff_bonus", 1000))
+                                    else:
+                                        _rmask = _rdr >= 0
+                                else:
+                                    _rmask = _rdr >= _thr
+                                _exec_bans.extend([int(b) for b in _rgrp[_rmask]["台番"].dropna()])
+                            if _exec_bans:
+                                _exec_rec_ban_map[_rec_fn_exec] = sorted(_exec_bans)
 
             # ── 個別画像生成 ─────────────────────────────────────────
             if kojin_enabled and result["ok"]:
@@ -7655,6 +7764,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _ig_bm_u[_vfn_bm] = [int(b) for b in _vfilt["台番"].dropna()]
                             except Exception:
                                 pass
+                    # オススメ機種の台番を ban_map に追加
+                    _ig_bm_u.update(_exec_rec_ban_map)
                     st.session_state[f"_inagawa_ban_map_{store}"] = _ig_bm_u
 
                     # ── pisionデータ取得・スランプグラフ合成・output_dir上書き ──

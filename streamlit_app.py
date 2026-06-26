@@ -117,10 +117,11 @@ ROTE_BAN_EMOJI_CONFIG: dict[str, str] = {
 # ローテ画像・台番列の背景色 {store: hex}
 # 未登録店舗は "#00FFCC" がデフォルト
 ROTE_BAN_COLOR_CONFIG: dict[str, str] = {
-    "高田馬場": "#EA5A96",
-    "上野本館": "#EA5A96",
-    "渋谷新館": "#F7EBCB",
-    "新大久保": "#AED6F1",
+    "高田馬場":     "#EA5A96",
+    "上野本館":     "#EA5A96",
+    "渋谷新館":     "#F7EBCB",
+    "新大久保":     "#AED6F1",
+    "新宿歌舞伎町": "#FFF2CD",
 }
 
 # 拡張機能店舗のオススメブロック絵文字設定
@@ -522,7 +523,10 @@ def _pipeline_calc_d(d_val) -> int:
         res = d + add
     sign = 1 if d > 0 else -1
     multiple = 50 * sign
-    return round(res / multiple) * multiple
+    result = round(res / multiple) * multiple
+    if result > 19000:
+        result = 19000
+    return result
 
 
 def normalize_df(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
@@ -1259,6 +1263,120 @@ def generate_rote_image(df: pd.DataFrame, machine_names: list[str], date_label: 
                     cell(COL_BAN, cy, COL_DIFF, ROW_H, bg, diff_str, fg, align="center")
 
             cy += ROW_H
+
+    return img
+
+
+def generate_ranking_image(df: pd.DataFrame, machine_inputs: list[str], date_label: str = "", store: str = ""):
+    """ランキング画像を生成する。全機種の差枚+1000枚以上を降順で一覧表示。"""
+    import datetime as _dt
+
+    SC = 2
+    ROW_H     = 26 * SC
+    COL_HDR_H = 34 * SC
+    COL_BAN   = 80 * SC
+    COL_DIFF  = 130 * SC
+    W = COL_BAN + COL_DIFF
+
+    C_HDR_BG = "#333333"
+    C_HDR_FG = "#FFFFFF"
+    C_BORDER = "#000000"
+    C_BAN_BG = ROTE_BAN_COLOR_CONFIG.get(store, "#00FFCC")
+
+    FONT_SZ = int(15 * SC)
+    font = load_font(FONT_SZ)
+
+    if not date_label:
+        today = _dt.date.today()
+        dow = ["月", "火", "水", "木", "金", "土", "日"][today.weekday()]
+        date_label = f"{today.month}/{today.day}({dow})"
+
+    name_col = "機種名" if "機種名" in df.columns else (
+               "機種名（正式名）" if "機種名（正式名）" in df.columns else None)
+    rows = []
+    seen_bans: set[int] = set()
+    for raw in machine_inputs:
+        kw = (raw or "").strip()
+        if not kw or name_col is None:
+            continue
+        mask = df[name_col].astype(str).str.contains(kw, na=False)
+        sub = df[mask].copy()
+        if sub.empty:
+            continue
+        for _, row in sub.iterrows():
+            diff_v = pd.to_numeric(row.get("差枚", None), errors="coerce")
+            if pd.isna(diff_v) or int(diff_v) < 1000:
+                continue
+            ban = int(row["台番"])
+            if ban in seen_bans:
+                continue
+            seen_bans.add(ban)
+            rows.append({"台番": ban, "差枚": int(diff_v)})
+
+    if not rows:
+        return None
+
+    rows.sort(key=lambda r: (-r["差枚"], r["台番"]))
+
+    total_h = COL_HDR_H + ROW_H * len(rows)
+    img = Image.new("RGB", (W, total_h), "white")
+    d   = ImageDraw.Draw(img)
+
+    def cell(x, y, w, h, bg, text="", fg="black", align="center"):
+        d.rectangle([x, y, x + w - 1, y + h - 1], fill=bg, outline=C_BORDER)
+        if text:
+            bb = d.textbbox((0, 0), text, font=font)
+            tw, th = bb[2] - bb[0], bb[3] - bb[1]
+            ty = y + (h - th) // 2 - bb[1]
+            if align == "center":
+                tx = x + (w - tw) // 2
+            elif align == "right":
+                tx = x + w - tw - int(8 * SC)
+            else:
+                tx = x + int(8 * SC)
+            d.text((tx, ty), text, fill=fg, font=font)
+
+    stops = [
+        (255, 67, 67), (255, 192, 0), (255, 255, 0),
+        (130, 247, 140), (0, 100, 255), (180, 0, 255),
+    ]
+
+    def rainbow_cell(x, y, w, h, text=""):
+        n = len(stops) - 1
+        for px in range(w):
+            t  = px / max(w - 1, 1) * n
+            i  = min(int(t), n - 1)
+            f  = t - i
+            c1, c2 = stops[i], stops[i + 1]
+            rgb = tuple(int(c1[k] + f * (c2[k] - c1[k])) for k in range(3))
+            d.line([(x + px, y + 1), (x + px, y + h - 2)], fill=rgb)
+        d.rectangle([x, y, x + w - 1, y + h - 1], outline=C_BORDER)
+        if text:
+            bb = d.textbbox((0, 0), text, font=font)
+            tw, th = bb[2] - bb[0], bb[3] - bb[1]
+            tx = x + (w - tw) // 2
+            ty = y + (h - th) // 2 - bb[1]
+            d.text((tx, ty), text, fill="black", font=font)
+
+    cy = 0
+    cell(0, cy, COL_BAN, COL_HDR_H, C_HDR_BG, "台番", C_HDR_FG)
+    cell(COL_BAN, cy, COL_DIFF, COL_HDR_H, C_HDR_BG, date_label, C_HDR_FG)
+    cy += COL_HDR_H
+
+    for r in rows:
+        ban_str  = str(r["台番"])
+        v        = r["差枚"]
+        diff_str = f"+{v:,}"
+        bg, fg   = _rote_diff_color(v)
+        cell(0, cy, COL_BAN, ROW_H, C_BAN_BG, ban_str, "black")
+        if bg == "rainbow":
+            rainbow_cell(COL_BAN, cy, COL_DIFF, ROW_H, diff_str)
+        else:
+            cell(COL_BAN, cy, COL_DIFF, ROW_H, bg, diff_str, fg, align="center")
+        cy += ROW_H
+
+    # 外周を内側と同じ太さ（2px）で上書き
+    d.rectangle([0, 0, W - 1, total_h - 1], outline=C_BORDER, width=2)
 
     return img
 
@@ -9708,20 +9826,46 @@ def _generate_rote_result_text(
 ) -> str:
     """ローテ結果テキストを生成して返す。"""
     import datetime as _dt
-    weekday = date_obj.weekday()          # 0=月
-    day_num = weekday + 1
-    monday  = date_obj - _dt.timedelta(days=weekday)
-    sunday  = monday  + _dt.timedelta(days=6)
-    dow     = ["月", "火", "水", "木", "金", "土", "日"][weekday]
-    week_str = f"{monday.month}月{monday.day}日～{sunday.month}月{sunday.day}日"
+    import calendar as _cal
+    dow = ["月", "火", "水", "木", "金", "土", "日"][date_obj.weekday()]
 
-    lines = [
-        f"{date_obj.month}/{date_obj.day}({dow})👨‍💻結果👨‍💻",
-        store_full,
-        "",
-        f"🏆{week_str}オススメポスター🏆",
-        f"＼＼{day_num}日目結果／／",
-    ]
+    if store == "新宿歌舞伎町":
+        # 月内3期間（1～10 / 11～20 / 21～月末）で week_str と day_num を計算
+        d = date_obj.day
+        m = date_obj.month
+        y = date_obj.year
+        last_day = _cal.monthrange(y, m)[1]
+        if d <= 10:
+            period_start, period_end, day_num = 1, 10, d
+        elif d <= 20:
+            period_start, period_end, day_num = 11, 20, d - 10
+        else:
+            period_start, period_end, day_num = 21, last_day, d - 20
+        week_str = f"{m}月{period_start}日～{m}月{period_end}日"
+        # 機種名を「×」で結合してポスター行を生成
+        _kw_names = [kw.strip() for kw in machine_inputs if (kw or "").strip()]
+        poster_machines = "×".join(_kw_names) if _kw_names else ""
+        lines = [
+            f"{date_obj.month}/{date_obj.day}({dow})👨‍💻結果👨‍💻",
+            "エスパス 新宿 歌舞伎 町",
+            "",
+            f"🏆{week_str}🏆",
+            f"🏆{poster_machines}ポスター🏆",
+            f"＼＼{day_num}日目結果／／",
+        ]
+    else:
+        weekday = date_obj.weekday()          # 0=月
+        day_num = weekday + 1
+        monday  = date_obj - _dt.timedelta(days=weekday)
+        sunday  = monday  + _dt.timedelta(days=6)
+        week_str = f"{monday.month}月{monday.day}日～{sunday.month}月{sunday.day}日"
+        lines = [
+            f"{date_obj.month}/{date_obj.day}({dow})👨‍💻結果👨‍💻",
+            store_full,
+            "",
+            f"🏆{week_str}オススメポスター🏆",
+            f"＼＼{day_num}日目結果／／",
+        ]
 
     _re, _te = ROTE_EMOJI_CONFIG.get(store, ("🌌", "🔥"))
     _be = ROTE_BAN_EMOJI_CONFIG.get(store, "💫")
@@ -9749,7 +9893,10 @@ def _generate_rote_result_text(
 
         machine_name = sub[name_col].iloc[0]
         lines.append("")
-        lines.append(f"{_re}{machine_name}{_re}")
+        if store == "新宿歌舞伎町":
+            lines.append(f"【{machine_name}】")
+        else:
+            lines.append(f"{_re}{machine_name}{_re}")
 
         for lo, hi, label in tiers:
             if hi is None:
@@ -11543,17 +11690,37 @@ def show_rote_page() -> None:
                 img1 = _add_margin(generate_rote_image(df, machine_inputs1, date_label=_rote_date_label, store=store)) if names1 else None
                 img2 = _add_margin(generate_rote_image(df, machine_inputs2, date_label=_rote_date_label, store=store)) if names2 else None
                 img3 = _add_margin(generate_rote_image(df, machine_inputs3, date_label=_rote_date_label, store=store)) if names3 else None
+                # ランキング画像は新宿歌舞伎町のみ・①②それぞれ1枚
+                if store == "新宿歌舞伎町":
+                    ranking_img1 = generate_ranking_image(df, machine_inputs1, date_label=_rote_date_label, store=store) if names1 else None
+                    ranking_img2 = generate_ranking_image(df, machine_inputs2, date_label=_rote_date_label, store=store) if names2 else None
+                else:
+                    ranking_img1 = None
+                    ranking_img2 = None
 
             # ── フォルダへ保存 ────────────────────────────────────────
-            _r1_mac = next((m.strip() for m in machine_inputs1 if m.strip()), "") if store in ("上野本館", "渋谷新館") else ""
-            _r2_mac = machine_inputs2[0].strip() if (store in ("上野本館", "渋谷新館") and machine_inputs2) else ""
-            _r3_mac = machine_inputs3[0].strip() if (store in ("上野本館", "渋谷新館") and machine_inputs3) else ""
+            if store == "新宿歌舞伎町":
+                _r1_mac = next((m.strip() for m in machine_inputs1 if m.strip()), "")
+                _r2_mac = next((m.strip() for m in machine_inputs2 if m.strip()), "")
+                _r3_mac = next((m.strip() for m in machine_inputs3 if m.strip()), "")
+            elif store in ("上野本館", "渋谷新館"):
+                _r1_mac = next((m.strip() for m in machine_inputs1 if m.strip()), "")
+                _r2_mac = machine_inputs2[0].strip() if machine_inputs2 else ""
+                _r3_mac = machine_inputs3[0].strip() if machine_inputs3 else ""
+            else:
+                _r1_mac = ""
+                _r2_mac = ""
+                _r3_mac = ""
             if img1:
                 img1.save(os.path.join(_rote_out_dir, f"{_r1_mac}ローテ.png" if _r1_mac else "ローテ①.png"), format="PNG", dpi=(300, 300))
             if img2:
                 img2.save(os.path.join(_rote_out_dir, f"{_r2_mac}ローテ.png" if _r2_mac else "ローテ②.png"), format="PNG", dpi=(300, 300))
             if img3:
                 img3.save(os.path.join(_rote_out_dir, f"{_r3_mac}ローテ.png" if _r3_mac else "ローテ③.png"), format="PNG", dpi=(300, 300))
+            if ranking_img1:
+                ranking_img1.save(os.path.join(_rote_out_dir, f"ranking_{_r1_mac}ローテ.png" if _r1_mac else "ranking_ローテ①.png"), format="PNG", dpi=(300, 300))
+            if ranking_img2:
+                ranking_img2.save(os.path.join(_rote_out_dir, f"ranking_{_r2_mac}ローテ.png" if _r2_mac else "ranking_ローテ②.png"), format="PNG", dpi=(300, 300))
 
             # ── 週間/月間オススメ表の保存（渋谷新館・上野本館）──────────────
             if store in ("渋谷新館", "上野本館"):

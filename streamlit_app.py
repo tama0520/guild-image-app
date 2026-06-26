@@ -9185,21 +9185,38 @@ def show_auto_article_page() -> None:
                             )
                             _ajc = pd.concat(_ajbase + _ajdfs, ignore_index=True)
                             _ajc = _ajc.iloc[_ajc["台番"].argsort()].reset_index(drop=True)
-                            _ahkj = any(m.strip() in _ajss for m in (kojin_zentai_machines + kojin_yushu_machines) if m.strip())
-                            _asto = _ahkj or any(
-                                st.session_state.get(f"art_prev_ck_{store}_{_si}", True) and
-                                (_aphr.get(_sp) in _ajss or _apzen.get(_sp) in _ajss)
-                                for _si, (_sp, _) in enumerate(_art_auto_previews)
-                            )
-                            _ajt = "その他のジャグラーシリーズの優秀台" if _asto else "ジャグラーシリーズの優秀台"
-                            _aji = _build_machine_img(_ajc, _ajt, None)
-                            for _ji, (_jn, _) in enumerate(_anp):
-                                if _jn == "ジャグラーシリーズ優秀台.jpg":
-                                    _anp[_ji] = (_jn, _aji); break
+                            if len(_ajc) <= 5:
+                                # 5台以下 → overflowと同じ扱い: その他の優秀台ピックアップへ
+                                _aov_exb = {it["ban"] for it in _apex}
+                                _aov_rows = _apdf2[_apdf2["台番"].apply(lambda b: int(b) in _aov_exb)].copy().reset_index(drop=True) if _aov_exb else pd.DataFrame()
+                                _aov_dfs = ([_aov_rows] if not _aov_rows.empty else []) + _ajdfs
+                                _aov_son = pd.concat(_aov_dfs, ignore_index=True)
+                                _aov_son = _aov_son.drop_duplicates(subset=["台番"])
+                                _aov_son = _aov_son.iloc[_aov_son["台番"].argsort()].reset_index(drop=True)
+                                _aov_img = _build_machine_img(_aov_son, "その他の優秀台ピックアップ", None)
+                                for _ci2, (_pn2, _) in enumerate(_anp):
+                                    if _pn2 == "その他の優秀台ピックアップ.jpg":
+                                        _anp[_ci2] = (_pn2, _aov_img); break
+                                else:
+                                    _anp.append(("その他の優秀台ピックアップ.jpg", _aov_img))
+                                    st.session_state[f"art_prev_ck_{store}_{len(_anp)-1}"] = True
+                                _aup = True
                             else:
-                                _anp.append(("ジャグラーシリーズ優秀台.jpg", _aji))
-                                st.session_state[f"art_prev_ck_{store}_{len(_anp)-1}"] = True
-                            _aup = True
+                                _ahkj = any(m.strip() in _ajss for m in (kojin_zentai_machines + kojin_yushu_machines) if m.strip())
+                                _asto = _ahkj or any(
+                                    st.session_state.get(f"art_prev_ck_{store}_{_si}", True) and
+                                    (_aphr.get(_sp) in _ajss or _apzen.get(_sp) in _ajss)
+                                    for _si, (_sp, _) in enumerate(_art_auto_previews)
+                                )
+                                _ajt = "その他のジャグラーシリーズの優秀台" if _asto else "ジャグラーシリーズの優秀台"
+                                _aji = _build_machine_img(_ajc, _ajt, None)
+                                for _ji, (_jn, _) in enumerate(_anp):
+                                    if _jn == "ジャグラーシリーズ優秀台.jpg":
+                                        _anp[_ji] = (_jn, _aji); break
+                                else:
+                                    _anp.append(("ジャグラーシリーズ優秀台.jpg", _aji))
+                                    st.session_state[f"art_prev_ck_{store}_{len(_anp)-1}"] = True
+                                _aup = True
                         if _aup:
                             st.session_state[_art_aprev_key] = _anp
                             st.rerun()
@@ -9494,10 +9511,22 @@ def show_auto_article_page() -> None:
                     _arjbase = [_ardf[_ardf["台番"].apply(lambda b: int(b) in _arjexb)].copy().reset_index(drop=True)] if _arjexb else []
                     _arjcomb = pd.concat(_arjbase + _arjdfs, ignore_index=True)
                     _arjcomb = _arjcomb.iloc[_arjcomb["台番"].argsort()].reset_index(drop=True)
-                    _arjhkj  = any(m.strip() in _arjss for m in (kojin_zentai_machines + kojin_yushu_machines) if m.strip())
-                    _arjt    = "その他のジャグラーシリーズの優秀台" if _arjhkj else "ジャグラーシリーズの優秀台"
-                    _save_jpeg(_build_machine_img(_arjcomb, _arjt, None), _arjp, target_kb=800)
-                    _log(f"  ✅ ジャグラーシリーズ優秀台再生成: {len(_arjcomb)}台")
+                    if len(_arjcomb) <= 5:
+                        # 5台以下 → overflowと同じ扱い: その他の優秀台ピックアップへ
+                        _arsonp2 = os.path.join(output_dir, "その他の優秀台ピックアップ.jpg")
+                        _arexb2  = {it["ban"] for it in result.get("sonota_excellent_list", [])}
+                        _arexr2  = _ardf[_ardf["台番"].apply(lambda b: int(b) in _arexb2)].copy().reset_index(drop=True) if _arexb2 else pd.DataFrame()
+                        _ardfs2  = ([_arexr2] if not _arexr2.empty else []) + _arjdfs
+                        _arson2  = pd.concat(_ardfs2, ignore_index=True)
+                        _arson2  = _arson2.drop_duplicates(subset=["台番"])
+                        _arson2  = _arson2.iloc[_arson2["台番"].argsort()].reset_index(drop=True)
+                        _save_jpeg(_build_machine_img(_arson2, "その他の優秀台ピックアップ", None), _arsonp2, target_kb=800)
+                        _log(f"  ✅ ジャグラー{len(_arjcomb)}台→overflow: その他の優秀台ピックアップに追加({len(_arson2)}台)")
+                    else:
+                        _arjhkj  = any(m.strip() in _arjss for m in (kojin_zentai_machines + kojin_yushu_machines) if m.strip())
+                        _arjt    = "その他のジャグラーシリーズの優秀台" if _arjhkj else "ジャグラーシリーズの優秀台"
+                        _save_jpeg(_build_machine_img(_arjcomb, _arjt, None), _arjp, target_kb=800)
+                        _log(f"  ✅ ジャグラーシリーズ優秀台再生成: {len(_arjcomb)}台")
 
             all_ok = result["ok"] and (narabi_result is None or narabi_result["ok"])
             if all_ok:

@@ -6778,22 +6778,40 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _jug_comb = pd.concat(_jug_all_dfs, ignore_index=True)
                             _jug_ord  = _jug_comb["台番"].argsort()
                             _jug_comb = _jug_comb.iloc[_jug_ord].reset_index(drop=True)
-                            _has_kojin_jug = any(m.strip() in _jug_series_set for m in (kojin_zentai_machines + kojin_yushu_machines) if m.strip())
-                            _still_jug_other = _has_kojin_jug or any(
-                                st.session_state.get(f"auto_prev_ck_{store}_{_si}", True) and
-                                (_pv_hr.get(_sp) in _jug_series_set or _pv_zen.get(_sp) in _jug_series_set)
-                                for _si, (_sp, _) in enumerate(_auto_previews)
-                            )
-                            _jug_title = "その他のジャグラーシリーズの優秀台" if _still_jug_other else "ジャグラーシリーズの優秀台"
-                            _jug_img = _build_machine_img(_jug_comb, _jug_title, None)
-                            for _jpi, (_jpn, _) in enumerate(_new_prev):
-                                if _jpn == "ジャグラーシリーズ優秀台.jpg":
-                                    _new_prev[_jpi] = (_jpn, _jug_img)
-                                    break
+                            if len(_jug_comb) <= 5:
+                                # 5台以下 → overflowと同じ扱い: その他の優秀台ピックアップへ
+                                _ov_ex_bans = {item["ban"] for item in _pv_ex}
+                                _ov_rows = _pv_df[_pv_df["台番"].apply(lambda b: int(b) in _ov_ex_bans)].copy().reset_index(drop=True) if _pv_df is not None else pd.DataFrame()
+                                _ov_dfs = ([_ov_rows] if not _ov_rows.empty else []) + _jug_extra_dfs
+                                _ov_son = pd.concat(_ov_dfs, ignore_index=True)
+                                _ov_son = _ov_son.drop_duplicates(subset=["台番"])
+                                _ov_son = _ov_son.iloc[_ov_son["台番"].argsort()].reset_index(drop=True)
+                                _ov_img = _build_machine_img(_ov_son, "その他の優秀台ピックアップ", None)
+                                for _ci2, (_pn2, _) in enumerate(_new_prev):
+                                    if _pn2 == "その他の優秀台ピックアップ.jpg":
+                                        _new_prev[_ci2] = (_pn2, _ov_img)
+                                        break
+                                else:
+                                    _new_prev.append(("その他の優秀台ピックアップ.jpg", _ov_img))
+                                    st.session_state[f"auto_prev_ck_{store}_{len(_new_prev)-1}"] = True
+                                _updated = True
                             else:
-                                _new_prev.append(("ジャグラーシリーズ優秀台.jpg", _jug_img))
-                                st.session_state[f"auto_prev_ck_{store}_{len(_new_prev)-1}"] = True
-                            _updated = True
+                                _has_kojin_jug = any(m.strip() in _jug_series_set for m in (kojin_zentai_machines + kojin_yushu_machines) if m.strip())
+                                _still_jug_other = _has_kojin_jug or any(
+                                    st.session_state.get(f"auto_prev_ck_{store}_{_si}", True) and
+                                    (_pv_hr.get(_sp) in _jug_series_set or _pv_zen.get(_sp) in _jug_series_set)
+                                    for _si, (_sp, _) in enumerate(_auto_previews)
+                                )
+                                _jug_title = "その他のジャグラーシリーズの優秀台" if _still_jug_other else "ジャグラーシリーズの優秀台"
+                                _jug_img = _build_machine_img(_jug_comb, _jug_title, None)
+                                for _jpi, (_jpn, _) in enumerate(_new_prev):
+                                    if _jpn == "ジャグラーシリーズ優秀台.jpg":
+                                        _new_prev[_jpi] = (_jpn, _jug_img)
+                                        break
+                                else:
+                                    _new_prev.append(("ジャグラーシリーズ優秀台.jpg", _jug_img))
+                                    st.session_state[f"auto_prev_ck_{store}_{len(_new_prev)-1}"] = True
+                                _updated = True
                         # オススメ機種ピックアップ再生成（チェック外し機種がオススメに含まれる場合）
                         if _rec_unchecked_machines and _pv_df is not None and _pv_diff is not None:
                             _pv_scfg_r = get_store_config(store)
@@ -7764,13 +7782,25 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _jug_comb = pd.concat(_jug_all, ignore_index=True)
                     _jug_ord  = _jug_comb["台番"].argsort()
                     _jug_comb = _jug_comb.iloc[_jug_ord].reset_index(drop=True)
-                    _has_kojin_jug_ex = any(m.strip() in _ex_jug_series_set for m in (kojin_zentai_machines + kojin_yushu_machines) if m.strip())
-                    _jug_has_other = _has_kojin_jug_ex or bool(result.get("high_ratio_list")) or bool(result.get("zen_dai_list") and any(
-                        item["name"] in _ex_jug_series_set for item in result.get("zen_dai_list", [])))
-                    _jug_t = "その他のジャグラーシリーズの優秀台" if _jug_has_other else "ジャグラーシリーズの優秀台"
-                    _jug_img_r = _build_machine_img(_jug_comb, _jug_t, None)
-                    _save_jpeg(_jug_img_r, _jug_path, target_kb=800)
-                    _log(f"  ✅ ジャグラーシリーズ優秀台再生成: {len(_jug_comb)}台")
+                    if len(_jug_comb) <= 5:
+                        # 5台以下 → overflowと同じ扱い: その他の優秀台ピックアップへ
+                        _sonota_path_ov = os.path.join(output_dir, "その他の優秀台ピックアップ.jpg")
+                        _ex_bans_ov = {item["ban"] for item in result.get("sonota_excellent_list", [])}
+                        _ex_rows_ov = _df_res[_df_res["台番"].apply(lambda b: int(b) in _ex_bans_ov)].copy().reset_index(drop=True) if _ex_bans_ov else pd.DataFrame()
+                        _ov_dfs = ([_ex_rows_ov] if not _ex_rows_ov.empty else []) + _jug_ex_dfs
+                        _ov_son = pd.concat(_ov_dfs, ignore_index=True)
+                        _ov_son = _ov_son.drop_duplicates(subset=["台番"])
+                        _ov_son = _ov_son.iloc[_ov_son["台番"].argsort()].reset_index(drop=True)
+                        _save_jpeg(_build_machine_img(_ov_son, "その他の優秀台ピックアップ", None), _sonota_path_ov, target_kb=800)
+                        _log(f"  ✅ ジャグラー{len(_jug_comb)}台→overflow: その他の優秀台ピックアップに追加({len(_ov_son)}台)")
+                    else:
+                        _has_kojin_jug_ex = any(m.strip() in _ex_jug_series_set for m in (kojin_zentai_machines + kojin_yushu_machines) if m.strip())
+                        _jug_has_other = _has_kojin_jug_ex or bool(result.get("high_ratio_list")) or bool(result.get("zen_dai_list") and any(
+                            item["name"] in _ex_jug_series_set for item in result.get("zen_dai_list", [])))
+                        _jug_t = "その他のジャグラーシリーズの優秀台" if _jug_has_other else "ジャグラーシリーズの優秀台"
+                        _jug_img_r = _build_machine_img(_jug_comb, _jug_t, None)
+                        _save_jpeg(_jug_img_r, _jug_path, target_kb=800)
+                        _log(f"  ✅ ジャグラーシリーズ優秀台再生成: {len(_jug_comb)}台")
 
             # ── 並び画像（subprocess）────────────────────────────────
             narabi_result: dict | None = None

@@ -20,7 +20,7 @@
           true,
           false,
           false,
-          false
+          true
         ],
         [
           true,
@@ -38,7 +38,7 @@
           true,
           false,
           false,
-          false
+          true
         ],
         [
           true,
@@ -47,7 +47,7 @@
           true,
           true,
           true,
-          false
+          true
         ],
         [
           false,
@@ -187,16 +187,6 @@
       ],
       "machine_name": "東京喰種",
       "date_checks": {
-        "2026-06-21": [
-          false,
-          false,
-          true,
-          false,
-          false,
-          true,
-          false,
-          false
-        ],
         "2026-06-22": [
           false,
           false,
@@ -256,6 +246,16 @@
           true,
           false,
           false
+        ],
+        "2026-06-28": [
+          false,
+          false,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false
         ]
       },
       "blank_days": [
@@ -268,13 +268,13 @@
         false
       ],
       "blank_date_checks": {
-        "2026-06-21": false,
         "2026-06-22": false,
         "2026-06-23": false,
         "2026-06-24": false,
         "2026-06-25": false,
         "2026-06-26": false,
-        "2026-06-27": false
+        "2026-06-27": false,
+        "2026-06-28": false
       }
     },
     "t3": {
@@ -303,6 +303,10 @@
         "3,2": [
           "ファンキー2"
         ],
+        "3,6": [
+          "ゴージャグ3",
+          "ジャグラーガールズ"
+        ],
         "4,0": [
           "マイジャグV",
           "ネオアイム"
@@ -324,6 +328,10 @@
           "ネオアイム",
           "ファンキー2",
           "ゴージャグ3"
+        ],
+        "4,6": [
+          "マイジャグV",
+          "ネオアイム"
         ],
         "6,5": [
           "ゴージャグ3",

@@ -5863,6 +5863,32 @@ def show_auto_page(with_slump: bool = False) -> None:
                             sonota_exclude={m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()},
                             jug_suebangai_tails=_prev_jug_sue_tails,
                         )
+                        # 秋葉原スランプ付き: その他の優秀台ピックアップ①②生成（プレビュー用）
+                        if with_slump and store == "秋葉原" and _prev_result.get("ok"):
+                            _s3_old_pv = os.path.join(_tmpdir, "その他の優秀台ピックアップ.jpg")
+                            _s3_1_pv   = os.path.join(_tmpdir, "その他の優秀台ピックアップ①.jpg")
+                            _s3_2_pv   = os.path.join(_tmpdir, "その他の優秀台ピックアップ②.jpg")
+                            if os.path.exists(_s3_old_pv):
+                                os.replace(_s3_old_pv, _s3_1_pv)
+                                _rfl_pv = _prev_result["files"]
+                                for _ri_pv in range(len(_rfl_pv)):
+                                    if os.path.basename(_rfl_pv[_ri_pv]) == "その他の優秀台ピックアップ.jpg":
+                                        _rfl_pv[_ri_pv] = _s3_1_pv
+                                        break
+                            _pv_s3_df_g = _prev_result.get("df")
+                            _pv_s3_dr_g = _prev_result.get("diff_raw")
+                            _pv_1_bans  = sorted({int(_e["ban"]) for _e in _prev_result.get("sonota_excellent_list", []) if "ban" in _e})
+                            if _pv_s3_df_g is not None and _pv_s3_dr_g is not None and _pv_1_bans:
+                                _s3_2k_pv = [
+                                    _b for _b in _pv_1_bans
+                                    if not (_pv_s3_df_g[_pv_s3_df_g["台番"] == _b]).empty
+                                    and int(_pv_s3_dr_g.loc[_pv_s3_df_g[_pv_s3_df_g["台番"] == _b].index[0]]) >= 2000
+                                ]
+                                if _s3_2k_pv:
+                                    _s3_2k_df_pv  = _pv_s3_df_g[_pv_s3_df_g["台番"].isin(_s3_2k_pv)].copy().reset_index(drop=True)
+                                    _s3_2k_img_pv = _build_machine_img(_s3_2k_df_pv, "その他の優秀台ピックアップ②", None)
+                                    _save_jpeg(_s3_2k_img_pv, _s3_2_pv, target_kb=800)
+                                    _prev_result["files"].append(_s3_2_pv)
                         _prev_img_list: list[tuple[str, "Image.Image"]] = []
                         if _prev_result["ok"]:
                             # パイプライン出力JPGをbasename→(name, Image)辞書に読み込む

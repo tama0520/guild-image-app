@@ -14,16 +14,7 @@
       "title": "週間オススメ スマスロ北斗の拳",
       "checks": [
         [
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false
-        ],
-        [
-          false,
+          true,
           false,
           false,
           false,
@@ -33,6 +24,15 @@
         ],
         [
           false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          true,
           false,
           false,
           false,
@@ -251,9 +251,9 @@
           false,
           false,
           true,
+          true,
           false,
-          false,
-          false,
+          true,
           false,
           false
         ]
@@ -291,10 +291,16 @@
       "title": "週間オススメ ジャグラーシリーズ",
       "machine_name": "ジャグラー系",
       "cell_machines": {
+        "2,0": [
+          "ハピジャグV",
+          "ジャグラーガールズ",
+          "ミスジャグ"
+        ],
         "4,0": [
           "マイジャグV",
           "ネオアイム",
-          "ファンキー2"
+          "ファンキー2",
+          "ジャグラーガールズ"
         ]
       },
       "start_date": "2026-06-29",

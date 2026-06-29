@@ -4041,6 +4041,9 @@ def _restore_auto_inputs(excel_name: str, store: str) -> None:
             st.session_state[k] = persistent[k]
         else:
             st.session_state[k] = v
+    # 秋葉原は個別画像を毎回デフォルトONにする
+    if store == "秋葉原":
+        st.session_state["kojin_enabled"] = True
 
 
 # ── 記事用ページ入力値の永続化 ────────────────────────────────────────────────

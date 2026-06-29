@@ -6445,10 +6445,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                 _merged_pv.append((_fn_pv, _img_pv))
                                             continue
                                         _g_imgs_pv: list["Image.Image"] = []
-                                        _show_mn_pv = (_bare_pv in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
+                                        _show_mn_pv = (_bare_pv in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg",
+                                                                       "その他の優秀台ピックアップ①.jpg", "その他の優秀台ピックアップ②.jpg")
                                                        or _bare_pv.startswith("末尾") or _bare_pv.startswith("バラエティ"))
                                         _is_zentai_pv = (not _bare_pv.endswith("_高配分.jpg") and
-                                                         _bare_pv not in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg"))
+                                                         _bare_pv not in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg",
+                                                                          "その他の優秀台ピックアップ①.jpg", "その他の優秀台ピックアップ②.jpg"))
                                         _ban2diff_pv: dict[str, int] = {}
                                         if _pv_df is not None and _pv_diff is not None:
                                             for _idx_p, _row_p in _pv_df.iterrows():
@@ -8438,7 +8440,20 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 if _jp_1k_bm:
                                     _sonota_bans_ig2 = sorted(set(_sonota_bans_ig2) | set(_jp_1k_bm))
                     if _sonota_bans_ig2:
-                        _ig_bm_u["その他の優秀台ピックアップ.jpg"] = _sonota_bans_ig2
+                        if with_slump and store == "秋葉原":
+                            _ig_bm_u["その他の優秀台ピックアップ①.jpg"] = _sonota_bans_ig2
+                            _ig_bm_u2_df = result.get("df")
+                            _ig_bm_u2_dr = result.get("diff_raw")
+                            if _ig_bm_u2_df is not None and _ig_bm_u2_dr is not None:
+                                _s2k_bm = [
+                                    _b for _b in _sonota_bans_ig2
+                                    if not (_ig_bm_u2_df[_ig_bm_u2_df["台番"] == _b]).empty
+                                    and int(_ig_bm_u2_dr.loc[_ig_bm_u2_df[_ig_bm_u2_df["台番"] == _b].index[0]]) >= 2000
+                                ]
+                                if _s2k_bm:
+                                    _ig_bm_u["その他の優秀台ピックアップ②.jpg"] = _s2k_bm
+                        else:
+                            _ig_bm_u["その他の優秀台ピックアップ.jpg"] = _sonota_bans_ig2
                     for _nami2u in result.get("nami_list", []):
                         _nt2u = _nami2u.get("title", "")
                         if _nt2u and _nami2u.get("bans"):
@@ -8592,10 +8607,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                 _ig_composite.append((_lfn_exec, _lfb_exec))
                                             continue
                                         _g_imgs_exec: list["Image.Image"] = []
-                                        _show_mn_exec = (_bare_exec in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
+                                        _show_mn_exec = (_bare_exec in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg",
+                                                                        "その他の優秀台ピックアップ①.jpg", "その他の優秀台ピックアップ②.jpg")
                                                         or _bare_exec.startswith("末尾") or _bare_exec.startswith("バラエティ"))
                                         _is_zentai_exec = (not _bare_exec.endswith("_高配分.jpg") and
-                                                           _bare_exec not in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg"))
+                                                           _bare_exec not in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg",
+                                                                              "その他の優秀台ピックアップ①.jpg", "その他の優秀台ピックアップ②.jpg"))
                                         for _b_exec in _bans_exec:
                                             _it_exec = _ig_by_uid_exec.get(str(_b_exec))
                                             if _it_exec is None or not _it_exec.get("points"):

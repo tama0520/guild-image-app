@@ -4720,15 +4720,18 @@ def show_auto_page(with_slump: bool = False) -> None:
                 import datetime as _dt
                 _now = _dt.datetime.now()
                 _rt_default = _now.date() if _now.hour >= 7 else _now.date() - _dt.timedelta(days=1)
-                # 確定→速報に切り替わった瞬間はキーを削除してdefault値（当日）を使わせる
+                # 確定→速報切替時にカウンタを増やして新キーを生成し当日にリセット
+                # （ReactのWidget内部キャッシュを確実に破棄するためキー自体を変える）
                 _tb_prev_mode_key = f"_auto_tb_prev_mode_{store}"
+                _tb_cnt_key = f"_auto_tb_cnt_{store}"
                 if st.session_state.get(_tb_prev_mode_key) != "rt":
-                    st.session_state.pop(f"auto_tb_date_rt_{store}", None)
+                    st.session_state[_tb_cnt_key] = st.session_state.get(_tb_cnt_key, 0) + 1
                 st.session_state[_tb_prev_mode_key] = "rt"
+                _tb_cnt = st.session_state.get(_tb_cnt_key, 0)
                 _tb_date = st.date_input(
                     "日付を選択（速報は営業日に合わせて選択・日付変更では自動取得しません）",
                     value=_rt_default,
-                    key=f"auto_tb_date_rt_{store}",
+                    key=f"auto_tb_date_rt_{store}_{_tb_cnt}",
                 )
             else:
                 st.session_state[f"_auto_tb_prev_mode_{store}"] = "fix"
@@ -11268,15 +11271,16 @@ def show_rote_page() -> None:
                 import datetime as _dt_r
                 _now_r = _dt_r.datetime.now()
                 _rt_def_r = _now_r.date() if _now_r.hour >= 7 else _now_r.date() - _dt_r.timedelta(days=1)
-                # 確定→速報に切り替わった瞬間はキーを削除してdefault値（当日）を使わせる
                 _rote_prev_mode_key = f"_rote_tb_prev_mode_{store}"
+                _rote_cnt_key = f"_rote_tb_cnt_{store}"
                 if st.session_state.get(_rote_prev_mode_key) != "rt":
-                    st.session_state.pop(f"rote_tb_date_rt_{store}", None)
+                    st.session_state[_rote_cnt_key] = st.session_state.get(_rote_cnt_key, 0) + 1
                 st.session_state[_rote_prev_mode_key] = "rt"
+                _rote_cnt = st.session_state.get(_rote_cnt_key, 0)
                 _rote_date = st.date_input(
                     "日付を選択（速報は営業日に合わせて選択・日付変更では自動取得しません）",
                     value=_rt_def_r,
-                    key=f"rote_tb_date_rt_{store}",
+                    key=f"rote_tb_date_rt_{store}_{_rote_cnt}",
                 )
             else:
                 st.session_state[f"_rote_tb_prev_mode_{store}"] = "fix"

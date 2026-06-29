@@ -31,6 +31,18 @@ from openpyxl import load_workbook
 # フォントディレクトリ（このスクリプトと同階層の fonts/ フォルダ）
 _FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
 
+# .env をモジュール起動時に一度だけ読み込む（ローカル用）
+# Cloud では st.secrets が使われるため .env がなくてもエラーにしない
+try:
+    from pathlib import Path as _Path
+    from dotenv import load_dotenv as _load_dotenv
+    for _ep in [_Path(__file__).parent / ".env", _Path(".env")]:
+        if _ep.exists():
+            _load_dotenv(_ep, override=True)
+            break
+except Exception:
+    pass
+
 import logging as _logging
 import pandas as pd
 import streamlit as st
@@ -12814,18 +12826,20 @@ _PISION_ALLOWED_HALLS: list[str] = [
 ]
 
 
-def _get_pision_api_key() -> "str | None":
-    """APIキーを st.secrets → .env → 環境変数 の優先順で取得する。"""
+def get_secret_value(key: str, default=None):
+    """st.secrets → os.getenv の優先順でシークレット値を取得する。
+    ローカルは .env（起動時ロード済み）、Cloud は st.secrets を使う。"""
     try:
-        return st.secrets["PISION_API_KEY"]
+        if key in st.secrets:
+            return st.secrets[key]
     except Exception:
         pass
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except ImportError:
-        pass
-    return os.getenv("PISION_API_KEY")
+    return os.getenv(key, default)
+
+
+def _get_pision_api_key() -> "str | None":
+    """APIキーを st.secrets → 環境変数 の優先順で取得する。"""
+    return get_secret_value("PISION_API_KEY")
 
 
 def find_slump_template() -> "object | None":
@@ -12884,22 +12898,8 @@ def fetch_pision_results(api_key: str, hall_id: str, date: str) -> "list | None"
 # realtime 用 hallId は X-Api-Key 側の hall id とは無関係（/realtime の店舗 select から取得）。
 
 def _get_pision_rt_credentials() -> "tuple[str | None, str | None]":
-    """realtime ログイン情報を st.secrets → .env → 環境変数 の優先順で取得する。"""
-    user = pw = None
-    try:
-        user = st.secrets["PISION_RT_USER"]
-        pw   = st.secrets["PISION_RT_PASS"]
-    except Exception:
-        pass
-    if not user or not pw:
-        try:
-            from dotenv import load_dotenv
-            load_dotenv()
-        except ImportError:
-            pass
-        user = user or os.getenv("PISION_RT_USER")
-        pw   = pw   or os.getenv("PISION_RT_PASS")
-    return user, pw
+    """realtime ログイン情報を st.secrets → 環境変数 の優先順で取得する。"""
+    return get_secret_value("PISION_RT_USER"), get_secret_value("PISION_RT_PASS")
 
 
 def _pision_rt_csrf(session, path: str) -> "str | None":

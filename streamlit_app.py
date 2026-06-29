@@ -3567,6 +3567,7 @@ def run_auto_pipeline(
     article_mode: bool = False,
     sonota_exclude: set[str] = frozenset(),
     jug_suebangai_tails: list[str] = [],
+    variety_bans: set[int] = set(),
 ) -> dict:
     """3ステップパイプラインを実行する。
     戻り値: {"ok": bool, "files": list[str], "error": str | None,
@@ -3613,6 +3614,8 @@ def run_auto_pipeline(
                     int(b) for b in df["台番"]
                     if str(int(b))[-len(_jts):] == _jts
                 }
+        # バラエティ台番をsonota除外セットに追加（run_step3_otherの_ex_bansに含める）
+        suebangai_bans |= variety_bans
 
         log("① 全台系PNG ＋ 全台プラス機種別JPG")
         f1, zen_dai_list = run_step1_main(df, diff_raw, output_dir, stem, cfg, log, article_mode=article_mode)
@@ -5865,6 +5868,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             suebangai_tails=_prev_sue_tails,
                             sonota_exclude={m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()},
                             jug_suebangai_tails=_prev_jug_sue_tails,
+                            variety_bans=(ranges_to_bans(parse_ranges(variety_ranges_text.strip())) if (with_slump and store == "秋葉原" and variety_enabled and variety_ranges_text.strip()) else set()),
                         )
                         # 秋葉原スランプ付き: その他の優秀台ピックアップ①②生成（プレビュー用）
                         if with_slump and store == "秋葉原" and _prev_result.get("ok"):
@@ -6043,7 +6047,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         else:
                                             _var_title = "バラエティ"
                                         if not _var_df.empty:
-                                            _var_sort = _var_dr.argsort()[::-1].values
+                                            _var_sort = _var_df["台番"].argsort().values
                                             _var_df = _var_df.iloc[_var_sort].reset_index(drop=True)
                                             _var_dr = _var_dr.iloc[_var_sort].reset_index(drop=True)
                                             _var_stat = {"total_diff": int(_var_dr.sum()), "avg_diff": int(round(_var_dr.mean())), "win_count": int((_var_dr > 0).sum()), "total_count": len(_var_df)} if variety_mode == "全台" else None
@@ -7537,6 +7541,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 suebangai_tails=_sue_tails_run,
                 sonota_exclude={m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()},
                 jug_suebangai_tails=_jug_sue_tails_run,
+                variety_bans=(ranges_to_bans(parse_ranges(variety_ranges_text.strip())) if (with_slump and store == "秋葉原" and variety_enabled and variety_ranges_text.strip()) else set()),
             )
 
             # 秋葉原スランプ付き: その他の優秀台ピックアップ①②生成
@@ -8325,7 +8330,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             else:
                                 _var_title_ex = "バラエティ"
                             if not _var_df_ex.empty:
-                                _vs_ex = _var_dr_ex.argsort()[::-1].values
+                                _vs_ex = _var_df_ex["台番"].argsort().values
                                 _var_df_ex = _var_df_ex.iloc[_vs_ex].reset_index(drop=True)
                                 _var_dr_ex = _var_dr_ex.iloc[_vs_ex].reset_index(drop=True)
                                 _var_stat_ex = {"total_diff": int(_var_dr_ex.sum()), "avg_diff": int(round(_var_dr_ex.mean())), "win_count": int((_var_dr_ex > 0).sum()), "total_count": len(_var_df_ex)} if variety_mode == "全台" else None

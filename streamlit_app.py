@@ -7988,7 +7988,11 @@ def show_auto_page(with_slump: bool = False) -> None:
 
                 # その他の優秀台ピックアップを再生成
                 if _extra_dfs and _df_res is not None and _diff_res is not None:
-                    _sonota_path = os.path.join(output_dir, "その他の優秀台ピックアップ.jpg")
+                    # 秋葉原スランプ付きは①.jpgに保存（その他の優秀台ピックアップ.jpgを作らない）
+                    if with_slump and store == "秋葉原":
+                        _sonota_path = os.path.join(output_dir, "その他の優秀台ピックアップ①.jpg")
+                    else:
+                        _sonota_path = os.path.join(output_dir, "その他の優秀台ピックアップ.jpg")
                     _ex_bans = {item["ban"] for item in result.get("sonota_excellent_list", [])}
                     if _ex_bans:
                         _ex_rows = _df_res[_df_res["台番"].apply(lambda b: int(b) in _ex_bans)].copy().reset_index(drop=True)
@@ -8006,6 +8010,18 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _log(f"  ✅ その他の優秀台ピックアップ再生成: {len(_son_combined)}台")
                     _sonota_extra_bans = [int(str(b).split(".")[0]) for b in _son_combined["台番"].dropna()
                                           if str(b).split(".")[0].lstrip("-").isdigit()]
+                    # 秋葉原スランプ付き: ②.jpg（+2000枚以上）も更新
+                    if with_slump and store == "秋葉原":
+                        _s2_path_regen = os.path.join(output_dir, "その他の優秀台ピックアップ②.jpg")
+                        _son_bans_set2 = set(_son_combined["台番"].dropna().astype(int))
+                        _s2_mask = _df_res["台番"].apply(lambda b: int(b) in _son_bans_set2)
+                        _s2_diff_vals = _diff_res.loc[_df_res[_s2_mask].index]
+                        _s2_2k_bans = set(_df_res[_s2_mask][(_s2_diff_vals.values >= 2000)]["台番"].astype(int))
+                        if _s2_2k_bans:
+                            _s2_df_regen = _son_combined[_son_combined["台番"].apply(lambda b: int(b) in _s2_2k_bans)].copy().reset_index(drop=True)
+                            _save_jpeg(_build_machine_img(_s2_df_regen, "その他の優秀台ピックアップ", None), _s2_path_regen, target_kb=800)
+                        elif os.path.exists(_s2_path_regen):
+                            os.remove(_s2_path_regen)
                 # ジャグラーシリーズ優秀台を再生成（秋葉原スランプ付きは生成しない）
                 if _jug_ex_dfs and _df_res is not None and not (with_slump and store == "秋葉原"):
                     _jug_path = os.path.join(output_dir, "ジャグラーシリーズ優秀台.jpg")

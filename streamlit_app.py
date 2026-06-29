@@ -2455,10 +2455,11 @@ def run_step1_main(
 ) -> tuple[list[str], list[dict]]:
     """Step 1: 全台系PNG + 全台プラス機種別JPG を生成する。
     戻り値: (generated, zen_dai_list)"""
-    manual_exclude = cfg["manual_exclude"]
-    juggler_series = cfg["juggler_series"]
-    juggler_g_min  = cfg["juggler_g_min"]
-    prob_jobs_map  = cfg["prob_jobs_map"]
+    manual_exclude   = cfg["manual_exclude"]
+    juggler_series   = cfg["juggler_series"]
+    juggler_g_min    = cfg["juggler_g_min"]
+    prob_jobs_map    = cfg["prob_jobs_map"]
+    juggler_prob_map = {m: thr for m, thr, _ in cfg.get("juggler_jobs", [])}
     generated: list[str] = []
     zen_dai_list: list[dict] = []
 
@@ -2504,14 +2505,20 @@ def run_step1_main(
         total_raw = len(grp)
         dr_all = diff_raw.loc[grp.index]  # G数フィルター前の全台差枚
         _g_all = grp["ゲーム数_rounded"] if "ゲーム数_rounded" in grp.columns else None
+        _grp_orig = grp  # 合算確率チェック用（フィルター前）
         if machine in juggler_series:
             grp = grp[grp["ゲーム数_rounded"] >= juggler_g_min]
         if grp.empty:
             continue
         dr_m = diff_raw.loc[grp.index]
-        # 各台が「+1000枚以上」または「G数>=2000かつプラス」なら全台系
+        # 各台が「+1000枚以上」または「G数>=2000かつプラスかつ合算確率達成」なら全台系
+        # ジャグラーは合算確率条件も必須
+        _jug_prob_thr = juggler_prob_map.get(machine) if machine in juggler_series else None
         if _g_all is not None:
-            all_plus = bool(((dr_all >= 1000) | ((dr_all >= 0) & (_g_all >= 2000))).all())
+            if _jug_prob_thr is not None and "合算確率_num" in _grp_orig.columns:
+                all_plus = bool(((dr_all >= 1000) | ((dr_all >= 0) & (_g_all >= 2000) & (_grp_orig["合算確率_num"] <= _jug_prob_thr))).all())
+            else:
+                all_plus = bool(((dr_all >= 1000) | ((dr_all >= 0) & (_g_all >= 2000))).all())
         else:
             all_plus = bool((dr_all >= 0).all())
         if not all_plus or len(dr_m) <= 1:
@@ -2577,7 +2584,7 @@ def run_step2_juggler(
         dr_m = diff_raw.loc[mdf.index]
         # 全台プラスチェックはG数フィルター前の全台で行う（G数未達マイナス台が隠れるバグ防止）
         _dr_all_orig = diff_raw.loc[all_for_m_orig.index]
-        _all_plus = bool(((_dr_all_orig >= 1000) | ((_dr_all_orig >= 0) & (all_for_m_orig["ゲーム数_rounded"] >= juggler_g_min))).all())
+        _all_plus = bool(((_dr_all_orig >= 1000) | ((_dr_all_orig >= 0) & (all_for_m_orig["ゲーム数_rounded"] >= juggler_g_min) & (all_for_m_orig["合算確率_num"] <= prob_threshold))).all())
         if _all_plus:
             log(f"  {machine} 全台プラス→スキップ")
             continue

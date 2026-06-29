@@ -4718,7 +4718,8 @@ def show_auto_page(with_slump: bool = False) -> None:
 
             if _tb_is_rt:
                 import datetime as _dt
-                _now = _dt.datetime.now()
+                _jst = _dt.timezone(_dt.timedelta(hours=9))
+                _now = _dt.datetime.now(_jst)
                 _rt_default = _now.date() if _now.hour >= 7 else _now.date() - _dt.timedelta(days=1)
                 # 確定→速報切替時にカウンタを増やして新キーを生成し当日にリセット
                 # （ReactのWidget内部キャッシュを確実に破棄するためキー自体を変える）
@@ -11269,7 +11270,8 @@ def show_rote_page() -> None:
 
             if _rote_is_rt:
                 import datetime as _dt_r
-                _now_r = _dt_r.datetime.now()
+                _jst_r = _dt_r.timezone(_dt_r.timedelta(hours=9))
+                _now_r = _dt_r.datetime.now(_jst_r)
                 _rt_def_r = _now_r.date() if _now_r.hour >= 7 else _now_r.date() - _dt_r.timedelta(days=1)
                 _rote_prev_mode_key = f"_rote_tb_prev_mode_{store}"
                 _rote_cnt_key = f"_rote_tb_cnt_{store}"

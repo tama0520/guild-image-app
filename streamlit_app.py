@@ -5886,7 +5886,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 ]
                                 if _s3_2k_pv:
                                     _s3_2k_df_pv  = _pv_s3_df_g[_pv_s3_df_g["台番"].isin(_s3_2k_pv)].copy().reset_index(drop=True)
-                                    _s3_2k_img_pv = _build_machine_img(_s3_2k_df_pv, "その他の優秀台ピックアップ②", None)
+                                    _s3_2k_img_pv = _build_machine_img(_s3_2k_df_pv, "その他の優秀台ピックアップ", None)
                                     _save_jpeg(_s3_2k_img_pv, _s3_2_pv, target_kb=800)
                                     _prev_result["files"].append(_s3_2_pv)
                         _prev_img_list: list[tuple[str, "Image.Image"]] = []
@@ -7545,7 +7545,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     ]
                     if _s3_2k:
                         _s3_2k_df = _s3_df_r[_s3_df_r["台番"].isin(_s3_2k)].copy().reset_index(drop=True)
-                        _s3_2k_img = _build_machine_img(_s3_2k_df, "その他の優秀台ピックアップ②", None)
+                        _s3_2k_img = _build_machine_img(_s3_2k_df, "その他の優秀台ピックアップ", None)
                         _save_jpeg(_s3_2k_img, _s3_2, target_kb=800)
                         result["files"].append(_s3_2)
 

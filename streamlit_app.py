@@ -8373,7 +8373,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                 # ⑤ ジャグラーシリーズ優秀台
                 _order.append("ジャグラーシリーズ優秀台.jpg")
                 # ⑤ その他の優秀台ピックアップ
-                _order.append("その他の優秀台ピックアップ.jpg")
+                if with_slump and store == "秋葉原":
+                    _order.append("その他の優秀台ピックアップ①.jpg")
+                    _order.append("その他の優秀台ピックアップ②.jpg")
+                else:
+                    _order.append("その他の優秀台ピックアップ.jpg")
                 # オススメ
                 _sfx_r = {1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
                 for _blk in recommended_blocks:

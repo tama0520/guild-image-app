@@ -6309,8 +6309,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _pv_title_map[f"{_make_safe_fn(_hr_t['name'])}_高配分.jpg"] = _hr_t['name'] + "（優秀台）"
                         _pv_title_map["ジャグラーシリーズ優秀台.jpg"] = "ジャグラーシリーズ優秀台"
                         if with_slump and store == "秋葉原":
-                            _pv_title_map["その他の優秀台ピックアップ①.jpg"] = "その他の優秀台ピックアップ①"
-                            _pv_title_map["その他の優秀台ピックアップ②.jpg"] = "その他の優秀台ピックアップ②"
+                            _pv_title_map["その他の優秀台ピックアップ①.jpg"] = "その他の優秀台ピックアップ"
+                            _pv_title_map["その他の優秀台ピックアップ②.jpg"] = "その他の優秀台ピックアップ"
                         else:
                             _pv_title_map["その他の優秀台ピックアップ.jpg"] = "その他の優秀台ピックアップ"
                         for _nami_t in _prev_result.get("nami_list", []):
@@ -7600,7 +7600,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 if _sonota_bans_ig:
                     if with_slump and store == "秋葉原":
                         _ig_ban_map["その他の優秀台ピックアップ①.jpg"]   = _sonota_bans_ig
-                        _ig_title_map["その他の優秀台ピックアップ①.jpg"] = "その他の優秀台ピックアップ①"
+                        _ig_title_map["その他の優秀台ピックアップ①.jpg"] = "その他の優秀台ピックアップ"
                         _ig_s3_df2  = result.get("df")
                         _ig_s3_dr2  = result.get("diff_raw")
                         if _ig_s3_df2 is not None and _ig_s3_dr2 is not None:
@@ -7611,7 +7611,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             ]
                             if _ig_2k:
                                 _ig_ban_map["その他の優秀台ピックアップ②.jpg"]   = _ig_2k
-                                _ig_title_map["その他の優秀台ピックアップ②.jpg"] = "その他の優秀台ピックアップ②"
+                                _ig_title_map["その他の優秀台ピックアップ②.jpg"] = "その他の優秀台ピックアップ"
                     else:
                         _ig_ban_map["その他の優秀台ピックアップ.jpg"]   = _sonota_bans_ig
                         _ig_title_map["その他の優秀台ピックアップ.jpg"] = "その他の優秀台ピックアップ"

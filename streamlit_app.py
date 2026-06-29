@@ -6953,12 +6953,14 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _son_order = _son_comb["台番"].argsort()
                             _son_comb  = _son_comb.iloc[_son_order].reset_index(drop=True)
                             _son_img   = _build_machine_img(_son_comb, "その他の優秀台ピックアップ", None)
+                            # 秋葉原スランプ付きは①.jpgキーで管理
+                            _son_pv_key = "その他の優秀台ピックアップ①.jpg" if (with_slump and store == "秋葉原") else "その他の優秀台ピックアップ.jpg"
                             for _ci, (_pname, _) in enumerate(_new_prev):
-                                if _pname == "その他の優秀台ピックアップ.jpg":
+                                if _pname == _son_pv_key:
                                     _new_prev[_ci] = (_pname, _son_img)
                                     break
                             else:
-                                _new_prev.append(("その他の優秀台ピックアップ.jpg", _son_img))
+                                _new_prev.append((_son_pv_key, _son_img))
                                 st.session_state[f"auto_prev_ck_{store}_{len(_new_prev)-1}"] = True
                             _updated = True
                         # ジャグラーシリーズ優秀台更新（秋葉原スランプ付きは生成しない）
@@ -7081,7 +7083,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _upd_dyn_ban_map["ジャグラーシリーズ優秀台.jpg"] = sorted(dict.fromkeys(_jug_bans_upd))
                                 if _all_dfs:
                                     _son_bans_upd = [int(str(b).split(".")[0]) for b in _son_comb["台番"].dropna() if str(b).split(".")[0].lstrip("-").isdigit()]
-                                    _upd_dyn_ban_map["その他の優秀台ピックアップ.jpg"] = _son_bans_upd
+                                    if with_slump and store == "秋葉原":
+                                        _upd_dyn_ban_map["その他の優秀台ピックアップ①.jpg"] = _son_bans_upd
+                                        # ②も更新（+2000枚以上）
+                                        if _pv_diff is not None and _pv_df is not None:
+                                            _s2k_upd = [b for b in _son_bans_upd
+                                                        if not _pv_df[_pv_df["台番"] == b].empty
+                                                        and int(_pv_diff.loc[_pv_df[_pv_df["台番"] == b].index[0]]) >= 2000]
+                                            if _s2k_upd:
+                                                _upd_dyn_ban_map["その他の優秀台ピックアップ②.jpg"] = _s2k_upd
+                                    else:
+                                        _upd_dyn_ban_map["その他の優秀台ピックアップ.jpg"] = _son_bans_upd
                                 for _ui, (_ufn, _uimg) in enumerate(_new_prev):
                                     if _ufn not in _upd_dyn_ban_map:
                                         continue

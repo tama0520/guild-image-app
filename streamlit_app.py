@@ -8582,16 +8582,18 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _log(f"⚠️ スランプ: '{store}' に対応するホールが見つかりません。pisionホール一覧: {_ig_all_hall_names}")
                             else:
                                 _log(f"✅ スランプ: ホール発見（hall_id={_ig_hall_id_exec}）")
-                                _ig_pision_exec = fetch_pision_results(_ig_api_key_exec, _ig_hall_id_exec, _ig_date_exec)
-                                if not _ig_pision_exec:
-                                    _log(f"⚠️ スランプ: {_ig_date_exec} の確定データなし（404/未公開）→ 速報キャッシュを確認")
-                                    _rt_cached = st.session_state.get(f"_auto_tb_rt_items_{store}")
-                                    _rt_cached_date = st.session_state.get(f"_auto_tb_rt_items_date_{store}", "")
-                                    if _rt_cached and _rt_cached_date == _ig_date_exec:
-                                        _ig_pision_exec = _rt_cached
-                                        _log(f"✅ スランプ: 速報キャッシュ使用（{len(_ig_pision_exec)}台）")
+                                # 速報キャッシュが同日付で存在する場合は優先使用（確定APIより新鮮なデータ）
+                                _rt_cached = st.session_state.get(f"_auto_tb_rt_items_{store}")
+                                _rt_cached_date = st.session_state.get(f"_auto_tb_rt_items_date_{store}", "")
+                                if _rt_cached and _rt_cached_date == _ig_date_exec:
+                                    _ig_pision_exec = _rt_cached
+                                    _log(f"✅ スランプ: 速報キャッシュ使用（{len(_ig_pision_exec)}台）")
+                                else:
+                                    _ig_pision_exec = fetch_pision_results(_ig_api_key_exec, _ig_hall_id_exec, _ig_date_exec)
+                                    if not _ig_pision_exec:
+                                        _log(f"⚠️ スランプ: {_ig_date_exec} の確定データなし（404/未公開）")
                                     else:
-                                        _log(f"⚠️ スランプ: 速報キャッシュもなし（⓪で速報取得済みか確認してください）")
+                                        _log(f"✅ スランプ: 確定データ使用")
                                 if _ig_pision_exec:
                                     _log(f"✅ スランプ: {len(_ig_pision_exec)}台分のデータ取得")
                                     _slump_apply_names(_ig_pision_exec)

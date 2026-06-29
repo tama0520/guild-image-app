@@ -7113,7 +7113,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             pass
                                     if store == "秋葉原":
                                         _u2_bare  = re.sub(r"^\d{2}_", "", _ufn)
-                                        _u2_title = st.session_state.get(f"_inagawa_title_map_{store}", {}).get(_u2_bare, os.path.splitext(_u2_bare)[0])
+                                        _u2_title = (st.session_state.get(f"_inagawa_title_map_{store}", {}).get(_u2_bare)
+                                                     or re.sub(r"[①②③④⑤⑥⑦⑧⑨⑩]", "", os.path.splitext(_u2_bare)[0]))
                                         _u2_slump = _build_slump_title_img(_u2_title, _g_imgs_u2, _upd_bbb)
                                         if _u2_slump is not None:
                                             _new_prev[_ui] = (_ufn, _u2_slump)

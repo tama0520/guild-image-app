@@ -2076,11 +2076,8 @@ def _make_safe_fn(name: str) -> str:
 
 
 def _check_github_token() -> tuple[bool, str]:
-    """GITHUB_TOKEN が secrets に設定されているか確認する。"""
-    try:
-        token = st.secrets.get("GITHUB_TOKEN", "")
-    except Exception as e:
-        return False, f"secrets 読み込みエラー: {e}"
+    """GITHUB_TOKEN が secrets/.env に設定されているか確認する。"""
+    token = get_secret_value("GITHUB_TOKEN", "")
     if not token:
         return False, "GITHUB_TOKEN が未設定です"
     return True, f"GITHUB_TOKEN 設定済み（先頭8文字: {str(token)[:8]}…）"
@@ -2091,10 +2088,7 @@ def _github_push_file(content_str: str, repo_path: str = "weekly_items.json") ->
     st.secrets["GITHUB_TOKEN"] が必要。
     """
     import urllib.request, urllib.error, base64 as _b64
-    try:
-        token = st.secrets.get("GITHUB_TOKEN", "")
-    except Exception:
-        return False, "secrets未設定"
+    token = get_secret_value("GITHUB_TOKEN", "")
     if not token:
         return False, "GITHUB_TOKEN未設定"
     repo = "tama0520/guild-image-app"

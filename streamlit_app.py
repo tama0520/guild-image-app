@@ -6155,8 +6155,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _prev_img_list.append(_fp_map["ジャグラーシリーズ優秀台.jpg"])
 
                             # ─ ⑥ その他の優秀台ピックアップ + オススメ ─
-                            if "その他の優秀台ピックアップ.jpg" in _fp_map:
-                                _prev_img_list.append(_fp_map["その他の優秀台ピックアップ.jpg"])
+                            if with_slump and store == "秋葉原":
+                                for _s3fn in ("その他の優秀台ピックアップ①.jpg", "その他の優秀台ピックアップ②.jpg"):
+                                    if _s3fn in _fp_map:
+                                        _prev_img_list.append(_fp_map[_s3fn])
+                            else:
+                                if "その他の優秀台ピックアップ.jpg" in _fp_map:
+                                    _prev_img_list.append(_fp_map["その他の優秀台ピックアップ.jpg"])
                             _rec_ban_map: dict[str, list[int]] = {}
                             if recommended_blocks and _pv_df is not None and _pv_diff is not None:
                                 _pv_scfg = get_store_config(store)
@@ -6250,7 +6255,21 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     if _jp_1k_pv:
                                         _son_bans_pv = sorted(set(_son_bans_pv) | set(_jp_1k_pv))
                         if _son_bans_pv:
-                            _pv_ban_map["その他の優秀台ピックアップ.jpg"] = _son_bans_pv
+                            if with_slump and store == "秋葉原":
+                                _pv_ban_map["その他の優秀台ピックアップ①.jpg"] = _son_bans_pv
+                                # ②: ①の台番を diff_raw で 2000+ に絞る
+                                _pv_s3_df2  = _prev_result.get("df")
+                                _pv_s3_dr2  = _prev_result.get("diff_raw")
+                                if _pv_s3_df2 is not None and _pv_s3_dr2 is not None:
+                                    _s3_2k_pv = [
+                                        _b for _b in _son_bans_pv
+                                        if not (_pv_s3_df2[_pv_s3_df2["台番"] == _b]).empty
+                                        and int(_pv_s3_dr2.loc[_pv_s3_df2[_pv_s3_df2["台番"] == _b].index[0]]) >= 2000
+                                    ]
+                                    if _s3_2k_pv:
+                                        _pv_ban_map["その他の優秀台ピックアップ②.jpg"] = _s3_2k_pv
+                            else:
+                                _pv_ban_map["その他の優秀台ピックアップ.jpg"] = _son_bans_pv
                         for _nami_pv in _prev_result.get("nami_list", []):
                             _nt_pv = _nami_pv.get("title", "")
                             if _nt_pv and _nami_pv.get("bans"):
@@ -6263,7 +6282,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                             if _hr_t.get("has_image", False):
                                 _pv_title_map[f"{_make_safe_fn(_hr_t['name'])}_高配分.jpg"] = _hr_t['name'] + "（優秀台）"
                         _pv_title_map["ジャグラーシリーズ優秀台.jpg"] = "ジャグラーシリーズ優秀台"
-                        _pv_title_map["その他の優秀台ピックアップ.jpg"] = "その他の優秀台ピックアップ"
+                        if with_slump and store == "秋葉原":
+                            _pv_title_map["その他の優秀台ピックアップ①.jpg"] = "その他の優秀台ピックアップ①"
+                            _pv_title_map["その他の優秀台ピックアップ②.jpg"] = "その他の優秀台ピックアップ②"
+                        else:
+                            _pv_title_map["その他の優秀台ピックアップ.jpg"] = "その他の優秀台ピックアップ"
                         for _nami_t in _prev_result.get("nami_list", []):
                             _nt_t = _nami_t.get("title", "")
                             if _nt_t:
@@ -7472,6 +7495,34 @@ def show_auto_page(with_slump: bool = False) -> None:
                 jug_suebangai_tails=_jug_sue_tails_run,
             )
 
+            # 秋葉原スランプ付き: その他の優秀台ピックアップ①②生成
+            if with_slump and store == "秋葉原" and result.get("ok"):
+                _s3_old = os.path.join(output_dir, "その他の優秀台ピックアップ.jpg")
+                _s3_1   = os.path.join(output_dir, "その他の優秀台ピックアップ①.jpg")
+                _s3_2   = os.path.join(output_dir, "その他の優秀台ピックアップ②.jpg")
+                if os.path.exists(_s3_old):
+                    os.replace(_s3_old, _s3_1)
+                    _rfl = result["files"]
+                    for _ri in range(len(_rfl)):
+                        if os.path.basename(_rfl[_ri]) == "その他の優秀台ピックアップ.jpg":
+                            _rfl[_ri] = _s3_1
+                            break
+                # ② +2,000枚以上: ①の台番を diff_raw で絞る
+                _s3_df_r   = result.get("df")
+                _s3_diff_r = result.get("diff_raw")
+                _s3_1_bans = sorted({int(_e["ban"]) for _e in result.get("sonota_excellent_list", []) if "ban" in _e})
+                if _s3_df_r is not None and _s3_diff_r is not None and _s3_1_bans:
+                    _s3_2k = [
+                        _b for _b in _s3_1_bans
+                        if not (_s3_df_r[_s3_df_r["台番"] == _b]).empty
+                        and int(_s3_diff_r.loc[_s3_df_r[_s3_df_r["台番"] == _b].index[0]]) >= 2000
+                    ]
+                    if _s3_2k:
+                        _s3_2k_df = _s3_df_r[_s3_df_r["台番"].isin(_s3_2k)].copy().reset_index(drop=True)
+                        _s3_2k_img = _build_machine_img(_s3_2k_df, "その他の優秀台ピックアップ②", None)
+                        _save_jpeg(_s3_2k_img, _s3_2, target_kb=800)
+                        result["files"].append(_s3_2)
+
             # スランプ付き結果ポスト用：合成用データをsession_stateに保存
             if with_slump and result.get("ok"):
                 _df_ig = result.get("df")
@@ -7521,8 +7572,23 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _ig_title_map["ジャグラーシリーズ優秀台.jpg"] = "ジャグラーシリーズ優秀台"
                 _sonota_bans_ig = sorted({int(_e2["ban"]) for _e2 in result.get("sonota_excellent_list", []) if "ban" in _e2})
                 if _sonota_bans_ig:
-                    _ig_ban_map["その他の優秀台ピックアップ.jpg"] = _sonota_bans_ig
-                    _ig_title_map["その他の優秀台ピックアップ.jpg"] = "その他の優秀台ピックアップ"
+                    if with_slump and store == "秋葉原":
+                        _ig_ban_map["その他の優秀台ピックアップ①.jpg"]   = _sonota_bans_ig
+                        _ig_title_map["その他の優秀台ピックアップ①.jpg"] = "その他の優秀台ピックアップ①"
+                        _ig_s3_df2  = result.get("df")
+                        _ig_s3_dr2  = result.get("diff_raw")
+                        if _ig_s3_df2 is not None and _ig_s3_dr2 is not None:
+                            _ig_2k = [
+                                _b for _b in _sonota_bans_ig
+                                if not (_ig_s3_df2[_ig_s3_df2["台番"] == _b]).empty
+                                and int(_ig_s3_dr2.loc[_ig_s3_df2[_ig_s3_df2["台番"] == _b].index[0]]) >= 2000
+                            ]
+                            if _ig_2k:
+                                _ig_ban_map["その他の優秀台ピックアップ②.jpg"]   = _ig_2k
+                                _ig_title_map["その他の優秀台ピックアップ②.jpg"] = "その他の優秀台ピックアップ②"
+                    else:
+                        _ig_ban_map["その他の優秀台ピックアップ.jpg"]   = _sonota_bans_ig
+                        _ig_title_map["その他の優秀台ピックアップ.jpg"] = "その他の優秀台ピックアップ"
                 for _nami2 in result.get("nami_list", []):
                     _nt2 = _nami2.get("title", "")
                     if _nt2 and _nami2.get("bans"):

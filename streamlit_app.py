@@ -2098,27 +2098,32 @@ def _github_push_file(content_str: str, repo_path: str = "weekly_items.json") ->
         "Accept": "application/vnd.github.v3+json",
         "Content-Type": "application/json",
     }
-    # 現在のSHAを取得
-    try:
-        req = urllib.request.Request(url, headers=hdrs)
-        with urllib.request.urlopen(req, timeout=10) as r:
-            sha = json.loads(r.read())["sha"]
-    except Exception as e:
-        return False, f"SHA取得失敗: {e}"
-    # ファイルを更新
-    body = json.dumps({
-        "message": "auto: Cloud上のチェック状態を保存",
-        "content": _b64.b64encode(content_str.encode("utf-8")).decode("ascii"),
-        "sha": sha,
-        "branch": "main",
-    }).encode("utf-8")
-    try:
-        req2 = urllib.request.Request(url, data=body, headers=hdrs, method="PUT")
-        with urllib.request.urlopen(req2, timeout=15) as r:
-            r.read()
-        return True, "GitHubに同期しました"
-    except Exception as e:
-        return False, f"同期失敗: {e}"
+    # SHAを取得してPUT（409 Conflict時は最大3回リトライ）
+    for _attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers=hdrs)
+            with urllib.request.urlopen(req, timeout=10) as r:
+                sha = json.loads(r.read())["sha"]
+        except Exception as e:
+            return False, f"SHA取得失敗: {e}"
+        body = json.dumps({
+            "message": "auto: Cloud上のチェック状態を保存",
+            "content": _b64.b64encode(content_str.encode("utf-8")).decode("ascii"),
+            "sha": sha,
+            "branch": "main",
+        }).encode("utf-8")
+        try:
+            req2 = urllib.request.Request(url, data=body, headers=hdrs, method="PUT")
+            with urllib.request.urlopen(req2, timeout=15) as r:
+                r.read()
+            return True, "GitHubに同期しました"
+        except urllib.error.HTTPError as e:
+            if e.code == 409:
+                continue  # SHA競合 → 最新SHAで再試行
+            return False, f"同期失敗: {e}"
+        except Exception as e:
+            return False, f"同期失敗: {e}"
+    return False, "同期失敗: SHA競合が解消されませんでした"
 
 
 def _git_auto_pull() -> tuple[bool, str]:

@@ -4720,12 +4720,18 @@ def show_auto_page(with_slump: bool = False) -> None:
                 import datetime as _dt
                 _now = _dt.datetime.now()
                 _rt_default = _now.date() if _now.hour >= 7 else _now.date() - _dt.timedelta(days=1)
+                # 確定→速報に切り替わった瞬間は日付を当日にリセット
+                _tb_prev_mode_key = f"_auto_tb_prev_mode_{store}"
+                if st.session_state.get(_tb_prev_mode_key) != "rt":
+                    st.session_state[f"auto_tb_date_rt_{store}"] = _rt_default
+                st.session_state[_tb_prev_mode_key] = "rt"
                 _tb_date = st.date_input(
                     "日付を選択（速報は営業日に合わせて選択・日付変更では自動取得しません）",
                     value=st.session_state.get(f"auto_tb_date_rt_{store}", _rt_default),
                     key=f"auto_tb_date_rt_{store}",
                 )
             else:
+                st.session_state[f"_auto_tb_prev_mode_{store}"] = "fix"
                 _tb_date = st.date_input(
                     "日付を選択",
                     value=datetime.date.today() - datetime.timedelta(days=1),
@@ -11262,12 +11268,18 @@ def show_rote_page() -> None:
                 import datetime as _dt_r
                 _now_r = _dt_r.datetime.now()
                 _rt_def_r = _now_r.date() if _now_r.hour >= 7 else _now_r.date() - _dt_r.timedelta(days=1)
+                # 確定→速報に切り替わった瞬間は日付を当日にリセット
+                _rote_prev_mode_key = f"_rote_tb_prev_mode_{store}"
+                if st.session_state.get(_rote_prev_mode_key) != "rt":
+                    st.session_state[f"rote_tb_date_rt_{store}"] = _rt_def_r
+                st.session_state[_rote_prev_mode_key] = "rt"
                 _rote_date = st.date_input(
                     "日付を選択（速報は営業日に合わせて選択・日付変更では自動取得しません）",
                     value=st.session_state.get(f"rote_tb_date_rt_{store}", _rt_def_r),
                     key=f"rote_tb_date_rt_{store}",
                 )
             else:
+                st.session_state[f"_rote_tb_prev_mode_{store}"] = "fix"
                 _rote_date = st.date_input(
                     "日付を選択",
                     value=datetime.date.today() - datetime.timedelta(days=1),
@@ -12597,9 +12609,14 @@ def show_name_conversion_page() -> None:
                     st.error("❌ 速報データには PISION_RT_USER / PISION_RT_PASS が必要です。")
                     _nc_is_rt = False
 
+            # 確定→速報に切り替わった瞬間は日付を当日にリセット
+            _nc_today = datetime.date.today()
+            if _nc_is_rt and st.session_state.get("_nc_pision_prev_mode") != "rt":
+                st.session_state["nc_pision_date"] = _nc_today
+            st.session_state["_nc_pision_prev_mode"] = "rt" if _nc_is_rt else "fix"
             _nc_date = st.date_input(
                 "日付",
-                value=datetime.date.today() - datetime.timedelta(days=1),
+                value=_nc_today - datetime.timedelta(days=1),
                 key="nc_pision_date",
             )
             _nc_date_str = _nc_date.strftime("%Y-%m-%d")

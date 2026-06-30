@@ -2628,8 +2628,10 @@ def run_step2_juggler(
             if _plus_all >= math.ceil(total_all / 2) and _cnt_1k_all >= _small_rule["min_1k"]:
                 _meets_small_jug = True
         if machine not in recommended_machines and (_meets_small_jug or (len(filtered) >= 2 and (len(filtered) >= total_all / 2 or len(filtered) >= 10))):
-            title = "優秀台ピックアップ" if article_mode else machine.replace('･', '・') + "（優秀台）"
-            img   = _build_machine_img(filtered, title, None)
+            if article_mode:
+                img = _build_machine_img_no_bar(filtered)
+            else:
+                img = _build_machine_img(filtered, machine.replace('･', '・') + "（優秀台）", None)
             out   = os.path.join(output_dir, f"{_make_safe_fn(machine)}_高配分.jpg")
             _save_jpeg(img, out)
             generated.append(out)
@@ -2851,8 +2853,10 @@ def run_step3_other(
         _meets_min7 = machine in _min7_machines and count_f >= 7
         if _meets_thr or _meets_small or _meets_min7:
             if machine not in recommended_machines:
-                title = "優秀台ピックアップ" if article_mode else machine.replace('･', '・') + "（優秀台）"
-                img   = _build_machine_img(filtered, title, None)
+                if article_mode:
+                    img = _build_machine_img_no_bar(filtered)
+                else:
+                    img = _build_machine_img(filtered, machine.replace('･', '・') + "（優秀台）", None)
                 out   = os.path.join(output_dir, f"{_make_safe_fn(machine)}_高配分.jpg")
                 _save_jpeg(img, out)
                 generated.append(out)
@@ -8934,16 +8938,351 @@ def show_auto_article_page() -> None:
     st.caption("全台系・ジャグラー優秀台・その他の優秀台を一括生成します（記事用）。")
     st.markdown("---")
 
+    # ── ⓪ pision.io から日付データを自動取得（記事用）──────────────────
+    _art_tb_uploaded = None
+    if store in STORES:
+        st.markdown(f"### 📈 日付からデータを自動取得（{store}）")
+        api_key = _get_pision_api_key()
+        if not api_key:
+            st.caption("⚠️ PISION_API_KEY が未設定のため利用できません。①から手動でアップロードしてください。")
+        else:
+            _art_tb_mode = st.radio(
+                "データ種別",
+                ["確定データ", "速報データ（当日・営業中）"],
+                horizontal=True,
+                key=f"art_tb_mode_{store}",
+                help="確定データ＝前日まで（X-Api-Key）。速報データ＝当日の営業中データ（realtimeログインが必要）。",
+            )
+            _art_tb_is_rt = _art_tb_mode.startswith("速報")
+            _art_tb_rt_ok = True
+            if _art_tb_is_rt:
+                _rt_user, _rt_pass = _get_pision_rt_credentials()
+                if not _rt_user or not _rt_pass:
+                    st.error("❌ 速報データには realtime のログイン情報が必要です。"
+                             ".env に PISION_RT_USER / PISION_RT_PASS を設定してください。")
+                    _art_tb_rt_ok = False
+
+            if _art_tb_is_rt:
+                import datetime as _dt
+                _jst = _dt.timezone(_dt.timedelta(hours=9))
+                _now = _dt.datetime.now(_jst)
+                _rt_default = _now.date() if _now.hour >= 7 else _now.date() - _dt.timedelta(days=1)
+                _art_tb_prev_mode_key = f"_art_tb_prev_mode_{store}"
+                _art_tb_cnt_key = f"_art_tb_cnt_{store}"
+                if st.session_state.get(_art_tb_prev_mode_key) != "rt":
+                    st.session_state[_art_tb_cnt_key] = st.session_state.get(_art_tb_cnt_key, 0) + 1
+                st.session_state[_art_tb_prev_mode_key] = "rt"
+                _art_tb_cnt = st.session_state.get(_art_tb_cnt_key, 0)
+                _art_tb_date = st.date_input(
+                    "日付を選択（速報は営業日に合わせて選択・日付変更では自動取得しません）",
+                    value=_rt_default,
+                    key=f"art_tb_date_rt_{store}_{_art_tb_cnt}",
+                )
+            else:
+                st.session_state[f"_art_tb_prev_mode_{store}"] = "fix"
+                _art_tb_date = st.date_input(
+                    "日付を選択",
+                    value=datetime.date.today() - datetime.timedelta(days=1),
+                    key=f"art_tb_date_{store}",
+                )
+            _art_tb_date_str = _art_tb_date.strftime("%Y-%m-%d")
+
+            _art_tb_mode_tag          = "rt" if _art_tb_is_rt else "fix"
+            _art_tb_seen_key          = f"_art_tb_seen_{_art_tb_mode_tag}_{store}"
+            _art_tb_bytes_key         = f"_art_tb_file_bytes_{_art_tb_mode_tag}_{store}"
+            _art_tb_name_key          = f"_art_tb_file_name_{_art_tb_mode_tag}_{store}"
+            _art_tb_count_key         = f"_art_tb_count_{_art_tb_mode_tag}_{store}"
+            _art_tb_fetched_key       = f"_art_tb_fetched_{_art_tb_mode_tag}_{store}"
+            _art_tb_collecting_key    = f"_art_tb_collecting_rt_{store}"
+            _art_tb_rt_items_key      = f"_art_tb_rt_items_{store}"
+            _art_tb_rt_items_date_key = f"_art_tb_rt_items_date_{store}"
+            _art_tb_baseline_artid_key = f"_art_tb_baseline_artid_{store}"
+
+            _art_is_collecting = _art_tb_is_rt and st.session_state.get(_art_tb_collecting_key) == _art_tb_date_str
+
+            _art_do_rt_check    = False
+            _art_do_rt_existing = False
+            if _art_is_collecting:
+                _art_btn_c1, _art_btn_c2 = st.columns(2)
+                with _art_btn_c1:
+                    _art_tb_refetch = st.button("⏳ 収集中...", key=f"art_tb_refetch_{store}",
+                                                disabled=True, use_container_width=True)
+                with _art_btn_c2:
+                    _art_do_rt_check = st.button("🔍 今すぐ確認", key=f"art_tb_rt_check_{store}",
+                                                 use_container_width=True,
+                                                 help="30秒待たずに今すぐ収集完了を確認します。")
+            elif _art_tb_is_rt and _art_tb_rt_ok:
+                _art_btn_c1, _art_btn_c2 = st.columns(2)
+                with _art_btn_c1:
+                    _art_tb_refetch = st.button("⚡ 速報を取得", key=f"art_tb_refetch_{store}",
+                                                use_container_width=True, type="primary")
+                with _art_btn_c2:
+                    _art_do_rt_existing = st.button("📂 既存のデータを取得", key=f"art_tb_rt_existing_{store}",
+                                                    use_container_width=True,
+                                                    help="新しい収集を開始せず、過去に取得済みの直近データを読み込みます。")
+            else:
+                _art_tb_refetch = st.button("🔄 取得", key=f"art_tb_refetch_{store}")
+
+            _art_tb_seen = st.session_state.get(_art_tb_seen_key)
+            _art_tb_date_changed = (not _art_tb_is_rt) and _art_tb_seen is not None and _art_tb_seen != _art_tb_date_str
+            st.session_state[_art_tb_seen_key] = _art_tb_date_str
+
+            def _art_save_rt_items_to_session(items: list) -> None:
+                _slump_apply_names(items)
+                _rows = [
+                    {
+                        "台番":     it.get("unitId"),
+                        "機種名":   it.get("_machineName") or it.get("_convertedName") or it.get("displayName") or "",
+                        "差枚":     it.get("diff", 0),
+                        "ゲーム数": it.get("games", 0),
+                        "BB":       it.get("bb", 0),
+                        "RB":       it.get("rb", 0),
+                        "AT":       it.get("art", 0),
+                    }
+                    for it in items
+                ]
+                _df  = pd.DataFrame(_rows)
+                _buf = io.BytesIO()
+                _df.to_excel(_buf, index=False)
+                st.session_state[_art_tb_bytes_key]          = _buf.getvalue()
+                st.session_state[_art_tb_name_key]           = f"{_art_tb_date.strftime('%Y%m%d')}_{store}_20S.xlsx"
+                st.session_state[_art_tb_count_key]          = len(_df)
+                st.session_state[_art_tb_fetched_key]        = _art_tb_date_str
+                st.session_state[_art_tb_rt_items_key]       = items
+                st.session_state[_art_tb_rt_items_date_key]  = _art_tb_date_str
+                st.session_state.pop(_art_tb_collecting_key, None)
+
+            def _art_is_new_artid(poll_result: dict) -> bool:
+                _baseline = st.session_state.get(_art_tb_baseline_artid_key)
+                _new_id   = poll_result.get("article_id")
+                if _baseline is None:
+                    return True
+                try:
+                    return int(_new_id) > int(_baseline)
+                except (TypeError, ValueError):
+                    return False
+
+            if _art_do_rt_check:
+                with st.spinner("収集状況を確認中..."):
+                    _art_chk = fetch_pision_realtime(store, _art_tb_date_str, trigger=False)
+                if _art_chk["ok"] and _art_is_new_artid(_art_chk):
+                    _art_save_rt_items_to_session(_art_chk["items"])
+                    st.rerun()
+                elif _art_chk["ok"]:
+                    st.info("⏳ 収集はまだ完了していません（前回と同じスナップショット）。自動確認に戻ります。")
+                    st.rerun()
+                else:
+                    st.rerun()
+
+            if _art_is_collecting and not _art_do_rt_check:
+                import time as _time
+                _art_ap_ph = st.empty()
+                _art_ap_ph.info("⏳ 速報データを収集中... 30秒後に自動で確認します。")
+                _time.sleep(30)
+                _art_ap_ph.empty()
+                with st.spinner("収集状況を自動確認中..."):
+                    _art_auto_poll = fetch_pision_realtime(store, _art_tb_date_str, trigger=False)
+                if _art_auto_poll["ok"] and _art_is_new_artid(_art_auto_poll):
+                    _art_save_rt_items_to_session(_art_auto_poll["items"])
+                    st.rerun()
+                elif _art_auto_poll.get("running") or (_art_auto_poll["ok"] and not _art_is_new_artid(_art_auto_poll)):
+                    st.rerun()
+                else:
+                    st.warning("⚠️ 収集が完了しましたがデータが取得できませんでした。「⚡ 速報を取得」をもう一度押してください。")
+                    st.session_state.pop(_art_tb_collecting_key, None)
+                    st.rerun()
+
+            if _art_do_rt_existing:
+                with st.spinner("既存の速報データを確認中（新しい収集は開始しません）..."):
+                    _art_exist = fetch_pision_realtime(store, _art_tb_date_str, trigger=False)
+                if _art_exist["ok"]:
+                    _art_save_rt_items_to_session(_art_exist["items"])
+                    st.rerun()
+                else:
+                    st.warning("⚠️ 既存の速報データが見つかりませんでした。「⚡ 速報を取得」で新しい収集を開始してください。")
+
+            if (_art_tb_date_changed or _art_tb_refetch) and _art_tb_rt_ok:
+                with st.spinner(f"{_art_tb_date_str} のデータを取得中..."):
+                    _art_tb_fetched_data = None
+                    if _art_tb_is_rt:
+                        _art_rt = fetch_pision_realtime(store, _art_tb_date_str)
+                        if not _art_rt["ok"]:
+                            st.error(f"❌ {_art_rt['error']}")
+                            if _art_rt.get("collect_started"):
+                                st.session_state[_art_tb_collecting_key]     = _art_tb_date_str
+                                st.session_state[_art_tb_baseline_artid_key] = None
+                        else:
+                            st.session_state[_art_tb_collecting_key]     = _art_tb_date_str
+                            st.session_state[_art_tb_baseline_artid_key] = _art_rt.get("article_id")
+                    else:
+                        st.session_state.pop(_art_tb_collecting_key, None)
+                        st.session_state.pop(_art_tb_rt_items_key, None)
+                        st.session_state.pop(_art_tb_rt_items_date_key, None)
+                        try:
+                            _art_tb_halls = fetch_pision_halls(api_key)
+                        except Exception as e:
+                            st.error(f"❌ ホール一覧取得失敗: {e}")
+                            _art_tb_halls = []
+                        _art_tb_hall_id = None
+                        for h in _art_tb_halls:
+                            _hn = h.get("name") or h.get("displayName") or ""
+                            if store in _hn and "エスパス" in _hn:
+                                _art_tb_hall_id = str(h.get("id") or h.get("hallId") or "")
+                                break
+                        if _art_tb_hall_id is not None:
+                            try:
+                                _art_tb_fetched_data = fetch_pision_results(api_key, _art_tb_hall_id, _art_tb_date_str)
+                            except Exception as e:
+                                st.error(f"❌ データ取得失敗: {e}")
+                if not _art_tb_fetched_data:
+                    st.session_state[_art_tb_bytes_key] = None
+                else:
+                    _art_tb_rows = [
+                        {
+                            "台番":     item.get("unitId"),
+                            "機種名":   item.get("_machineName") or item.get("_convertedName") or item.get("displayName") or "",
+                            "差枚":     item.get("diff", 0),
+                            "ゲーム数": item.get("games", 0),
+                            "BB":       item.get("bb", 0),
+                            "RB":       item.get("rb", 0),
+                            "AT":       item.get("art", 0),
+                        }
+                        for item in _art_tb_fetched_data
+                    ]
+                    _art_tb_df    = pd.DataFrame(_art_tb_rows)
+                    _art_tb_fname = f"{_art_tb_date.strftime('%Y%m%d')}_{store}_20S.xlsx"
+                    _art_tb_buf   = io.BytesIO()
+                    _art_tb_df.to_excel(_art_tb_buf, index=False)
+                    st.session_state[_art_tb_bytes_key] = _art_tb_buf.getvalue()
+                    st.session_state[_art_tb_name_key]  = _art_tb_fname
+                    st.session_state[_art_tb_count_key] = len(_art_tb_df)
+                st.session_state[_art_tb_fetched_key] = _art_tb_date_str
+                st.rerun()
+
+            if st.session_state.get(_art_tb_fetched_key) == _art_tb_date_str:
+                _art_tb_data = st.session_state.get(_art_tb_bytes_key)
+                if _art_tb_data:
+                    _art_tb_uploaded = io.BytesIO(_art_tb_data)
+                    _art_tb_uploaded.name = st.session_state.get(_art_tb_name_key, f"{_art_tb_date.strftime('%Y%m%d')}_{store}_20S.xlsx")
+                    _art_tb_label = "速報" if _art_tb_is_rt else "確定"
+                    st.success(f"✅ {_art_tb_date_str} の{_art_tb_label}データ（{st.session_state.get(_art_tb_count_key, '?')}台）を取得し、①にセットしました。")
+                elif not _art_is_collecting:
+                    st.info(f"📭 {_art_tb_date_str} のデータを取得できませんでした（404 / 未公開 / 店休日の可能性があります）。①から手動でアップロードしてください。")
+
+    st.markdown("---")
+
     # ── ① Excel アップロード ─────────────────────────────────────────
     st.markdown("### ① Excelファイルをアップロード")
     st.caption("ファイル名は `YYYYMMDD_店舗名_20S.xlsx` の形式を想定しています。")
     uploaded = st.file_uploader("xlsx を選択", type=["xlsx", "xls"], key="art_upload")
+
+    if uploaded is None and _art_tb_uploaded is not None:
+        uploaded = _art_tb_uploaded
+        st.caption(f"📈 自動取得データを使用中: `{uploaded.name}`（手動でアップロードすると優先されます）")
 
     if uploaded is not None:
         st.session_state["art_current_excel"] = uploaded.name
         if st.session_state.get("_art_prev_excel") != uploaded.name:
             _restore_article_inputs(uploaded.name, store)
             st.session_state["_art_prev_excel"] = uploaded.name
+
+    # ── 📋 取得データを作業画面内に表示（pisionを開かず照合するため）──────
+    if uploaded is not None:
+        _art_vt_key       = f"_art_view_df_{store}"
+        _art_vt_sum_key   = f"_art_view_summary_{store}"
+        _art_vt_meta_key  = f"_art_view_meta_{store}"
+        _art_vt_units_key = f"_art_view_units_{store}"
+        _art_vt_fn_key    = f"_art_view_df_fn_{store}"
+        if st.session_state.get(_art_vt_fn_key) != uploaded.name:
+            try:
+                uploaded.seek(0)
+                _art_vt_raw = _read_uploaded_df(uploaded)
+                uploaded.seek(0)
+                _art_vt_df, _ = normalize_df(_art_vt_raw)
+                _art_vt_df = apply_name_conversion(_art_vt_df)
+                _art_disp = pd.DataFrame()
+                if "台番" in _art_vt_df.columns:     _art_disp["台番"]    = _art_vt_df["台番"]
+                if "機種名" in _art_vt_df.columns:   _art_disp["機種名"]  = _art_vt_df["機種名"]
+                if "ゲーム数" in _art_vt_df.columns: _art_disp["G数"]     = _art_vt_df["ゲーム数"]
+                if "BB" in _art_vt_df.columns:       _art_disp["BB"]      = _art_vt_df["BB"]
+                if "RB" in _art_vt_df.columns:       _art_disp["RB"]      = _art_vt_df["RB"]
+                if "AT" in _art_vt_df.columns:       _art_disp["ART"]     = _art_vt_df["AT"]
+                if {"BB", "RB", "ゲーム数"} <= set(_art_vt_df.columns):
+                    _art_tot = (_art_vt_df["BB"] + _art_vt_df["RB"]).replace(0, pd.NA)
+                    _art_disp["合算確率"] = (_art_vt_df["ゲーム数"] / _art_tot).map(
+                        lambda v: f"1/{v:.1f}" if pd.notna(v) else "─")
+                if "差枚" in _art_vt_df.columns:     _art_disp["差枚"]    = _art_vt_df["差枚"]
+                if "台番" in _art_disp.columns:
+                    _art_disp = _art_disp.sort_values("台番").reset_index(drop=True)
+                st.session_state[_art_vt_key] = _art_disp
+                _art_agg = None
+                _art_meta_v = None
+                if {"機種名", "差枚"} <= set(_art_vt_df.columns):
+                    _art_g = _art_vt_df.groupby("機種名", sort=False)
+                    _art_agg = pd.DataFrame({
+                        "機種名":   list(_art_g.groups.keys()),
+                        "台数":     _art_g["差枚"].size().values,
+                        "勝台数":   _art_g["差枚"].apply(lambda s: int((s > 0).sum())).values,
+                        "総差枚":   _art_g["差枚"].sum().astype(int).values,
+                        "平均差枚": _art_g["差枚"].mean().round().astype(int).values,
+                    })
+                    if "ゲーム数" in _art_vt_df.columns:
+                        _art_agg["平均G数"] = _art_g["ゲーム数"].mean().round().astype(int).values
+                    else:
+                        _art_agg["平均G数"] = 0
+                    _art_tot_all = len(_art_vt_df)
+                    _art_td_all  = int(_art_vt_df["差枚"].sum())
+                    _art_meta_v = {
+                        "total":      _art_tot_all,
+                        "plus":       int((_art_vt_df["差枚"] > 0).sum()),
+                        "total_diff": _art_td_all,
+                        "avg_diff":   int(round(_art_td_all / _art_tot_all)) if _art_tot_all else 0,
+                        "avg_games":  (int(round(_art_vt_df["ゲーム数"].mean()))
+                                       if "ゲーム数" in _art_vt_df.columns and _art_tot_all else 0),
+                    }
+                _art_ucols = [c for c in ["台番", "機種名", "差枚", "BB", "RB", "AT", "ゲーム数"]
+                              if c in _art_vt_df.columns]
+                st.session_state[_art_vt_units_key] = _art_vt_df[_art_ucols].copy() if _art_ucols else None
+                st.session_state[_art_vt_sum_key]   = _art_agg
+                st.session_state[_art_vt_meta_key]  = _art_meta_v
+                st.session_state[_art_vt_fn_key]    = uploaded.name
+            except Exception:
+                st.session_state[_art_vt_key]       = None
+                st.session_state[_art_vt_sum_key]   = None
+                st.session_state[_art_vt_meta_key]  = None
+                st.session_state[_art_vt_units_key] = None
+        _art_view_df  = st.session_state.get(_art_vt_key)
+        _art_agg_df   = st.session_state.get(_art_vt_sum_key)
+        _art_meta_v   = st.session_state.get(_art_vt_meta_key)
+        if _art_agg_df is not None and not _art_agg_df.empty and _art_meta_v is not None:
+            _art_multi  = _art_agg_df[_art_agg_df["台数"] >= 2].sort_values("平均差枚", ascending=False)
+            _art_single = _art_agg_df[_art_agg_df["台数"] == 1]
+            _art_rows = [
+                (r["機種名"], int(r["台数"]), int(r["勝台数"]),
+                 int(r["総差枚"]), int(r["平均差枚"]), int(r["平均G数"]))
+                for _, r in _art_multi.iterrows()
+            ]
+            if not _art_single.empty:
+                _art_vn  = int(_art_single["台数"].sum())
+                _art_vw  = int(_art_single["勝台数"].sum())
+                _art_vtd = int(_art_single["総差枚"].sum())
+                _art_vad = int(round(_art_vtd / _art_vn)) if _art_vn else 0
+                _art_vg  = int(round((_art_single["平均G数"] * _art_single["台数"]).sum() / _art_vn)) if _art_vn else 0
+                _art_rows.append(("バラエティ", _art_vn, _art_vw, _art_vtd, _art_vad, _art_vg))
+            _art_fn_m = re.match(r"(\d{4})(\d{2})(\d{2})", os.path.basename(uploaded.name))
+            _art_title = (f"{int(_art_fn_m.group(1))}/{int(_art_fn_m.group(2))}/{int(_art_fn_m.group(3))} エスパス{store}"
+                          if _art_fn_m else f"エスパス{store}")
+            st.caption("📋 pisionの代わりに照合用（2台以上を平均差枚順・1台機種はバラエティに集約／数値はpisionの生データと一致）")
+            _art_units_df = st.session_state.get(_art_vt_units_key)
+            _art_snames   = set(_art_single["機種名"].tolist()) if not _art_single.empty else None
+            _art_comp_h   = max(480, min(820, len(_art_rows) * 42 + 350))
+            components.html(
+                _build_pision_interactive_html(_art_title, _art_meta_v, _art_rows, _art_units_df, _art_snames),
+                height=_art_comp_h, scrolling=True,
+            )
+        if _art_view_df is not None and not _art_view_df.empty:
+            with st.expander(f"📋 台別データ（全{len(_art_view_df)}台）", expanded=False):
+                st.dataframe(_art_view_df, use_container_width=True, hide_index=True, height=520)
 
     st.caption("処理内容：① 全台系PNG ＋ 全台プラス機種別JPG　② ジャグラーシリーズ優秀台JPG　③ その他の優秀台ピックアップJPG")
 
@@ -9359,6 +9698,128 @@ def show_auto_article_page() -> None:
                             # ⑤ その他の優秀台ピックアップ
                             if "その他の優秀台ピックアップ.jpg" in _art_fpm:
                                 _art_pil.append(_art_fpm["その他の優秀台ピックアップ.jpg"])
+
+                    # ── スランプグラフ合成（プレビュー）────────────────────────
+                    _pv_api_key_sl = _get_pision_api_key()
+                    if _pv_api_key_sl and _art_pr.get("ok") and _art_pil:
+                        _pv_pr_df  = _art_pr.get("df")
+                        _pv_pr_di  = _art_pr.get("diff_raw")
+                        _pv_rd_sl  = _art_pr.get("date")
+                        _pv_dt_key_sl = st.session_state.get(f"art_tb_date_{store}")
+                        _pv_date_sl = (
+                            _pv_rd_sl.strftime("%Y-%m-%d") if hasattr(_pv_rd_sl, "strftime") else str(_pv_rd_sl)
+                        ) if _pv_rd_sl is not None else (
+                            _pv_dt_key_sl.strftime("%Y-%m-%d") if hasattr(_pv_dt_key_sl, "strftime") else str(_pv_dt_key_sl or "")
+                        )
+                        # ban_map: ファイル名 → 台番リスト
+                        _pv_bm_sl: dict[str, list[int]] = {}
+                        for _zd_pv in _art_pr.get("zen_dai_list", []):
+                            _pv_bm_sl[f"{_make_safe_fn(_zd_pv['name'])}.jpg"] = _zd_pv.get("bans", [])
+                        for _hr_pv in _art_pr.get("high_ratio_list", []):
+                            if _hr_pv.get("has_image", False):
+                                _fn_hr_pv = f"{_make_safe_fn(_hr_pv['name'])}_高配分.jpg"
+                                if _hr_pv.get("bans"):
+                                    _pv_bm_sl[_fn_hr_pv] = _hr_pv["bans"]
+                                elif _pv_pr_df is not None:
+                                    _g_pv = _pv_pr_df[_pv_pr_df["機種名"] == _hr_pv["name"]]
+                                    _pv_bm_sl[_fn_hr_pv] = [int(b) for b in _g_pv["台番"].tolist()]
+                        if kojin_enabled and _pv_pr_df is not None and _pv_pr_di is not None:
+                            for _km_pv2 in kojin_yushu_machines:
+                                _km_pv2 = _km_pv2.strip()
+                                if not _km_pv2:
+                                    continue
+                                _fn_ky_pv = f"{_make_safe_fn(_km_pv2)}（優秀台）.jpg"
+                                if any(fn == _fn_ky_pv for fn, _ in _art_pil):
+                                    _kga_pv = _pv_pr_df[_pv_pr_df["機種名"] == _km_pv2]
+                                    if not _kga_pv.empty:
+                                        _kda_pv = _pv_pr_di.loc[_kga_pv.index]
+                                        _kgp_pv = _kojin_yushu_filter(_km_pv2, _kga_pv, _kda_pv, get_store_config(store)).reset_index(drop=True)
+                                        if not _kgp_pv.empty:
+                                            _pv_bm_sl[_fn_ky_pv] = [int(b) for b in _kgp_pv["台番"].tolist()]
+                        _jpool_pv = _art_pr.get("jug_pool_df")
+                        if _jpool_pv is not None and not _jpool_pv.empty:
+                            _pv_bm_sl["ジャグラーシリーズ優秀台.jpg"] = [
+                                int(str(b).split(".")[0]) for b in _jpool_pv["台番"].dropna()
+                                if str(b).split(".")[0].lstrip("-").isdigit()
+                            ]
+                        _son_bns_pv = sorted({int(_e["ban"]) for _e in _art_pr.get("sonota_excellent_list", []) if "ban" in _e})
+                        if _son_bns_pv:
+                            _pv_bm_sl["その他の優秀台ピックアップ.jpg"] = _son_bns_pv
+                        for _fn_nb_pv2, _bns_nb_pv2 in _art_nb_map.items():
+                            _pv_bm_sl[_fn_nb_pv2] = _bns_nb_pv2
+                        try:
+                            _pv_rt_cached = st.session_state.get(f"_art_tb_rt_items_{store}")
+                            _pv_rt_date   = st.session_state.get(f"_art_tb_rt_items_date_{store}", "")
+                            _pv_pision_sl = None
+                            if _pv_rt_cached and _pv_rt_date == _pv_date_sl:
+                                _pv_pision_sl = _pv_rt_cached
+                            else:
+                                _pv_halls_sl = fetch_pision_halls(_pv_api_key_sl)
+                                _pv_hall_id_sl = None
+                                for _h_pv in _pv_halls_sl:
+                                    _hn_pv = _h_pv.get("name") or _h_pv.get("displayName") or ""
+                                    if store in _hn_pv and "エスパス" in _hn_pv:
+                                        _pv_hall_id_sl = str(_h_pv.get("id") or _h_pv.get("hallId") or "")
+                                        break
+                                if _pv_hall_id_sl:
+                                    _pv_pision_sl = fetch_pision_results(_pv_api_key_sl, _pv_hall_id_sl, _pv_date_sl)
+                                    if _pv_pision_sl:
+                                        _slump_apply_names(_pv_pision_sl)
+                            if _pv_pision_sl:
+                                _pv_by_uid   = {str(_it.get("unitId", "")): _it for _it in _pv_pision_sl}
+                                _pv_tmpl_sl  = find_slump_template()
+                                _pv_bgg_sl   = _find_slump_bg()
+                                _pv_ban2mac: dict[str, str] = {}
+                                _pv_ban2diff: dict[str, int] = {}
+                                if _pv_pr_df is not None:
+                                    for _idx_pv, _row_pv in _pv_pr_df.iterrows():
+                                        _bs_pv = str(_row_pv.get("台番", "")).split(".")[0]
+                                        if _bs_pv.lstrip("-").isdigit():
+                                            _pv_ban2mac[_bs_pv] = str(_row_pv.get("機種名", ""))
+                                            if _pv_pr_di is not None:
+                                                try:
+                                                    _pv_ban2diff[_bs_pv] = int(_pv_pr_di.loc[_idx_pv])
+                                                except Exception:
+                                                    pass
+                                if _pv_tmpl_sl is not None:
+                                    _merged_pil: list[tuple[str, "Image.Image"]] = []
+                                    for (_fn_pv2, _img_pv2) in _art_pil:
+                                        _bans_pv2 = _pv_bm_sl.get(_fn_pv2, [])
+                                        if not _bans_pv2:
+                                            _merged_pil.append((_fn_pv2, _img_pv2))
+                                            continue
+                                        _g_imgs_pv2: list["Image.Image"] = []
+                                        _show_mn_pv2 = (_fn_pv2 in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
+                                                        or _fn_pv2.startswith("末尾") or _fn_pv2.startswith("バラエティ"))
+                                        _is_zentai_pv2 = (
+                                            not _fn_pv2.endswith("_高配分.jpg") and
+                                            not _fn_pv2.endswith("（優秀台）.jpg") and
+                                            _fn_pv2 not in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
+                                        )
+                                        for _b_pv2 in _bans_pv2:
+                                            _it_pv2 = _pv_by_uid.get(str(_b_pv2))
+                                            if _it_pv2 is None or not _it_pv2.get("points"):
+                                                continue
+                                            _dn_pv2 = (_it_pv2.get("_convertedName")
+                                                       or _it_pv2.get("displayName")
+                                                       or _pv_ban2mac.get(str(_b_pv2), str(_b_pv2)))
+                                            _sd_pv2 = not (_is_zentai_pv2 and _pv_ban2diff.get(str(_b_pv2), 0) < 0)
+                                            try:
+                                                _g_imgs_pv2.append(draw_slump_graph(
+                                                    _pv_tmpl_sl, str(_b_pv2), _dn_pv2,
+                                                    _it_pv2["points"], diff=_it_pv2.get("diff"),
+                                                    machine_name=_dn_pv2 if _show_mn_pv2 else None,
+                                                    show_diff=_sd_pv2,
+                                                ))
+                                            except Exception:
+                                                pass
+                                        if _g_imgs_pv2:
+                                            _merged_pil.append((_fn_pv2, _attach_slump_to_table(_img_pv2, _g_imgs_pv2, _pv_bgg_sl)))
+                                        else:
+                                            _merged_pil.append((_fn_pv2, _img_pv2))
+                                    _art_pil = _merged_pil
+                        except Exception:
+                            pass  # スランプ取得失敗時は表のみプレビュー
 
                     st.session_state[_art_aprev_key]       = _art_pil
                     st.session_state[_art_aprev_df_key]    = _art_pr.get("df")
@@ -9825,6 +10286,147 @@ def show_auto_article_page() -> None:
                         _arjt    = "その他のジャグラーシリーズの優秀台" if _arjhkj else "ジャグラーシリーズの優秀台"
                         _save_jpeg(_build_machine_img(_arjcomb, _arjt, None), _arjp, target_kb=800)
                         _log(f"  ✅ ジャグラーシリーズ優秀台再生成: {len(_arjcomb)}台")
+
+            # ── スランプグラフ合成（記事用）────────────────────────────────
+            _art_api_key_sl = _get_pision_api_key()
+            if _art_api_key_sl and result.get("ok"):
+                _art_rd_sl  = result.get("date")
+                _art_dt_key_sl = st.session_state.get(f"art_tb_date_{store}")
+                _art_date_sl = (
+                    _art_rd_sl.strftime("%Y-%m-%d") if hasattr(_art_rd_sl, "strftime") else str(_art_rd_sl)
+                ) if _art_rd_sl is not None else (
+                    _art_dt_key_sl.strftime("%Y-%m-%d") if hasattr(_art_dt_key_sl, "strftime") else str(_art_dt_key_sl or "")
+                )
+                _art_df_sl = result.get("df")
+                _art_dr_sl = result.get("diff_raw")
+
+                # ban_map: 出力ファイル名 → 台番リスト
+                _art_bm_sl: dict[str, list[int]] = {}
+                for _zd_sl in result.get("zen_dai_list", []):
+                    _art_bm_sl[f"{_make_safe_fn(_zd_sl['name'])}.jpg"] = _zd_sl.get("bans", [])
+                for _hr_sl in result.get("high_ratio_list", []):
+                    if _hr_sl.get("has_image", False):
+                        _fn_hr_sl = f"{_make_safe_fn(_hr_sl['name'])}_高配分.jpg"
+                        if _hr_sl.get("bans"):
+                            _art_bm_sl[_fn_hr_sl] = _hr_sl["bans"]
+                        elif _art_df_sl is not None:
+                            _g_sl = _art_df_sl[_art_df_sl["機種名"] == _hr_sl["name"]]
+                            _art_bm_sl[_fn_hr_sl] = [int(b) for b in _g_sl["台番"].tolist()]
+                # kojin 優秀台 → {machine}（優秀台）.jpg
+                if kojin_enabled and _art_df_sl is not None and _art_dr_sl is not None:
+                    for _km_sl in kojin_yushu_machines:
+                        _km_sl = _km_sl.strip()
+                        if not _km_sl:
+                            continue
+                        _fn_ky_sl = f"{_make_safe_fn(_km_sl)}（優秀台）.jpg"
+                        if os.path.exists(os.path.join(output_dir, _fn_ky_sl)):
+                            _kga_sl = _art_df_sl[_art_df_sl["機種名"] == _km_sl]
+                            if not _kga_sl.empty:
+                                _kda_sl = _art_dr_sl.loc[_kga_sl.index]
+                                _kgp_sl = _kojin_yushu_filter(_km_sl, _kga_sl, _kda_sl, get_store_config(store)).reset_index(drop=True)
+                                if not _kgp_sl.empty:
+                                    _art_bm_sl[_fn_ky_sl] = [int(b) for b in _kgp_sl["台番"].tolist()]
+                _jpool_sl = result.get("jug_pool_df")
+                if _jpool_sl is not None and not _jpool_sl.empty:
+                    _art_bm_sl["ジャグラーシリーズ優秀台.jpg"] = [
+                        int(str(b).split(".")[0]) for b in _jpool_sl["台番"].dropna()
+                        if str(b).split(".")[0].lstrip("-").isdigit()
+                    ]
+                _son_bns_sl = sorted({int(_e["ban"]) for _e in result.get("sonota_excellent_list", []) if "ban" in _e})
+                if _son_bns_sl:
+                    _art_bm_sl["その他の優秀台ピックアップ.jpg"] = _son_bns_sl
+                for _fn_nb_sl, _bns_nb_sl in st.session_state.get(f"art_preview_narabi_{store}", {}).items():
+                    _art_bm_sl[_fn_nb_sl] = _bns_nb_sl
+
+                _log(f"📡 スランプ: pisionデータ取得中（日付={_art_date_sl}）")
+                try:
+                    _art_rt_cached_sl = st.session_state.get(f"_art_tb_rt_items_{store}")
+                    _art_rt_date_sl   = st.session_state.get(f"_art_tb_rt_items_date_{store}", "")
+                    _art_pision_sl = None
+                    if _art_rt_cached_sl and _art_rt_date_sl == _art_date_sl:
+                        _art_pision_sl = _art_rt_cached_sl
+                        _log(f"✅ スランプ: 速報キャッシュ使用（{len(_art_pision_sl)}台）")
+                    else:
+                        _art_halls_sl = fetch_pision_halls(_art_api_key_sl)
+                        _art_hall_id_sl = None
+                        for _h_sl in _art_halls_sl:
+                            _hn_sl = _h_sl.get("name") or _h_sl.get("displayName") or ""
+                            if store in _hn_sl and "エスパス" in _hn_sl:
+                                _art_hall_id_sl = str(_h_sl.get("id") or _h_sl.get("hallId") or "")
+                                break
+                        if _art_hall_id_sl:
+                            _art_pision_sl = fetch_pision_results(_art_api_key_sl, _art_hall_id_sl, _art_date_sl)
+                            if _art_pision_sl:
+                                _slump_apply_names(_art_pision_sl)
+                                _log(f"✅ スランプ: {len(_art_pision_sl)}台分のデータ取得")
+                            else:
+                                _log(f"⚠️ スランプ: {_art_date_sl} の確定データなし（404/未公開）")
+                        else:
+                            _log(f"⚠️ スランプ: '{store}' のホールIDが見つかりません")
+                    if _art_pision_sl:
+                        _art_by_uid_sl   = {str(_it.get("unitId", "")): _it for _it in _art_pision_sl}
+                        _art_tmpl_sl     = find_slump_template()
+                        _art_bgg_sl      = _find_slump_bg()
+                        _art_ban2mac_sl: dict[str, str] = {}
+                        _art_ban2diff_sl: dict[str, int] = {}
+                        if _art_df_sl is not None:
+                            for _idx_sl, _row_sl in _art_df_sl.iterrows():
+                                _bs_sl = str(_row_sl.get("台番", "")).split(".")[0]
+                                if _bs_sl.lstrip("-").isdigit():
+                                    _art_ban2mac_sl[_bs_sl] = str(_row_sl.get("機種名", ""))
+                                    if _art_dr_sl is not None:
+                                        try:
+                                            _art_ban2diff_sl[_bs_sl] = int(_art_dr_sl.loc[_idx_sl])
+                                        except Exception:
+                                            pass
+                        _art_slump_cnt = 0
+                        if _art_tmpl_sl is None:
+                            _log("⚠️ スランプ: テンプレート画像(base_3000_bk.png)が見つかりません")
+                        else:
+                            for _fp_sl in sorted(os.listdir(output_dir)):
+                                if not _fp_sl.lower().endswith((".jpg", ".jpeg")):
+                                    continue
+                                _bans_sl = _art_bm_sl.get(_fp_sl, [])
+                                if not _bans_sl:
+                                    continue
+                                _fpath_sl = os.path.join(output_dir, _fp_sl)
+                                try:
+                                    _t_img_sl = Image.open(_fpath_sl).convert("RGB")
+                                except Exception:
+                                    continue
+                                _g_imgs_sl: list["Image.Image"] = []
+                                _show_mn_sl = (_fp_sl in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
+                                               or _fp_sl.startswith("末尾") or _fp_sl.startswith("バラエティ"))
+                                _is_zentai_sl = (
+                                    not _fp_sl.endswith("_高配分.jpg") and
+                                    not _fp_sl.endswith("（優秀台）.jpg") and
+                                    _fp_sl not in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
+                                )
+                                for _b_sl in _bans_sl:
+                                    _it_sl = _art_by_uid_sl.get(str(_b_sl))
+                                    if _it_sl is None or not _it_sl.get("points"):
+                                        continue
+                                    _dn_sl = (_it_sl.get("_convertedName")
+                                              or _it_sl.get("displayName")
+                                              or _art_ban2mac_sl.get(str(_b_sl), str(_b_sl)))
+                                    _sd_sl = not (_is_zentai_sl and _art_ban2diff_sl.get(str(_b_sl), 0) < 0)
+                                    try:
+                                        _g_imgs_sl.append(draw_slump_graph(
+                                            _art_tmpl_sl, str(_b_sl), _dn_sl,
+                                            _it_sl["points"], diff=_it_sl.get("diff"),
+                                            machine_name=_dn_sl if _show_mn_sl else None,
+                                            show_diff=_sd_sl,
+                                        ))
+                                    except Exception:
+                                        pass
+                                if not _g_imgs_sl:
+                                    continue
+                                _combined_sl = _attach_slump_to_table(_t_img_sl, _g_imgs_sl, _art_bgg_sl)
+                                _save_jpeg(_combined_sl, _fpath_sl)
+                                _art_slump_cnt += 1
+                        _log(f"✅ スランプ: {_art_slump_cnt}枚にスランプグラフを合成")
+                except Exception as _sl_exc:
+                    _log(f"❌ スランプグラフ合成エラー: {_sl_exc}")
 
             all_ok = result["ok"] and (narabi_result is None or narabi_result["ok"])
             if all_ok:
@@ -12751,7 +13353,7 @@ def show_name_conversion_page() -> None:
         else:
             _nc_col1, _nc_col2 = st.columns(2)
             with _nc_col1:
-                _nc_store = st.selectbox("店舗を選択", list(STORES.keys()) + ["秋葉原"], key="nc_pision_store")
+                _nc_store = st.selectbox("店舗を選択", list(STORES.keys()), key="nc_pision_store")
             with _nc_col2:
                 _nc_mode = st.radio(
                     "データ種別",

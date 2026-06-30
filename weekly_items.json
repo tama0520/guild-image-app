@@ -330,16 +330,6 @@
       "title": "毎日オススメ マイジャグV",
       "machine_name": "マイジャグV",
       "date_checks": {
-        "2026-06-23": [
-          true,
-          false,
-          false,
-          false,
-          true,
-          false,
-          false,
-          false
-        ],
         "2026-06-24": [
           true,
           false,
@@ -395,6 +385,16 @@
           false,
           false,
           false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-06-30": [
+          false,
+          false,
+          false,
+          true,
           false,
           false,
           false,
@@ -487,13 +487,13 @@
       "start_date": "2026-05-11",
       "monthly_start": "2026-06-01",
       "blank_date_checks": {
-        "2026-06-23": false,
         "2026-06-24": false,
         "2026-06-25": false,
         "2026-06-26": false,
         "2026-06-27": false,
         "2026-06-28": false,
-        "2026-06-29": true
+        "2026-06-29": true,
+        "2026-06-30": false
       }
     },
     "t4": {

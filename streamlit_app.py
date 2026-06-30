@@ -9919,6 +9919,10 @@ def show_auto_article_page() -> None:
                                                 else: _audfs.append(_mgy); _audis.append(_mgdy)
                         _anp = list(_art_auto_previews)
                         _aup = False
+                        _upd_bm: dict[str, list[int]] = {}  # 更新画像の台番map（スランプ合成用）
+                        def _bans_from_df(df: "pd.DataFrame") -> list[int]:
+                            return [int(str(b).split(".")[0]) for b in df["台番"].dropna()
+                                    if str(b).split(".")[0].lstrip("-").isdigit()]
                         if _audfs:
                             _aexb = {it["ban"] for it in _apex}
                             if _aexb:
@@ -9930,6 +9934,7 @@ def show_auto_article_page() -> None:
                             _asc = pd.concat(_aadf, ignore_index=True)
                             _asc = _asc.iloc[_asc["台番"].argsort()].reset_index(drop=True)
                             _asi = _build_machine_img(_asc, "その他の優秀台ピックアップ", None)
+                            _upd_bm["その他の優秀台ピックアップ.jpg"] = _bans_from_df(_asc)
                             for _ci, (_pn2, _) in enumerate(_anp):
                                 if _pn2 == "その他の優秀台ピックアップ.jpg":
                                     _anp[_ci] = (_pn2, _asi); break
@@ -9953,6 +9958,7 @@ def show_auto_article_page() -> None:
                                 _aov_son = _aov_son.drop_duplicates(subset=["台番"])
                                 _aov_son = _aov_son.iloc[_aov_son["台番"].argsort()].reset_index(drop=True)
                                 _aov_img = _build_machine_img(_aov_son, "その他の優秀台ピックアップ", None)
+                                _upd_bm["その他の優秀台ピックアップ.jpg"] = _bans_from_df(_aov_son)
                                 for _ci2, (_pn2, _) in enumerate(_anp):
                                     if _pn2 == "その他の優秀台ピックアップ.jpg":
                                         _anp[_ci2] = (_pn2, _aov_img); break
@@ -9969,6 +9975,7 @@ def show_auto_article_page() -> None:
                                 )
                                 _ajt = "その他のジャグラーシリーズの優秀台" if _asto else "ジャグラーシリーズの優秀台"
                                 _aji = _build_machine_img(_ajc, _ajt, None)
+                                _upd_bm["ジャグラーシリーズ優秀台.jpg"] = _bans_from_df(_ajc)
                                 for _ji, (_jn, _) in enumerate(_anp):
                                     if _jn == "ジャグラーシリーズ優秀台.jpg":
                                         _anp[_ji] = (_jn, _aji); break
@@ -9977,6 +9984,76 @@ def show_auto_article_page() -> None:
                                     st.session_state[f"art_prev_ck_{store}_{len(_anp)-1}"] = True
                                 _aup = True
                         if _aup:
+                            # スランプグラフ合成（その他を更新後）
+                            _upd_api_sl = _get_pision_api_key()
+                            if _upd_api_sl and _upd_bm:
+                                try:
+                                    _upd_rt_c  = st.session_state.get(f"_art_tb_rt_items_{store}")
+                                    _upd_rt_d  = st.session_state.get(f"_art_tb_rt_items_date_{store}", "")
+                                    _upd_dtk   = st.session_state.get(f"art_tb_date_{store}")
+                                    _upd_datesl = (_upd_dtk.strftime("%Y-%m-%d") if hasattr(_upd_dtk, "strftime")
+                                                   else str(_upd_dtk or ""))
+                                    _upd_pision = None
+                                    if _upd_rt_c and _upd_rt_d == _upd_datesl:
+                                        _upd_pision = _upd_rt_c
+                                    else:
+                                        _upd_halls = fetch_pision_halls(_upd_api_sl)
+                                        _upd_hid = None
+                                        for _hh in _upd_halls:
+                                            _hhn = _hh.get("name") or _hh.get("displayName") or ""
+                                            if store in _hhn and "エスパス" in _hhn:
+                                                _upd_hid = str(_hh.get("id") or _hh.get("hallId") or "")
+                                                break
+                                        if _upd_hid:
+                                            _upd_pision = fetch_pision_results(_upd_api_sl, _upd_hid, _upd_datesl)
+                                            if _upd_pision:
+                                                _slump_apply_names(_upd_pision)
+                                    if _upd_pision:
+                                        _upd_by_uid  = {str(_it.get("unitId", "")): _it for _it in _upd_pision}
+                                        _upd_tmpl    = find_slump_template()
+                                        _upd_bgg     = _find_slump_bg()
+                                        _upd_b2mac: dict[str, str] = {}
+                                        _upd_b2diff: dict[str, int] = {}
+                                        if _apdf2 is not None and _apdi2 is not None:
+                                            for _idx_u, _row_u in _apdf2.iterrows():
+                                                _bs_u = str(_row_u.get("台番", "")).split(".")[0]
+                                                if _bs_u.lstrip("-").isdigit():
+                                                    _upd_b2mac[_bs_u] = str(_row_u.get("機種名", ""))
+                                                    try:
+                                                        _upd_b2diff[_bs_u] = int(_apdi2.loc[_idx_u])
+                                                    except Exception:
+                                                        pass
+                                        if _upd_tmpl is not None:
+                                            _merged_anp: list[tuple[str, "Image.Image"]] = []
+                                            for (_fn_u, _img_u) in _anp:
+                                                _bans_u = _upd_bm.get(_fn_u, [])
+                                                if not _bans_u:
+                                                    _merged_anp.append((_fn_u, _img_u))
+                                                    continue
+                                                _g_imgs_u: list["Image.Image"] = []
+                                                _show_mn_u = (_fn_u in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg"))
+                                                for _b_u in _bans_u:
+                                                    _it_u = _upd_by_uid.get(str(_b_u))
+                                                    if _it_u is None or not _it_u.get("points"):
+                                                        continue
+                                                    _dn_u = (_it_u.get("_convertedName") or _it_u.get("displayName")
+                                                             or _upd_b2mac.get(str(_b_u), str(_b_u)))
+                                                    try:
+                                                        _g_imgs_u.append(draw_slump_graph(
+                                                            _upd_tmpl, str(_b_u), _dn_u,
+                                                            _it_u["points"], diff=_it_u.get("diff"),
+                                                            machine_name=_dn_u if _show_mn_u else None,
+                                                            show_diff=True,
+                                                        ))
+                                                    except Exception:
+                                                        pass
+                                                if _g_imgs_u:
+                                                    _merged_anp.append((_fn_u, _attach_slump_to_table(_img_u, _g_imgs_u, _upd_bgg)))
+                                                else:
+                                                    _merged_anp.append((_fn_u, _img_u))
+                                            _anp = _merged_anp
+                                except Exception:
+                                    pass
                             st.session_state[_art_aprev_key] = _anp
                             st.rerun()
             with _ab2:

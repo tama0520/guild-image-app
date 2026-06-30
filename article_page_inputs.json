@@ -22,8 +22,8 @@
   },
   "20260629_高田馬場_20S.xlsx": {
     "art_kojin_enabled": false,
-    "art_narabi_enabled": false,
-    "art_narabi_ranges_input": "",
+    "art_narabi_enabled": true,
+    "art_narabi_ranges_input": "2093-2095,2110-2115",
     "art_suebangai_enabled": false,
     "art_suebangai_tail_input": "",
     "art_kojin_z_0_高田馬場": "",

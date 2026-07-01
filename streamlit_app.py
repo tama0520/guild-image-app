@@ -7181,8 +7181,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             pass
                                     if store == "秋葉原":
                                         _u2_bare  = re.sub(r"^\d{2}_", "", _ufn)
-                                        _u2_title = (st.session_state.get(f"_inagawa_title_map_{store}", {}).get(_u2_bare)
-                                                     or re.sub(r"[①②③④⑤⑥⑦⑧⑨⑩]", "", os.path.splitext(_u2_bare)[0]))
+                                        if _u2_bare.startswith("その他の優秀台"):
+                                            # ①②③分割ファイル名(その他の優秀台+N,000枚以上)は青バーを「その他の優秀台ピックアップ」に統一
+                                            _u2_title = "その他の優秀台ピックアップ"
+                                        else:
+                                            _u2_title = (st.session_state.get(f"_inagawa_title_map_{store}", {}).get(_u2_bare)
+                                                         or re.sub(r"[①②③④⑤⑥⑦⑧⑨⑩]", "", os.path.splitext(_u2_bare)[0]))
                                         _u2_slump = _build_slump_title_img(_u2_title, _g_imgs_u2, _upd_bbb)
                                         if _u2_slump is not None:
                                             _new_prev[_ui] = (_ufn, _u2_slump)

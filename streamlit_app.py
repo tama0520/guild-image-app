@@ -4694,6 +4694,11 @@ def render_pision_data_view(vt_df: pd.DataFrame, title: str, sel_key: str) -> No
 def show_auto_page(with_slump: bool = False) -> None:
     """自動処理ページ: PIL パイプラインで全画像を生成する"""
     store = st.session_state.selected_store
+    # その他の優秀台ピックアップ分割（秋葉原=①②③・上野新館/上野本館=①②）
+    _sonota_split = with_slump and store in ("秋葉原", "上野新館", "上野本館")
+    _sonota_extra_thrs = [(2000, "その他の優秀台+2,000枚以上.jpg")]
+    if store == "秋葉原":
+        _sonota_extra_thrs.append((3000, "その他の優秀台+3,000枚以上.jpg"))
     if with_slump:
         st.markdown(f"## 【{store}】スランプ付き結果ポスト用")
     else:
@@ -5874,12 +5879,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                             jug_suebangai_tails=_prev_jug_sue_tails,
                             variety_bans=(ranges_to_bans(parse_ranges(variety_ranges_text.strip())) if (with_slump and store == "秋葉原" and variety_enabled and variety_ranges_text.strip()) else set()),
                         )
-                        # 秋葉原スランプ付き: その他の優秀台ピックアップ①②③生成（プレビュー用）
-                        if with_slump and store == "秋葉原" and _prev_result.get("ok"):
+                        # スランプ付き: その他の優秀台ピックアップ①②(③)生成（プレビュー用・秋葉原/上野新館）
+                        if _sonota_split and _prev_result.get("ok"):
                             _s3_old_pv = os.path.join(_tmpdir, "その他の優秀台ピックアップ.jpg")
                             _s3_1_pv   = os.path.join(_tmpdir, "その他の優秀台+1,000枚以上.jpg")
-                            _s3_2_pv   = os.path.join(_tmpdir, "その他の優秀台+2,000枚以上.jpg")
-                            _s3_3_pv   = os.path.join(_tmpdir, "その他の優秀台+3,000枚以上.jpg")
                             if os.path.exists(_s3_old_pv):
                                 os.replace(_s3_old_pv, _s3_1_pv)
                                 _rfl_pv = _prev_result["files"]
@@ -5891,7 +5894,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _pv_s3_dr_g = _prev_result.get("diff_raw")
                             _pv_1_bans  = sorted({int(_e["ban"]) for _e in _prev_result.get("sonota_excellent_list", []) if "ban" in _e})
                             if _pv_s3_df_g is not None and _pv_s3_dr_g is not None and _pv_1_bans:
-                                for _thr_pv, _out_pv in ((2000, _s3_2_pv), (3000, _s3_3_pv)):
+                                for _thr_pv, _fn_pv in _sonota_extra_thrs:
+                                    _out_pv = os.path.join(_tmpdir, _fn_pv)
                                     _s3_k_pv = [
                                         _b for _b in _pv_1_bans
                                         if not (_pv_s3_df_g[_pv_s3_df_g["台番"] == _b]).empty
@@ -6194,8 +6198,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _prev_img_list.append(_fp_map["ジャグラーシリーズ優秀台.jpg"])
 
                             # ─ ⑥ その他の優秀台ピックアップ + オススメ ─
-                            if with_slump and store == "秋葉原":
-                                for _s3fn in ("その他の優秀台+1,000枚以上.jpg", "その他の優秀台+2,000枚以上.jpg", "その他の優秀台+3,000枚以上.jpg"):
+                            if _sonota_split:
+                                for _s3fn in ["その他の優秀台+1,000枚以上.jpg"] + [_f for _, _f in _sonota_extra_thrs]:
                                     if _s3fn in _fp_map:
                                         _prev_img_list.append(_fp_map[_s3fn])
                             else:
@@ -6305,13 +6309,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     if _jp_1k_pv:
                                         _son_bans_pv = sorted(set(_son_bans_pv) | set(_jp_1k_pv))
                         if _son_bans_pv:
-                            if with_slump and store == "秋葉原":
+                            if _sonota_split:
                                 _pv_ban_map["その他の優秀台+1,000枚以上.jpg"] = _son_bans_pv
-                                # ②③: ①の台番を diff_raw で 2000+ / 3000+ に絞る
+                                # ②(③): ①の台番を diff_raw で 2000+ (/3000+) に絞る
                                 _pv_s3_df2  = _prev_result.get("df")
                                 _pv_s3_dr2  = _prev_result.get("diff_raw")
                                 if _pv_s3_df2 is not None and _pv_s3_dr2 is not None:
-                                    for _thr_bm, _fn_bm in ((2000, "その他の優秀台+2,000枚以上.jpg"), (3000, "その他の優秀台+3,000枚以上.jpg")):
+                                    for _thr_bm, _fn_bm in _sonota_extra_thrs:
                                         _s3_k_pv = [
                                             _b for _b in _son_bans_pv
                                             if not (_pv_s3_df2[_pv_s3_df2["台番"] == _b]).empty
@@ -6333,10 +6337,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                             if _hr_t.get("has_image", False):
                                 _pv_title_map[f"{_make_safe_fn(_hr_t['name'])}_高配分.jpg"] = _hr_t['name'] + "（優秀台）"
                         _pv_title_map["ジャグラーシリーズ優秀台.jpg"] = "ジャグラーシリーズ優秀台"
-                        if with_slump and store == "秋葉原":
+                        if _sonota_split:
                             _pv_title_map["その他の優秀台+1,000枚以上.jpg"] = "その他の優秀台ピックアップ"
-                            _pv_title_map["その他の優秀台+2,000枚以上.jpg"] = "その他の優秀台ピックアップ"
-                            _pv_title_map["その他の優秀台+3,000枚以上.jpg"] = "その他の優秀台ピックアップ"
+                            for _, _fn_tt in _sonota_extra_thrs:
+                                _pv_title_map[_fn_tt] = "その他の優秀台ピックアップ"
                         else:
                             _pv_title_map["その他の優秀台ピックアップ.jpg"] = "その他の優秀台ピックアップ"
                         for _nami_t in _prev_result.get("nami_list", []):
@@ -6977,7 +6981,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _son_comb  = _son_comb.iloc[_son_order].reset_index(drop=True)
                             _son_img   = _build_machine_img(_son_comb, "その他の優秀台ピックアップ", None)
                             # 秋葉原スランプ付きは①.jpgキーで管理
-                            _son_pv_key = "その他の優秀台+1,000枚以上.jpg" if (with_slump and store == "秋葉原") else "その他の優秀台ピックアップ.jpg"
+                            _son_pv_key = "その他の優秀台+1,000枚以上.jpg" if _sonota_split else "その他の優秀台ピックアップ.jpg"
                             for _ci, (_pname, _) in enumerate(_new_prev):
                                 if _pname == _son_pv_key:
                                     _new_prev[_ci] = (_pname, _son_img)
@@ -7106,11 +7110,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _upd_dyn_ban_map["ジャグラーシリーズ優秀台.jpg"] = sorted(dict.fromkeys(_jug_bans_upd))
                                 if _all_dfs:
                                     _son_bans_upd = [int(str(b).split(".")[0]) for b in _son_comb["台番"].dropna() if str(b).split(".")[0].lstrip("-").isdigit()]
-                                    if with_slump and store == "秋葉原":
+                                    if _sonota_split:
                                         _upd_dyn_ban_map["その他の優秀台+1,000枚以上.jpg"] = _son_bans_upd
-                                        # ②③も更新（+2000枚以上 / +3000枚以上）
+                                        # ②(③)も更新（+2000枚以上 (/+3000枚以上)）
                                         if _pv_diff is not None and _pv_df is not None:
-                                            for _thr_upd, _fn_upd in ((2000, "その他の優秀台+2,000枚以上.jpg"), (3000, "その他の優秀台+3,000枚以上.jpg")):
+                                            for _thr_upd, _fn_upd in _sonota_extra_thrs:
                                                 _sk_upd = [b for b in _son_bans_upd
                                                            if not _pv_df[_pv_df["台番"] == b].empty
                                                            and int(_pv_diff.loc[_pv_df[_pv_df["台番"] == b].index[0]]) >= _thr_upd]
@@ -7564,12 +7568,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                 variety_bans=(ranges_to_bans(parse_ranges(variety_ranges_text.strip())) if (with_slump and store == "秋葉原" and variety_enabled and variety_ranges_text.strip()) else set()),
             )
 
-            # 秋葉原スランプ付き: その他の優秀台ピックアップ①②③生成
-            if with_slump and store == "秋葉原" and result.get("ok"):
+            # スランプ付き: その他の優秀台ピックアップ①②(③)生成（秋葉原/上野新館）
+            if _sonota_split and result.get("ok"):
                 _s3_old = os.path.join(output_dir, "その他の優秀台ピックアップ.jpg")
                 _s3_1   = os.path.join(output_dir, "その他の優秀台+1,000枚以上.jpg")
-                _s3_2   = os.path.join(output_dir, "その他の優秀台+2,000枚以上.jpg")
-                _s3_3   = os.path.join(output_dir, "その他の優秀台+3,000枚以上.jpg")
                 if os.path.exists(_s3_old):
                     os.replace(_s3_old, _s3_1)
                     _rfl = result["files"]
@@ -7577,12 +7579,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                         if os.path.basename(_rfl[_ri]) == "その他の優秀台ピックアップ.jpg":
                             _rfl[_ri] = _s3_1
                             break
-                # ② +2,000枚以上 / ③ +3,000枚以上: ①の台番を diff_raw で絞る
+                # ②(③): ①の台番を diff_raw で +2000 (/+3000) に絞る
                 _s3_df_r   = result.get("df")
                 _s3_diff_r = result.get("diff_raw")
                 _s3_1_bans = sorted({int(_e["ban"]) for _e in result.get("sonota_excellent_list", []) if "ban" in _e})
                 if _s3_df_r is not None and _s3_diff_r is not None and _s3_1_bans:
-                    for _thr, _out in ((2000, _s3_2), (3000, _s3_3)):
+                    for _thr, _fn_ex in _sonota_extra_thrs:
+                        _out = os.path.join(output_dir, _fn_ex)
                         _s3_k = [
                             _b for _b in _s3_1_bans
                             if not (_s3_df_r[_s3_df_r["台番"] == _b]).empty
@@ -7643,13 +7646,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _ig_title_map["ジャグラーシリーズ優秀台.jpg"] = "ジャグラーシリーズ優秀台"
                 _sonota_bans_ig = sorted({int(_e2["ban"]) for _e2 in result.get("sonota_excellent_list", []) if "ban" in _e2})
                 if _sonota_bans_ig:
-                    if with_slump and store == "秋葉原":
+                    if _sonota_split:
                         _ig_ban_map["その他の優秀台+1,000枚以上.jpg"]   = _sonota_bans_ig
                         _ig_title_map["その他の優秀台+1,000枚以上.jpg"] = "その他の優秀台ピックアップ"
                         _ig_s3_df2  = result.get("df")
                         _ig_s3_dr2  = result.get("diff_raw")
                         if _ig_s3_df2 is not None and _ig_s3_dr2 is not None:
-                            for _thr_ig, _fn_ig in ((2000, "その他の優秀台+2,000枚以上.jpg"), (3000, "その他の優秀台+3,000枚以上.jpg")):
+                            for _thr_ig, _fn_ig in _sonota_extra_thrs:
                                 _ig_k = [
                                     _b for _b in _sonota_bans_ig
                                     if not (_ig_s3_df2[_ig_s3_df2["台番"] == _b]).empty
@@ -8029,8 +8032,8 @@ def show_auto_page(with_slump: bool = False) -> None:
 
                 # その他の優秀台ピックアップを再生成
                 if _extra_dfs and _df_res is not None and _diff_res is not None:
-                    # 秋葉原スランプ付きは①.jpgに保存（その他の優秀台ピックアップ.jpgを作らない）
-                    if with_slump and store == "秋葉原":
+                    # スランプ付き分割店舗は①.jpgに保存（その他の優秀台ピックアップ.jpgを作らない）
+                    if _sonota_split:
                         _sonota_path = os.path.join(output_dir, "その他の優秀台+1,000枚以上.jpg")
                     else:
                         _sonota_path = os.path.join(output_dir, "その他の優秀台ピックアップ.jpg")
@@ -8051,12 +8054,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _log(f"  ✅ その他の優秀台ピックアップ再生成: {len(_son_combined)}台")
                     _sonota_extra_bans = [int(str(b).split(".")[0]) for b in _son_combined["台番"].dropna()
                                           if str(b).split(".")[0].lstrip("-").isdigit()]
-                    # 秋葉原スランプ付き: ②.jpg（+2000枚以上）③.jpg（+3000枚以上）も更新
-                    if with_slump and store == "秋葉原":
+                    # スランプ付き分割店舗: ②.jpg（+2000枚以上）(③.jpg（+3000枚以上）)も更新
+                    if _sonota_split:
                         _son_bans_set2 = set(_son_combined["台番"].dropna().astype(int))
                         _s2_mask = _df_res["台番"].apply(lambda b: int(b) in _son_bans_set2)
                         _s2_diff_vals = _diff_res.loc[_df_res[_s2_mask].index]
-                        for _thr_rg, _fn_rg in ((2000, "その他の優秀台+2,000枚以上.jpg"), (3000, "その他の優秀台+3,000枚以上.jpg")):
+                        for _thr_rg, _fn_rg in _sonota_extra_thrs:
                             _sk_path_regen = os.path.join(output_dir, _fn_rg)
                             _sk_bans = set(_df_res[_s2_mask][(_s2_diff_vals.values >= _thr_rg)]["台番"].astype(int))
                             if _sk_bans:
@@ -8434,10 +8437,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                 # ⑤ ジャグラーシリーズ優秀台
                 _order.append("ジャグラーシリーズ優秀台.jpg")
                 # ⑤ その他の優秀台ピックアップ
-                if with_slump and store == "秋葉原":
+                if _sonota_split:
                     _order.append("その他の優秀台+1,000枚以上.jpg")
-                    _order.append("その他の優秀台+2,000枚以上.jpg")
-                    _order.append("その他の優秀台+3,000枚以上.jpg")
+                    for _, _fn_ord in _sonota_extra_thrs:
+                        _order.append(_fn_ord)
                 else:
                     _order.append("その他の優秀台ピックアップ.jpg")
                 # オススメ
@@ -8506,12 +8509,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 if _jp_1k_bm:
                                     _sonota_bans_ig2 = sorted(set(_sonota_bans_ig2) | set(_jp_1k_bm))
                     if _sonota_bans_ig2:
-                        if with_slump and store == "秋葉原":
+                        if _sonota_split:
                             _ig_bm_u["その他の優秀台+1,000枚以上.jpg"] = _sonota_bans_ig2
                             _ig_bm_u2_df = result.get("df")
                             _ig_bm_u2_dr = result.get("diff_raw")
                             if _ig_bm_u2_df is not None and _ig_bm_u2_dr is not None:
-                                for _thr_bmu, _fn_bmu in ((2000, "その他の優秀台+2,000枚以上.jpg"), (3000, "その他の優秀台+3,000枚以上.jpg")):
+                                for _thr_bmu, _fn_bmu in _sonota_extra_thrs:
                                     _sk_bm = [
                                         _b for _b in _sonota_bans_ig2
                                         if not (_ig_bm_u2_df[_ig_bm_u2_df["台番"] == _b]).empty

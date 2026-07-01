@@ -3183,6 +3183,14 @@ def generate_report_text(
     def _diff_emoji(diffs: list[int]) -> str:
         return "🌋" if diffs and max(diffs) >= 4000 else "💎"
 
+    # 西武新宿のみ: 高配分の(1/2台)機種は高配分に載せず、+2,000枚以上の台をその他の優秀台へ回す
+    _demoted_names: set[str] = set()
+    if store_name == "西武新宿":
+        _demoted_names = {
+            item["name"] for item in high_ratio_list
+            if item.get("count") == 1 and item.get("total") == 2
+        }
+
     def zen_dai_section() -> str:
         if not zen_dai_list:
             return "（なし）"
@@ -3202,11 +3210,12 @@ def generate_report_text(
         return "\n".join(lines)
 
     def high_ratio_section() -> str:
-        if not high_ratio_list:
+        _hr_list = [it for it in high_ratio_list if it["name"] not in _demoted_names]
+        if not _hr_list:
             return "（なし）"
         lines = []
         sorted_list = sorted(
-            high_ratio_list,
+            _hr_list,
             key=lambda x: x["all_avg_diff"] if "all_avg_diff" in x
                           else (int(round(sum(x["diffs"]) / len(x["diffs"]))) if x["diffs"] else 0),
             reverse=True,
@@ -3267,9 +3276,22 @@ def generate_report_text(
 
     def excellent_section() -> str:
         _item_emoji = STORE_REC_CONFIG.get(store_name, {}).get("item_emoji", "🚩")
-        high_ratio_names = {item["name"] for item in high_ratio_list}
+        # 降格した(1/2台)機種は除外対象から外し、その+2,000枚以上の台をその他の優秀台に含める
+        high_ratio_names = {item["name"] for item in high_ratio_list} - _demoted_names
         _poster_ex = get_store_config(store_name).get("poster_extra_exclude", set())
-        filtered = [x for x in excellent_list if x["diff"] >= 2000 and x["name"] not in high_ratio_names and x["name"] not in _poster_ex]
+        _ex_src = list(excellent_list)
+        if _demoted_names and df is not None and diff_raw is not None:
+            _seen = {(x["name"], x.get("ban")) for x in _ex_src}
+            for _nm in _demoted_names:
+                _sub = df[df["機種名"] == _nm]
+                _dr = diff_raw.loc[_sub.index]
+                for _i in _sub.index:
+                    _d = int(_dr.loc[_i])
+                    _ban = int(_sub.loc[_i, "台番"])
+                    if _d >= 2000 and (_nm, _ban) not in _seen:
+                        _ex_src.append({"name": _nm, "ban": _ban, "diff": _d})
+                        _seen.add((_nm, _ban))
+        filtered = [x for x in _ex_src if x["diff"] >= 2000 and x["name"] not in high_ratio_names and x["name"] not in _poster_ex]
         if not filtered:
             return "（なし）"
         sorted_items = sorted(filtered, key=lambda x: x["diff"], reverse=True)

@@ -5170,7 +5170,7 @@ def show_auto_page(with_slump: bool = False) -> None:
         kojin_narabi_title        = st.session_state.get(f"kojin_narabi_title_{store}", "")
         kojin_narabi2_ranges_text = st.session_state.get(f"kojin_narabi2_range_{store}", "")
         kojin_narabi2_title       = st.session_state.get(f"kojin_narabi2_title_{store}", "")
-        if store == "溝の口新館":
+        if True:  # その他の優秀台ピックアップ（全店舗）
             st.markdown("**その他の優秀台ピックアップ**")
             _col_set, _col_seb = st.columns([2, 3])
             with _col_set:
@@ -5818,7 +5818,7 @@ def show_auto_page(with_slump: bool = False) -> None:
 
         _auto_previews = st.session_state.get(_aprev_key)
         if _auto_previews is None:
-            if store == "溝の口新館":
+            if not with_slump:
                 _mc1, _mc2 = st.columns(2)
                 with _mc1:
                     _full_prev_btn = st.button("🔍 プレビュー生成", key="auto_preview_btn", use_container_width=True)
@@ -6199,6 +6199,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                             else:
                                 if "その他の優秀台ピックアップ.jpg" in _fp_map:
                                     _prev_img_list.append(_fp_map["その他の優秀台ピックアップ.jpg"])
+                            # 手動入力の「その他の優秀台ピックアップ」（全店舗・⑧実行と同ロジック）
+                            if sonota_extra_text.strip() and _pv_df is not None:
+                                _se_bans_pv = set(expand_machine_numbers(sonota_extra_text))
+                                if _se_bans_pv:
+                                    _se_df_pv = _pv_df[_pv_df["台番"].apply(lambda b: int(b) in _se_bans_pv)].copy().reset_index(drop=True)
+                                    if not _se_df_pv.empty:
+                                        _se_tit_pv = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
+                                        _se_fn_pv  = f"{_make_safe_fn(_se_tit_pv)}.jpg"
+                                        # 同名のパイプライン版が既にあれば置き換える
+                                        _prev_img_list = [(_n, _im) for (_n, _im) in _prev_img_list if _n != _se_fn_pv]
+                                        _prev_img_list.append((_se_fn_pv, _build_machine_img(_se_df_pv, _se_tit_pv, None)))
                             _rec_ban_map: dict[str, list[int]] = {}
                             if recommended_blocks and _pv_df is not None and _pv_diff is not None:
                                 _pv_scfg = get_store_config(store)
@@ -7216,7 +7227,7 @@ def show_auto_page(with_slump: bool = False) -> None:
             f.write(uploaded.getvalue())
         os.makedirs(output_dir, exist_ok=True)
 
-        _is_manual_mode = store == "溝の口新館" and st.session_state.get(f"_manual_preview_mode_{store}", False)
+        _is_manual_mode = (not with_slump) and st.session_state.get(f"_manual_preview_mode_{store}", False)
         if _is_manual_mode:
             with st.status("記入部分のみ処理を実行中…", expanded=True) as _m_status:
                 def _m_log(msg: str) -> None:
@@ -8296,8 +8307,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                         except Exception:
                             _log(f"  ❌ 台番範囲優秀台(ピンクバーなし)エラー: {traceback.format_exc()}")
 
-                    # その他の優秀台ピックアップ（溝の口新館）
-                    if store == "溝の口新館" and sonota_extra_text.strip():
+                    # その他の優秀台ピックアップ（全店舗）
+                    if sonota_extra_text.strip():
                         try:
                             _se_bans = set(expand_machine_numbers(sonota_extra_text))
                             if _se_bans:

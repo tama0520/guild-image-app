@@ -7011,6 +7011,24 @@ def show_auto_page(with_slump: bool = False) -> None:
                             else:
                                 _new_prev.append((_son_pv_key, _son_img))
                                 st.session_state[f"auto_prev_ck_{store}_{len(_new_prev)-1}"] = True
+                            # ②(③)も素の表を再生成して差し替える（後段のスランプ合成が
+                            # 合成済み画像に二重合成して崩れるのを防ぐ）
+                            if _sonota_split and _pv_diff is not None and _pv_df is not None:
+                                _son_bans_bt = [int(str(b).split(".")[0]) for b in _son_comb["台番"].dropna()
+                                                if str(b).split(".")[0].lstrip("-").isdigit()]
+                                for _thr_bt, _fn_bt in _sonota_extra_thrs:
+                                    _sk_bt = {b for b in _son_bans_bt
+                                              if not _pv_df[_pv_df["台番"] == b].empty
+                                              and int(_pv_diff.loc[_pv_df[_pv_df["台番"] == b].index[0]]) >= _thr_bt}
+                                    if not _sk_bt:
+                                        continue
+                                    _sk_df_bt = _son_comb[_son_comb["台番"].apply(
+                                        lambda b: int(str(b).split(".")[0]) in _sk_bt)].copy().reset_index(drop=True)
+                                    _sk_img_bt = _build_machine_img(_sk_df_bt, "その他の優秀台ピックアップ", None)
+                                    for _ci_bt, (_pn_bt, _) in enumerate(_new_prev):
+                                        if _pn_bt == _fn_bt:
+                                            _new_prev[_ci_bt] = (_pn_bt, _sk_img_bt)
+                                            break
                             _updated = True
                         # ジャグラーシリーズ優秀台更新（秋葉原スランプ付きは生成しない）
                         if _jug_extra_dfs and not (with_slump and store == "秋葉原"):

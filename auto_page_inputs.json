@@ -4895,15 +4895,11 @@
     "variety_mode": ""
   },
   "20260630_上野新館_20S.xlsx": {
-    "kojin_enabled": false,
-    "narabi_enabled": false,
     "narabi_ranges_input": "",
-    "suebangai_enabled": false,
     "suebangai_tail_input_1": "",
     "suebangai_tail_input_2": "",
     "suebangai_tail_input_3": "",
     "suebangai_mode": "",
-    "jug_sue_enabled": false,
     "jug_sue_tail_input_1": "",
     "jug_sue_tail_input_2": "",
     "jug_sue_tail_input_3": "",
@@ -5237,6 +5233,45 @@
     "variety_mode": ""
   },
   "20260701_上野新館_20S.xlsx": {
+    "narabi_ranges_input": "",
+    "suebangai_tail_input_1": "",
+    "suebangai_tail_input_2": "",
+    "suebangai_tail_input_3": "",
+    "suebangai_mode": "",
+    "jug_sue_tail_input_1": "",
+    "jug_sue_tail_input_2": "",
+    "jug_sue_tail_input_3": "",
+    "jug_sue_mode": "",
+    "variety_enabled": false,
+    "variety_mode": ""
+  },
+  "20260701_上野本館_20S.xlsx": {
+    "narabi_ranges_input": "",
+    "suebangai_tail_input_1": "",
+    "suebangai_tail_input_2": "",
+    "suebangai_tail_input_3": "",
+    "suebangai_mode": "",
+    "jug_sue_tail_input_1": "",
+    "jug_sue_tail_input_2": "",
+    "jug_sue_tail_input_3": "",
+    "jug_sue_mode": "",
+    "variety_enabled": false,
+    "variety_mode": ""
+  },
+  "20260630_稲毛_20S.xlsx": {
+    "narabi_ranges_input": "",
+    "suebangai_tail_input_1": "",
+    "suebangai_tail_input_2": "",
+    "suebangai_tail_input_3": "",
+    "suebangai_mode": "",
+    "jug_sue_tail_input_1": "",
+    "jug_sue_tail_input_2": "",
+    "jug_sue_tail_input_3": "",
+    "jug_sue_mode": "",
+    "variety_enabled": false,
+    "variety_mode": ""
+  },
+  "20260702_上野新館_20S.xlsx": {
     "kojin_enabled": true,
     "narabi_enabled": false,
     "narabi_ranges_input": "",
@@ -5262,7 +5297,7 @@
     "kojin_z_9_上野新館": "",
     "kojin_z_10_上野新館": "",
     "kojin_z_11_上野新館": "",
-    "kojin_y_0_上野新館": "マイジャグV",
+    "kojin_y_0_上野新館": "戦国乙女5",
     "kojin_y_1_上野新館": "",
     "kojin_y_2_上野新館": "",
     "kojin_y_3_上野新館": "",
@@ -5291,19 +5326,6 @@
     "sonota_extra_text_上野新館": "",
     "variety_enabled": false,
     "variety_range_上野新館": "",
-    "variety_mode": ""
-  },
-  "20260701_上野本館_20S.xlsx": {
-    "narabi_ranges_input": "",
-    "suebangai_tail_input_1": "",
-    "suebangai_tail_input_2": "",
-    "suebangai_tail_input_3": "",
-    "suebangai_mode": "",
-    "jug_sue_tail_input_1": "",
-    "jug_sue_tail_input_2": "",
-    "jug_sue_tail_input_3": "",
-    "jug_sue_mode": "",
-    "variety_enabled": false,
     "variety_mode": ""
   }
 }

@@ -764,6 +764,129 @@ def get_machine_images(short_name: str) -> dict | None:
     }
 
 
+# ── 画像グループIDの自動予測（簡略名 → image_id の候補作成） ────────────────
+# 比較前に除去する接頭ワード（画像グループIDはローマ字なので日本語のみ）
+_MATCH_STRIP_WORDS = ("スマスロ", "パチスロ", "ぱちスロ", "ぱちんこ", "パチンコ", "新台")
+
+_kakasi_instance = None
+
+
+def _to_romaji(s: str) -> str:
+    """
+    日本語（漢字・かな）をヘボン式ローマ字に変換する。
+    pykakasi が無ければ元文字列を返す（英字簡略名はそのまま比較される）。
+    """
+    global _kakasi_instance
+    if _kakasi_instance is None:
+        try:
+            import pykakasi
+            _kakasi_instance = pykakasi.kakasi()
+        except Exception:
+            _kakasi_instance = False
+    if not _kakasi_instance:
+        return str(s)
+    try:
+        return "".join(item["hepburn"] for item in _kakasi_instance.convert(str(s)))
+    except Exception:
+        return str(s)
+
+
+def _normalize_for_match(s: str) -> str:
+    """
+    予測マッチ用の正規化。接頭ワード除去 → ローマ字化 → 小文字化 →
+    英数以外を除去 → 先頭のL/P/Sマーカーを除去する。
+    画像グループID（ローマ字）と日本語簡略名を同じ土俵で比較できるようにする。
+    """
+    import unicodedata
+    if s is None:
+        return ""
+    t = unicodedata.normalize("NFKC", str(s))
+    for w in _MATCH_STRIP_WORDS:
+        t = t.replace(w, "")
+    t = _to_romaji(t).lower()
+    # 英数以外（記号・空白・変換漏れの記号）を除去
+    t = re.sub(r"[^0-9a-z]", "", t)
+    # 先頭の l / p / s マーカー（機種区分）を1文字だけ除外
+    t = re.sub(r"^[lps]", "", t)
+    return t
+
+
+def list_image_group_ids() -> list[str]:
+    """assets/machine_images/ 内の *_panel.* から画像グループID一覧を返す。"""
+    if not os.path.isdir(_MACHINE_IMAGES_DIR):
+        return []
+    ids: set[str] = set()
+    for fn in os.listdir(_MACHINE_IMAGES_DIR):
+        stem, ext = os.path.splitext(fn)
+        if ext.lower() not in _MACHINE_IMG_EXTS:
+            continue
+        if stem.endswith("_panel"):
+            ids.add(stem[: -len("_panel")])
+    return sorted(ids)
+
+
+def predict_image_id(short_name: str, group_ids: list[str]) -> tuple[str | None, float, str]:
+    """
+    簡略名に対する画像グループIDの最有力候補を返す。
+    戻り値: (画像グループID or None, 類似度スコア, 判定理由)
+      1. 完全一致（正規化後） → score 1.0
+      2. 部分一致（一方が他方を含む） → score 0.9
+      3. 類似一致（difflib） → SequenceMatcher の ratio
+    """
+    from difflib import SequenceMatcher
+    sn = _normalize_for_match(short_name)
+    if not sn:
+        return None, 0.0, ""
+    best_id, best_score, best_reason = None, 0.0, ""
+    for gid in group_ids:
+        gn = _normalize_for_match(gid)
+        if not gn:
+            continue
+        if sn == gn:
+            score, reason = 1.0, "完全一致"
+        elif sn in gn or gn in sn:
+            # 短すぎる部分一致の暴発を抑える（1文字包含は類似度に回す）
+            if min(len(sn), len(gn)) >= 2:
+                score, reason = 0.9, "部分一致"
+            else:
+                score, reason = SequenceMatcher(None, sn, gn).ratio(), "類似"
+        else:
+            score, reason = SequenceMatcher(None, sn, gn).ratio(), "類似"
+        if score > best_score:
+            best_id, best_score, best_reason = gid, score, reason
+    return best_id, round(best_score, 3), best_reason
+
+
+def append_machine_image_master(rows: list[tuple[str, str]]) -> int:
+    """
+    (簡略名, 画像グループID) を machine_image_master.xlsx に追記する。
+    既存の簡略名は重複登録しない。戻り値: 実際に追加した件数。
+    """
+    os.makedirs(os.path.dirname(_MACHINE_IMAGE_MASTER_PATH), exist_ok=True)
+    if os.path.exists(_MACHINE_IMAGE_MASTER_PATH):
+        try:
+            df = pd.read_excel(_MACHINE_IMAGE_MASTER_PATH)
+        except Exception:
+            df = pd.DataFrame(columns=["簡略名", "画像グループID"])
+    else:
+        df = pd.DataFrame(columns=["簡略名", "画像グループID"])
+    if "簡略名" not in df.columns or "画像グループID" not in df.columns:
+        df = df.rename(columns={df.columns[0]: "簡略名", df.columns[1]: "画像グループID"})
+    existing = {str(v).strip() for v in df["簡略名"].tolist()}
+    new_rows = []
+    for sn, gid in rows:
+        sn, gid = str(sn).strip(), str(gid).strip()
+        if sn and gid and sn not in existing:
+            new_rows.append({"簡略名": sn, "画像グループID": gid})
+            existing.add(sn)
+    if not new_rows:
+        return 0
+    df = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
+    df.to_excel(_MACHINE_IMAGE_MASTER_PATH, index=False)
+    load_machine_image_master.clear()  # キャッシュ破棄
+    return len(new_rows)
+
+
 def round_games(v) -> int:
     """ゲーム数を 50G / 100G 単位に丸める（既存スクリプトと同じロジック）"""
     n = int(v); r = n % 100
@@ -15076,6 +15199,108 @@ def show_machine_image_page() -> None:
         st.dataframe(pd.DataFrame(missing), use_container_width=True, hide_index=True)
     else:
         st.success("画像欠落はありません。")
+
+    # ── 未登録機種の画像候補を自動作成 ────────────────────────────
+    st.markdown("---")
+    st.subheader("未登録機種の自動紐づけ")
+    st.caption(
+        "未登録の簡略名と `*_panel.png` のファイル名を比較し、画像グループIDを予測します。"
+        "類似度 0.85以上=自動採用候補 / 0.65〜0.85=要確認 / 0.65未満=候補なし。"
+    )
+
+    _AUTO_TH, _CHECK_TH = 0.65, 0.85
+    if st.button("未登録機種の画像候補を自動作成", key="mi_gen_candidates"):
+        group_ids = list_image_group_ids()
+        cands = []
+        for sn in unregistered:
+            gid, score, reason = predict_image_id(sn, group_ids)
+            if gid is None or score < _AUTO_TH:
+                status = "候補なし"
+                gid_out = ""
+            elif score >= _CHECK_TH:
+                status = "自動採用候補"
+                gid_out = gid
+            else:
+                status = "要確認"
+                gid_out = gid
+            cands.append({
+                "簡略名": sn,
+                "推定画像グループID": gid_out,
+                "類似度": score,
+                "判定": reason,
+                "状態": status,
+            })
+        st.session_state["mi_candidates"] = cands
+        # 生成のたびにウィジェットキーを一新（古いチェック状態を残さない）
+        st.session_state["mi_cand_gen"] = st.session_state.get("mi_cand_gen", 0) + 1
+
+    _cands = st.session_state.get("mi_candidates")
+    _gen = st.session_state.get("mi_cand_gen", 0)
+    if _cands is not None:
+        if not _cands:
+            st.success("未登録の簡略名はありません。")
+        else:
+            st.markdown(f"**候補 {len(_cands)}件**（採用にチェック→下部のボタンで保存）")
+            # ヘッダー行
+            _h = st.columns([2, 2, 1, 1.2, 1, 2])
+            for _c, _t in zip(_h, ["簡略名", "画像グループID(手修正可)", "類似度", "状態", "採用", "パネル"]):
+                _c.markdown(f"**{_t}**")
+            for _i, _cd in enumerate(_cands):
+                _c1, _c2, _c3, _c4, _c5, _c6 = st.columns([2, 2, 1, 1.2, 1, 2])
+                _c1.write(_cd["簡略名"])
+                # 入力欄は空。推定IDはプレースホルダー（薄いヒント）に表示するだけ
+                _gid = _c2.text_input(
+                    "gid", value="",
+                    key=f"mi_cand_gid_{_gen}_{_i}", label_visibility="collapsed",
+                    placeholder=(_cd["推定画像グループID"] or "画像グループID"),
+                )
+                _c3.write(f"{_cd['類似度']:.2f}")
+                _c4.write(_cd["状態"])
+                # チェックは常にデフォルトOFF（自動でONにしない＝勝手に登録しない）
+                # 状態ラベルはあくまで目安。採用は必ず自分でチェックする。
+                _c5.checkbox(
+                    "採用", value=False,
+                    key=f"mi_cand_use_{_gen}_{_i}", label_visibility="collapsed",
+                )
+                # パネルプレビュー（入力値優先・空欄なら推定IDで表示）
+                _eff_gid = _gid.strip() or str(_cd["推定画像グループID"]).strip()
+                _panel = _find_panel_image(_eff_gid) if _eff_gid else None
+                with _c6:
+                    if _panel:
+                        st.image(os.path.join(BASE_DIR, _panel), use_container_width=True)
+                    else:
+                        st.caption("画像なし")
+
+            if st.button("採用してマスタに追加", key="mi_save_candidates", type="primary"):
+                _rows = []
+                _adopted_names = set()
+                for _i, _cd in enumerate(_cands):
+                    if st.session_state.get(f"mi_cand_use_{_gen}_{_i}"):
+                        # 手入力があればそれを、空欄なら推定ID（プレースホルダー）を採用
+                        _gid = str(st.session_state.get(f"mi_cand_gid_{_gen}_{_i}", "")).strip()
+                        if not _gid:
+                            _gid = str(_cd["推定画像グループID"]).strip()
+                        if _gid:
+                            _rows.append((_cd["簡略名"], _gid))
+                            _adopted_names.add(_cd["簡略名"])
+                if not _rows:
+                    st.warning("採用チェックされた候補がありません。")
+                else:
+                    _added = append_machine_image_master(_rows)
+                    # 採用しなかった候補は「要確認」として残す
+                    _remaining = []
+                    for _cd in _cands:
+                        if _cd["簡略名"] not in _adopted_names:
+                            _nc = dict(_cd)
+                            _nc["状態"] = "要確認"
+                            _remaining.append(_nc)
+                    st.session_state["mi_candidates"] = _remaining
+                    # 世代を進めてウィジェットキーを一新（全チェックOFFで再描画）
+                    st.session_state["mi_cand_gen"] = _gen + 1
+                    st.success(f"{_added}件をマスタに追加しました。残り{len(_remaining)}件は要確認です。")
+                    if not _IS_CLOUD:
+                        st.info("反映するには masters/machine_image_master.xlsx をcommit/pushしてください。")
+                    st.rerun()
 
     st.markdown("---")
     if st.button("← 画像生成トップへ戻る", key="mi_back"):

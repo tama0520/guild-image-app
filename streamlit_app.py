@@ -887,6 +887,106 @@ def append_machine_image_master(rows: list[tuple[str, str]]) -> int:
     return len(new_rows)
 
 
+def save_machine_image_mapping(short_name: str, gid: str, overwrite: bool = False) -> tuple[str, str]:
+    """
+    簡略名→画像グループIDを1件 追加/更新する。
+    戻り値: (action, gid)
+      action = "added"（新規追加） / "updated"（上書き更新） / "exists"（既存・overwrite=False）
+    """
+    os.makedirs(os.path.dirname(_MACHINE_IMAGE_MASTER_PATH), exist_ok=True)
+    if os.path.exists(_MACHINE_IMAGE_MASTER_PATH):
+        try:
+            df = pd.read_excel(_MACHINE_IMAGE_MASTER_PATH)
+        except Exception:
+            df = pd.DataFrame(columns=["簡略名", "画像グループID"])
+    else:
+        df = pd.DataFrame(columns=["簡略名", "画像グループID"])
+    if "簡略名" not in df.columns or "画像グループID" not in df.columns:
+        df = df.rename(columns={df.columns[0]: "簡略名", df.columns[1]: "画像グループID"})
+    sn, gid = str(short_name).strip(), str(gid).strip()
+    mask = df["簡略名"].astype(str).str.strip() == sn
+    if mask.any():
+        if not overwrite:
+            return "exists", str(df.loc[mask, "画像グループID"].iloc[0]).strip()
+        df.loc[mask, "画像グループID"] = gid
+        action = "updated"
+    else:
+        df = pd.concat([df, pd.DataFrame([{"簡略名": sn, "画像グループID": gid}])], ignore_index=True)
+        action = "added"
+    df.to_excel(_MACHINE_IMAGE_MASTER_PATH, index=False)
+    load_machine_image_master.clear()  # キャッシュ破棄
+    return action, gid
+
+
+def _sync_machine_image_master() -> tuple[bool, str]:
+    """
+    machine_image_master.xlsx をGitHubへ反映する。
+    ローカル: git add→commit→pull→push。Cloud: GitHub API でバイナリを直接PUT。
+    """
+    repo_path = "masters/machine_image_master.xlsx"
+    if _IS_CLOUD:
+        import urllib.request, urllib.error, base64 as _b64
+        token = get_secret_value("GITHUB_TOKEN", "")
+        if not token:
+            return False, "GITHUB_TOKEN未設定（Cloudで同期するにはSecrets設定が必要）"
+        repo = "tama0520/guild-image-app"
+        url = f"https://api.github.com/repos/{repo}/contents/{repo_path}"
+        hdrs = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "Content-Type": "application/json",
+        }
+        try:
+            with open(_MACHINE_IMAGE_MASTER_PATH, "rb") as _f:
+                data = _f.read()
+        except Exception as e:
+            return False, f"ファイル読込失敗: {e}"
+        for _attempt in range(3):
+            sha = None
+            try:
+                req = urllib.request.Request(url, headers=hdrs)
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    sha = json.loads(r.read())["sha"]
+            except Exception:
+                sha = None  # 未存在なら新規作成
+            payload = {
+                "message": "update machine_image_master",
+                "content": _b64.b64encode(data).decode("ascii"),
+                "branch": "main",
+            }
+            if sha:
+                payload["sha"] = sha
+            body = json.dumps(payload).encode("utf-8")
+            try:
+                req2 = urllib.request.Request(url, data=body, headers=hdrs, method="PUT")
+                with urllib.request.urlopen(req2, timeout=15) as r:
+                    r.read()
+                return True, "GitHubに同期しました"
+            except urllib.error.HTTPError as e:
+                if e.code == 409:
+                    continue
+                return False, f"同期失敗: {e}"
+            except Exception as e:
+                return False, f"同期失敗: {e}"
+        return False, "同期失敗: SHA競合が解消されませんでした"
+    else:
+        import subprocess
+        try:
+            subprocess.run(["git", "add", repo_path], cwd=BASE_DIR, capture_output=True, check=True)
+            diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=BASE_DIR, capture_output=True)
+            if diff.returncode == 0:
+                return True, "変更なし（push不要）"
+            subprocess.run(["git", "commit", "-m", "update machine_image_master"],
+                           cwd=BASE_DIR, capture_output=True, check=True)
+            subprocess.run(["git", "pull", "--rebase", "origin", "main"],
+                           cwd=BASE_DIR, capture_output=True, check=True)
+            subprocess.run(["git", "push", "origin", "main"],
+                           cwd=BASE_DIR, capture_output=True, check=True)
+            return True, "GitHubにpushしました"
+        except subprocess.CalledProcessError as e:
+            return False, f"push失敗: {e.stderr.decode('utf-8', errors='replace').strip()}"
+
+
 def round_games(v) -> int:
     """ゲーム数を 50G / 100G 単位に丸める（既存スクリプトと同じロジック）"""
     n = int(v); r = n % 100
@@ -15133,7 +15233,6 @@ def show_machine_image_page() -> None:
     # ── 紐づけ一覧 ────────────────────────────────────────────────
     st.subheader("紐づけ一覧")
     rows = []
-    missing = []  # 画像ファイルが存在しないもの
     for sn, gid in sorted(master.items()):
         info = get_machine_images(sn)
         panel_ok = bool(info and info["panel"])
@@ -15146,8 +15245,6 @@ def show_machine_image_page() -> None:
             "液晶枚数": f"{n_screens}枚",
             "状態": status,
         })
-        if status == "要確認":
-            missing.append({"簡略名": sn, "画像ID": gid})
     if rows:
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
     else:
@@ -15181,24 +15278,109 @@ def show_machine_image_page() -> None:
         else:
             st.info("この簡略名には画像グループIDが紐づいていません。")
 
-    # ── 未登録の簡略名 ────────────────────────────────────────────
-    st.subheader("未登録の簡略名")
+    # ── 新規紐づけ追加 / 更新フォーム ──────────────────────────────
+    st.markdown("---")
+    st.subheader("新規紐づけを追加")
+    st.caption(
+        "新機種の 簡略名 と 画像グループID を入力して紐づけます。"
+        "画像グループIDは `○○_panel.png` の **`○○` の部分だけ**を入力すればOK。"
+        "パネル `{ID}_panel.png` と液晶 `{ID}_01.png` 以降を自動で探します。"
+    )
+
+    # 直近保存の結果＆GitHub同期パネル（rerunをまたいで表示）
+    _saved = st.session_state.get("mi_last_saved")
+    if _saved:
+        st.success(f"保存しました: 「{_saved[0]}」→ 画像グループID `{_saved[1]}`（{_saved[2]}）")
+        _sc1, _sc2 = st.columns([1, 3])
+        with _sc1:
+            if st.button("GitHubへ同期", key="mi_sync_github"):
+                _ok, _msg = _sync_machine_image_master()
+                (st.success if _ok else st.error)(_msg)
+        with _sc2:
+            if _IS_CLOUD:
+                st.caption("⚠️ Cloudでは再起動時に消える可能性があるため、最終的にGitHubへ反映が必要です。")
+            else:
+                st.caption("ローカルに保存済み。Cloudにも反映するには「GitHubへ同期」を押してください。")
+        if st.button("閉じる", key="mi_saved_dismiss"):
+            st.session_state.pop("mi_last_saved", None)
+            st.rerun()
+
+    _f1, _f2 = st.columns(2)
+    with _f1:
+        _in_sn = st.text_input("簡略名", key="mi_add_sn", placeholder="例: 北斗")
+    with _f2:
+        _in_gid = st.text_input(
+            "画像グループID（_panel.png の前の部分）", key="mi_add_gid", placeholder="例: hokuto"
+        )
+    _sn, _gid = _in_sn.strip(), _in_gid.strip()
+
+    if _gid:
+        _panel = _find_panel_image(_gid)
+        _screens = _find_screen_images(_gid)
+        _exists_gid = master.get(_sn) if _sn else None
+
+        # 状態サマリー
+        _state = "登録可能" if _panel else "画像未配置（登録は可能）"
+        st.markdown(
+            f"**簡略名:** {_sn or '（未入力）'}　／　**画像グループID:** `{_gid}`　／　"
+            f"**パネル:** {'あり' if _panel else 'なし'}　／　"
+            f"**液晶画像:** {len(_screens)}枚　／　**状態:** {_state}"
+        )
+        if not _panel:
+            st.warning("パネル画像が見つかりません。後から画像を追加する場合はこのまま登録できます。")
+
+        # プレビュー
+        _pc1, _pc2 = st.columns([1, 2])
+        with _pc1:
+            st.markdown("**パネル画像**")
+            if _panel:
+                st.image(os.path.join(BASE_DIR, _panel),
+                         caption=os.path.basename(_panel), use_container_width=True)
+            else:
+                st.info("なし")
+        with _pc2:
+            st.markdown(f"**液晶画像（{len(_screens)}枚）**")
+            if _screens:
+                _cols = st.columns(min(3, len(_screens)))
+                for _i, _sp in enumerate(_screens):
+                    with _cols[_i % len(_cols)]:
+                        st.image(os.path.join(BASE_DIR, _sp),
+                                 caption=os.path.basename(_sp), use_container_width=True)
+            else:
+                st.info("なし")
+
+        # 重複時は更新 / それ以外は新規追加
+        if _exists_gid is not None:
+            st.info(f"「{_sn}」は既に登録済みです（現在: `{_exists_gid}`）。")
+            _mode = st.radio(
+                "処理を選択", options=["既存の画像グループIDを更新する", "何もしない"],
+                key="mi_add_mode", horizontal=True,
+            )
+            if st.button("この紐づけを更新", key="mi_add_update", type="primary"):
+                if not _sn or not _gid:
+                    st.error("簡略名と画像グループIDを入力してください。")
+                elif _mode != "既存の画像グループIDを更新する":
+                    st.warning("更新するには「既存の画像グループIDを更新する」を選択してください。")
+                else:
+                    _act, _g = save_machine_image_mapping(_sn, _gid, overwrite=True)
+                    st.session_state["mi_last_saved"] = (_sn, _g, "更新")
+                    st.rerun()
+        else:
+            if st.button("この紐づけを追加", key="mi_add_new", type="primary"):
+                if not _sn or not _gid:
+                    st.error("簡略名と画像グループIDを入力してください。")
+                else:
+                    _act, _g = save_machine_image_mapping(_sn, _gid, overwrite=False)
+                    _label = "新規追加" if _act == "added" else "既存"
+                    st.session_state["mi_last_saved"] = (_sn, _g, _label)
+                    st.rerun()
+    else:
+        st.caption("画像グループIDを入力すると、プレビューと登録ボタンが表示されます。")
+
+    # 未登録の簡略名を算出（自動紐づけ・下部の一覧で使用）
     _master_norm = {_normalize_key(k) for k in master}
     unregistered = [s for s in used_short_names
                     if s not in master and _normalize_key(s) not in _master_norm]
-    if unregistered:
-        st.warning(f"{len(unregistered)}件が画像マスタ未登録です（機種名変換の変換後の名前が基準）。")
-        st.dataframe(pd.DataFrame({"簡略名": unregistered}), use_container_width=True, hide_index=True)
-    else:
-        st.success("未登録の簡略名はありません。")
-
-    # ── 画像ファイルが存在しないもの ──────────────────────────────
-    st.subheader("画像ファイルが存在しないもの")
-    if missing:
-        st.warning(f"{len(missing)}件でパネル・液晶がどちらも見つかりません。")
-        st.dataframe(pd.DataFrame(missing), use_container_width=True, hide_index=True)
-    else:
-        st.success("画像欠落はありません。")
 
     # ── 未登録機種の画像候補を自動作成 ────────────────────────────
     st.markdown("---")
@@ -15257,7 +15439,6 @@ def show_machine_image_page() -> None:
                 _c3.write(f"{_cd['類似度']:.2f}")
                 _c4.write(_cd["状態"])
                 # チェックは常にデフォルトOFF（自動でONにしない＝勝手に登録しない）
-                # 状態ラベルはあくまで目安。採用は必ず自分でチェックする。
                 _c5.checkbox(
                     "採用", value=False,
                     key=f"mi_cand_use_{_gen}_{_i}", label_visibility="collapsed",
@@ -15295,12 +15476,20 @@ def show_machine_image_page() -> None:
                             _nc["状態"] = "要確認"
                             _remaining.append(_nc)
                     st.session_state["mi_candidates"] = _remaining
-                    # 世代を進めてウィジェットキーを一新（全チェックOFFで再描画）
                     st.session_state["mi_cand_gen"] = _gen + 1
                     st.success(f"{_added}件をマスタに追加しました。残り{len(_remaining)}件は要確認です。")
                     if not _IS_CLOUD:
                         st.info("反映するには masters/machine_image_master.xlsx をcommit/pushしてください。")
                     st.rerun()
+
+    # ── 未登録の簡略名 ────────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("未登録の簡略名")
+    if unregistered:
+        st.warning(f"{len(unregistered)}件が画像マスタ未登録です（機種名変換の変換後の名前が基準）。")
+        st.dataframe(pd.DataFrame({"簡略名": unregistered}), use_container_width=True, hide_index=True)
+    else:
+        st.success("未登録の簡略名はありません。")
 
     st.markdown("---")
     if st.button("← 画像生成トップへ戻る", key="mi_back"):

@@ -288,6 +288,12 @@ _WEEKLY_SAVE_FILE = os.path.join(BASE_DIR, "weekly_items.json")
 # 週間結果テキスト機種名の永続化先
 _WRT_SAVE_FILE = os.path.join(BASE_DIR, "wrt_machines.json")
 
+# 機種画像（パネル/液晶）関連。Cloudでも読めるようリポジトリ内に配置する。
+# デスクトップの「パネル」フォルダの中身を assets/machine_images/ にコピーして管理する。
+_MACHINE_IMAGES_DIR = os.path.join(BASE_DIR, "assets", "machine_images")
+_MACHINE_IMAGE_MASTER_PATH = os.path.join(BASE_DIR, "masters", "machine_image_master.xlsx")
+_MACHINE_IMG_EXTS = (".png", ".jpg", ".jpeg", ".webp")
+
 # =============================================================================
 # ■ 店舗別設定
 #   新店舗を追加するときは STORES（上部）と STORE_CONFIG の両方に追記する。
@@ -665,6 +671,97 @@ def apply_name_conversion(df: pd.DataFrame) -> pd.DataFrame:
         return df
     df, _ = _apply_map(df, name_map, name_map_norm)
     return df
+
+
+# =============================================================================
+# ■ 機種画像（パネル/液晶）の紐づけ
+#   簡略名 → 画像グループID（masters/machine_image_master.xlsx）
+#   画像グループID → assets/machine_images/{id}_panel.png / {id}_01.png ...
+# =============================================================================
+
+@st.cache_data
+def load_machine_image_master() -> dict:
+    """
+    簡略名→画像グループIDのマスタを読み込む。
+    列: 「簡略名」「画像グループID」（列名優先・無ければ位置0,1でフォールバック）。
+    戻り値: {簡略名: 画像グループID}
+    """
+    if not os.path.exists(_MACHINE_IMAGE_MASTER_PATH):
+        return {}
+    try:
+        df = pd.read_excel(_MACHINE_IMAGE_MASTER_PATH)
+    except Exception:
+        return {}
+    cols = list(df.columns)
+    has_named = "簡略名" in cols and "画像グループID" in cols
+    mapping: dict[str, str] = {}
+    for _, row in df.iterrows():
+        if has_named:
+            sn_raw, gid_raw = row["簡略名"], row["画像グループID"]
+        else:
+            sn_raw = row.iloc[0] if len(row) > 0 else None
+            gid_raw = row.iloc[1] if len(row) > 1 else None
+        sn = str(sn_raw).strip() if pd.notna(sn_raw) else ""
+        gid = str(gid_raw).strip() if pd.notna(gid_raw) else ""
+        if sn and gid and sn != "nan" and gid != "nan":
+            mapping[sn] = gid
+    return mapping
+
+
+def _rel_machine_path(abs_path: str) -> str:
+    """BASE_DIR からの相対パスを / 区切りで返す（辞書の値表記を統一）。"""
+    return os.path.relpath(abs_path, BASE_DIR).replace(os.sep, "/")
+
+
+def _find_panel_image(image_id: str) -> str | None:
+    """{image_id}_panel.* を探して相対パスを返す。無ければ None。"""
+    for ext in _MACHINE_IMG_EXTS:
+        p = os.path.join(_MACHINE_IMAGES_DIR, f"{image_id}_panel{ext}")
+        if os.path.exists(p):
+            return _rel_machine_path(p)
+    return None
+
+
+def _find_screen_images(image_id: str) -> list[str]:
+    """{image_id}_01.* / _02.* ... の液晶画像を番号順に返す。"""
+    if not os.path.isdir(_MACHINE_IMAGES_DIR):
+        return []
+    pat = re.compile(rf"^{re.escape(image_id)}_(\d+)$")
+    found: list[tuple[int, str]] = []
+    for fn in os.listdir(_MACHINE_IMAGES_DIR):
+        stem, ext = os.path.splitext(fn)
+        if ext.lower() not in _MACHINE_IMG_EXTS:
+            continue
+        m = pat.match(stem)
+        if m:
+            found.append((int(m.group(1)), fn))
+    found.sort(key=lambda x: x[0])
+    return [_rel_machine_path(os.path.join(_MACHINE_IMAGES_DIR, fn)) for _, fn in found]
+
+
+def get_machine_images(short_name: str) -> dict | None:
+    """
+    簡略名から画像グループIDを引き、パネル/液晶画像のパスを返す。
+    戻り値: {"short_name", "image_id", "panel"(str|None), "screens"(list[str])}
+            紐づけが無ければ None（エラーで止めない）。
+    """
+    master = load_machine_image_master()
+    sn = (short_name or "").strip()
+    if not sn:
+        return None
+    image_id = master.get(sn)
+    if not image_id:
+        # 正規化一致（スペース・全角除去）でも探す
+        norm = {_normalize_key(k): v for k, v in master.items()}
+        image_id = norm.get(_normalize_key(sn))
+    if not image_id:
+        return None
+    return {
+        "short_name": sn,
+        "image_id": image_id,
+        "panel": _find_panel_image(image_id),
+        "screens": _find_screen_images(image_id),
+    }
 
 
 def round_games(v) -> int:
@@ -14892,6 +14989,99 @@ def show_slump_graph_page() -> None:
         )
 
 
+def show_machine_image_page() -> None:
+    """簡略名と機種画像（パネル/液晶）の紐づけ確認・プレビュー。"""
+    st.header("🖼️ 機種画像紐づけ")
+    st.caption(
+        "簡略名と機種画像（パネル/液晶）の紐づけを確認します。"
+        "画像は `assets/machine_images/`、マスタは `masters/machine_image_master.xlsx`。"
+    )
+
+    master = load_machine_image_master()
+    name_map, _ = load_name_map()
+    used_short_names = sorted(set(name_map.values()))
+
+    # フォルダ/マスタの状態表示
+    if not os.path.isdir(_MACHINE_IMAGES_DIR):
+        st.warning(f"画像フォルダが見つかりません: `{_rel_machine_path(_MACHINE_IMAGES_DIR)}`")
+    if not master:
+        st.warning("画像マスタが未読込です: `masters/machine_image_master.xlsx`")
+
+    # ── 紐づけ一覧 ────────────────────────────────────────────────
+    st.subheader("紐づけ一覧")
+    rows = []
+    missing = []  # 画像ファイルが存在しないもの
+    for sn, gid in sorted(master.items()):
+        info = get_machine_images(sn)
+        panel_ok = bool(info and info["panel"])
+        n_screens = len(info["screens"]) if info else 0
+        status = "OK" if (panel_ok or n_screens > 0) else "要確認"
+        rows.append({
+            "簡略名": sn,
+            "画像ID": gid,
+            "パネル": "あり" if panel_ok else "なし",
+            "液晶枚数": f"{n_screens}枚",
+            "状態": status,
+        })
+        if status == "要確認":
+            missing.append({"簡略名": sn, "画像ID": gid})
+    if rows:
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    else:
+        st.info("マスタに登録がありません。")
+
+    # ── プレビュー ────────────────────────────────────────────────
+    st.subheader("プレビュー")
+    if master:
+        sel = st.selectbox("簡略名を選択", options=sorted(master.keys()), key="mi_preview_sel")
+        info = get_machine_images(sel)
+        if info:
+            st.write(f"画像グループID: `{info['image_id']}`")
+            _c1, _c2 = st.columns([1, 2])
+            with _c1:
+                st.markdown("**パネル画像**")
+                if info["panel"]:
+                    st.image(os.path.join(BASE_DIR, info["panel"]),
+                             caption=os.path.basename(info["panel"]), use_container_width=True)
+                else:
+                    st.info("パネル画像なし")
+            with _c2:
+                st.markdown(f"**液晶画像（{len(info['screens'])}枚）**")
+                if info["screens"]:
+                    _cols = st.columns(min(3, len(info["screens"])))
+                    for _i, _sp in enumerate(info["screens"]):
+                        with _cols[_i % len(_cols)]:
+                            st.image(os.path.join(BASE_DIR, _sp),
+                                     caption=os.path.basename(_sp), use_container_width=True)
+                else:
+                    st.info("液晶画像なし")
+        else:
+            st.info("この簡略名には画像グループIDが紐づいていません。")
+
+    # ── 未登録の簡略名 ────────────────────────────────────────────
+    st.subheader("未登録の簡略名")
+    _master_norm = {_normalize_key(k) for k in master}
+    unregistered = [s for s in used_short_names
+                    if s not in master and _normalize_key(s) not in _master_norm]
+    if unregistered:
+        st.warning(f"{len(unregistered)}件が画像マスタ未登録です（機種名変換の変換後の名前が基準）。")
+        st.dataframe(pd.DataFrame({"簡略名": unregistered}), use_container_width=True, hide_index=True)
+    else:
+        st.success("未登録の簡略名はありません。")
+
+    # ── 画像ファイルが存在しないもの ──────────────────────────────
+    st.subheader("画像ファイルが存在しないもの")
+    if missing:
+        st.warning(f"{len(missing)}件でパネル・液晶がどちらも見つかりません。")
+        st.dataframe(pd.DataFrame(missing), use_container_width=True, hide_index=True)
+    else:
+        st.success("画像欠落はありません。")
+
+    st.markdown("---")
+    if st.button("← 画像生成トップへ戻る", key="mi_back"):
+        _navigate("store")
+
+
 # =============================================================================
 # ■ ⑨メイン
 # =============================================================================
@@ -14981,6 +15171,8 @@ def main() -> None:
             _navigate("slump_graph")
         if st.button("🔄 機種名変換", use_container_width=True, key="nav_nc"):
             _navigate("name_conversion")
+        if st.button("🖼️ 機種画像紐づけ", use_container_width=True, key="nav_mi"):
+            _navigate("machine_image")
 
         st.markdown("---")
 
@@ -15010,6 +15202,8 @@ def main() -> None:
             st.markdown("📍 **機種名変換**")
         elif page == "slump_graph":
             st.markdown("📍 **スランプグラフ生成**")
+        elif page == "machine_image":
+            st.markdown("📍 **機種画像紐づけ**")
 
     # ── アプリタイトル ────────────────────────────────────────────
     st.title("ギルド画像生成")
@@ -15035,6 +15229,8 @@ def main() -> None:
         show_name_conversion_page()
     elif st.session_state.page == "slump_graph":
         show_slump_graph_page()
+    elif st.session_state.page == "machine_image":
+        show_machine_image_page()
     else:
         # 不正な状態はトップに戻す
         st.session_state.page = "store"

@@ -12566,6 +12566,9 @@ def show_rote_page() -> None:
         _rote_out_dir = tempfile.mkdtemp() if _IS_CLOUD else os.path.join(_DESKTOP, _rote_stem)
         _m_store      = re.match(r'^\d{8}_(.*)', _rote_stem)
         _rote_store_full = _m_store.group(1) if _m_store else store
+        # ファイル名の店名に「エスパス」が付かない場合は補完（Cloud/ローカルで表記統一）
+        if _rote_store_full and not _rote_store_full.startswith("エスパス"):
+            _rote_store_full = f"エスパス{_rote_store_full}"
     else:
         st.info("Excelをアップロードすると画像を生成できます。")
 

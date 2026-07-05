@@ -29,7 +29,7 @@
           false,
           false,
           false,
-          false
+          true
         ],
         [
           true,
@@ -47,7 +47,7 @@
           false,
           false,
           true,
-          false
+          true
         ],
         [
           false,
@@ -291,6 +291,12 @@
       "title": "週間オススメ ジャグラーシリーズ",
       "machine_name": "ジャグラー系",
       "cell_machines": {
+        "0,6": [
+          "ゴージャグ3"
+        ],
+        "1,6": [
+          "対象台が4/5でプラス差枚"
+        ],
         "2,0": [
           "ハピジャグV",
           "ジャグラーガールズ",

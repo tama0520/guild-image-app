@@ -8085,6 +8085,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 for _idx_rt, _row_rt in _df_exec_m.iterrows():
                                     if int(_row_rt["台番"]) in _se_bns_rt:
                                         _m_excel.append({"name": str(_row_rt["機種名"]), "diff": int(_diff_exec_m.loc[_idx_rt]), "ban": int(_row_rt["台番"])})
+                        elif sonota_extra_auto in _SONOTA_AUTO_THR:
+                            _exc_mac_rt, _exc_ban_rt = _manual_sonota_auto_bans(
+                                _df_exec_m, store, kojin_zentai_machines, kojin_yushu_machines,
+                                narabi_ranges if narabi_ok else [],
+                                st.session_state.get(f"kojin_narabi_range_{store}", ""),
+                                st.session_state.get(f"kojin_narabi2_range_{store}", ""),
+                            )
+                            _se_auto_rt = _manual_sonota_auto_extract(
+                                _df_exec_m, _diff_exec_m, _SONOTA_AUTO_THR[sonota_extra_auto], _exc_mac_rt, _exc_ban_rt)
+                            for _, _row_rt in _se_auto_rt.iterrows():
+                                _m_excel.append({"name": str(_row_rt["機種名"]), "diff": int(_row_rt["差枚"]), "ban": int(_row_rt["台番"])})
                         _m_sue_data: list[dict] = []
                         if st.session_state.get("suebangai_enabled", False):
                             for _t_rt in [t for _i in range(1, 4) if (t := st.session_state.get(f"suebangai_tail_input_{_i}", "").strip())]:

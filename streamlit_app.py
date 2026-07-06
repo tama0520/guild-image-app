@@ -7747,6 +7747,18 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _mda_all_e = _diff_exec_m.loc[_mga_all_e.index]
                             _m_high.append({"name": _km_e, "count": int((_mda_all_e > 0).sum()), "total": len(_mga_all_e), "diffs": sorted([int(d) for d in _mda_e.tolist() if int(d) >= 1000], reverse=True), "all_avg_diff": int(round(_mda_all_e.mean())), "has_image": True})
 
+                        # 個別機種の優秀台ピックアップ（貼った台番のみ・ピンクバーなし）
+                        for _pk_tit_e, _pk_bans_e in _collect_kojin_pick(store):
+                            _pk_df_e = _df_exec_m[_df_exec_m["台番"].apply(lambda b: int(b) in _pk_bans_e)].copy()
+                            if _pk_df_e.empty:
+                                continue
+                            _pk_df_e = _pk_df_e.iloc[_pk_df_e["台番"].argsort()].reset_index(drop=True)
+                            _pkfn_e = _unique_fn_e(f"{_make_safe_fn(_pk_tit_e)}.jpg")
+                            _pk_out_e = os.path.join(output_dir, _pkfn_e)
+                            _save_jpeg(_build_machine_img(_pk_df_e, _pk_tit_e, None), _pk_out_e)
+                            _exec_order.append(_pkfn_e)
+                            _m_log(f"  ✅ 個別機種の優秀台ピックアップ「{_pk_tit_e}」({len(_pk_df_e)}台)")
+
                         # ② その他の優秀台ピックアップ
                         if sonota_extra_text.strip():
                             _se_bans_e = set(expand_machine_numbers(sonota_extra_text))
@@ -7994,6 +8006,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                 for m in (kojin_zentai_machines + kojin_yushu_machines)
                 if m.strip()
             }
+            _pick_suppress_e = _kojin_pick_suppressed_machines(uploaded, store)
+            _rec_names |= _pick_suppress_e
             _sue_tails_run: list[str] = []
             if st.session_state.get("suebangai_enabled", False):
                 _sue_tails_run += [t for i in range(1, 4) if (t := st.session_state.get(f"suebangai_tail_input_{i}", "").strip())]
@@ -8005,7 +8019,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 narabi_ranges=narabi_ranges if narabi_ok else None,
                 recommended_machines=_rec_names,
                 suebangai_tails=_sue_tails_run,
-                sonota_exclude={m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()},
+                sonota_exclude={m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()} | _pick_suppress_e,
                 jug_suebangai_tails=_jug_sue_tails_run,
                 variety_bans=(ranges_to_bans(parse_ranges(variety_ranges_text.strip())) if (with_slump and store == "秋葉原" and variety_enabled and variety_ranges_text.strip()) else set()),
             )

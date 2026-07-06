@@ -4492,6 +4492,8 @@ def _restore_auto_inputs(excel_name: str, store: str) -> None:
         if k not in saved:
             if k in pk and k in persistent:
                 st.session_state[k] = persistent[k]  # 永続値を優先
+            elif k.startswith("sonota_extra_auto_"):
+                st.session_state[k] = "なし"  # ラジオは有効な選択肢を既定に
             else:
                 st.session_state[k] = False if k.endswith("_enabled") else ""
     for k, v in saved.items():

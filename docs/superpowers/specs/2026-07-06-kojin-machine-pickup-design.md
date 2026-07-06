@@ -12,17 +12,27 @@
 
 ## スコープ
 
-新セクション「個別機種の優秀台ピックアップ」を②個別画像に追加する。全店舗共通。記事用ページ（`art_` プレフィックス）は対象外。
+新セクション「個別機種の優秀台ピックアップ」を②個別画像に追加する。全店舗共通。**記事用ページ（`art_` プレフィックス、高田馬場専用）も対象**。
 
 ## UI 仕様
 
-- **配置**: ②個別画像セクション内、「その他の優秀台ピックアップ」の**すぐ上**。`kojin_enabled`（個別画像も生成する）が ON のときのみ表示。
 - **枠数**: 3個。各枠に次の2欄:
   - **タイトル**（自由入力・専用欄）
   - **台番テキスト**（台番を含むテキストを貼り付け。`expand_machine_numbers` で台番を抽出）
 - 機種名の入力欄は**設けない**（抑制対象機種は台番から逆引きする）。
+
+### 通常ページ（`show_auto_page`）
+
+- **配置**: ②個別画像セクション内、「その他の優秀台ピックアップ」の**すぐ上**。`kojin_enabled`（個別画像も生成する）が ON のときのみ表示。
 - 入力は `_save_auto_inputs` で永続化。キー命名:
   - `kojin_pick_title_{i}_{store}` / `kojin_pick_bans_{i}_{store}`（i = 0..2）
+
+### 記事用ページ（`show_auto_article_page`・高田馬場専用）
+
+- 記事用ページには「その他の優秀台ピックアップ」欄が無いため、②個別画像の**並び台番範囲欄の下（③並び画像の直前）**に配置。`art_kojin_enabled` が ON のときのみ表示。
+- 入力は `_save_article_inputs` で永続化。`_save_article_inputs` の `keys` に追加。キー命名:
+  - `art_kojin_pick_title_{i}_{store}` / `art_kojin_pick_bans_{i}_{store}`（i = 0..2）
+- 画像描画は記事用に合わせ、青タイトルバー・ピンクバーとも無しの `_build_machine_img_no_bar(df)` を使用。
 
 ## 生成画像仕様
 
@@ -30,7 +40,9 @@
 
 1. 貼った台番に一致する行を Excel（`_pv_df`）から抽出。
 2. 台番順にソート。
-3. `_build_machine_img(df, title, None)` で描画（**ピンクバーなし**、`summary_stat=None`）。タイトル＝専用欄の文字列。
+3. 描画（**ピンクバーなし**、タイトル＝専用欄の文字列）:
+   - 通常ページ: `_build_machine_img(df, title, None)`（`summary_stat=None`）
+   - 記事用ページ: `_build_machine_img_no_bar(df)`（青タイトルバー・ピンクバー無し）
 4. ファイル名 = `{_make_safe_fn(title)}.jpg`。
 5. ⑦プレビューの一覧に追加（並び画像と同じ扱いの位置。個別画像＝②の並びに合わせて配置）。
 
@@ -52,13 +64,18 @@
 
 ## 反映箇所
 
+通常ページ:
 - ⑦プレビュー生成（`show_auto_page` のプレビュー構築ブロック、6180–6889 付近）
 - ⑧実行（`run_auto_pipeline` 呼び出しと出力ZIP構築）
 - 入力の永続化（`_save_auto_inputs` / `auto_page_inputs.json`）
+
+記事用ページ（高田馬場専用）:
+- プレビュー生成（`show_auto_article_page` のプレビュー構築ブロック、10225 付近〜）
+- 実行・出力
+- 入力の永続化（`_save_article_inputs` / `article_page_inputs.json`）
 
 ## 非対象（YAGNI）
 
 - 機種名の明示入力欄
 - 優秀台条件でのフィルタ
-- 記事用ページ対応
 - 新欄と既存その他欄の台番重複の自動解決

@@ -8775,6 +8775,38 @@ def show_auto_page(with_slump: bool = False) -> None:
                         except Exception:
                             _log(f"  ❌ 台番範囲優秀台(ピンクバーなし)エラー: {traceback.format_exc()}")
 
+                    # 個別機種の優秀台ピックアップ（貼った台番のみ・ピンクバーなし）
+                    for _pk_tit_k, _pk_bans_k in _collect_kojin_pick(store):
+                        _pk_idx_k = df_k[df_k["台番"].apply(lambda b: int(b) in _pk_bans_k)].index
+                        if len(_pk_idx_k) == 0:
+                            _log(f"  個別機種の優秀台ピックアップ「{_pk_tit_k}」: 台番に該当台なし")
+                            continue
+                        _pk_df_k = df_k.loc[_pk_idx_k].copy()
+                        _pk_dr_k = diff_k.loc[_pk_idx_k]
+                        _pk_ord_k = _pk_df_k["台番"].argsort().values
+                        _pk_df_k = _pk_df_k.iloc[_pk_ord_k].reset_index(drop=True)
+                        _pk_dr_k = _pk_dr_k.iloc[_pk_ord_k].reset_index(drop=True)
+                        _pk_out_k = os.path.join(output_dir, f"{_make_safe_fn(_pk_tit_k)}.jpg")
+                        _save_jpeg(_build_machine_img(_pk_df_k, _pk_tit_k, None), _pk_out_k)
+                        result["files"].append(_pk_out_k)
+                        _log(f"  ✅ 個別機種の優秀台ピックアップ「{_pk_tit_k}」({len(_pk_df_k)}台)")
+                        # 結果テキスト用: 貼った台番の機種ごとに +1000枚台を high_ratio_list へ追加
+                        for _pk_m in dict.fromkeys(str(_mm) for _mm in _pk_df_k["機種名"]):
+                            _pk_m_mask = (_pk_df_k["機種名"] == _pk_m).values
+                            _pk_m_dr   = _pk_dr_k[_pk_m_mask]
+                            _pk_1k     = sorted([int(d) for d in _pk_m_dr.tolist() if int(d) >= 1000], reverse=True)
+                            if not _pk_1k:
+                                continue
+                            result["high_ratio_list"].append({
+                                "name":         _pk_m,
+                                "count":        int((_pk_m_dr > 0).sum()),
+                                "total":        int(_pk_m_mask.sum()),
+                                "diffs":        _pk_1k,
+                                "all_avg_diff": int(round(_pk_m_dr.mean())),
+                                "has_image":    False,
+                                "bans":         [int(b) for b in _pk_df_k[_pk_m_mask]["台番"].tolist()],
+                            })
+
                     # その他の優秀台ピックアップ（全店舗）
                     if sonota_extra_text.strip():
                         try:

@@ -3505,6 +3505,7 @@ def generate_report_text(
     df=None,
     suebangai_data: list[dict] | None = None,
     jug_sue_data: list[dict] | None = None,
+    excellent_min_diff: int = 2000,
 ) -> str:
     """画像生成で使ったデータをそのまま文章化して返す"""
     weekday_jp = ["月", "火", "水", "木", "金", "土", "日"]
@@ -3624,7 +3625,7 @@ def generate_report_text(
                     if _d >= 2000 and (_nm, _ban) not in _seen:
                         _ex_src.append({"name": _nm, "ban": _ban, "diff": _d})
                         _seen.add((_nm, _ban))
-        filtered = [x for x in _ex_src if x["diff"] >= 2000 and x["name"] not in high_ratio_names and x["name"] not in _poster_ex]
+        filtered = [x for x in _ex_src if x["diff"] >= excellent_min_diff and x["name"] not in high_ratio_names and x["name"] not in _poster_ex]
         if not filtered:
             return "（なし）"
         sorted_items = sorted(filtered, key=lambda x: x["diff"], reverse=True)
@@ -3822,6 +3823,7 @@ def generate_report_text(
 
         c10k = sum(1 for d in diffs if d >= 10000)
         c5k  = sum(1 for d in diffs if d >= 5000)
+        c3k  = sum(1 for d in diffs if d >= 3000)
         c1k  = sum(1 for d in diffs if d >= 1000)
         date_label = f"{date.month}/{date.day}" if date else ""
         lines = [
@@ -3831,6 +3833,7 @@ def generate_report_text(
             "",
             f"🌋万枚オーバーが{c10k}台！",
             f"💥+5,000枚オーバーが{c5k}台！",
+            f"💥+3,000枚オーバーが{c3k}台！",
             f"💎{c1k}台が+1,000枚オーバー！",
         ]
         return "\n".join(lines)
@@ -4383,6 +4386,55 @@ def _kojin_pick_suppressed_machines(uploaded, store: str, prefix: str = "") -> s
     return _kojin_pick_machines_from_df(picks, _df0)
 
 
+_SONOTA_AUTO_THR = {"+1,000枚以上": 1000, "+2,000枚以上": 2000, "+3,000枚以上": 3000}
+
+def _manual_sonota_auto_bans(df, store, kojin_zentai_machines, kojin_yushu_machines,
+                             narabi_ranges, kojin_narabi_range_txt, kojin_narabi2_range_txt):
+    """記入部分のみモードのその他自動抽出で除外する (機種名集合, 台番集合)。"""
+    _exc_mac = {m.strip() for m in (list(kojin_zentai_machines) + list(kojin_yushu_machines)) if m.strip()}
+    _exc_ban: set[int] = set()
+    for _t, _b in _collect_kojin_pick(store):
+        _exc_ban |= set(_b)
+    for _bl in (narabi_ranges or []):
+        _exc_ban |= {int(b) for b in _bl}
+    for _txt in (kojin_narabi_range_txt, kojin_narabi2_range_txt):
+        if _txt and _txt.strip():
+            try:
+                _exc_ban |= ranges_to_bans(parse_ranges(_txt.strip()))
+            except Exception:
+                pass
+    if st.session_state.get("suebangai_enabled", False):
+        for _t in [t for _i in range(1, 4) if (t := st.session_state.get(f"suebangai_tail_input_{_i}", "").strip())]:
+            if _t == "ゾロ目":
+                _exc_ban |= {int(b) for b in df["台番"] if (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]}
+            elif _t.isdigit() and len(_t) in (1, 2):
+                _exc_ban |= {int(b) for b in df["台番"] if str(int(b))[-len(_t):] == _t}
+    if st.session_state.get("jug_sue_enabled", False):
+        _jser = set(get_store_config(store)["juggler_series"])
+        for _t in [t for _i in range(1, 4) if (t := st.session_state.get(f"jug_sue_tail_input_{_i}", "").strip())]:
+            if _t == "ゾロ目":
+                _cand = [int(b) for b in df["台番"] if (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]]
+            elif _t.isdigit() and len(_t) in (1, 2):
+                _cand = [int(b) for b in df["台番"] if str(int(b))[-len(_t):] == _t]
+            else:
+                _cand = []
+            for _b in _cand:
+                _row = df[df["台番"] == _b]
+                if not _row.empty and str(_row.iloc[0]["機種名"]) in _jser:
+                    _exc_ban.add(_b)
+    return _exc_mac, _exc_ban
+
+def _manual_sonota_auto_extract(df, diff, thr, exc_mac, exc_ban):
+    """差枚>=thr かつ 機種名∉exc_mac かつ 台番∉exc_ban の台を台番順で返す。"""
+    _mask = ((~df["機種名"].isin(exc_mac)) &
+             (diff.values >= thr) &
+             (~df["台番"].apply(lambda b: int(b) in exc_ban)))
+    _r = df[_mask.values].copy()
+    if _r.empty:
+        return _r
+    return _r.iloc[_r["台番"].argsort()].reset_index(drop=True)
+
+
 def _auto_input_keys(store: str) -> list[str]:
     keys = ["kojin_enabled", "narabi_enabled", "narabi_ranges_input",
             "suebangai_enabled",
@@ -4398,7 +4450,7 @@ def _auto_input_keys(store: str) -> list[str]:
     keys += [
         f"kojin_narabi_range_{store}", f"kojin_narabi_title_{store}",
         f"kojin_narabi2_range_{store}", f"kojin_narabi2_title_{store}",
-        f"sonota_extra_title_{store}", f"sonota_extra_text_{store}",
+        f"sonota_extra_title_{store}", f"sonota_extra_text_{store}", f"sonota_extra_auto_{store}",
         "variety_enabled", f"variety_range_{store}", "variety_mode",
     ]
     for i in range(_KOJIN_PICK_COUNT):
@@ -4443,6 +4495,8 @@ def _restore_auto_inputs(excel_name: str, store: str) -> None:
         if k not in saved:
             if k in pk and k in persistent:
                 st.session_state[k] = persistent[k]  # 永続値を優先
+            elif k.startswith("sonota_extra_auto_"):
+                st.session_state[k] = "なし"  # ラジオは有効な選択肢を既定に
             else:
                 st.session_state[k] = False if k.endswith("_enabled") else ""
     for k, v in saved.items():
@@ -5618,8 +5672,16 @@ def show_auto_page(with_slump: bool = False) -> None:
                     height=80,
                     on_change=_save_auto_inputs, args=(store,),
                 )
+            st.radio(
+                "台番テキストが空欄のとき、下記の閾値で「その他の優秀台ピックアップ」を自動抽出（📝記入部分のみモード）",
+                options=["なし", "+1,000枚以上", "+2,000枚以上", "+3,000枚以上"],
+                key=f"sonota_extra_auto_{store}",
+                horizontal=True,
+                on_change=_save_auto_inputs, args=(store,),
+            )
         sonota_extra_title = st.session_state.get(f"sonota_extra_title_{store}", "")
         sonota_extra_text  = st.session_state.get(f"sonota_extra_text_{store}", "")
+        sonota_extra_auto = st.session_state.get(f"sonota_extra_auto_{store}", "なし")
 
     # ── ③ 並び画像オプション（常に描画）──────────────────────────────
     narabi_ok     = False
@@ -7033,6 +7095,20 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _se_tit_m = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
                                         _manual_imgs.append((f"{_make_safe_fn(_se_tit_m)}.jpg", _build_machine_img(_se_df_m, _se_tit_m, None)))
                                         _manual_ban_map[f"{_make_safe_fn(_se_tit_m)}.jpg"] = [int(b) for b in _se_df_m["台番"].tolist()]
+                            elif sonota_extra_auto in _SONOTA_AUTO_THR:
+                                _exc_mac_m, _exc_ban_m = _manual_sonota_auto_bans(
+                                    _df_m, store, kojin_zentai_machines, kojin_yushu_machines,
+                                    narabi_ranges if narabi_ok else [],
+                                    st.session_state.get(f"kojin_narabi_range_{store}", ""),
+                                    st.session_state.get(f"kojin_narabi2_range_{store}", ""),
+                                )
+                                _se_auto_m = _manual_sonota_auto_extract(
+                                    _df_m, _diff_m, _SONOTA_AUTO_THR[sonota_extra_auto], _exc_mac_m, _exc_ban_m)
+                                if not _se_auto_m.empty:
+                                    _se_tit_m = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
+                                    _manual_imgs.append((f"{_make_safe_fn(_se_tit_m)}.jpg",
+                                                         _build_machine_img(_se_auto_m, _se_tit_m, None)))
+                                    _manual_ban_map[f"{_make_safe_fn(_se_tit_m)}.jpg"] = [int(b) for b in _se_auto_m["台番"].tolist()]
 
                         # ③ 並び画像
                         if narabi_ok and narabi_ranges:
@@ -7823,10 +7899,27 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _se_tit_e = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
                                     _sefn_e = _unique_fn_e(f"{_make_safe_fn(_se_tit_e)}.jpg")
                                     _se_out_e = os.path.join(output_dir, _sefn_e)
-                                    _save_jpeg(_build_machine_img(_se_df_e, _se_tit_e, None), _se_out_e)
+                                    _save_jpeg(_build_machine_img(_se_df_e, _se_tit_e, None), _se_out_e, target_kb=800)
                                     _exec_order.append(_sefn_e)
                                     _m_exec_ban_map_e[_sefn_e] = [int(b) for b in _se_df_e["台番"].tolist()]
                                     _m_log(f"  ✅ その他の優秀台ピックアップ「{_se_tit_e}」({len(_se_df_e)}台)")
+                        elif sonota_extra_auto in _SONOTA_AUTO_THR:
+                            _exc_mac_e, _exc_ban_e = _manual_sonota_auto_bans(
+                                _df_exec_m, store, kojin_zentai_machines, kojin_yushu_machines,
+                                narabi_ranges if narabi_ok else [],
+                                st.session_state.get(f"kojin_narabi_range_{store}", ""),
+                                st.session_state.get(f"kojin_narabi2_range_{store}", ""),
+                            )
+                            _se_auto_e = _manual_sonota_auto_extract(
+                                _df_exec_m, _diff_exec_m, _SONOTA_AUTO_THR[sonota_extra_auto], _exc_mac_e, _exc_ban_e)
+                            if not _se_auto_e.empty:
+                                _se_tit_e = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
+                                _sefn_e = _unique_fn_e(f"{_make_safe_fn(_se_tit_e)}.jpg")
+                                _se_out_e = os.path.join(output_dir, _sefn_e)
+                                _save_jpeg(_build_machine_img(_se_auto_e, _se_tit_e, None), _se_out_e, target_kb=800)
+                                _exec_order.append(_sefn_e)
+                                _m_exec_ban_map_e[_sefn_e] = [int(b) for b in _se_auto_e["台番"].tolist()]
+                                _m_log(f"  ✅ その他の優秀台ピックアップ（自動抽出 {sonota_extra_auto}）({len(_se_auto_e)}台)")
 
                     # ③ 並び画像（重複タイトルは台番範囲サフィックスで区別）
                     if narabi_ok and narabi_ranges:
@@ -7967,7 +8060,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             pass
                             _new_order_e: list[str] = []
                             for _fn_c, _img_c in _me_composited:
-                                _save_jpeg(_img_c, os.path.join(output_dir, _fn_c))
+                                _save_jpeg(_img_c, os.path.join(output_dir, _fn_c), target_kb=800)
                                 _new_order_e.append(_fn_c)
                             _exec_order = _new_order_e
 
@@ -7995,6 +8088,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 for _idx_rt, _row_rt in _df_exec_m.iterrows():
                                     if int(_row_rt["台番"]) in _se_bns_rt:
                                         _m_excel.append({"name": str(_row_rt["機種名"]), "diff": int(_diff_exec_m.loc[_idx_rt]), "ban": int(_row_rt["台番"])})
+                        elif sonota_extra_auto in _SONOTA_AUTO_THR:
+                            _exc_mac_rt, _exc_ban_rt = _manual_sonota_auto_bans(
+                                _df_exec_m, store, kojin_zentai_machines, kojin_yushu_machines,
+                                narabi_ranges if narabi_ok else [],
+                                st.session_state.get(f"kojin_narabi_range_{store}", ""),
+                                st.session_state.get(f"kojin_narabi2_range_{store}", ""),
+                            )
+                            _se_auto_rt = _manual_sonota_auto_extract(
+                                _df_exec_m, _diff_exec_m, _SONOTA_AUTO_THR[sonota_extra_auto], _exc_mac_rt, _exc_ban_rt)
+                            for _, _row_rt in _se_auto_rt.iterrows():
+                                _m_excel.append({"name": str(_row_rt["機種名"]), "diff": int(_row_rt["差枚"]), "ban": int(_row_rt["台番"])})
                         _m_sue_data: list[dict] = []
                         if st.session_state.get("suebangai_enabled", False):
                             for _t_rt in [t for _i in range(1, 4) if (t := st.session_state.get(f"suebangai_tail_input_{_i}", "").strip())]:
@@ -8018,6 +8122,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                             diff_raw=_diff_exec_m, df=_df_exec_m,
                             suebangai_data=_m_sue_data or None,
                             jug_sue_data=_m_jug_data or None,
+                            excellent_min_diff=(_SONOTA_AUTO_THR[sonota_extra_auto]
+                                                if (store == "秋葉原" and sonota_extra_auto in _SONOTA_AUTO_THR)
+                                                else 2000),
                         )
                         for _old_rt, _new_rt in STORE_RESULT_TRANSFORMS.get(store, []):
                             _m_report_text = _m_report_text.replace(_old_rt, _new_rt)

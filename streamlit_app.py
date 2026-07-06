@@ -7092,6 +7092,20 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _se_tit_m = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
                                         _manual_imgs.append((f"{_make_safe_fn(_se_tit_m)}.jpg", _build_machine_img(_se_df_m, _se_tit_m, None)))
                                         _manual_ban_map[f"{_make_safe_fn(_se_tit_m)}.jpg"] = [int(b) for b in _se_df_m["台番"].tolist()]
+                            elif sonota_extra_auto in _SONOTA_AUTO_THR:
+                                _exc_mac_m, _exc_ban_m = _manual_sonota_auto_bans(
+                                    _df_m, store, kojin_zentai_machines, kojin_yushu_machines,
+                                    narabi_ranges if narabi_ok else [],
+                                    st.session_state.get(f"kojin_narabi_range_{store}", ""),
+                                    st.session_state.get(f"kojin_narabi2_range_{store}", ""),
+                                )
+                                _se_auto_m = _manual_sonota_auto_extract(
+                                    _df_m, _diff_m, _SONOTA_AUTO_THR[sonota_extra_auto], _exc_mac_m, _exc_ban_m)
+                                if not _se_auto_m.empty:
+                                    _se_tit_m = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
+                                    _manual_imgs.append((f"{_make_safe_fn(_se_tit_m)}.jpg",
+                                                         _build_machine_img(_se_auto_m, _se_tit_m, None)))
+                                    _manual_ban_map[f"{_make_safe_fn(_se_tit_m)}.jpg"] = [int(b) for b in _se_auto_m["台番"].tolist()]
 
                         # ③ 並び画像
                         if narabi_ok and narabi_ranges:

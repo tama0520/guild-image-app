@@ -6287,7 +6287,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             narabi_ranges=narabi_ranges if narabi_ok else None,
                             recommended_machines=_prev_rec_names,
                             suebangai_tails=_prev_sue_tails,
-                            sonota_exclude={m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()} | _pick_suppress,
+                            sonota_exclude={m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()},
                             jug_suebangai_tails=_prev_jug_sue_tails,
                             variety_bans=(ranges_to_bans(parse_ranges(variety_ranges_text.strip())) if (with_slump and store == "秋葉原" and variety_enabled and variety_ranges_text.strip()) else set()),
                         )
@@ -8019,7 +8019,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 narabi_ranges=narabi_ranges if narabi_ok else None,
                 recommended_machines=_rec_names,
                 suebangai_tails=_sue_tails_run,
-                sonota_exclude={m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()} | _pick_suppress_e,
+                sonota_exclude={m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()},
                 jug_suebangai_tails=_jug_sue_tails_run,
                 variety_bans=(ranges_to_bans(parse_ranges(variety_ranges_text.strip())) if (with_slump and store == "秋葉原" and variety_enabled and variety_ranges_text.strip()) else set()),
             )

@@ -4324,6 +4324,51 @@ def _save_persistent_inputs(store: str) -> None:
             pass
 
 
+_KOJIN_PICK_COUNT = 3
+
+def _collect_kojin_pick(store: str, prefix: str = "") -> list[tuple[str, set[int]]]:
+    """個別機種の優秀台ピックアップの (タイトル, 台番set) を返す（台番非空のみ）。"""
+    out: list[tuple[str, set[int]]] = []
+    for i in range(_KOJIN_PICK_COUNT):
+        title = str(st.session_state.get(f"{prefix}kojin_pick_title_{i}_{store}", "")).strip()
+        bans_text = str(st.session_state.get(f"{prefix}kojin_pick_bans_{i}_{store}", "")).strip()
+        if not bans_text:
+            continue
+        bans = set(expand_machine_numbers(bans_text))
+        if not bans:
+            continue
+        out.append((title or "個別機種の優秀台ピックアップ", bans))
+    return out
+
+def _kojin_pick_machines_from_df(picks: list[tuple[str, set[int]]], df) -> set[str]:
+    """ピックアップ台番から df で機種を逆引きした集合。"""
+    all_bans: set[int] = set()
+    for _t, b in picks:
+        all_bans |= b
+    if not all_bans or df is None or df.empty:
+        return set()
+    _rows = df[df["台番"].apply(lambda b: int(b) in all_bans)]
+    return {str(m).strip() for m in _rows["機種名"] if str(m).strip()}
+
+def _kojin_pick_suppressed_machines(uploaded, store: str, prefix: str = "") -> set[str]:
+    """アップロード Excel を読み、ピックアップ台番の機種名 set を返す（パイプライン前の抑制用）。"""
+    picks = _collect_kojin_pick(store, prefix)
+    if not picks:
+        return set()
+    try:
+        _raw = _read_uploaded_df(uploaded)
+        _df0, _ = normalize_df(_raw)
+        _df0 = apply_name_conversion(_df0)
+    except Exception:
+        return set()
+    finally:
+        try:
+            uploaded.seek(0)
+        except Exception:
+            pass
+    return _kojin_pick_machines_from_df(picks, _df0)
+
+
 def _auto_input_keys(store: str) -> list[str]:
     keys = ["kojin_enabled", "narabi_enabled", "narabi_ranges_input",
             "suebangai_enabled",
@@ -4342,6 +4387,8 @@ def _auto_input_keys(store: str) -> list[str]:
         f"sonota_extra_title_{store}", f"sonota_extra_text_{store}",
         "variety_enabled", f"variety_range_{store}", "variety_mode",
     ]
+    for i in range(_KOJIN_PICK_COUNT):
+        keys += [f"kojin_pick_title_{i}_{store}", f"kojin_pick_bans_{i}_{store}"]
     return keys
 
 
@@ -4406,6 +4453,8 @@ def _article_input_keys(store: str) -> list[str]:
         f"art_kojin_narabi_range_{store}", f"art_kojin_narabi_title_{store}",
         f"art_kojin_narabi2_range_{store}", f"art_kojin_narabi2_title_{store}",
     ]
+    for i in range(_KOJIN_PICK_COUNT):
+        keys += [f"art_kojin_pick_title_{i}_{store}", f"art_kojin_pick_bans_{i}_{store}"]
     return keys
 
 

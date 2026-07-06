@@ -7899,7 +7899,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _se_tit_e = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
                                     _sefn_e = _unique_fn_e(f"{_make_safe_fn(_se_tit_e)}.jpg")
                                     _se_out_e = os.path.join(output_dir, _sefn_e)
-                                    _save_jpeg(_build_machine_img(_se_df_e, _se_tit_e, None), _se_out_e)
+                                    _save_jpeg(_build_machine_img(_se_df_e, _se_tit_e, None), _se_out_e, target_kb=800)
                                     _exec_order.append(_sefn_e)
                                     _m_exec_ban_map_e[_sefn_e] = [int(b) for b in _se_df_e["台番"].tolist()]
                                     _m_log(f"  ✅ その他の優秀台ピックアップ「{_se_tit_e}」({len(_se_df_e)}台)")
@@ -7916,7 +7916,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _se_tit_e = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
                                 _sefn_e = _unique_fn_e(f"{_make_safe_fn(_se_tit_e)}.jpg")
                                 _se_out_e = os.path.join(output_dir, _sefn_e)
-                                _save_jpeg(_build_machine_img(_se_auto_e, _se_tit_e, None), _se_out_e)
+                                _save_jpeg(_build_machine_img(_se_auto_e, _se_tit_e, None), _se_out_e, target_kb=800)
                                 _exec_order.append(_sefn_e)
                                 _m_exec_ban_map_e[_sefn_e] = [int(b) for b in _se_auto_e["台番"].tolist()]
                                 _m_log(f"  ✅ その他の優秀台ピックアップ（自動抽出 {sonota_extra_auto}）({len(_se_auto_e)}台)")
@@ -8060,7 +8060,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             pass
                             _new_order_e: list[str] = []
                             for _fn_c, _img_c in _me_composited:
-                                _save_jpeg(_img_c, os.path.join(output_dir, _fn_c))
+                                _save_jpeg(_img_c, os.path.join(output_dir, _fn_c), target_kb=800)
                                 _new_order_e.append(_fn_c)
                             _exec_order = _new_order_e
 

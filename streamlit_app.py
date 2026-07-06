@@ -10087,6 +10087,8 @@ def show_auto_article_page() -> None:
                         if kojin_enabled:
                             _art_prec |= {m.strip() for m in kojin_zentai_machines if m.strip()}
                             _art_prec |= {m.strip() for m in kojin_yushu_machines if m.strip()}
+                        _art_pick_suppress = _kojin_pick_suppressed_machines(uploaded, store, prefix="art_")
+                        _art_prec |= _art_pick_suppress
                         _art_stails: list[str] = []
                         if st.session_state.get("art_suebangai_enabled", False):
                             _at = st.session_state.get("art_suebangai_tail_input", "").strip()
@@ -10198,6 +10200,15 @@ def show_auto_article_page() -> None:
                             # ⑤ その他の優秀台ピックアップ
                             if "その他の優秀台ピックアップ.jpg" in _art_fpm:
                                 _art_pil.append(_art_fpm["その他の優秀台ピックアップ.jpg"])
+                            # 個別機種の優秀台ピックアップ（貼った台番のみ・ピンクバーなし）
+                            if _apdf is not None:
+                                for _pk_tit, _pk_bans in _collect_kojin_pick(store, prefix="art_"):
+                                    _pk_df = _apdf[_apdf["台番"].apply(lambda b: int(b) in _pk_bans)].copy()
+                                    if _pk_df.empty:
+                                        continue
+                                    _pk_df = _pk_df.iloc[_pk_df["台番"].argsort()].reset_index(drop=True)
+                                    _art_pil.append((f"{_make_safe_fn(_pk_tit)}.jpg",
+                                                     _build_machine_img_no_bar(_pk_df)))
 
                     # ── スランプグラフ合成（プレビュー）────────────────────────
                     _pv_api_key_sl = _get_pision_api_key()
@@ -10622,6 +10633,8 @@ def show_auto_article_page() -> None:
                 for m in (kojin_zentai_machines + kojin_yushu_machines)
                 if m.strip()
             }
+            _art_pick_suppress_e = _kojin_pick_suppressed_machines(uploaded, store, prefix="art_")
+            _kojin_names |= _art_pick_suppress_e
             _sue_tails_art: list[str] = []
             if st.session_state.get("art_suebangai_enabled", False):
                 _art_t = st.session_state.get("art_suebangai_tail_input", "").strip()
@@ -10754,6 +10767,17 @@ def show_auto_article_page() -> None:
                                     _log(f"  台番範囲(優秀台・ピンクバーなし): 台番 {sorted(_rng2_bans)} に台なし")
                         except Exception:
                             _log(f"  ❌ 台番範囲優秀台(ピンクバーなし)エラー: {traceback.format_exc()}")
+
+                    # 個別機種の優秀台ピックアップ（貼った台番のみ・ピンクバーなし）
+                    for _pk_tit_e, _pk_bans_e in _collect_kojin_pick(store, prefix="art_"):
+                        _pk_df_e = df_k[df_k["台番"].apply(lambda b: int(b) in _pk_bans_e)].copy()
+                        if _pk_df_e.empty:
+                            continue
+                        _pk_df_e = _pk_df_e.iloc[_pk_df_e["台番"].argsort()].reset_index(drop=True)
+                        _pk_out_e = os.path.join(output_dir, f"{_make_safe_fn(_pk_tit_e)}.jpg")
+                        _save_jpeg(_build_machine_img_no_bar(_pk_df_e), _pk_out_e)
+                        result["files"].append(_pk_out_e)
+                        _log(f"  ✅ 個別機種の優秀台ピックアップ「{_pk_tit_e}」({len(_pk_df_e)}台)")
 
             # ── プレビューでチェックを外した画像を削除・再生成 ────────────
             _art_aprev_imgs = st.session_state.get(f"art_preview_imgs_{store}")

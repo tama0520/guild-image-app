@@ -14626,6 +14626,95 @@ def fetch_pision_realtime(hall_name: str, date_str: str, trigger: bool = True) -
         return result
 
 
+def _composite_slump_onto_images(
+    img_list: list[tuple[str, "Image.Image"]],
+    ban_map: dict[str, list[int]],
+    store: str,
+    ban2mac: dict[str, str] | None = None,
+    ban2diff: dict[str, int] | None = None,
+    date_str: str = "",
+    api_key: str | None = None,
+) -> list[tuple[str, "Image.Image"]]:
+    """記入部分等の画像リストにスランプグラフを合成して返す。
+    pision データは _slump_by_uid_{store} キャッシュ→速報キャッシュ→fetch の順で取得。
+    取得不可・テンプレ無しなら img_list をそのまま返す（表のみ）。"""
+    ban2mac  = ban2mac or {}
+    ban2diff = ban2diff or {}
+    # pision uid 辞書を取得（キャッシュ優先）
+    _by_uid = st.session_state.get(f"_slump_by_uid_{store}")
+    if not _by_uid:
+        try:
+            _rt_cached = st.session_state.get(f"_auto_tb_rt_items_{store}")
+            _rt_date   = st.session_state.get(f"_auto_tb_rt_items_date_{store}", "")
+            if _rt_cached and _rt_date == date_str:
+                _items = _rt_cached
+            else:
+                _key = api_key or _get_pision_api_key()
+                if not _key:
+                    return img_list
+                _halls = fetch_pision_halls(_key)
+                _hall_id = None
+                for _h in _halls:
+                    _hn = _h.get("name") or _h.get("displayName") or ""
+                    if store in _hn and "エスパス" in _hn:
+                        _hall_id = str(_h.get("id") or _h.get("hallId") or "")
+                        break
+                _items = fetch_pision_results(_key, _hall_id, date_str) if _hall_id else None
+                if _items:
+                    _slump_apply_names(_items)
+            if not _items:
+                return img_list
+            _by_uid = {str(_it.get("unitId", "")): _it for _it in _items}
+            st.session_state[f"_slump_by_uid_{store}"] = _by_uid
+        except Exception:
+            return img_list
+    _tmpl = find_slump_template()
+    _bbb  = _find_slump_bg()
+    if _tmpl is None:
+        return img_list
+    _sonota_names = ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg",
+                     "その他の優秀台+1,000枚以上.jpg", "その他の優秀台+2,000枚以上.jpg",
+                     "その他の優秀台+3,000枚以上.jpg")
+    _merged: list[tuple[str, "Image.Image"]] = []
+    for (_fn, _img) in img_list:
+        _bare = re.sub(r"^\d{2}_", "", _fn)
+        _bans = ban_map.get(_bare, [])
+        if not _bans:
+            if store != "秋葉原":
+                _merged.append((_fn, _img))
+            continue
+        _show_mn = (_bare in _sonota_names or _bare.startswith("末尾") or _bare.startswith("バラエティ"))
+        _is_zentai = (not _bare.endswith("_高配分.jpg") and _bare not in _sonota_names)
+        _g_imgs: list["Image.Image"] = []
+        for _b in _bans:
+            _it = _by_uid.get(str(_b))
+            if _it is None or not _it.get("points"):
+                continue
+            _dn = (_it.get("_convertedName") or _it.get("displayName") or ban2mac.get(str(_b), str(_b)))
+            _sd = not (_is_zentai and ban2diff.get(str(_b), 0) < 0)
+            try:
+                _g_imgs.append(draw_slump_graph(
+                    _tmpl, str(_b), _dn, _it["points"], diff=_it.get("diff"),
+                    machine_name=_dn if _show_mn else None, show_diff=_sd,
+                ))
+            except Exception:
+                pass
+        if store == "秋葉原":
+            _title = os.path.splitext(_bare)[0]
+            _slp = _build_slump_title_img(_title, _g_imgs, _bbb)
+            if _slp is not None:
+                _merged.append((_fn, _slp))
+        else:
+            _merged.append((_fn, _attach_slump_to_table(_img, _g_imgs, _bbb)))
+        if len(_g_imgs) >= 16 and store != "秋葉原":
+            try:
+                _merged.append((os.path.splitext(_fn)[0] + "_side.jpg",
+                                _attach_slump_to_table_side(_img, _g_imgs, _bbb)))
+            except Exception:
+                pass
+    return _merged
+
+
 def draw_slump_graph(
     template_path,
     unit_id: str,

@@ -2887,6 +2887,7 @@ def run_step2_juggler(
     zen_dai_juggler_machines: set[str] = set(),
     article_mode: bool = False,
     sonota_exclude: set[str] = frozenset(),
+    no_merge_image: bool = False,
 ) -> tuple[list[str], pd.DataFrame | None, pd.Series | None, list[dict], list[dict]]:
     """Step 2: ジャグラーシリーズ優秀台フィルター。
     少数機種は統合画像へ。5台以下なら overflow として Step 3 へ渡す。
@@ -2997,6 +2998,18 @@ def run_step2_juggler(
     order       = combined["台番"].argsort()
     combined    = combined.iloc[order].reset_index(drop=True)
     dr_combined = dr_combined.iloc[order].reset_index(drop=True)
+
+    # 統合画像を作らずジャグラー台をその他へ回す（秋葉原スランプ付き等）。
+    # sonota_exclude を使わない overflow なので Step3 で台が除外されない。
+    # 設計に合わせ +1,000枚以上のみその他へ（プレビューの jug_pool +1000→sonota と同条件）。
+    if no_merge_image:
+        _nm_mask = dr_combined >= 1000
+        _nm_df   = combined[_nm_mask.values].reset_index(drop=True)
+        _nm_dr   = dr_combined[_nm_mask].reset_index(drop=True)
+        log(f"  ジャグラー統合画像なし → +1000枚台をその他へ overflow ({len(_nm_df)}台)")
+        if _nm_df.empty:
+            return generated, None, None, high_ratio_list, jug_excellent_list, None
+        return generated, _nm_df, _nm_dr, high_ratio_list, jug_excellent_list, None
 
     if len(combined) <= 5:
         log(f"  ジャグラー統合 {len(combined)}台 → overflow")
@@ -3914,6 +3927,7 @@ def run_auto_pipeline(
     sonota_exclude: set[str] = frozenset(),
     jug_suebangai_tails: list[str] = [],
     variety_bans: set[int] = set(),
+    jug_no_merge_image: bool = False,
 ) -> dict:
     """3ステップパイプラインを実行する。
     戻り値: {"ok": bool, "files": list[str], "error": str | None,
@@ -3969,7 +3983,7 @@ def run_auto_pipeline(
         log("② ジャグラーシリーズ優秀台")
         _jug_series = cfg["juggler_series"]
         _zen_dai_jug = {item["name"] for item in zen_dai_list if item["name"] in _jug_series}
-        f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude)
+        f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude, no_merge_image=jug_no_merge_image)
 
         log("③ その他の優秀台ピックアップ")
         f3, oth_hr, sonota_excellent = run_step3_other(df, diff_raw, output_dir, cfg, narabi_bans, ov_df, ov_diff, log, recommended_machines, suebangai_bans, article_mode=article_mode, sonota_exclude=sonota_exclude)
@@ -6290,6 +6304,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             sonota_exclude={m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()},
                             jug_suebangai_tails=_prev_jug_sue_tails,
                             variety_bans=(ranges_to_bans(parse_ranges(variety_ranges_text.strip())) if (with_slump and store == "秋葉原" and variety_enabled and variety_ranges_text.strip()) else set()),
+                            jug_no_merge_image=(with_slump and store == "秋葉原"),
                         )
                         # スランプ付き: その他の優秀台ピックアップ①②(③)生成（プレビュー用・秋葉原/上野新館）
                         if _sonota_split and _prev_result.get("ok"):
@@ -8022,6 +8037,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 sonota_exclude={m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()},
                 jug_suebangai_tails=_jug_sue_tails_run,
                 variety_bans=(ranges_to_bans(parse_ranges(variety_ranges_text.strip())) if (with_slump and store == "秋葉原" and variety_enabled and variety_ranges_text.strip()) else set()),
+                jug_no_merge_image=(with_slump and store == "秋葉原"),
             )
 
             # スランプ付き: その他の優秀台ピックアップ①②(③)生成（秋葉原/上野新館）

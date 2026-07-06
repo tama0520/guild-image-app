@@ -3505,6 +3505,7 @@ def generate_report_text(
     df=None,
     suebangai_data: list[dict] | None = None,
     jug_sue_data: list[dict] | None = None,
+    excellent_min_diff: int = 2000,
 ) -> str:
     """画像生成で使ったデータをそのまま文章化して返す"""
     weekday_jp = ["月", "火", "水", "木", "金", "土", "日"]
@@ -3624,7 +3625,7 @@ def generate_report_text(
                     if _d >= 2000 and (_nm, _ban) not in _seen:
                         _ex_src.append({"name": _nm, "ban": _ban, "diff": _d})
                         _seen.add((_nm, _ban))
-        filtered = [x for x in _ex_src if x["diff"] >= 2000 and x["name"] not in high_ratio_names and x["name"] not in _poster_ex]
+        filtered = [x for x in _ex_src if x["diff"] >= excellent_min_diff and x["name"] not in high_ratio_names and x["name"] not in _poster_ex]
         if not filtered:
             return "（なし）"
         sorted_items = sorted(filtered, key=lambda x: x["diff"], reverse=True)
@@ -8119,6 +8120,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                             diff_raw=_diff_exec_m, df=_df_exec_m,
                             suebangai_data=_m_sue_data or None,
                             jug_sue_data=_m_jug_data or None,
+                            excellent_min_diff=(_SONOTA_AUTO_THR[sonota_extra_auto]
+                                                if (store == "秋葉原" and sonota_extra_auto in _SONOTA_AUTO_THR)
+                                                else 2000),
                         )
                         for _old_rt, _new_rt in STORE_RESULT_TRANSFORMS.get(store, []):
                             _m_report_text = _m_report_text.replace(_old_rt, _new_rt)

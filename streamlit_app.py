@@ -5566,6 +5566,25 @@ def show_auto_page(with_slump: bool = False) -> None:
         kojin_narabi_title        = st.session_state.get(f"kojin_narabi_title_{store}", "")
         kojin_narabi2_ranges_text = st.session_state.get(f"kojin_narabi2_range_{store}", "")
         kojin_narabi2_title       = st.session_state.get(f"kojin_narabi2_title_{store}", "")
+        # 個別機種の優秀台ピックアップ（全店舗・その他の優秀台ピックアップの上）
+        st.markdown("**個別機種の優秀台ピックアップ**")
+        st.caption("タイトルと台番を指定した機種は、貼った台番だけの画像を作り、自動高配分画像は生成しません。")
+        for _pi in range(_KOJIN_PICK_COUNT):
+            _col_pt, _col_pb = st.columns([2, 3])
+            with _col_pt:
+                st.text_input(
+                    "タイトル",
+                    key=f"kojin_pick_title_{_pi}_{store}",
+                    placeholder="例: マイジャグV",
+                    on_change=_save_auto_inputs, args=(store,),
+                )
+            with _col_pb:
+                st.text_area(
+                    "台番テキスト（台番を含むテキストをそのまま貼り付け）",
+                    key=f"kojin_pick_bans_{_pi}_{store}",
+                    height=68,
+                    on_change=_save_auto_inputs, args=(store,),
+                )
         if True:  # その他の優秀台ピックアップ（全店舗）
             st.markdown("**その他の優秀台ピックアップ**")
             _col_set, _col_seb = st.columns([2, 3])

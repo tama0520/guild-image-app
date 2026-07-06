@@ -4324,6 +4324,51 @@ def _save_persistent_inputs(store: str) -> None:
             pass
 
 
+_KOJIN_PICK_COUNT = 3
+
+def _collect_kojin_pick(store: str, prefix: str = "") -> list[tuple[str, set[int]]]:
+    """個別機種の優秀台ピックアップの (タイトル, 台番set) を返す（台番非空のみ）。"""
+    out: list[tuple[str, set[int]]] = []
+    for i in range(_KOJIN_PICK_COUNT):
+        title = str(st.session_state.get(f"{prefix}kojin_pick_title_{i}_{store}", "")).strip()
+        bans_text = str(st.session_state.get(f"{prefix}kojin_pick_bans_{i}_{store}", "")).strip()
+        if not bans_text:
+            continue
+        bans = set(expand_machine_numbers(bans_text))
+        if not bans:
+            continue
+        out.append((title or "個別機種の優秀台ピックアップ", bans))
+    return out
+
+def _kojin_pick_machines_from_df(picks: list[tuple[str, set[int]]], df) -> set[str]:
+    """ピックアップ台番から df で機種を逆引きした集合。"""
+    all_bans: set[int] = set()
+    for _t, b in picks:
+        all_bans |= b
+    if not all_bans or df is None or df.empty:
+        return set()
+    _rows = df[df["台番"].apply(lambda b: int(b) in all_bans)]
+    return {str(m).strip() for m in _rows["機種名"] if str(m).strip()}
+
+def _kojin_pick_suppressed_machines(uploaded, store: str, prefix: str = "") -> set[str]:
+    """アップロード Excel を読み、ピックアップ台番の機種名 set を返す（パイプライン前の抑制用）。"""
+    picks = _collect_kojin_pick(store, prefix)
+    if not picks:
+        return set()
+    try:
+        _raw = _read_uploaded_df(uploaded)
+        _df0, _ = normalize_df(_raw)
+        _df0 = apply_name_conversion(_df0)
+    except Exception:
+        return set()
+    finally:
+        try:
+            uploaded.seek(0)
+        except Exception:
+            pass
+    return _kojin_pick_machines_from_df(picks, _df0)
+
+
 def _auto_input_keys(store: str) -> list[str]:
     keys = ["kojin_enabled", "narabi_enabled", "narabi_ranges_input",
             "suebangai_enabled",
@@ -4342,6 +4387,8 @@ def _auto_input_keys(store: str) -> list[str]:
         f"sonota_extra_title_{store}", f"sonota_extra_text_{store}",
         "variety_enabled", f"variety_range_{store}", "variety_mode",
     ]
+    for i in range(_KOJIN_PICK_COUNT):
+        keys += [f"kojin_pick_title_{i}_{store}", f"kojin_pick_bans_{i}_{store}"]
     return keys
 
 
@@ -4406,6 +4453,8 @@ def _article_input_keys(store: str) -> list[str]:
         f"art_kojin_narabi_range_{store}", f"art_kojin_narabi_title_{store}",
         f"art_kojin_narabi2_range_{store}", f"art_kojin_narabi2_title_{store}",
     ]
+    for i in range(_KOJIN_PICK_COUNT):
+        keys += [f"art_kojin_pick_title_{i}_{store}", f"art_kojin_pick_bans_{i}_{store}"]
     return keys
 
 
@@ -5517,6 +5566,25 @@ def show_auto_page(with_slump: bool = False) -> None:
         kojin_narabi_title        = st.session_state.get(f"kojin_narabi_title_{store}", "")
         kojin_narabi2_ranges_text = st.session_state.get(f"kojin_narabi2_range_{store}", "")
         kojin_narabi2_title       = st.session_state.get(f"kojin_narabi2_title_{store}", "")
+        # 個別機種の優秀台ピックアップ（全店舗・その他の優秀台ピックアップの上）
+        st.markdown("**個別機種の優秀台ピックアップ**")
+        st.caption("タイトルと台番を指定した機種は、貼った台番だけの画像を作り、自動高配分画像は生成しません。")
+        for _pi in range(_KOJIN_PICK_COUNT):
+            _col_pt, _col_pb = st.columns([2, 3])
+            with _col_pt:
+                st.text_input(
+                    "タイトル",
+                    key=f"kojin_pick_title_{_pi}_{store}",
+                    placeholder="例: マイジャグV",
+                    on_change=_save_auto_inputs, args=(store,),
+                )
+            with _col_pb:
+                st.text_area(
+                    "台番テキスト（台番を含むテキストをそのまま貼り付け）",
+                    key=f"kojin_pick_bans_{_pi}_{store}",
+                    height=68,
+                    on_change=_save_auto_inputs, args=(store,),
+                )
         if True:  # その他の優秀台ピックアップ（全店舗）
             st.markdown("**その他の優秀台ピックアップ**")
             _col_set, _col_seb = st.columns([2, 3])
@@ -6205,6 +6273,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                         if kojin_enabled:
                             _prev_rec_names |= {m.strip() for m in kojin_zentai_machines if m.strip()}
                             _prev_rec_names |= {m.strip() for m in kojin_yushu_machines if m.strip()}
+                        _pick_suppress = _kojin_pick_suppressed_machines(uploaded, store)
+                        _prev_rec_names |= _pick_suppress
                         _prev_sue_tails: list[str] = []
                         if st.session_state.get("suebangai_enabled", False):
                             _prev_sue_tails += [t for i in range(1, 4) if (t := st.session_state.get(f"suebangai_tail_input_{i}", "").strip())]
@@ -6377,6 +6447,14 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             _prev_img_list.append((f"{_base2}.jpg", _build_machine_img(_rng2_p, _base2, None)))
                                     except Exception:
                                         pass
+                                # 個別機種の優秀台ピックアップ（貼った台番のみ・ピンクバーなし）
+                                for _pk_tit, _pk_bans in _collect_kojin_pick(store):
+                                    _pk_df = _pv_df[_pv_df["台番"].apply(lambda b: int(b) in _pk_bans)].copy()
+                                    if _pk_df.empty:
+                                        continue
+                                    _pk_df = _pk_df.iloc[_pk_df["台番"].argsort()].reset_index(drop=True)
+                                    _prev_img_list.append((f"{_make_safe_fn(_pk_tit)}.jpg",
+                                                           _build_machine_img(_pk_df, _pk_tit, None)))
 
                             # ─ ⑤ バラエティ画像（秋葉原スランプ付きのみ）─
                             _variety_ban_map: dict[str, list[int]] = {}
@@ -7669,6 +7747,18 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _mda_all_e = _diff_exec_m.loc[_mga_all_e.index]
                             _m_high.append({"name": _km_e, "count": int((_mda_all_e > 0).sum()), "total": len(_mga_all_e), "diffs": sorted([int(d) for d in _mda_e.tolist() if int(d) >= 1000], reverse=True), "all_avg_diff": int(round(_mda_all_e.mean())), "has_image": True})
 
+                        # 個別機種の優秀台ピックアップ（貼った台番のみ・ピンクバーなし）
+                        for _pk_tit_e, _pk_bans_e in _collect_kojin_pick(store):
+                            _pk_df_e = _df_exec_m[_df_exec_m["台番"].apply(lambda b: int(b) in _pk_bans_e)].copy()
+                            if _pk_df_e.empty:
+                                continue
+                            _pk_df_e = _pk_df_e.iloc[_pk_df_e["台番"].argsort()].reset_index(drop=True)
+                            _pkfn_e = _unique_fn_e(f"{_make_safe_fn(_pk_tit_e)}.jpg")
+                            _pk_out_e = os.path.join(output_dir, _pkfn_e)
+                            _save_jpeg(_build_machine_img(_pk_df_e, _pk_tit_e, None), _pk_out_e)
+                            _exec_order.append(_pkfn_e)
+                            _m_log(f"  ✅ 個別機種の優秀台ピックアップ「{_pk_tit_e}」({len(_pk_df_e)}台)")
+
                         # ② その他の優秀台ピックアップ
                         if sonota_extra_text.strip():
                             _se_bans_e = set(expand_machine_numbers(sonota_extra_text))
@@ -7916,6 +8006,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                 for m in (kojin_zentai_machines + kojin_yushu_machines)
                 if m.strip()
             }
+            _pick_suppress_e = _kojin_pick_suppressed_machines(uploaded, store)
+            _rec_names |= _pick_suppress_e
             _sue_tails_run: list[str] = []
             if st.session_state.get("suebangai_enabled", False):
                 _sue_tails_run += [t for i in range(1, 4) if (t := st.session_state.get(f"suebangai_tail_input_{i}", "").strip())]
@@ -9743,6 +9835,25 @@ def show_auto_article_page() -> None:
         kojin_narabi2_ranges_text = st.session_state.get(f"art_kojin_narabi2_range_{store}", "")
         kojin_narabi2_title       = st.session_state.get(f"art_kojin_narabi2_title_{store}", "")
 
+        st.markdown("**個別機種の優秀台ピックアップ**")
+        st.caption("タイトルと台番を指定した機種は、貼った台番だけの画像を作り、自動高配分画像は生成しません。")
+        for _pi in range(_KOJIN_PICK_COUNT):
+            _col_apt, _col_apb = st.columns([2, 3])
+            with _col_apt:
+                st.text_input(
+                    "タイトル",
+                    key=f"art_kojin_pick_title_{_pi}_{store}",
+                    placeholder="例: マイジャグV",
+                    on_change=_save_article_inputs, args=(store,),
+                )
+            with _col_apb:
+                st.text_area(
+                    "台番テキスト（台番を含むテキストをそのまま貼り付け）",
+                    key=f"art_kojin_pick_bans_{_pi}_{store}",
+                    height=68,
+                    on_change=_save_article_inputs, args=(store,),
+                )
+
     # ── ③ 並び画像オプション ─────────────────────────────────────────
     narabi_ok     = False
     narabi_ranges: list[list[int]] = []
@@ -9976,6 +10087,8 @@ def show_auto_article_page() -> None:
                         if kojin_enabled:
                             _art_prec |= {m.strip() for m in kojin_zentai_machines if m.strip()}
                             _art_prec |= {m.strip() for m in kojin_yushu_machines if m.strip()}
+                        _art_pick_suppress = _kojin_pick_suppressed_machines(uploaded, store, prefix="art_")
+                        _art_prec |= _art_pick_suppress
                         _art_stails: list[str] = []
                         if st.session_state.get("art_suebangai_enabled", False):
                             _at = st.session_state.get("art_suebangai_tail_input", "").strip()
@@ -10087,6 +10200,15 @@ def show_auto_article_page() -> None:
                             # ⑤ その他の優秀台ピックアップ
                             if "その他の優秀台ピックアップ.jpg" in _art_fpm:
                                 _art_pil.append(_art_fpm["その他の優秀台ピックアップ.jpg"])
+                            # 個別機種の優秀台ピックアップ（貼った台番のみ・ピンクバーなし）
+                            if _apdf is not None:
+                                for _pk_tit, _pk_bans in _collect_kojin_pick(store, prefix="art_"):
+                                    _pk_df = _apdf[_apdf["台番"].apply(lambda b: int(b) in _pk_bans)].copy()
+                                    if _pk_df.empty:
+                                        continue
+                                    _pk_df = _pk_df.iloc[_pk_df["台番"].argsort()].reset_index(drop=True)
+                                    _art_pil.append((f"{_make_safe_fn(_pk_tit)}.jpg",
+                                                     _build_machine_img_no_bar(_pk_df)))
 
                     # ── スランプグラフ合成（プレビュー）────────────────────────
                     _pv_api_key_sl = _get_pision_api_key()
@@ -10511,6 +10633,8 @@ def show_auto_article_page() -> None:
                 for m in (kojin_zentai_machines + kojin_yushu_machines)
                 if m.strip()
             }
+            _art_pick_suppress_e = _kojin_pick_suppressed_machines(uploaded, store, prefix="art_")
+            _kojin_names |= _art_pick_suppress_e
             _sue_tails_art: list[str] = []
             if st.session_state.get("art_suebangai_enabled", False):
                 _art_t = st.session_state.get("art_suebangai_tail_input", "").strip()
@@ -10643,6 +10767,17 @@ def show_auto_article_page() -> None:
                                     _log(f"  台番範囲(優秀台・ピンクバーなし): 台番 {sorted(_rng2_bans)} に台なし")
                         except Exception:
                             _log(f"  ❌ 台番範囲優秀台(ピンクバーなし)エラー: {traceback.format_exc()}")
+
+                    # 個別機種の優秀台ピックアップ（貼った台番のみ・ピンクバーなし）
+                    for _pk_tit_e, _pk_bans_e in _collect_kojin_pick(store, prefix="art_"):
+                        _pk_df_e = df_k[df_k["台番"].apply(lambda b: int(b) in _pk_bans_e)].copy()
+                        if _pk_df_e.empty:
+                            continue
+                        _pk_df_e = _pk_df_e.iloc[_pk_df_e["台番"].argsort()].reset_index(drop=True)
+                        _pk_out_e = os.path.join(output_dir, f"{_make_safe_fn(_pk_tit_e)}.jpg")
+                        _save_jpeg(_build_machine_img_no_bar(_pk_df_e), _pk_out_e)
+                        result["files"].append(_pk_out_e)
+                        _log(f"  ✅ 個別機種の優秀台ピックアップ「{_pk_tit_e}」({len(_pk_df_e)}台)")
 
             # ── プレビューでチェックを外した画像を削除・再生成 ────────────
             _art_aprev_imgs = st.session_state.get(f"art_preview_imgs_{store}")

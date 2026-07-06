@@ -9835,6 +9835,25 @@ def show_auto_article_page() -> None:
         kojin_narabi2_ranges_text = st.session_state.get(f"art_kojin_narabi2_range_{store}", "")
         kojin_narabi2_title       = st.session_state.get(f"art_kojin_narabi2_title_{store}", "")
 
+        st.markdown("**個別機種の優秀台ピックアップ**")
+        st.caption("タイトルと台番を指定した機種は、貼った台番だけの画像を作り、自動高配分画像は生成しません。")
+        for _pi in range(_KOJIN_PICK_COUNT):
+            _col_apt, _col_apb = st.columns([2, 3])
+            with _col_apt:
+                st.text_input(
+                    "タイトル",
+                    key=f"art_kojin_pick_title_{_pi}_{store}",
+                    placeholder="例: マイジャグV",
+                    on_change=_save_article_inputs, args=(store,),
+                )
+            with _col_apb:
+                st.text_area(
+                    "台番テキスト（台番を含むテキストをそのまま貼り付け）",
+                    key=f"art_kojin_pick_bans_{_pi}_{store}",
+                    height=68,
+                    on_change=_save_article_inputs, args=(store,),
+                )
+
     # ── ③ 並び画像オプション ─────────────────────────────────────────
     narabi_ok     = False
     narabi_ranges: list[list[int]] = []

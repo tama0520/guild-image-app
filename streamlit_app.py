@@ -4383,6 +4383,55 @@ def _kojin_pick_suppressed_machines(uploaded, store: str, prefix: str = "") -> s
     return _kojin_pick_machines_from_df(picks, _df0)
 
 
+_SONOTA_AUTO_THR = {"+1,000枚以上": 1000, "+2,000枚以上": 2000, "+3,000枚以上": 3000}
+
+def _manual_sonota_auto_bans(df, store, kojin_zentai_machines, kojin_yushu_machines,
+                             narabi_ranges, kojin_narabi_range_txt, kojin_narabi2_range_txt):
+    """記入部分のみモードのその他自動抽出で除外する (機種名集合, 台番集合)。"""
+    _exc_mac = {m.strip() for m in (list(kojin_zentai_machines) + list(kojin_yushu_machines)) if m.strip()}
+    _exc_ban: set[int] = set()
+    for _t, _b in _collect_kojin_pick(store):
+        _exc_ban |= set(_b)
+    for _bl in (narabi_ranges or []):
+        _exc_ban |= {int(b) for b in _bl}
+    for _txt in (kojin_narabi_range_txt, kojin_narabi2_range_txt):
+        if _txt and _txt.strip():
+            try:
+                _exc_ban |= ranges_to_bans(parse_ranges(_txt.strip()))
+            except Exception:
+                pass
+    if st.session_state.get("suebangai_enabled", False):
+        for _t in [t for _i in range(1, 4) if (t := st.session_state.get(f"suebangai_tail_input_{_i}", "").strip())]:
+            if _t == "ゾロ目":
+                _exc_ban |= {int(b) for b in df["台番"] if (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]}
+            elif _t.isdigit() and len(_t) in (1, 2):
+                _exc_ban |= {int(b) for b in df["台番"] if str(int(b))[-len(_t):] == _t}
+    if st.session_state.get("jug_sue_enabled", False):
+        _jser = set(get_store_config(store)["juggler_series"])
+        for _t in [t for _i in range(1, 4) if (t := st.session_state.get(f"jug_sue_tail_input_{_i}", "").strip())]:
+            if _t == "ゾロ目":
+                _cand = [int(b) for b in df["台番"] if (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]]
+            elif _t.isdigit() and len(_t) in (1, 2):
+                _cand = [int(b) for b in df["台番"] if str(int(b))[-len(_t):] == _t]
+            else:
+                _cand = []
+            for _b in _cand:
+                _row = df[df["台番"] == _b]
+                if not _row.empty and str(_row.iloc[0]["機種名"]) in _jser:
+                    _exc_ban.add(_b)
+    return _exc_mac, _exc_ban
+
+def _manual_sonota_auto_extract(df, diff, thr, exc_mac, exc_ban):
+    """差枚>=thr かつ 機種名∉exc_mac かつ 台番∉exc_ban の台を台番順で返す。"""
+    _mask = ((~df["機種名"].isin(exc_mac)) &
+             (diff.values >= thr) &
+             (~df["台番"].apply(lambda b: int(b) in exc_ban)))
+    _r = df[_mask.values].copy()
+    if _r.empty:
+        return _r
+    return _r.iloc[_r["台番"].argsort()].reset_index(drop=True)
+
+
 def _auto_input_keys(store: str) -> list[str]:
     keys = ["kojin_enabled", "narabi_enabled", "narabi_ranges_input",
             "suebangai_enabled",
@@ -4398,7 +4447,7 @@ def _auto_input_keys(store: str) -> list[str]:
     keys += [
         f"kojin_narabi_range_{store}", f"kojin_narabi_title_{store}",
         f"kojin_narabi2_range_{store}", f"kojin_narabi2_title_{store}",
-        f"sonota_extra_title_{store}", f"sonota_extra_text_{store}",
+        f"sonota_extra_title_{store}", f"sonota_extra_text_{store}", f"sonota_extra_auto_{store}",
         "variety_enabled", f"variety_range_{store}", "variety_mode",
     ]
     for i in range(_KOJIN_PICK_COUNT):
@@ -5618,8 +5667,16 @@ def show_auto_page(with_slump: bool = False) -> None:
                     height=80,
                     on_change=_save_auto_inputs, args=(store,),
                 )
+            st.radio(
+                "台番テキストが空欄のとき、下記の閾値で「その他の優秀台ピックアップ」を自動抽出（📝記入部分のみモード）",
+                options=["なし", "+1,000枚以上", "+2,000枚以上", "+3,000枚以上"],
+                key=f"sonota_extra_auto_{store}",
+                horizontal=True,
+                on_change=_save_auto_inputs, args=(store,),
+            )
         sonota_extra_title = st.session_state.get(f"sonota_extra_title_{store}", "")
         sonota_extra_text  = st.session_state.get(f"sonota_extra_text_{store}", "")
+        sonota_extra_auto = st.session_state.get(f"sonota_extra_auto_{store}", "なし")
 
     # ── ③ 並び画像オプション（常に描画）──────────────────────────────
     narabi_ok     = False

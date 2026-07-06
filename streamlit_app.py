@@ -3545,7 +3545,7 @@ def generate_report_text(
                 avg = item["all_avg_diff"]
             else:
                 avg = int(round(sum(item["diffs"]) / len(item["diffs"]))) if item["diffs"] else 0
-            avg_str = f"→平均{_fmt_diff(avg)}" if avg > 800 else ""
+            avg_str = f"→平均{_fmt_diff(avg)}" if (avg > 800 or item.get("always_show_avg")) else ""
             lines.append(f"🎖️{item['name']}({item['count']}/{item['total']}台){avg_str}")
             if item["diffs"]:
                 emoji = _diff_emoji(item["diffs"])
@@ -8791,19 +8791,23 @@ def show_auto_page(with_slump: bool = False) -> None:
                         result["files"].append(_pk_out_k)
                         _log(f"  ✅ 個別機種の優秀台ピックアップ「{_pk_tit_k}」({len(_pk_df_k)}台)")
                         # 結果テキスト用: 貼った台番の機種ごとに +1000枚台を high_ratio_list へ追加
+                        # 💎の差枚リストは貼った台番のみ／ヘッダー(勝台数・総台数・平均)は機種の全体データを使う
                         for _pk_m in dict.fromkeys(str(_mm) for _mm in _pk_df_k["機種名"]):
                             _pk_m_mask = (_pk_df_k["機種名"] == _pk_m).values
                             _pk_m_dr   = _pk_dr_k[_pk_m_mask]
                             _pk_1k     = sorted([int(d) for d in _pk_m_dr.tolist() if int(d) >= 1000], reverse=True)
                             if not _pk_1k:
                                 continue
+                            _pk_full_idx = df_k[df_k["機種名"] == _pk_m].index
+                            _pk_full_dr  = diff_k.loc[_pk_full_idx]
                             result["high_ratio_list"].append({
                                 "name":         _pk_m,
-                                "count":        int((_pk_m_dr > 0).sum()),
-                                "total":        int(_pk_m_mask.sum()),
+                                "count":        int((_pk_full_dr > 0).sum()),
+                                "total":        int(len(_pk_full_idx)),
                                 "diffs":        _pk_1k,
-                                "all_avg_diff": int(round(_pk_m_dr.mean())),
+                                "all_avg_diff": int(round(_pk_full_dr.mean())),
                                 "has_image":    False,
+                                "always_show_avg": True,
                                 "bans":         [int(b) for b in _pk_df_k[_pk_m_mask]["台番"].tolist()],
                             })
 

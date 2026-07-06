@@ -6273,6 +6273,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                         if kojin_enabled:
                             _prev_rec_names |= {m.strip() for m in kojin_zentai_machines if m.strip()}
                             _prev_rec_names |= {m.strip() for m in kojin_yushu_machines if m.strip()}
+                        _pick_suppress = _kojin_pick_suppressed_machines(uploaded, store)
+                        _prev_rec_names |= _pick_suppress
                         _prev_sue_tails: list[str] = []
                         if st.session_state.get("suebangai_enabled", False):
                             _prev_sue_tails += [t for i in range(1, 4) if (t := st.session_state.get(f"suebangai_tail_input_{i}", "").strip())]
@@ -6285,7 +6287,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             narabi_ranges=narabi_ranges if narabi_ok else None,
                             recommended_machines=_prev_rec_names,
                             suebangai_tails=_prev_sue_tails,
-                            sonota_exclude={m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()},
+                            sonota_exclude={m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()} | _pick_suppress,
                             jug_suebangai_tails=_prev_jug_sue_tails,
                             variety_bans=(ranges_to_bans(parse_ranges(variety_ranges_text.strip())) if (with_slump and store == "秋葉原" and variety_enabled and variety_ranges_text.strip()) else set()),
                         )
@@ -6445,6 +6447,14 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             _prev_img_list.append((f"{_base2}.jpg", _build_machine_img(_rng2_p, _base2, None)))
                                     except Exception:
                                         pass
+                                # 個別機種の優秀台ピックアップ（貼った台番のみ・ピンクバーなし）
+                                for _pk_tit, _pk_bans in _collect_kojin_pick(store):
+                                    _pk_df = _pv_df[_pv_df["台番"].apply(lambda b: int(b) in _pk_bans)].copy()
+                                    if _pk_df.empty:
+                                        continue
+                                    _pk_df = _pk_df.iloc[_pk_df["台番"].argsort()].reset_index(drop=True)
+                                    _prev_img_list.append((f"{_make_safe_fn(_pk_tit)}.jpg",
+                                                           _build_machine_img(_pk_df, _pk_tit, None)))
 
                             # ─ ⑤ バラエティ画像（秋葉原スランプ付きのみ）─
                             _variety_ban_map: dict[str, list[int]] = {}

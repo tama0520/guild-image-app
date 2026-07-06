@@ -7900,6 +7900,23 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _exec_order.append(_sefn_e)
                                     _m_exec_ban_map_e[_sefn_e] = [int(b) for b in _se_df_e["台番"].tolist()]
                                     _m_log(f"  ✅ その他の優秀台ピックアップ「{_se_tit_e}」({len(_se_df_e)}台)")
+                        elif sonota_extra_auto in _SONOTA_AUTO_THR:
+                            _exc_mac_e, _exc_ban_e = _manual_sonota_auto_bans(
+                                _df_exec_m, store, kojin_zentai_machines, kojin_yushu_machines,
+                                narabi_ranges if narabi_ok else [],
+                                st.session_state.get(f"kojin_narabi_range_{store}", ""),
+                                st.session_state.get(f"kojin_narabi2_range_{store}", ""),
+                            )
+                            _se_auto_e = _manual_sonota_auto_extract(
+                                _df_exec_m, _diff_exec_m, _SONOTA_AUTO_THR[sonota_extra_auto], _exc_mac_e, _exc_ban_e)
+                            if not _se_auto_e.empty:
+                                _se_tit_e = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
+                                _sefn_e = _unique_fn_e(f"{_make_safe_fn(_se_tit_e)}.jpg")
+                                _se_out_e = os.path.join(output_dir, _sefn_e)
+                                _save_jpeg(_build_machine_img(_se_auto_e, _se_tit_e, None), _se_out_e)
+                                _exec_order.append(_sefn_e)
+                                _m_exec_ban_map_e[_sefn_e] = [int(b) for b in _se_auto_e["台番"].tolist()]
+                                _m_log(f"  ✅ その他の優秀台ピックアップ（自動抽出 {sonota_extra_auto}）({len(_se_auto_e)}台)")
 
                     # ③ 並び画像（重複タイトルは台番範囲サフィックスで区別）
                     if narabi_ok and narabi_ranges:

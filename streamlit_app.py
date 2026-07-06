@@ -6499,7 +6499,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     pass
 
                             # ─ ④ 末尾・ジャグラー末尾画像（プレビュー済みはチェック済みのみ、未生成は直接生成）─
-                            def _gen_sue_imgs_on_fly(tails, mode, is_juggler=False):
+                            def _gen_sue_imgs_on_fly(tails, mode, is_juggler=False, ban_out=None):
                                 _imgs = []
                                 try:
                                     _raw_of = _read_uploaded_df(uploaded)
@@ -6594,8 +6594,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                             "avg_diff": int(round(_filt["差枚"].mean())),
                                                             "win_count": int((_filt["差枚"] > 0).sum()),
                                                             "total_count": len(_filt)}
-                                        _imgs.append((f"{_make_safe_fn(_title)}.jpg",
-                                                      _build_machine_img(_filt, _title, _stat_of)))
+                                        _fn_of = f"{_make_safe_fn(_title)}.jpg"
+                                        _imgs.append((_fn_of, _build_machine_img(_filt, _title, _stat_of)))
+                                        if ban_out is not None:
+                                            ban_out[_fn_of] = [int(b) for b in _filt["台番"].dropna()
+                                                               if str(b).split(".")[0].lstrip("-").isdigit()]
                                 except Exception:
                                     pass
                                 return _imgs
@@ -7064,39 +7067,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                         if st.session_state.get("suebangai_enabled", False):
                             _m_sue_tails = [t for _i in range(1, 4) if (t := st.session_state.get(f"suebangai_tail_input_{_i}", "").strip())]
                             _m_sue_mode = st.session_state.get("suebangai_mode", "全台")
-                            for _item in _gen_sue_imgs_on_fly(_m_sue_tails, _m_sue_mode, is_juggler=False):
+                            for _item in _gen_sue_imgs_on_fly(_m_sue_tails, _m_sue_mode, is_juggler=False, ban_out=_manual_ban_map):
                                 _manual_imgs.append(_item)
-                                _bare_sue = re.sub(r"^\d{2}_", "", _item[0])
-                                _sue_bans_all: list[int] = []
-                                for _t in _m_sue_tails:
-                                    if _t == "ゾロ目":
-                                        _sue_bans_all += [int(b) for b in _df_m["台番"]
-                                                          if (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]]
-                                    elif _t.isdigit() and len(_t) in (1, 2):
-                                        _sue_bans_all += [int(b) for b in _df_m["台番"]
-                                                          if str(int(b))[-len(_t):] == _t]
-                                _manual_ban_map[_bare_sue] = sorted(set(_sue_bans_all))
                         if st.session_state.get("jug_sue_enabled", False):
                             _m_jug_tails = [t for _i in range(1, 4) if (t := st.session_state.get(f"jug_sue_tail_input_{_i}", "").strip())]
                             _m_jug_mode = st.session_state.get("jug_sue_mode", "全台")
-                            _jug_ser_m = set(get_store_config(store)["juggler_series"])
-                            for _item in _gen_sue_imgs_on_fly(_m_jug_tails, _m_jug_mode, is_juggler=True):
+                            for _item in _gen_sue_imgs_on_fly(_m_jug_tails, _m_jug_mode, is_juggler=True, ban_out=_manual_ban_map):
                                 _manual_imgs.append(_item)
-                                _bare_jsue = re.sub(r"^\d{2}_", "", _item[0])
-                                _jsue_bans: list[int] = []
-                                for _t in _m_jug_tails:
-                                    if _t == "ゾロ目":
-                                        _cand = [int(b) for b in _df_m["台番"]
-                                                 if (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]]
-                                    elif _t.isdigit() and len(_t) in (1, 2):
-                                        _cand = [int(b) for b in _df_m["台番"] if str(int(b))[-len(_t):] == _t]
-                                    else:
-                                        _cand = []
-                                    for _b in _cand:
-                                        _row = _df_m[_df_m["台番"] == _b]
-                                        if not _row.empty and str(_row.iloc[0]["機種名"]) in _jug_ser_m:
-                                            _jsue_bans.append(_b)
-                                _manual_ban_map[_bare_jsue] = sorted(set(_jsue_bans))
 
                         # ⑤ オススメ機種ピックアップ
                         if recommended_blocks:
@@ -7895,44 +7872,24 @@ def show_auto_page(with_slump: bool = False) -> None:
                     if st.session_state.get("suebangai_enabled", False):
                         _m_sue_tails_e = [t for _i in range(1, 4) if (t := st.session_state.get(f"suebangai_tail_input_{_i}", "").strip())]
                         _m_sue_mode_e = st.session_state.get("suebangai_mode", "全台")
-                        for _fn_e, _img_e in _gen_sue_imgs_on_fly(_m_sue_tails_e, _m_sue_mode_e, is_juggler=False):
-                            _fn_e = _unique_fn_e(_fn_e)
+                        _sue_bans_out_e: dict[str, list[int]] = {}
+                        for _ofn_e, _img_e in _gen_sue_imgs_on_fly(_m_sue_tails_e, _m_sue_mode_e, is_juggler=False, ban_out=_sue_bans_out_e):
+                            _fn_e = _unique_fn_e(_ofn_e)
                             _sout_e = os.path.join(output_dir, _fn_e)
                             _save_jpeg(_img_e, _sout_e)
                             _exec_order.append(_fn_e)
-                            _sb_all_e: list[int] = []
-                            for _t in _m_sue_tails_e:
-                                if _t == "ゾロ目":
-                                    _sb_all_e += [int(b) for b in _df_exec_m["台番"]
-                                                  if (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]]
-                                elif _t.isdigit() and len(_t) in (1, 2):
-                                    _sb_all_e += [int(b) for b in _df_exec_m["台番"]
-                                                  if str(int(b))[-len(_t):] == _t]
-                            _m_exec_ban_map_e[_fn_e] = sorted(set(_sb_all_e))
+                            _m_exec_ban_map_e[_fn_e] = _sue_bans_out_e.get(_ofn_e, [])
                             _m_log(f"  ✅ 末尾画像「{_fn_e}」")
                     if st.session_state.get("jug_sue_enabled", False):
                         _m_jt_e = [t for _i in range(1, 4) if (t := st.session_state.get(f"jug_sue_tail_input_{_i}", "").strip())]
                         _m_jm_e = st.session_state.get("jug_sue_mode", "全台")
-                        for _fn_e, _img_e in _gen_sue_imgs_on_fly(_m_jt_e, _m_jm_e, is_juggler=True):
-                            _fn_e = _unique_fn_e(_fn_e)
+                        _jsue_bans_out_e: dict[str, list[int]] = {}
+                        for _ofn_e, _img_e in _gen_sue_imgs_on_fly(_m_jt_e, _m_jm_e, is_juggler=True, ban_out=_jsue_bans_out_e):
+                            _fn_e = _unique_fn_e(_ofn_e)
                             _sout_e = os.path.join(output_dir, _fn_e)
                             _save_jpeg(_img_e, _sout_e)
                             _exec_order.append(_fn_e)
-                            _jug_ser_e = set(get_store_config(store)["juggler_series"])
-                            _jsb_e: list[int] = []
-                            for _t in _m_jt_e:
-                                if _t == "ゾロ目":
-                                    _cand_e = [int(b) for b in _df_exec_m["台番"]
-                                               if (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]]
-                                elif _t.isdigit() and len(_t) in (1, 2):
-                                    _cand_e = [int(b) for b in _df_exec_m["台番"] if str(int(b))[-len(_t):] == _t]
-                                else:
-                                    _cand_e = []
-                                for _b in _cand_e:
-                                    _row_e = _df_exec_m[_df_exec_m["台番"] == _b]
-                                    if not _row_e.empty and str(_row_e.iloc[0]["機種名"]) in _jug_ser_e:
-                                        _jsb_e.append(_b)
-                            _m_exec_ban_map_e[_fn_e] = sorted(set(_jsb_e))
+                            _m_exec_ban_map_e[_fn_e] = _jsue_bans_out_e.get(_ofn_e, [])
                             _m_log(f"  ✅ ジャグラー末尾画像「{_fn_e}」")
 
                     # ⑤ オススメ機種ピックアップ

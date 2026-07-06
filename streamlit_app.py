@@ -8722,7 +8722,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         result["files"].append(_kout)
                         result["high_ratio_list"].append({
                             "name":         _km,
-                            "count":        len(_kgrp_p),
+                            "count":        int((_kdr_all > 0).sum()),
                             "total":        len(_kgrp_all),
                             "diffs":        sorted([int(d) for d in _kdr_p.tolist() if int(d) >= 1000], reverse=True),
                             "all_avg_diff": int(round(_kdr_all.mean())),
@@ -10756,7 +10756,7 @@ def show_auto_article_page() -> None:
                         result["files"].append(_kout)
                         result["high_ratio_list"].append({
                             "name":         _km,
-                            "count":        len(_kgrp_p),
+                            "count":        int((_kdr_all > 0).sum()),
                             "total":        len(_kgrp_all),
                             "diffs":        sorted([int(d) for d in _kdr_p2.tolist() if int(d) >= 1000], reverse=True),
                             "all_avg_diff": int(round(_kdr_all.mean())),

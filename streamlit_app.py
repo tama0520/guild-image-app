@@ -6247,15 +6247,11 @@ def show_auto_page(with_slump: bool = False) -> None:
 
         _auto_previews = st.session_state.get(_aprev_key)
         if _auto_previews is None:
-            if not with_slump:
-                _mc1, _mc2 = st.columns(2)
-                with _mc1:
-                    _full_prev_btn = st.button("🔍 プレビュー生成", key="auto_preview_btn", use_container_width=True)
-                with _mc2:
-                    _manual_prev_btn = st.button("📝 記入部分のみプレビュー作成", key="manual_only_preview_btn", use_container_width=True)
-            else:
-                _full_prev_btn = st.button("🔍 プレビュー生成", key="auto_preview_btn")
-                _manual_prev_btn = False
+            _mc1, _mc2 = st.columns(2)
+            with _mc1:
+                _full_prev_btn = st.button("🔍 プレビュー生成", key="auto_preview_btn", use_container_width=True)
+            with _mc2:
+                _manual_prev_btn = st.button("📝 記入部分のみプレビュー作成", key="manual_only_preview_btn", use_container_width=True)
             if _full_prev_btn:
                 st.session_state.pop(f"_manual_preview_mode_{store}", None)
                 _save_auto_inputs(store)

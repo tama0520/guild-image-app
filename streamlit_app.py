@@ -6989,6 +6989,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _df_m["差枚"] = _df_m["差枚"].apply(_pipeline_calc_d)
                         _diff_m = _df_m["差枚"].copy()
                         _manual_imgs: list[tuple[str, "Image.Image"]] = []
+                        _manual_ban_map: dict[str, list[int]] = {}
 
                         # ② 個別画像 - 全台
                         if kojin_enabled:
@@ -7001,6 +7002,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     continue
                                 _md = _diff_m.loc[_df_m[_df_m["機種名"] == _km].index].reset_index(drop=True)
                                 _manual_imgs.append((f"{_make_safe_fn(_km)}.jpg", _build_machine_img(_mg, _km, _stat_from_diff(_md))))
+                                _manual_ban_map[f"{_make_safe_fn(_km)}.jpg"] = [int(b) for b in _mg["台番"].tolist()]
 
                             # ② 個別画像 - 優秀台
                             _m_cfg = get_store_config(store)
@@ -7017,6 +7019,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     continue
                                 _mtit = f"{_km}（優秀台）"
                                 _manual_imgs.append((f"{_make_safe_fn(_mtit)}.jpg", _build_machine_img(_mgp, _mtit, None)))
+                                _manual_ban_map[f"{_make_safe_fn(_mtit)}.jpg"] = [int(b) for b in _mgp["台番"].tolist()]
 
                             # ② その他の優秀台ピックアップ（溝の口新館専用）
                             if sonota_extra_text.strip():
@@ -7026,6 +7029,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     if not _se_df_m.empty:
                                         _se_tit_m = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
                                         _manual_imgs.append((f"{_make_safe_fn(_se_tit_m)}.jpg", _build_machine_img(_se_df_m, _se_tit_m, None)))
+                                        _manual_ban_map[f"{_make_safe_fn(_se_tit_m)}.jpg"] = [int(b) for b in _se_df_m["台番"].tolist()]
 
                         # ③ 並び画像
                         if narabi_ok and narabi_ranges:
@@ -7054,6 +7058,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 else:
                                     _file_tit_m = _ntit
                                 _manual_imgs.append((f"{_make_safe_fn(_file_tit_m)}.jpg", _build_machine_img(_ngrp, _ntit, _nstat)))
+                                _manual_ban_map[f"{_make_safe_fn(_file_tit_m)}.jpg"] = [int(b) for b in _ngrp["台番"].tolist()]
 
                         # ④ 末尾画像
                         if st.session_state.get("suebangai_enabled", False):
@@ -7061,11 +7066,37 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _m_sue_mode = st.session_state.get("suebangai_mode", "全台")
                             for _item in _gen_sue_imgs_on_fly(_m_sue_tails, _m_sue_mode, is_juggler=False):
                                 _manual_imgs.append(_item)
+                                _bare_sue = re.sub(r"^\d{2}_", "", _item[0])
+                                _sue_bans_all: list[int] = []
+                                for _t in _m_sue_tails:
+                                    if _t == "ゾロ目":
+                                        _sue_bans_all += [int(b) for b in _df_m["台番"]
+                                                          if (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]]
+                                    elif _t.isdigit() and len(_t) in (1, 2):
+                                        _sue_bans_all += [int(b) for b in _df_m["台番"]
+                                                          if str(int(b))[-len(_t):] == _t]
+                                _manual_ban_map[_bare_sue] = sorted(set(_sue_bans_all))
                         if st.session_state.get("jug_sue_enabled", False):
                             _m_jug_tails = [t for _i in range(1, 4) if (t := st.session_state.get(f"jug_sue_tail_input_{_i}", "").strip())]
                             _m_jug_mode = st.session_state.get("jug_sue_mode", "全台")
+                            _jug_ser_m = set(get_store_config(store)["juggler_series"])
                             for _item in _gen_sue_imgs_on_fly(_m_jug_tails, _m_jug_mode, is_juggler=True):
                                 _manual_imgs.append(_item)
+                                _bare_jsue = re.sub(r"^\d{2}_", "", _item[0])
+                                _jsue_bans: list[int] = []
+                                for _t in _m_jug_tails:
+                                    if _t == "ゾロ目":
+                                        _cand = [int(b) for b in _df_m["台番"]
+                                                 if (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]]
+                                    elif _t.isdigit() and len(_t) in (1, 2):
+                                        _cand = [int(b) for b in _df_m["台番"] if str(int(b))[-len(_t):] == _t]
+                                    else:
+                                        _cand = []
+                                    for _b in _cand:
+                                        _row = _df_m[_df_m["台番"] == _b]
+                                        if not _row.empty and str(_row.iloc[0]["機種名"]) in _jug_ser_m:
+                                            _jsue_bans.append(_b)
+                                _manual_ban_map[_bare_jsue] = sorted(set(_jsue_bans))
 
                         # ⑤ オススメ機種ピックアップ
                         if recommended_blocks:
@@ -7091,8 +7122,40 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         continue
                                     _ms_sfxv = _ms_sfx.get(_mthr, str(_mthr))
                                     _manual_imgs.append((f"オススメ_{_make_safe_fn(_mbt)}_{_ms_sfxv}.jpg", _mrimg))
+                                    _rec_bans_m: list[int] = []
+                                    for _rvm in _mbm:
+                                        _rg = _df_m[_df_m["機種名"] == _rvm].copy()
+                                        if _rg.empty:
+                                            continue
+                                        _rd = _diff_m.loc[_rg.index]
+                                        if _rvm in _mj_cfg.get("series", set()):
+                                            _jc = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _rg.columns), None)
+                                            if _jc:
+                                                _jm = _rg[_jc] >= _mj_cfg.get("g_min", 2000)
+                                                _rg = _rg[_jm]; _rd = _rd[_jm]
+                                            _jt = _mj_cfg["jobs_map"].get(_rvm)
+                                            if _jt is not None and "合算確率_num" in _rg.columns:
+                                                _rmk = ((_rg["合算確率_num"] <= _jt) & (_rd >= 0)) | (_rd >= _mj_cfg.get("diff_bonus", 1000))
+                                            else:
+                                                _rmk = _rd >= 0
+                                        else:
+                                            _rmk = _rd >= _mthr
+                                        _rec_bans_m += [int(b) for b in _rg[_rmk]["台番"].dropna()]
+                                    if _rec_bans_m:
+                                        _manual_ban_map[f"オススメ_{_make_safe_fn(_mbt)}_{_ms_sfxv}.jpg"] = sorted(set(_rec_bans_m))
 
                         if _manual_imgs:
+                            if with_slump:
+                                _m_ban2mac = {str(int(b)): str(m) for b, m in zip(_df_m["台番"], _df_m["機種名"])
+                                              if str(b).split(".")[0].lstrip("-").isdigit()}
+                                _m_ban2diff = {str(int(b)): int(d) for b, d in zip(_df_m["台番"], _diff_m)
+                                               if str(b).split(".")[0].lstrip("-").isdigit()}
+                                _m_date = st.session_state.get(f"auto_tb_date_{store}")
+                                _m_date_str = _m_date.strftime("%Y-%m-%d") if hasattr(_m_date, "strftime") else str(_m_date or "")
+                                _manual_imgs = _composite_slump_onto_images(
+                                    _manual_imgs, _manual_ban_map, store,
+                                    ban2mac=_m_ban2mac, ban2diff=_m_ban2diff, date_str=_m_date_str,
+                                )
                             st.session_state[_aprev_key] = _manual_imgs
                             st.session_state[f"_manual_preview_mode_{store}"] = True
                         else:

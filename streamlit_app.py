@@ -3823,6 +3823,7 @@ def generate_report_text(
 
         c10k = sum(1 for d in diffs if d >= 10000)
         c5k  = sum(1 for d in diffs if d >= 5000)
+        c3k  = sum(1 for d in diffs if d >= 3000)
         c1k  = sum(1 for d in diffs if d >= 1000)
         date_label = f"{date.month}/{date.day}" if date else ""
         lines = [
@@ -3832,6 +3833,7 @@ def generate_report_text(
             "",
             f"🌋万枚オーバーが{c10k}台！",
             f"💥+5,000枚オーバーが{c5k}台！",
+            f"💥+3,000枚オーバーが{c3k}台！",
             f"💎{c1k}台が+1,000枚オーバー！",
         ]
         return "\n".join(lines)

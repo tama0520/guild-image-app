@@ -6341,6 +6341,10 @@ def show_auto_page(with_slump: bool = False) -> None:
     if store == "新宿歌舞伎町":
         _panel_rep = st.session_state.get(f"_panel_report_{store}")
         if _panel_rep:
+            _sd = _panel_rep.get("slump_date")
+            if _sd is not None:
+                st.info(f"📈 スランプ取得日: **{_sd or '（未設定）'}**　/　pision台数: {_panel_rep.get('uid_count', 0)}台"
+                        "　← 表の日付と一致しているか確認してください")
             if _panel_rep.get("matched"):
                 st.success("🖼️ パネル合成: " + "、".join(_panel_rep["matched"]))
             if _panel_rep.get("missing"):
@@ -7026,6 +7030,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 if _ig_pision_items_pv:
                                     _ig_by_uid_pv = {str(_it.get("unitId", "")): _it for _it in _ig_pision_items_pv}
                                     st.session_state[f"_slump_by_uid_{store}"] = _ig_by_uid_pv
+                                    st.session_state[f"_slump_by_uid_date_{store}"] = _ig_date_pv
                                     _ig_tmpl_pv = find_slump_template()
                                     _ig_bbb_pv  = _find_slump_bg()
                                     _ig_ban2mac_pv: dict[str, str] = {}
@@ -14980,9 +14985,10 @@ def _composite_slump_onto_images(
     取得不可・テンプレ無しなら img_list をそのまま返す（表のみ）。"""
     ban2mac  = ban2mac or {}
     ban2diff = ban2diff or {}
-    # pision uid 辞書を取得（キャッシュ優先）
-    _by_uid = st.session_state.get(f"_slump_by_uid_{store}")
-    if not _by_uid:
+    # pision uid 辞書を取得（キャッシュ優先・ただし日付が一致するときのみ再利用）
+    _by_uid      = st.session_state.get(f"_slump_by_uid_{store}")
+    _by_uid_date = st.session_state.get(f"_slump_by_uid_date_{store}")
+    if (not _by_uid) or (date_str and _by_uid_date != date_str):
         try:
             _rt_cached = st.session_state.get(f"_auto_tb_rt_items_{store}")
             _rt_date   = st.session_state.get(f"_auto_tb_rt_items_date_{store}", "")
@@ -15006,6 +15012,7 @@ def _composite_slump_onto_images(
                 return img_list
             _by_uid = {str(_it.get("unitId", "")): _it for _it in _items}
             st.session_state[f"_slump_by_uid_{store}"] = _by_uid
+            st.session_state[f"_slump_by_uid_date_{store}"] = date_str
         except Exception:
             return img_list
     _tmpl = find_slump_template()
@@ -15069,6 +15076,8 @@ def _composite_slump_onto_images(
         st.session_state[f"_panel_report_{store}"] = {
             "matched": sorted(_matched_panels),
             "missing": sorted(_missing_panels),
+            "slump_date": date_str,
+            "uid_count": len(_by_uid) if _by_uid else 0,
         }
     return _merged
 

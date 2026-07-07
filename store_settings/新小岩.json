@@ -5,7 +5,7 @@
     "北斗転生2",
     "かぐや様",
     "ヴァルヴレイヴ2",
-    "",
+    "東京喰種",
     "",
     "",
     "",
@@ -16,7 +16,7 @@
     "カバネリ海門決戦",
     "真打吉宗",
     "炎炎ノ消防隊2",
-    "",
+    "モンキーターンV",
     "",
     "",
     "",
@@ -71,11 +71,11 @@
     "",
     ""
   ],
-  "rec_enabled": false,
+  "rec_enabled": true,
   "recommended_filter_1": "+1,000枚以上",
-  "recommended_filter_2": "+1,000枚以上",
+  "recommended_filter_2": "プラス台",
   "recommended_filter_3": "プラス台",
-  "recommended_filter_4": "プラス台",
+  "recommended_filter_4": "+1,000枚以上",
   "recommended_filter_5": "プラス台",
   "recommended_filter_6": "プラス台"
 }

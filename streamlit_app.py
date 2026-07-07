@@ -15028,8 +15028,10 @@ def _composite_slump_onto_images(
         _show_mn = (_bare in _sonota_names or _bare.startswith("末尾") or _bare.startswith("バラエティ"))
         _is_zentai = (not _bare.endswith("_高配分.jpg") and _bare not in _sonota_names)
         # 新宿歌舞伎町（かぶぱポストの結果）: 単一機種画像に青バーと表の間へパネルを差し込む
-        if store == "新宿歌舞伎町" and not _show_mn:
-            _mn = re.sub(r"(_高配分)?\.jpg$", "", _bare)
+        # ※並び画像（複数機種）は対象外
+        if store == "新宿歌舞伎町" and not _show_mn and "台並び" not in _bare:
+            _mn = re.sub(r"(_高配分)?\.jpg$", "", _bare)          # 拡張子・_高配分 除去
+            _mn = re.sub(r"[（(]優秀台[）)]\s*$", "", _mn).strip()  # タイトルの（優秀台）除去
             _img, _panel_ok = _insert_panel_into_machine_img(_img, _mn)
             if _panel_ok:
                 _matched_panels.add(_mn)

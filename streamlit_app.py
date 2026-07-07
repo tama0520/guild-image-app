@@ -6310,8 +6310,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                 {"title": title_6, "machines": machines_6, "thresholds": thresholds_6},
             ]
 
-    # ── ⑥ 結果テキスト素材メモ（拡張機能店舗）─────────────────────────
-    if store in EXTENDED_FEATURE_STORES:
+    # ── ⑥ 結果テキスト素材メモ（拡張機能店舗・新宿歌舞伎町は非表示）──────────
+    if store in EXTENDED_FEATURE_STORES and store != "新宿歌舞伎町":
         st.markdown("### ⑥ 結果テキスト素材メモ")
         memo_enabled = st.checkbox("結果テキスト素材メモを使用する", key=f"memo_enabled_{store}")
         if memo_enabled:
@@ -6366,11 +6366,17 @@ def show_auto_page(with_slump: bool = False) -> None:
 
         _auto_previews = st.session_state.get(_aprev_key)
         if _auto_previews is None:
-            _mc1, _mc2 = st.columns(2)
-            with _mc1:
-                _full_prev_btn = st.button("🔍 プレビュー生成", key="auto_preview_btn", use_container_width=True)
-            with _mc2:
+            if store == "新宿歌舞伎町":
+                # 新宿歌舞伎町（かぶぱポストの結果）：記入したもののみ生成するため
+                # 「🔍 プレビュー生成」は非表示・「📝 記入部分のみ」のみ表示
+                _full_prev_btn = False
                 _manual_prev_btn = st.button("📝 記入部分のみプレビュー作成", key="manual_only_preview_btn", use_container_width=True)
+            else:
+                _mc1, _mc2 = st.columns(2)
+                with _mc1:
+                    _full_prev_btn = st.button("🔍 プレビュー生成", key="auto_preview_btn", use_container_width=True)
+                with _mc2:
+                    _manual_prev_btn = st.button("📝 記入部分のみプレビュー作成", key="manual_only_preview_btn", use_container_width=True)
             if _full_prev_btn:
                 st.session_state.pop(f"_manual_preview_mode_{store}", None)
                 _save_auto_inputs(store)

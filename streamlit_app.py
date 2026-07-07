@@ -11725,8 +11725,17 @@ def _save_rote_machines(store: str, inputs1: list[str], inputs2: list[str],
     if _ms:
         _entry["monthly_start"] = _ms
     data[store] = _entry
+    _rote_json_str = json.dumps(data, ensure_ascii=False, indent=2)
     with open(_ROTE_SAVE_FILE, "w", encoding="utf-8") as _f:
-        json.dump(data, _f, ensure_ascii=False, indent=2)
+        _f.write(_rote_json_str)
+    if _IS_CLOUD:
+        _ok, _msg = _github_push_file(_rote_json_str, "rote_machines.json")
+        _log = ("✅ " if _ok else "❌ ") + _msg
+        st.session_state["_github_sync_log"] = _log
+        try:
+            st.toast(_log, icon="✅" if _ok else "❌")
+        except Exception:
+            pass
 
 
 def _load_wrt_machines(store: str) -> dict:

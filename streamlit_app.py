@@ -1871,8 +1871,8 @@ def show_image_type_page() -> None:
                 _navigate("weekly_result_text")
     else:
         # 高田馬場以外
-        if store == "上野本館":
-            # 上野本館：結果ポスト用 ＋ スランプ付き結果ポスト ＋ ローテ用
+        if store in ("上野本館", "新宿歌舞伎町"):
+            # 上野本館・新宿歌舞伎町：結果ポスト用 ＋ スランプ付き結果ポスト ＋ ローテ用
             st.markdown(
                 """<style>
                 .st-key-auto_slump_btn button {
@@ -1918,7 +1918,7 @@ def show_image_type_page() -> None:
                 use_container_width=True,
             ):
                 _navigate("rote")
-        elif store in ("溝の口本館", "溝の口新館", "西武新宿", "渋谷新館", "新宿歌舞伎町", "新大久保"):
+        elif store in ("溝の口本館", "溝の口新館", "西武新宿", "渋谷新館", "新大久保"):
             # ローテあり：2列横並び
             st.markdown(
                 """<style>

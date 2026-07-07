@@ -8212,6 +8212,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                         )
                 except Exception as _mze:
                     st.warning(f"ZIP生成に失敗: {_mze}")
+            # ── ローカルのみ: 設定ファイルを自動push ──
+            if not _IS_CLOUD:
+                _push_ok, _push_msg = _git_auto_push("画像生成")
+                if _push_ok:
+                    st.info(f"🔄 {_push_msg}")
+                else:
+                    st.warning(f"⚠️ {_push_msg}")
             st.stop()
 
         log_lines: list[str] = []
@@ -9632,6 +9639,14 @@ def show_auto_page(with_slump: bool = False) -> None:
                         )
                 except Exception as _ze:
                     st.warning(f"ZIP生成に失敗: {_ze}")
+
+            # ── ローカルのみ: 設定ファイルを自動push ──
+            if not _IS_CLOUD:
+                _push_ok, _push_msg = _git_auto_push("画像生成")
+                if _push_ok:
+                    st.info(f"🔄 {_push_msg}")
+                else:
+                    st.warning(f"⚠️ {_push_msg}")
 
             import html as _html
             _safe = _html.escape(report_text)
@@ -11381,6 +11396,14 @@ def show_auto_article_page() -> None:
                         )
                 except Exception as _ze:
                     st.warning(f"ZIP生成に失敗: {_ze}")
+
+            # ── ローカルのみ: 設定ファイルを自動push ──
+            if not _IS_CLOUD:
+                _push_ok, _push_msg = _git_auto_push("画像生成")
+                if _push_ok:
+                    st.info(f"🔄 {_push_msg}")
+                else:
+                    st.warning(f"⚠️ {_push_msg}")
 
             import html as _html
             _safe = _html.escape(report_text)

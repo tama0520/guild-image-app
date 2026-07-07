@@ -14930,6 +14930,33 @@ def fetch_pision_realtime(hall_name: str, date_str: str, trigger: bool = True) -
         return result
 
 
+def _insert_panel_into_machine_img(
+    img: "Image.Image", machine_name: str
+) -> "tuple[Image.Image, bool]":
+    """機種別画像（青バー＋表）の、青バーと表の間にパネル画像を差し込む。
+    パネル未登録・読み込み失敗なら (img, False) をそのまま返す。"""
+    info = get_machine_images(machine_name)
+    panel_rel = info.get("panel") if info else None
+    if not panel_rel:
+        return img, False
+    try:
+        panel = Image.open(os.path.join(BASE_DIR, panel_rel)).convert("RGB")
+    except Exception:
+        return img, False
+    w = img.width
+    split = round(w * 73 / 950) + 6  # 青バー(BAR_H) + 赤ライン(LINE_H) = _build_machine_img と同一
+    pw, ph = panel.size
+    new_ph = max(1, round(ph * w / pw)) if pw > 0 else ph
+    panel  = panel.resize((w, new_ph), Image.LANCZOS)
+    top    = img.crop((0, 0, w, split))            # 青バー＋赤ライン
+    bottom = img.crop((0, split, w, img.height))    # 表
+    canvas = Image.new("RGB", (w, split + new_ph + bottom.height), (255, 255, 255))
+    canvas.paste(top,    (0, 0))
+    canvas.paste(panel,  (0, split))
+    canvas.paste(bottom, (0, split + new_ph))
+    return canvas, True
+
+
 def _composite_slump_onto_images(
     img_list: list[tuple[str, "Image.Image"]],
     ban_map: dict[str, list[int]],
@@ -14980,6 +15007,7 @@ def _composite_slump_onto_images(
                      "その他の優秀台+1,000枚以上.jpg", "その他の優秀台+2,000枚以上.jpg",
                      "その他の優秀台+3,000枚以上.jpg")
     _merged: list[tuple[str, "Image.Image"]] = []
+    _missing_panels: set[str] = set()
     for (_fn, _img) in img_list:
         _bare = re.sub(r"^\d{2}_", "", _fn)
         _bans = ban_map.get(_bare, [])
@@ -14989,6 +15017,12 @@ def _composite_slump_onto_images(
             continue
         _show_mn = (_bare in _sonota_names or _bare.startswith("末尾") or _bare.startswith("バラエティ"))
         _is_zentai = (not _bare.endswith("_高配分.jpg") and _bare not in _sonota_names)
+        # 新宿歌舞伎町（かぶぱポストの結果）: 単一機種画像に青バーと表の間へパネルを差し込む
+        if store == "新宿歌舞伎町" and not _show_mn:
+            _mn = re.sub(r"(_高配分)?\.jpg$", "", _bare)
+            _img, _panel_ok = _insert_panel_into_machine_img(_img, _mn)
+            if not _panel_ok:
+                _missing_panels.add(_mn)
         _g_imgs: list["Image.Image"] = []
         for _b in _bans:
             _it = _by_uid.get(str(_b))
@@ -15016,6 +15050,13 @@ def _composite_slump_onto_images(
                                 _attach_slump_to_table_side(_img, _g_imgs, _bbb)))
             except Exception:
                 pass
+    if store == "新宿歌舞伎町" and _missing_panels:
+        try:
+            st.warning("⚠️ パネル未登録のため、パネルなしで生成した機種があります: "
+                       + "、".join(sorted(_missing_panels))
+                       + "（機種画像紐づけで簡略名にパネルを登録してください）")
+        except Exception:
+            pass
     return _merged
 
 

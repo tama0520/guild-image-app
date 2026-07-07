@@ -1871,8 +1871,8 @@ def show_image_type_page() -> None:
                 _navigate("weekly_result_text")
     else:
         # 高田馬場以外
-        if store in ("上野本館", "新宿歌舞伎町"):
-            # 上野本館・新宿歌舞伎町：結果ポスト用 ＋ スランプ付き結果ポスト ＋ ローテ用
+        if store == "上野本館":
+            # 上野本館：結果ポスト用 ＋ スランプ付き結果ポスト ＋ ローテ用
             st.markdown(
                 """<style>
                 .st-key-auto_slump_btn button {
@@ -1918,6 +1918,47 @@ def show_image_type_page() -> None:
                 use_container_width=True,
             ):
                 _navigate("rote")
+        elif store == "新宿歌舞伎町":
+            # 新宿歌舞伎町：かぶぱポストの結果（スランプ付き）＋ ローテ用（結果ポスト用は非表示）
+            st.markdown(
+                """<style>
+                .st-key-auto_slump_btn button {
+                    background-color: #00ACC1 !important;
+                    border-color: #00838F !important;
+                    color: white !important;
+                }
+                .st-key-auto_slump_btn button:hover {
+                    background-color: #00838F !important;
+                    border-color: #00838F !important;
+                }
+                .st-key-rote_mode_btn button {
+                    background-color: #1976D2 !important;
+                    border-color: #1565C0 !important;
+                    color: white !important;
+                }
+                .st-key-rote_mode_btn button:hover {
+                    background-color: #1565C0 !important;
+                    border-color: #1565C0 !important;
+                }
+                </style>""",
+                unsafe_allow_html=True,
+            )
+            _col_l, _col_r = st.columns(2)
+            with _col_l:
+                if st.button(
+                    "📊 かぶぱポストの結果",
+                    key="auto_slump_btn",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    _navigate("auto_slump")
+            with _col_r:
+                if st.button(
+                    "📋 ローテ用",
+                    key="rote_mode_btn",
+                    use_container_width=True,
+                ):
+                    _navigate("rote")
         elif store in ("溝の口本館", "溝の口新館", "西武新宿", "渋谷新館", "新大久保"):
             # ローテあり：2列横並び
             st.markdown(
@@ -5174,7 +5215,8 @@ def show_auto_page(with_slump: bool = False) -> None:
     if store == "秋葉原":
         _sonota_extra_thrs.append((3000, "その他の優秀台+3,000枚以上.jpg"))
     if with_slump:
-        st.markdown(f"## 【{store}】スランプ付き結果ポスト用")
+        _slump_label = "かぶぱポストの結果" if store == "新宿歌舞伎町" else "スランプ付き結果ポスト用"
+        st.markdown(f"## 【{store}】{_slump_label}")
     else:
         st.markdown(f"## 【{store}】結果ポスト用")
     st.caption("全台系・ジャグラー優秀台・その他の優秀台を一括生成します。")
@@ -16137,7 +16179,8 @@ def main() -> None:
             st.markdown("　→ **⚡ 結果ポスト用**")
         elif page == "auto_slump":
             st.markdown(f"📍 **{st.session_state.selected_store}**")
-            st.markdown("　→ **📊 スランプ付き結果ポスト用**")
+            _bc_slump = "📊 かぶぱポストの結果" if st.session_state.selected_store == "新宿歌舞伎町" else "📊 スランプ付き結果ポスト用"
+            st.markdown(f"　→ **{_bc_slump}**")
         elif page == "rote":
             st.markdown(f"📍 **{st.session_state.selected_store}**")
             st.markdown("　→ **📋 ローテ用**")

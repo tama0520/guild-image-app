@@ -7280,8 +7280,21 @@ def show_auto_page(with_slump: bool = False) -> None:
                                               if str(b).split(".")[0].lstrip("-").isdigit()}
                                 _m_ban2diff = {str(int(b)): int(d) for b, d in zip(_df_m["台番"], _diff_m)
                                                if str(b).split(".")[0].lstrip("-").isdigit()}
-                                _m_date = st.session_state.get(f"auto_tb_date_{store}")
-                                _m_date_str = _m_date.strftime("%Y-%m-%d") if hasattr(_m_date, "strftime") else str(_m_date or "")
+                                # スランプ取得日は「読み込んだデータの日付」を最優先で使う。
+                                # ファイル名 {YYYYMMDD}_店名_20S.xlsx から抽出（速報でも確定でも一致）。
+                                # 次点で速報itemsの日付、最後に日付ウィジェット。
+                                _m_date_str = ""
+                                try:
+                                    _mdm = re.search(r"(\d{4})(\d{2})(\d{2})", getattr(uploaded, "name", "") or "")
+                                    if _mdm:
+                                        _m_date_str = f"{_mdm.group(1)}-{_mdm.group(2)}-{_mdm.group(3)}"
+                                except Exception:
+                                    pass
+                                if not _m_date_str:
+                                    _m_date_str = st.session_state.get(f"_auto_tb_rt_items_date_{store}", "")
+                                if not _m_date_str:
+                                    _m_date = st.session_state.get(f"auto_tb_date_{store}")
+                                    _m_date_str = _m_date.strftime("%Y-%m-%d") if hasattr(_m_date, "strftime") else str(_m_date or "")
                                 _manual_imgs = _composite_slump_onto_images(
                                     _manual_imgs, _manual_ban_map, store,
                                     ban2mac=_m_ban2mac, ban2diff=_m_ban2diff, date_str=_m_date_str,
@@ -8120,8 +8133,19 @@ def show_auto_page(with_slump: bool = False) -> None:
                                            if str(b).split(".")[0].lstrip("-").isdigit()}
                             _me_ban2diff = {str(int(b)): int(d) for b, d in zip(_df_exec_m["台番"], _diff_exec_m)
                                             if str(b).split(".")[0].lstrip("-").isdigit()}
-                            _me_date = st.session_state.get(f"auto_tb_date_{store}")
-                            _me_date_str = _me_date.strftime("%Y-%m-%d") if hasattr(_me_date, "strftime") else str(_me_date or "")
+                            # スランプ取得日は読み込んだデータの日付（ファイル名）を最優先で使う
+                            _me_date_str = ""
+                            try:
+                                _medm = re.search(r"(\d{4})(\d{2})(\d{2})", getattr(uploaded, "name", "") or "")
+                                if _medm:
+                                    _me_date_str = f"{_medm.group(1)}-{_medm.group(2)}-{_medm.group(3)}"
+                            except Exception:
+                                pass
+                            if not _me_date_str:
+                                _me_date_str = st.session_state.get(f"_auto_tb_rt_items_date_{store}", "")
+                            if not _me_date_str:
+                                _me_date = st.session_state.get(f"auto_tb_date_{store}")
+                                _me_date_str = _me_date.strftime("%Y-%m-%d") if hasattr(_me_date, "strftime") else str(_me_date or "")
                             _me_composited = _composite_slump_onto_images(
                                 _me_pairs, _m_exec_ban_map_e, store,
                                 ban2mac=_me_ban2mac, ban2diff=_me_ban2diff, date_str=_me_date_str,

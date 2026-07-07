@@ -6338,6 +6338,15 @@ def show_auto_page(with_slump: bool = False) -> None:
 
     # ── ⑦ プレビュー ────────────────────────────────────────────────
     st.markdown("### ⑥ プレビュー" if store == "新宿歌舞伎町" else "### ⑦ プレビュー")
+    if store == "新宿歌舞伎町":
+        _panel_rep = st.session_state.get(f"_panel_report_{store}")
+        if _panel_rep:
+            if _panel_rep.get("matched"):
+                st.success("🖼️ パネル合成: " + "、".join(_panel_rep["matched"]))
+            if _panel_rep.get("missing"):
+                st.warning("⚠️ パネル未登録（パネルなしで生成）: "
+                           + "、".join(_panel_rep["missing"])
+                           + "（機種画像紐づけで簡略名にパネルを登録してください）")
     if uploaded is not None:
         _aprev_key    = f"auto_preview_imgs_{store}"
         _aprev_fname  = f"auto_preview_fname_{store}"
@@ -15008,6 +15017,7 @@ def _composite_slump_onto_images(
                      "その他の優秀台+3,000枚以上.jpg")
     _merged: list[tuple[str, "Image.Image"]] = []
     _missing_panels: set[str] = set()
+    _matched_panels: set[str] = set()
     for (_fn, _img) in img_list:
         _bare = re.sub(r"^\d{2}_", "", _fn)
         _bans = ban_map.get(_bare, [])
@@ -15021,7 +15031,9 @@ def _composite_slump_onto_images(
         if store == "新宿歌舞伎町" and not _show_mn:
             _mn = re.sub(r"(_高配分)?\.jpg$", "", _bare)
             _img, _panel_ok = _insert_panel_into_machine_img(_img, _mn)
-            if not _panel_ok:
+            if _panel_ok:
+                _matched_panels.add(_mn)
+            else:
                 _missing_panels.add(_mn)
         _g_imgs: list["Image.Image"] = []
         for _b in _bans:
@@ -15050,13 +15062,12 @@ def _composite_slump_onto_images(
                                 _attach_slump_to_table_side(_img, _g_imgs, _bbb)))
             except Exception:
                 pass
-    if store == "新宿歌舞伎町" and _missing_panels:
-        try:
-            st.warning("⚠️ パネル未登録のため、パネルなしで生成した機種があります: "
-                       + "、".join(sorted(_missing_panels))
-                       + "（機種画像紐づけで簡略名にパネルを登録してください）")
-        except Exception:
-            pass
+    if store == "新宿歌舞伎町":
+        # rerun で消えないよう session_state に保存し、⑦プレビュー側で表示する
+        st.session_state[f"_panel_report_{store}"] = {
+            "matched": sorted(_matched_panels),
+            "missing": sorted(_missing_panels),
+        }
     return _merged
 
 

@@ -6337,7 +6337,7 @@ def show_auto_page(with_slump: bool = False) -> None:
             )
 
     # ── ⑦ プレビュー ────────────────────────────────────────────────
-    st.markdown("### ⑦ プレビュー")
+    st.markdown("### ⑥ プレビュー" if store == "新宿歌舞伎町" else "### ⑦ プレビュー")
     if uploaded is not None:
         _aprev_key    = f"auto_preview_imgs_{store}"
         _aprev_fname  = f"auto_preview_fname_{store}"
@@ -7812,7 +7812,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     st.rerun()
 
     # ── ⑧ 実行ボタン（常に描画・ファイル未選択時は disabled）─────────
-    st.markdown("### ⑧ 実行")
+    st.markdown("### ⑦ 実行" if store == "新宿歌舞伎町" else "### ⑧ 実行")
     run_clicked = st.button(
         "▶▶ 自動処理を開始",
         type="primary",

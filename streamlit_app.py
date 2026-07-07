@@ -2476,6 +2476,8 @@ def _git_auto_push(label: str = "auto") -> tuple[bool, str]:
     targets = [
         "weekly_items.json",
         "auto_page_inputs.json",
+        "auto_page_persistent_inputs.json",
+        "article_page_inputs.json",
         "rote_machines.json",
         "store_settings",
     ]

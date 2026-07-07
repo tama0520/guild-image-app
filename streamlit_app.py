@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# redeploy: 2026-07-07 渋谷新館チェック復元反映
 """
 パチスロ・パチンコ データ画像生成 Web アプリ
 Streamlit + PIL で実装

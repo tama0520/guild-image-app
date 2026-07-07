@@ -1453,6 +1453,19 @@ def _rote_diff_color(v: int) -> tuple[str, str]:
     return ("#FFFF00", "black")       # aaa.jpg 実測値
 
 
+def _rote_match_sub(df: pd.DataFrame, name_col: str, kw: str) -> pd.DataFrame:
+    """機種名キーワードで該当行を抽出する。
+    完全一致が存在する場合は完全一致のみを返し、無ければ部分一致で返す。
+    （「からくりサーカス」入力で「からくりサーカス2」を巻き込まないため）"""
+    names = df[name_col].astype(str).str.strip()
+    kw_s = (kw or "").strip()
+    exact = df[names == kw_s]
+    if not exact.empty:
+        return exact.copy()
+    mask = names.str.contains(kw_s, na=False)
+    return df[mask].copy() if mask.any() else df.iloc[0:0].copy()
+
+
 def generate_rote_image(df: pd.DataFrame, machine_names: list[str], date_label: str = "", store: str = "") -> Image.Image:
     """ローテ用機種別差枚一覧画像を生成する（aaa.jpg 参照）。"""
     import datetime, io as _io
@@ -1493,8 +1506,8 @@ def generate_rote_image(df: pd.DataFrame, machine_names: list[str], date_label: 
         kw = (raw or "").strip()
         if not kw or name_col is None:
             continue
-        mask = df[name_col].astype(str).str.contains(kw, na=False)
-        sub  = df[mask].copy().sort_values("台番") if mask.any() else None
+        sub  = _rote_match_sub(df, name_col, kw)
+        sub  = sub.sort_values("台番") if not sub.empty else None
         if sub is not None and not sub.empty:
             machines_data.append((kw, sub))
 
@@ -1632,8 +1645,7 @@ def generate_ranking_image(df: pd.DataFrame, machine_inputs: list[str], date_lab
         kw = (raw or "").strip()
         if not kw or name_col is None:
             continue
-        mask = df[name_col].astype(str).str.contains(kw, na=False)
-        sub = df[mask].copy()
+        sub = _rote_match_sub(df, name_col, kw)
         if sub.empty:
             continue
         for _, row in sub.iterrows():
@@ -11620,8 +11632,7 @@ def _generate_shibuyashinkan_result_texts(
             kw = (kw or "").strip()
             if not kw:
                 continue
-            mask = df[name_col].astype(str).str.contains(kw, na=False)
-            sub  = df[mask].copy()
+            sub  = _rote_match_sub(df, name_col, kw)
             if sub.empty:
                 continue
             sub["差枚"] = pd.to_numeric(sub["差枚"], errors="coerce").fillna(0).astype(int)

@@ -4410,6 +4410,9 @@ _ARTICLE_INPUTS_JSON = os.path.join(BASE_DIR, "article_page_inputs.json")
 
 def _persistent_keys(store: str) -> set[str]:
     """Excel切り替えをまたいで保持するキー（機種名・台番範囲など）。"""
+    # 新宿歌舞伎町（かぶぱポストの結果）は②優秀台を毎回空欄にしたいので永続化しない
+    if store == "新宿歌舞伎町":
+        return {f"variety_range_{store}"}
     return {f"kojin_y_{i}_{store}" for i in range(8)} | {f"variety_range_{store}"}
 
 
@@ -4609,6 +4612,10 @@ def _restore_auto_inputs(excel_name: str, store: str) -> None:
     # 秋葉原は個別画像を毎回デフォルトONにする
     if store == "秋葉原":
         st.session_state["kojin_enabled"] = True
+    # 新宿歌舞伎町（かぶぱポストの結果）は②優秀台を毎回空欄にする（保存値・永続値を無視）
+    if store == "新宿歌舞伎町":
+        for i in range(21):
+            st.session_state[f"kojin_y_{i}_{store}"] = ""
 
 
 # ── 記事用ページ入力値の永続化 ────────────────────────────────────────────────
@@ -6420,6 +6427,7 @@ def show_auto_page(with_slump: bool = False) -> None:
             for _ci in range(20):
                 st.session_state.pop(f"sue_ck_{store}_{_ci}", None)
                 st.session_state.pop(f"jug_sue_ck_{store}_{_ci}", None)
+            st.session_state.pop(f"_kabupa_prev_text_{store}", None)
             st.session_state[_aprev_fname] = uploaded.name
 
         _auto_previews = st.session_state.get(_aprev_key)
@@ -7346,6 +7354,23 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 )
                             st.session_state[_aprev_key] = _manual_imgs
                             st.session_state[f"_manual_preview_mode_{store}"] = True
+                            # 新宿歌舞伎町（かぶぱポストの結果）：プレビュー時に結果テキストも生成して保持
+                            if store == "新宿歌舞伎町":
+                                import datetime as _dt_kp
+                                _kp_date = None
+                                try:
+                                    _kpm = re.search(r"(\d{4})(\d{2})(\d{2})", getattr(uploaded, "name", "") or "")
+                                    if _kpm:
+                                        _kp_date = _dt_kp.date(int(_kpm.group(1)), int(_kpm.group(2)), int(_kpm.group(3)))
+                                except Exception:
+                                    _kp_date = None
+                                _kp_names: list[str] = []
+                                for _mn in (kojin_zentai_machines + kojin_yushu_machines):
+                                    _mn = _mn.strip()
+                                    if _mn and _mn not in _kp_names:
+                                        _kp_names.append(_mn)
+                                st.session_state[f"_kabupa_prev_text_{store}"] = _build_kabupa_result_text(
+                                    _kp_date, _kp_names, _df_m, _diff_m)
                         else:
                             st.warning("⚠️ 記入された項目がないか、該当台が見つかりませんでした。")
                     except Exception as _me:
@@ -7368,6 +7393,33 @@ def show_auto_page(with_slump: bool = False) -> None:
                             st.checkbox("", key=_ck_key, label_visibility="collapsed")
                         with _sub_img:
                             st.image(_pimg, caption=_ptitle, use_container_width=True)
+            # 新宿歌舞伎町（かぶぱポストの結果）：画像の下に結果テキストをコピー可能な形で表示
+            _kabupa_prev_text = st.session_state.get(f"_kabupa_prev_text_{store}")
+            if store == "新宿歌舞伎町" and _kabupa_prev_text:
+                st.markdown("---")
+                import html as _html_kp
+                _safe_kp = _html_kp.escape(_kabupa_prev_text)
+                _lines_kp = _kabupa_prev_text.count("\n") + 1
+                _h_kp = min(700, max(240, _lines_kp * 20 + 110))
+                st.iframe(f"""
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+              <span style="font-size:1.4rem;font-weight:700;">結果テキスト</span>
+              <button id="cb_kp" onclick="
+                var t=document.getElementById('rt_kp');
+                t.select();t.setSelectionRange(0,99999);
+                document.execCommand('copy');
+                this.textContent='✅ コピー済み';this.style.background='#4CAF50';
+                var b=this;setTimeout(function(){{b.textContent='📋 コピー';b.style.background='#2F559E';}},2000);
+              " style="padding:5px 14px;background:#2F559E;color:#fff;
+                       border:none;border-radius:4px;cursor:pointer;font-size:14px;">
+                📋 コピー
+              </button>
+            </div>
+            <textarea id="rt_kp" readonly
+              style="width:100%;height:{_h_kp - 70}px;font-family:monospace;font-size:13px;
+                     border:1px solid #ccc;padding:8px;box-sizing:border-box;resize:vertical;"
+            >{_safe_kp}</textarea>
+            """, height=_h_kp)
             _btn_upd, _btn_clr = st.columns(2)
             with _btn_upd:
                 if st.button("🔄 その他を更新", key="auto_preview_update_btn", use_container_width=True):

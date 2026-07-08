@@ -973,13 +973,16 @@ def _sync_machine_image_master() -> tuple[bool, str]:
     else:
         import subprocess
         try:
-            subprocess.run(["git", "add", repo_path], cwd=BASE_DIR, capture_output=True, check=True)
+            # マスターxlsxと画像PNG群（新規パネル/液晶画像）をまとめてステージング
+            subprocess.run(["git", "add", repo_path, "assets/machine_images"],
+                           cwd=BASE_DIR, capture_output=True, check=True)
             diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=BASE_DIR, capture_output=True)
             if diff.returncode == 0:
                 return True, "変更なし（push不要）"
             subprocess.run(["git", "commit", "-m", "update machine_image_master"],
                            cwd=BASE_DIR, capture_output=True, check=True)
-            subprocess.run(["git", "pull", "--rebase", "origin", "main"],
+            # --autostash で無関係な未ステージ変更があってもrebaseが失敗しないようにする
+            subprocess.run(["git", "pull", "--rebase", "--autostash", "origin", "main"],
                            cwd=BASE_DIR, capture_output=True, check=True)
             subprocess.run(["git", "push", "origin", "main"],
                            cwd=BASE_DIR, capture_output=True, check=True)
@@ -2548,7 +2551,7 @@ def _git_auto_push(label: str = "auto") -> tuple[bool, str]:
         )
         if diff.returncode == 0:
             subprocess.run(
-                ["git", "pull", "--rebase", "origin", "main"],
+                ["git", "pull", "--rebase", "--autostash", "origin", "main"],
                 cwd=BASE_DIR, capture_output=True, check=True,
             )
             return True, "変更なし（push不要）"
@@ -2558,7 +2561,7 @@ def _git_auto_push(label: str = "auto") -> tuple[bool, str]:
             cwd=BASE_DIR, capture_output=True, check=True,
         )
         subprocess.run(
-            ["git", "pull", "--rebase", "origin", "main"],
+            ["git", "pull", "--rebase", "--autostash", "origin", "main"],
             cwd=BASE_DIR, capture_output=True, check=True,
         )
         subprocess.run(
@@ -3547,6 +3550,48 @@ def _format_diffs(diffs: list[int], wrap: int = 3) -> str:
         chunk = tokens[j:j + wrap]
         suffix = "、" if j + wrap < len(tokens) else ""
         lines.append("、".join(chunk) + suffix)
+    return "\n".join(lines)
+
+
+def _build_kabupa_result_text(date, machine_names: list[str], df, diff_raw) -> str:
+    """新宿歌舞伎町「かぶぱポストの結果」専用の結果テキストを生成する。
+
+    machine_names: ②個別画像などで記入した機種名（呼び出し側で順序保持・重複除去）。
+    今後、個別機種の優秀台ピックアップ・その他の優秀台ピックアップの機種を
+    machine_names に足せば、そのまま ✅ ブロックが追加される。
+    """
+    head_date = f"{date.month}/{date.day}" if date is not None else ""
+    lines: list[str] = [
+        head_date,
+        "エスパス 新宿 歌舞伎 町",
+        "かぶぱポストの結果考察",
+        "",
+        "📌", "📌", "📌", "📌",
+        "",
+        "🧐本日もかぶぱポストからヒントを確認！！",
+    ]
+    for name in machine_names:
+        rows = df[df["機種名"] == name]
+        if rows.empty:
+            continue
+        d = diff_raw.loc[rows.index]
+        total = len(rows)
+        win = int((d > 0).sum())
+        avg = int(round(d.mean()))
+        lines += [
+            "",
+            f"✅{name}",
+            "🔑キーワード→ ",
+            "🔑",
+            "🔑",
+            "📈結果速報(21時時点)",
+            f"🎖️{name}({win}/{total}台)→平均{fmt_diff(avg)}",
+        ]
+    lines += [
+        "",
+        "📝上記以外にも仕掛けが大量にありそう🤔",
+        "詳細はギルドのブログ更新を待て‼️",
+    ]
     return "\n".join(lines)
 
 
@@ -8216,17 +8261,29 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 if _sf_rt.empty: continue
                                 _sfd_rt = _diff_exec_m.loc[_sf_rt.index]
                                 _m_jug_data.append({"tail": _t_rt, "total": len(_sf_rt), "win_count": int((_sfd_rt > 0).sum()), "avg_diff": int(round(_sfd_rt.mean()))})
-                        _m_report_text = generate_report_text(
-                            store_name=store, date=_m_date,
-                            zen_dai_list=_m_zen, high_ratio_list=_m_high,
-                            nami_list=_m_nami, excellent_list=_m_excel,
-                            diff_raw=_diff_exec_m, df=_df_exec_m,
-                            suebangai_data=_m_sue_data or None,
-                            jug_sue_data=_m_jug_data or None,
-                            excellent_min_diff=(_SONOTA_AUTO_THR[sonota_extra_auto]
-                                                if (store == "秋葉原" and sonota_extra_auto in _SONOTA_AUTO_THR)
-                                                else 2000),
-                        )
+                        if store == "新宿歌舞伎町":
+                            # かぶぱポストの結果：②個別画像で記入した機種名（全台＋優秀台）を
+                            # 順序保持・重複除去して ✅ ブロックにする。
+                            # 今後、他ピックアップの機種を足す場合はこのリストに追記する。
+                            _kabupa_names: list[str] = []
+                            for _mn in (kojin_zentai_machines + kojin_yushu_machines):
+                                _mn = _mn.strip()
+                                if _mn and _mn not in _kabupa_names:
+                                    _kabupa_names.append(_mn)
+                            _m_report_text = _build_kabupa_result_text(
+                                _m_date, _kabupa_names, _df_exec_m, _diff_exec_m)
+                        else:
+                            _m_report_text = generate_report_text(
+                                store_name=store, date=_m_date,
+                                zen_dai_list=_m_zen, high_ratio_list=_m_high,
+                                nami_list=_m_nami, excellent_list=_m_excel,
+                                diff_raw=_diff_exec_m, df=_df_exec_m,
+                                suebangai_data=_m_sue_data or None,
+                                jug_sue_data=_m_jug_data or None,
+                                excellent_min_diff=(_SONOTA_AUTO_THR[sonota_extra_auto]
+                                                    if (store == "秋葉原" and sonota_extra_auto in _SONOTA_AUTO_THR)
+                                                    else 2000),
+                            )
                         for _old_rt, _new_rt in STORE_RESULT_TRANSFORMS.get(store, []):
                             _m_report_text = _m_report_text.replace(_old_rt, _new_rt)
                         _txt_name_m = (f"{_m_date.month:02d}{_m_date.day:02d}_結果.txt" if _m_date else "結果.txt")

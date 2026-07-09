@@ -4859,6 +4859,58 @@ def generate_recommended_block_image(
     return _build_machine_img(combined, title, None)
 
 
+# ── 新宿歌舞伎町専用: ②個別画像で台番の桁数（階）別に分割する機種 ──────────
+# 「・2F」＝台番3桁、「・3F」＝台番4桁。予測変換に基本名＋2F＋3Fを出す。
+_FLOOR_SPLIT_MACHINES: tuple[str, ...] = ("マイジャグV", "ファンキー2")
+
+
+def _floor_variant_names(base: str) -> list[str]:
+    """基本機種名から予測変換用の [基本, 基本・2F, 基本・3F] を返す。"""
+    return [base, f"{base}・2F", f"{base}・3F"]
+
+
+def _ban_digit_len(b) -> int:
+    """台番の桁数を返す（数値化不可なら0）。"""
+    try:
+        return len(str(abs(int(float(str(b))))))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _ensure_juggler_cols(df: pd.DataFrame) -> pd.DataFrame:
+    """記入部分のみモードのdfに合算確率_num・ゲーム数_roundedを付与する。
+    _kojin_yushu_filter のジャグラー合算確率条件を効かせるために必要
+    （normalize_df は付与しないため）。計算はパイプライン（実G数ベース）と同一。"""
+    if "ゲーム数" in df.columns:
+        if "ゲーム数_rounded" not in df.columns:
+            df["ゲーム数_rounded"] = df["ゲーム数"].apply(round_games)
+        if "合算確率_num" not in df.columns and "BB" in df.columns and "RB" in df.columns:
+            df["合算確率_num"] = df.apply(
+                lambda r: (r["ゲーム数"] / (r["BB"] + r["RB"])
+                           if (r["BB"] + r["RB"]) > 0 else float("inf")),
+                axis=1,
+            )
+    return df
+
+
+def _resolve_kojin_name(df: pd.DataFrame, name: str) -> tuple[str, pd.DataFrame]:
+    """②個別画像の機種名を解決する。
+    「・2F」→台番3桁、「・3F」→台番4桁で該当機種を絞り込む。
+    戻り値は (合算確率等の判定に使うベース機種名, 該当行DataFrame)。"""
+    base = name
+    digits: int | None = None
+    if name.endswith("・2F"):
+        base = name[:-len("・2F")]
+        digits = 3
+    elif name.endswith("・3F"):
+        base = name[:-len("・3F")]
+        digits = 4
+    sub = df[df["機種名"] == base]
+    if digits is not None and not sub.empty:
+        sub = sub[sub["台番"].apply(lambda b: _ban_digit_len(b) == digits)]
+    return base, sub
+
+
 def _kojin_yushu_filter(km: str, grp_all: pd.DataFrame, dr_all: pd.Series, cfg: dict,
                         force_1k: bool = False) -> pd.DataFrame:
     """個別優秀台のマスク: Step3高配分と同じ条件でフィルター（index は元のまま）。
@@ -5698,6 +5750,15 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 on_change=_save_auto_inputs, args=(store,))
     if kojin_enabled:
         _kojin_candidates = _excel_candidates
+        # 新宿歌舞伎町: マイジャグV/ファンキー2 は台番の階（2F=3桁/3F=4桁）別バリアントを予測変換に追加
+        if store == "新宿歌舞伎町":
+            _kc = list(_kojin_candidates)
+            for _fm in _FLOOR_SPLIT_MACHINES:
+                if _fm in _kojin_candidates:
+                    for _v in _floor_variant_names(_fm):
+                        if _v not in _kc:
+                            _kc.append(_v)
+            _kojin_candidates = _kc
         st.caption("指定した機種の個別画像を生成します。ここに入力した機種はその他の優秀台ピックアップから除外されます。")
         col_kz, col_ky = st.columns(2, gap="large")
         with col_kz:
@@ -7193,6 +7254,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _df_m = apply_name_conversion(_df_m)
                         if "差枚" in _df_m.columns:
                             _df_m["差枚"] = _df_m["差枚"].apply(_pipeline_calc_d)
+                        _df_m = _ensure_juggler_cols(_df_m)
                         _diff_m = _df_m["差枚"].copy()
                         _manual_imgs: list[tuple[str, "Image.Image"]] = []
                         _manual_ban_map: dict[str, list[int]] = {}
@@ -7203,10 +7265,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _km = _km.strip()
                                 if not _km:
                                     continue
-                                _mg = _df_m[_df_m["機種名"] == _km].copy().reset_index(drop=True)
+                                _km_base, _mg = _resolve_kojin_name(_df_m, _km)
+                                _mg = _mg.copy().reset_index(drop=True)
                                 if _mg.empty:
                                     continue
-                                _md = _diff_m.loc[_df_m[_df_m["機種名"] == _km].index].reset_index(drop=True)
+                                _md = _diff_m.loc[_resolve_kojin_name(_df_m, _km)[1].index].reset_index(drop=True)
                                 _manual_imgs.append((f"{_make_safe_fn(_km)}.jpg", _build_machine_img(_mg, _km, _stat_from_diff(_md))))
                                 _manual_ban_map[f"{_make_safe_fn(_km)}.jpg"] = [int(b) for b in _mg["台番"].tolist()]
 
@@ -7216,11 +7279,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _km = _km.strip()
                                 if not _km:
                                     continue
-                                _mga = _df_m[_df_m["機種名"] == _km]
+                                _km_base, _mga = _resolve_kojin_name(_df_m, _km)
                                 if _mga.empty:
                                     continue
                                 _mda = _diff_m.loc[_mga.index]
-                                _mgp = _kojin_yushu_filter(_km, _mga, _mda, _m_cfg).reset_index(drop=True)
+                                _mgp = _kojin_yushu_filter(_km_base, _mga, _mda, _m_cfg).reset_index(drop=True)
                                 if _mgp.empty:
                                     continue
                                 _mtit = f"{_km}（優秀台）"
@@ -8049,6 +8112,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _df_exec_m = apply_name_conversion(_df_exec_m)
                     if "差枚" in _df_exec_m.columns:
                         _df_exec_m["差枚"] = _df_exec_m["差枚"].apply(_pipeline_calc_d)
+                    _df_exec_m = _ensure_juggler_cols(_df_exec_m)
                     _diff_exec_m = _df_exec_m["差枚"].copy()
                     _exec_order: list[str] = []
                     _m_exec_ban_map_e: dict[str, list[int]] = {}
@@ -8073,10 +8137,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _km_e = _km_e.strip()
                             if not _km_e:
                                 continue
-                            _mg_e = _df_exec_m[_df_exec_m["機種名"] == _km_e].copy().reset_index(drop=True)
+                            _km_base_e, _mg_e = _resolve_kojin_name(_df_exec_m, _km_e)
+                            _mg_e = _mg_e.copy().reset_index(drop=True)
                             if _mg_e.empty:
                                 continue
-                            _md_e = _diff_exec_m.loc[_df_exec_m[_df_exec_m["機種名"] == _km_e].index].reset_index(drop=True)
+                            _md_e = _diff_exec_m.loc[_resolve_kojin_name(_df_exec_m, _km_e)[1].index].reset_index(drop=True)
                             _mfn_e = _unique_fn_e(f"{_make_safe_fn(_km_e)}.jpg")
                             _mout = os.path.join(output_dir, _mfn_e)
                             _save_jpeg(_build_machine_img(_mg_e, _km_e, _stat_from_diff(_md_e)), _mout)
@@ -8091,11 +8156,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _km_e = _km_e.strip()
                             if not _km_e:
                                 continue
-                            _mga_e = _df_exec_m[_df_exec_m["機種名"] == _km_e]
+                            _km_base_e, _mga_e = _resolve_kojin_name(_df_exec_m, _km_e)
                             if _mga_e.empty:
                                 continue
                             _mda_e = _diff_exec_m.loc[_mga_e.index]
-                            _mgp_e = _kojin_yushu_filter(_km_e, _mga_e, _mda_e, _me_cfg).reset_index(drop=True)
+                            _mgp_e = _kojin_yushu_filter(_km_base_e, _mga_e, _mda_e, _me_cfg).reset_index(drop=True)
                             if _mgp_e.empty:
                                 continue
                             _metit = f"{_km_e}（優秀台）"
@@ -8105,8 +8170,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _exec_order.append(_mefn_e)
                             _m_exec_ban_map_e[_mefn_e] = [int(b) for b in _mgp_e["台番"].tolist()]
                             _m_log(f"  ✅ 優秀台「{_metit}」({len(_mgp_e)}台)")
-                            _mga_all_e = _df_exec_m[_df_exec_m["機種名"] == _km_e]
-                            _mda_all_e = _diff_exec_m.loc[_mga_all_e.index]
+                            _mga_all_e = _mga_e
+                            _mda_all_e = _mda_e
                             _m_high.append({"name": _km_e, "count": int((_mda_all_e > 0).sum()), "total": len(_mga_all_e), "diffs": sorted([int(d) for d in _mda_e.tolist() if int(d) >= 1000], reverse=True), "all_avg_diff": int(round(_mda_all_e.mean())), "has_image": True})
 
                         # 個別機種の優秀台ピックアップ（貼った台番のみ・ピンクバーなし）
@@ -15344,6 +15409,7 @@ def _composite_slump_onto_images(
             if not _show_mn and "台並び" not in _bare:
                 _mn = re.sub(r"(_高配分)?\.jpg$", "", _bare)          # 拡張子・_高配分 除去
                 _mn = re.sub(r"[（(]優秀台[）)]\s*$", "", _mn).strip()  # タイトルの（優秀台）除去
+                _mn = re.sub(r"・[23]F$", "", _mn).strip()             # 階サフィックス（・2F/・3F）除去→基本名でパネル照合
                 _img, _panel_ok = _insert_panel_into_machine_img(_img, _mn)
                 if _panel_ok:
                     _matched_panels.add(_mn)

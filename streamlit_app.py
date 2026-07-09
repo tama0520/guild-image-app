@@ -4413,6 +4413,9 @@ def _persistent_keys(store: str) -> set[str]:
     # 新宿歌舞伎町（かぶぱポストの結果）は②優秀台を毎回空欄にしたいので永続化しない
     if store == "新宿歌舞伎町":
         return {f"variety_range_{store}"}
+    # 高田馬場は②個別画像の機種名を日付ごとに扱う（別日データ取得時は空欄・同日は保持）ため永続化しない
+    if store == "高田馬場":
+        return {f"variety_range_{store}"}
     return {f"kojin_y_{i}_{store}" for i in range(8)} | {f"variety_range_{store}"}
 
 
@@ -5261,6 +5264,14 @@ def render_pision_data_view(vt_df: pd.DataFrame, title: str, sel_key: str) -> No
 def show_auto_page(with_slump: bool = False) -> None:
     """自動処理ページ: PIL パイプラインで全画像を生成する"""
     store = st.session_state.selected_store
+    # バラエティ画像を有効にする店舗（秋葉原・新宿歌舞伎町のスランプ付き＋高田馬場結果ポスト用）
+    _variety_ui = (with_slump and store in ("秋葉原", "新宿歌舞伎町")) or store == "高田馬場"
+    # セクション番号を動的採番（実際に表示されたセクションだけ丸数字を消費し、番号飛びを防ぐ）
+    _CIRCLED_SEC = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫"
+    _sec_state = {"n": 0}
+    def _sec_num() -> str:
+        _sec_state["n"] += 1
+        return _CIRCLED_SEC[_sec_state["n"] - 1]
     # その他の優秀台ピックアップ分割（秋葉原=①②③・上野新館/上野本館=①②）
     _sonota_split = with_slump and store in ("秋葉原", "上野新館", "上野本館")
     _sonota_extra_thrs = [(2000, "その他の優秀台+2,000枚以上.jpg")]
@@ -5521,7 +5532,7 @@ def show_auto_page(with_slump: bool = False) -> None:
     st.markdown("---")
 
     # ── ① Excel アップロード（常に描画）─────────────────────────────
-    st.markdown("### ① Excelファイルをアップロード")
+    st.markdown(f"### {_sec_num()} Excelファイルをアップロード")
     st.caption("ファイル名は `YYYYMMDD_店舗名_20S.xlsx` の形式を想定しています。")
     uploaded = st.file_uploader("xlsx / csv を選択", type=["xlsx", "xls", "csv"], key="auto_upload")
     if uploaded is None and _tb_uploaded is not None:
@@ -5679,7 +5690,7 @@ def show_auto_page(with_slump: bool = False) -> None:
     kojin_narabi2_title: str = ""
     sonota_extra_title: str = ""
     sonota_extra_text: str = ""
-    st.markdown("### ② 個別画像")
+    st.markdown(f"### {_sec_num()} 個別画像")
     variety_enabled: bool = False
     variety_ranges_text: str = ""
     variety_mode: str = "全台"
@@ -5796,7 +5807,7 @@ def show_auto_page(with_slump: bool = False) -> None:
     narabi_ok     = False
     narabi_ranges: list[list[int]] = []
     if store in STORE_NARABI_SCRIPT:
-        st.markdown("### ③ 並び画像")
+        st.markdown(f"### {_sec_num()} 並び画像")
         narabi_enabled = st.checkbox("並び画像も生成する", key="narabi_enabled",
                                      on_change=_save_auto_inputs, args=(store,))
         if narabi_enabled:
@@ -5896,7 +5907,7 @@ def show_auto_page(with_slump: bool = False) -> None:
 
     # ── ④ 末尾画像オプション（末尾画像を持つ店舗）──────────────────────
     if "末尾画像" in STORES.get(store, []):
-        st.markdown("### ④ 末尾画像")
+        st.markdown(f"### {_sec_num()} 末尾画像")
         suebangai_enabled = st.checkbox("末尾画像も生成する", key="suebangai_enabled",
                                         on_change=_save_auto_inputs, args=(store,))
         if suebangai_enabled:
@@ -6169,36 +6180,12 @@ def show_auto_page(with_slump: bool = False) -> None:
             else:
                 st.info("末尾を入力してください。")
 
-    # ── ⑤ バラエティ画像（秋葉原スランプ付きのみ）──────────────────────
-    if with_slump and store == "秋葉原":
-        st.markdown("### ⑤ バラエティ画像")
-        variety_enabled = st.checkbox("個別画像も生成する", key="variety_enabled",
-                                      on_change=_save_auto_inputs, args=(store,))
-        if variety_enabled:
-            st.markdown("**バラエティの台番範囲**")
-            _vr_key = f"variety_range_{store}"
-            if _vr_key not in st.session_state:
-                st.session_state[_vr_key] = ""
-            variety_ranges_text = st.text_input(
-                "台番範囲（例: 1-50）",
-                value=st.session_state[_vr_key],
-                key=_vr_key,
-                placeholder="例: 1-50",
-                on_change=_save_auto_inputs, args=(store,),
-            )
-            variety_mode = st.radio(
-                "モード", ["全台", "+1,000枚以上の優秀台", "プラス台"],
-                key="variety_mode",
-                horizontal=True,
-                on_change=_save_auto_inputs, args=(store,),
-            )
-
     # ── ⑤ オススメ機種ピックアップ（拡張機能店舗）──────────────────────
 
     recommended_blocks: list[dict] = []
-    if store in EXTENDED_FEATURE_STORES:
+    if store in EXTENDED_FEATURE_STORES and store != "新宿歌舞伎町":
         _init_recommended_settings(store)
-        st.markdown("### ⑤ オススメ機種ピックアップ")
+        st.markdown(f"### {_sec_num()} オススメ機種ピックアップ")
         rec_enabled = st.checkbox("オススメ機種ピックアップを使用する", key=f"rec_enabled_{store}",
                                    on_change=_save_rec_enabled, args=(store,))
         if rec_enabled:
@@ -6362,9 +6349,33 @@ def show_auto_page(with_slump: bool = False) -> None:
                 {"title": title_6, "machines": machines_6, "thresholds": thresholds_6},
             ]
 
+    # ── バラエティ画像（秋葉原スランプ付き＋高田馬場結果ポスト用）──────────
+    if _variety_ui:
+        st.markdown(f"### {_sec_num()} バラエティ画像")
+        variety_enabled = st.checkbox("個別画像も生成する", key="variety_enabled",
+                                      on_change=_save_auto_inputs, args=(store,))
+        if variety_enabled:
+            st.markdown("**バラエティの台番範囲**")
+            _vr_key = f"variety_range_{store}"
+            if _vr_key not in st.session_state:
+                st.session_state[_vr_key] = ""
+            variety_ranges_text = st.text_input(
+                "台番範囲（例: 1-50）",
+                value=st.session_state[_vr_key],
+                key=_vr_key,
+                placeholder="例: 1-50",
+                on_change=_save_auto_inputs, args=(store,),
+            )
+            variety_mode = st.radio(
+                "モード", ["全台", "+1,000枚以上の優秀台", "プラス台"],
+                key="variety_mode",
+                horizontal=True,
+                on_change=_save_auto_inputs, args=(store,),
+            )
+
     # ── ⑥ 結果テキスト素材メモ（拡張機能店舗・新宿歌舞伎町は非表示）──────────
     if store in EXTENDED_FEATURE_STORES and store != "新宿歌舞伎町":
-        st.markdown("### ⑥ 結果テキスト素材メモ")
+        st.markdown(f"### {_sec_num()} 結果テキスト素材メモ")
         memo_enabled = st.checkbox("結果テキスト素材メモを使用する", key=f"memo_enabled_{store}")
         if memo_enabled:
             st.caption(
@@ -6389,7 +6400,7 @@ def show_auto_page(with_slump: bool = False) -> None:
             )
 
     # ── ⑦ プレビュー ────────────────────────────────────────────────
-    st.markdown("### ⑥ プレビュー" if store == "新宿歌舞伎町" else "### ⑦ プレビュー")
+    st.markdown(f"### {_sec_num()} プレビュー")
     if store == "新宿歌舞伎町":
         _panel_rep = st.session_state.get(f"_panel_report_{store}")
         if _panel_rep:
@@ -6490,7 +6501,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             suebangai_tails=_prev_sue_tails,
                             sonota_exclude={m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()},
                             jug_suebangai_tails=_prev_jug_sue_tails,
-                            variety_bans=(ranges_to_bans(parse_ranges(variety_ranges_text.strip())) if (with_slump and store == "秋葉原" and variety_enabled and variety_ranges_text.strip()) else set()),
+                            variety_bans=(ranges_to_bans(parse_ranges(variety_ranges_text.strip())) if (_variety_ui and variety_enabled and variety_ranges_text.strip()) else set()),
                             jug_no_merge_image=(with_slump and store == "秋葉原"),
                         )
                         # スランプ付き: その他の優秀台ピックアップ①②(③)生成（プレビュー用・秋葉原/上野新館）
@@ -6660,7 +6671,7 @@ def show_auto_page(with_slump: bool = False) -> None:
 
                             # ─ ⑤ バラエティ画像（秋葉原スランプ付きのみ）─
                             _variety_ban_map: dict[str, list[int]] = {}
-                            if with_slump and store == "秋葉原" and variety_enabled and variety_ranges_text.strip() and _pv_df is not None and _pv_diff is not None:
+                            if _variety_ui and variety_enabled and variety_ranges_text.strip() and _pv_df is not None and _pv_diff is not None:
                                 try:
                                     _var_bans = ranges_to_bans(parse_ranges(variety_ranges_text.strip()))
                                     _var_df = _pv_df[_pv_df["台番"].apply(lambda b: int(b) in _var_bans)].copy()
@@ -6670,7 +6681,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             _vmask = _var_dr > 0
                                             _var_df = _var_df[_vmask.values].copy()
                                             _var_dr = _var_dr[_vmask]
-                                            _var_title = "バラエティのプラス台"
+                                            _var_title = "バラエティの優秀台" if store == "高田馬場" else "バラエティのプラス台"
                                         elif variety_mode == "+1,000枚以上の優秀台":
                                             _vmask = _var_dr >= 1000
                                             _var_df = _var_df[_vmask.values].copy()
@@ -7232,6 +7243,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     st.session_state.get(f"kojin_narabi_range_{store}", ""),
                                     st.session_state.get(f"kojin_narabi2_range_{store}", ""),
                                 )
+                                # バラエティ台をその他自動抽出から除外（画像重複防止）
+                                if _variety_ui and variety_enabled and variety_ranges_text.strip():
+                                    try:
+                                        _exc_ban_m = set(_exc_ban_m) | ranges_to_bans(parse_ranges(variety_ranges_text.strip()))
+                                    except Exception:
+                                        pass
                                 _se_auto_m = _manual_sonota_auto_extract(
                                     _df_m, _diff_m, _SONOTA_AUTO_THR[sonota_extra_auto], _exc_mac_m, _exc_ban_m)
                                 if not _se_auto_m.empty:
@@ -7326,6 +7343,34 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _rec_bans_m += [int(b) for b in _rg[_rmk]["台番"].dropna()]
                                     if _rec_bans_m:
                                         _manual_ban_map[f"オススメ_{_make_safe_fn(_mbt)}_{_ms_sfxv}.jpg"] = sorted(set(_rec_bans_m))
+
+                        # ⑤ バラエティ画像（秋葉原スランプ付き＋高田馬場）
+                        if _variety_ui and variety_enabled and variety_ranges_text.strip():
+                            try:
+                                _mvb = ranges_to_bans(parse_ranges(variety_ranges_text.strip()))
+                                _mvdf = _df_m[_df_m["台番"].apply(lambda b: int(b) in _mvb)].copy()
+                                if not _mvdf.empty:
+                                    _mvdr = _diff_m.loc[_mvdf.index]
+                                    if variety_mode == "プラス台":
+                                        _mvm = _mvdr > 0
+                                        _mvdf = _mvdf[_mvm.values].copy(); _mvdr = _mvdr[_mvm]
+                                        _mvtit = "バラエティの優秀台" if store == "高田馬場" else "バラエティのプラス台"
+                                    elif variety_mode == "+1,000枚以上の優秀台":
+                                        _mvm = _mvdr >= 1000
+                                        _mvdf = _mvdf[_mvm.values].copy(); _mvdr = _mvdr[_mvm]
+                                        _mvtit = "バラエティの優秀台"
+                                    else:
+                                        _mvtit = "バラエティ"
+                                    if not _mvdf.empty:
+                                        _mvs = _mvdf["台番"].argsort().values
+                                        _mvdf = _mvdf.iloc[_mvs].reset_index(drop=True)
+                                        _mvdr = _mvdr.iloc[_mvs].reset_index(drop=True)
+                                        _mvstat = _stat_from_diff(_mvdr) if variety_mode == "全台" else None
+                                        _mvfn = f"{_make_safe_fn(_mvtit)}.jpg"
+                                        _manual_imgs.append((_mvfn, _build_machine_img(_mvdf, _mvtit, _mvstat)))
+                                        _manual_ban_map[_mvfn] = [int(b) for b in _mvdf["台番"].dropna()]
+                            except Exception:
+                                pass
 
                         if _manual_imgs:
                             if with_slump:
@@ -7936,7 +7981,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     st.rerun()
 
     # ── ⑧ 実行ボタン（常に描画・ファイル未選択時は disabled）─────────
-    st.markdown("### ⑦ 実行" if store == "新宿歌舞伎町" else "### ⑧ 実行")
+    st.markdown(f"### {_sec_num()} 実行")
     run_clicked = st.button(
         "▶▶ 自動処理を開始",
         type="primary",
@@ -8215,6 +8260,37 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _m_exec_ban_map_e[_mrfn_e] = sorted(set(_rec_bans_e))
                                 _m_log(f"  ✅ オススメ「{_mbt_e}」({_ms_sfxv_e})")
 
+                    # ⑤ バラエティ画像（秋葉原・新宿歌舞伎町スランプ付き＋高田馬場）
+                    if _variety_ui and variety_enabled and variety_ranges_text.strip():
+                        try:
+                            _mvb_e = ranges_to_bans(parse_ranges(variety_ranges_text.strip()))
+                            _mvdf_e = _df_exec_m[_df_exec_m["台番"].apply(lambda b: int(b) in _mvb_e)].copy()
+                            if not _mvdf_e.empty:
+                                _mvdr_e = _diff_exec_m.loc[_mvdf_e.index]
+                                if variety_mode == "プラス台":
+                                    _mvm_e = _mvdr_e > 0
+                                    _mvdf_e = _mvdf_e[_mvm_e.values].copy(); _mvdr_e = _mvdr_e[_mvm_e]
+                                    _mvtit_e = "バラエティの優秀台" if store == "高田馬場" else "バラエティのプラス台"
+                                elif variety_mode == "+1,000枚以上の優秀台":
+                                    _mvm_e = _mvdr_e >= 1000
+                                    _mvdf_e = _mvdf_e[_mvm_e.values].copy(); _mvdr_e = _mvdr_e[_mvm_e]
+                                    _mvtit_e = "バラエティの優秀台"
+                                else:
+                                    _mvtit_e = "バラエティ"
+                                if not _mvdf_e.empty:
+                                    _mvs_e = _mvdf_e["台番"].argsort().values
+                                    _mvdf_e = _mvdf_e.iloc[_mvs_e].reset_index(drop=True)
+                                    _mvdr_e = _mvdr_e.iloc[_mvs_e].reset_index(drop=True)
+                                    _mvstat_e = _stat_from_diff(_mvdr_e) if variety_mode == "全台" else None
+                                    _mvfn_e = _unique_fn_e(f"{_make_safe_fn(_mvtit_e)}.jpg")
+                                    _save_jpeg(_build_machine_img(_mvdf_e, _mvtit_e, _mvstat_e),
+                                               os.path.join(output_dir, _mvfn_e))
+                                    _exec_order.append(_mvfn_e)
+                                    _m_exec_ban_map_e[_mvfn_e] = [int(b) for b in _mvdf_e["台番"].dropna()]
+                                    _m_log(f"  ✅ バラエティ「{_mvtit_e}」({len(_mvdf_e)}台)")
+                        except Exception:
+                            _m_log(f"  ❌ バラエティ画像エラー: {traceback.format_exc()}")
+
                     # with_slump: 記入部分の画像にスランプグラフを合成（連番付与前）
                     if with_slump and _exec_order:
                         _me_pairs: list[tuple[str, "Image.Image"]] = []
@@ -8463,7 +8539,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 suebangai_tails=_sue_tails_run,
                 sonota_exclude={m.strip() for block in recommended_blocks for m in block["machines"] if m.strip()},
                 jug_suebangai_tails=_jug_sue_tails_run,
-                variety_bans=(ranges_to_bans(parse_ranges(variety_ranges_text.strip())) if (with_slump and store == "秋葉原" and variety_enabled and variety_ranges_text.strip()) else set()),
+                variety_bans=(ranges_to_bans(parse_ranges(variety_ranges_text.strip())) if (_variety_ui and variety_enabled and variety_ranges_text.strip()) else set()),
                 jug_no_merge_image=(with_slump and store == "秋葉原"),
             )
 
@@ -9273,7 +9349,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _log(f"  ❌ その他の優秀台ピックアップエラー: {traceback.format_exc()}")
 
             # ── バラエティ画像生成（秋葉原スランプ付きのみ）──────────────────────
-            if with_slump and store == "秋葉原" and variety_enabled and variety_ranges_text.strip() and result["ok"]:
+            if _variety_ui and variety_enabled and variety_ranges_text.strip() and result["ok"]:
                 df_v = result.get("df"); diff_v = result.get("diff_raw")
                 if df_v is not None and diff_v is not None:
                     try:
@@ -9284,7 +9360,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             if variety_mode == "プラス台":
                                 _vm_ex = _var_dr_ex > 0
                                 _var_df_ex = _var_df_ex[_vm_ex.values].copy(); _var_dr_ex = _var_dr_ex[_vm_ex]
-                                _var_title_ex = "バラエティのプラス台"
+                                _var_title_ex = "バラエティの優秀台" if store == "高田馬場" else "バラエティのプラス台"
                             elif variety_mode == "+1,000枚以上の優秀台":
                                 _vm_ex = _var_dr_ex >= 1000
                                 _var_df_ex = _var_df_ex[_vm_ex.values].copy(); _var_dr_ex = _var_dr_ex[_vm_ex]
@@ -9364,8 +9440,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                     if _sfn not in _order:
                         _order.append(_sfn)
                 # ⑤ バラエティ画像
-                if with_slump and store == "秋葉原" and variety_enabled and variety_ranges_text.strip():
-                    _var_title_ord = "バラエティのプラス台" if variety_mode == "プラス台" else ("バラエティの優秀台" if variety_mode == "+1,000枚以上の優秀台" else "バラエティ")
+                if _variety_ui and variety_enabled and variety_ranges_text.strip():
+                    _var_title_ord = ("バラエティの優秀台" if store == "高田馬場" else "バラエティのプラス台") if variety_mode == "プラス台" else ("バラエティの優秀台" if variety_mode == "+1,000枚以上の優秀台" else "バラエティ")
                     _vfn_ord = f"{_make_safe_fn(_var_title_ord)}.jpg"
                     if _vfn_ord not in _order:
                         _order.append(_vfn_ord)
@@ -9521,8 +9597,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                             except Exception as _eig:
                                 _log(f"  ⚠️ 末尾banmap追加エラー: {_eig}")
                     # バラエティ画像のbansを追加
-                    if with_slump and store == "秋葉原" and variety_enabled and variety_ranges_text.strip():
-                        _var_title_bm = "バラエティのプラス台" if variety_mode == "プラス台" else ("バラエティの優秀台" if variety_mode == "+1,000枚以上の優秀台" else "バラエティ")
+                    if _variety_ui and variety_enabled and variety_ranges_text.strip():
+                        _var_title_bm = ("バラエティの優秀台" if store == "高田馬場" else "バラエティのプラス台") if variety_mode == "プラス台" else ("バラエティの優秀台" if variety_mode == "+1,000枚以上の優秀台" else "バラエティ")
                         _vfn_bm = f"{_make_safe_fn(_var_title_bm)}.jpg"
                         if _vfn_bm not in _ig_bm_u:
                             try:
@@ -9902,6 +9978,12 @@ def show_auto_page(with_slump: bool = False) -> None:
 def show_auto_article_page() -> None:
     """記事用 自動処理ページ（高田馬場専用）: ①～④ + 実行ボタン + 結果"""
     store = st.session_state.selected_store
+    # セクション番号を動的採番（表示されたセクションだけ丸数字を消費・番号飛び防止）
+    _CIRCLED_SEC = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫"
+    _sec_state = {"n": 0}
+    def _sec_num() -> str:
+        _sec_state["n"] += 1
+        return _CIRCLED_SEC[_sec_state["n"] - 1]
     st.markdown(f"## 【{store}】記事用")
     st.caption("全台系・ジャグラー優秀台・その他の優秀台を一括生成します（記事用）。")
     st.markdown("---")
@@ -10140,7 +10222,7 @@ def show_auto_article_page() -> None:
     st.markdown("---")
 
     # ── ① Excel アップロード ─────────────────────────────────────────
-    st.markdown("### ① Excelファイルをアップロード")
+    st.markdown(f"### {_sec_num()} Excelファイルをアップロード")
     st.caption("ファイル名は `YYYYMMDD_店舗名_20S.xlsx` の形式を想定しています。")
     uploaded = st.file_uploader("xlsx を選択", type=["xlsx", "xls"], key="art_upload")
 
@@ -10261,7 +10343,7 @@ def show_auto_article_page() -> None:
     kojin_narabi_title: str = ""
     kojin_narabi2_ranges_text: str = ""
     kojin_narabi2_title: str = ""
-    st.markdown("### ② 個別画像")
+    st.markdown(f"### {_sec_num()} 個別画像")
     kojin_enabled = st.checkbox("個別画像も生成する", key="art_kojin_enabled",
                                 on_change=_save_article_inputs, args=(store,))
     if kojin_enabled:
@@ -10345,7 +10427,7 @@ def show_auto_article_page() -> None:
     narabi_ok     = False
     narabi_ranges: list[list[int]] = []
     if store in STORE_NARABI_SCRIPT:
-        st.markdown("### ③ 並び画像")
+        st.markdown(f"### {_sec_num()} 並び画像")
         narabi_enabled = st.checkbox("並び画像も生成する", key="art_narabi_enabled",
                                      on_change=_save_article_inputs, args=(store,))
         if narabi_enabled:
@@ -10442,7 +10524,7 @@ def show_auto_article_page() -> None:
 
     # ── ④ 末尾画像オプション ─────────────────────────────────────────
     if "末尾画像" in STORES.get(store, []):
-        st.markdown("### ④ 末尾画像")
+        st.markdown(f"### {_sec_num()} 末尾画像")
         suebangai_enabled = st.checkbox("末尾画像も生成する", key="art_suebangai_enabled",
                                         on_change=_save_article_inputs, args=(store,))
         if suebangai_enabled:
@@ -10533,8 +10615,31 @@ def show_auto_article_page() -> None:
             else:
                 st.info("末尾を入力してください。")
 
+    # ── バラエティ画像（高田馬場記事用）──────────────────────────────
+    art_variety_enabled: bool = False
+    art_variety_ranges_text: str = ""
+    art_variety_mode: str = "全台"
+    st.markdown(f"### {_sec_num()} バラエティ画像")
+    art_variety_enabled = st.checkbox("個別画像も生成する", key="art_variety_enabled")
+    if art_variety_enabled:
+        st.markdown("**バラエティの台番範囲**")
+        _avr_key = f"art_variety_range_{store}"
+        if _avr_key not in st.session_state:
+            st.session_state[_avr_key] = ""
+        art_variety_ranges_text = st.text_input(
+            "台番範囲（例: 1-50）",
+            value=st.session_state[_avr_key],
+            key=_avr_key,
+            placeholder="例: 1-50",
+        )
+        art_variety_mode = st.radio(
+            "モード", ["全台", "+1,000枚以上の優秀台", "プラス台"],
+            key="art_variety_mode",
+            horizontal=True,
+        )
+
     # ── ⑤ プレビュー ────────────────────────────────────────────────
-    st.markdown("### ⑤ プレビュー")
+    st.markdown(f"### {_sec_num()} プレビュー")
     if uploaded is not None:
         _art_aprev_key       = f"art_preview_imgs_{store}"
         _art_aprev_fname_key = f"art_preview_fname_{store}"
@@ -10580,12 +10685,15 @@ def show_auto_article_page() -> None:
                         if st.session_state.get("art_suebangai_enabled", False):
                             _at = st.session_state.get("art_suebangai_tail_input", "").strip()
                             if _at: _art_stails = [_at]
+                        _art_vbans = (ranges_to_bans(parse_ranges(art_variety_ranges_text.strip()))
+                                      if (art_variety_enabled and art_variety_ranges_text.strip()) else set())
                         _art_pr = run_auto_pipeline(
                             _art_txl, _atd, store, _art_pnb,
                             lambda _m: None,
                             narabi_ranges=narabi_ranges if narabi_ok else None,
                             recommended_machines=_art_prec,
                             suebangai_tails=_art_stails,
+                            variety_bans=_art_vbans,
                             article_mode=True,
                         )
                         _art_pil: list[tuple[str, "Image.Image"]] = []
@@ -10687,6 +10795,32 @@ def show_auto_article_page() -> None:
                             # ⑤ その他の優秀台ピックアップ
                             if "その他の優秀台ピックアップ.jpg" in _art_fpm:
                                 _art_pil.append(_art_fpm["その他の優秀台ピックアップ.jpg"])
+                            # バラエティ画像
+                            if art_variety_enabled and art_variety_ranges_text.strip() and _apdf is not None and _apdi is not None:
+                                try:
+                                    _avb = ranges_to_bans(parse_ranges(art_variety_ranges_text.strip()))
+                                    _avdf = _apdf[_apdf["台番"].apply(lambda b: int(b) in _avb)].copy()
+                                    if not _avdf.empty:
+                                        _avdr = _apdi.loc[_avdf.index]
+                                        if art_variety_mode == "プラス台":
+                                            _avm = _avdr > 0
+                                            _avdf = _avdf[_avm.values].copy(); _avdr = _avdr[_avm]
+                                            _avtit = "バラエティの優秀台"
+                                        elif art_variety_mode == "+1,000枚以上の優秀台":
+                                            _avm = _avdr >= 1000
+                                            _avdf = _avdf[_avm.values].copy(); _avdr = _avdr[_avm]
+                                            _avtit = "バラエティの優秀台"
+                                        else:
+                                            _avtit = "バラエティ"
+                                        if not _avdf.empty:
+                                            _avs = _avdf["台番"].argsort().values
+                                            _avdf = _avdf.iloc[_avs].reset_index(drop=True)
+                                            _avdr = _avdr.iloc[_avs].reset_index(drop=True)
+                                            _avstat = _stat_from_diff(_avdr) if art_variety_mode == "全台" else None
+                                            _art_pil.append((f"{_make_safe_fn(_avtit)}.jpg",
+                                                             _build_machine_img(_avdf, _avtit, _avstat)))
+                                except Exception:
+                                    pass
                             # 個別機種の優秀台ピックアップ（貼った台番のみ・ピンクバーなし）
                             if _apdf is not None:
                                 for _pk_tit, _pk_bans in _collect_kojin_pick(store, prefix="art_"):
@@ -11065,7 +11199,7 @@ def show_auto_article_page() -> None:
                     st.rerun()
 
     # ── ⑥ 実行ボタン ─────────────────────────────────────────────────
-    st.markdown("### ⑥ 実行")
+    st.markdown(f"### {_sec_num()} 実行")
     run_clicked = st.button(
         "▶▶ 自動処理を開始",
         type="primary",
@@ -11127,11 +11261,14 @@ def show_auto_article_page() -> None:
                 _art_t = st.session_state.get("art_suebangai_tail_input", "").strip()
                 if _art_t:
                     _sue_tails_art = [_art_t]
+            _art_vbans_ex = (ranges_to_bans(parse_ranges(art_variety_ranges_text.strip()))
+                             if (art_variety_enabled and art_variety_ranges_text.strip()) else set())
             result = run_auto_pipeline(
                 excel_path, output_dir, store, narabi_bans, _log,
                 narabi_ranges=narabi_ranges if narabi_ok else None,
                 recommended_machines=_kojin_names,
                 suebangai_tails=_sue_tails_art,
+                variety_bans=_art_vbans_ex,
                 article_mode=True,
             )
 
@@ -11265,6 +11402,37 @@ def show_auto_article_page() -> None:
                         _save_jpeg(_build_machine_img_no_bar(_pk_df_e), _pk_out_e)
                         result["files"].append(_pk_out_e)
                         _log(f"  ✅ 個別機種の優秀台ピックアップ「{_pk_tit_e}」({len(_pk_df_e)}台)")
+
+            # ── バラエティ画像生成（高田馬場記事用）────────────────────────
+            if art_variety_enabled and art_variety_ranges_text.strip() and result["ok"]:
+                _avdf_e = result.get("df"); _avdr_all = result.get("diff_raw")
+                if _avdf_e is not None and _avdr_all is not None:
+                    try:
+                        _avb_e = ranges_to_bans(parse_ranges(art_variety_ranges_text.strip()))
+                        _avf = _avdf_e[_avdf_e["台番"].apply(lambda b: int(b) in _avb_e)].copy()
+                        if not _avf.empty:
+                            _avdr_e = _avdr_all.loc[_avf.index]
+                            if art_variety_mode == "プラス台":
+                                _avm_e = _avdr_e > 0
+                                _avf = _avf[_avm_e.values].copy(); _avdr_e = _avdr_e[_avm_e]
+                                _avtit_e = "バラエティの優秀台"
+                            elif art_variety_mode == "+1,000枚以上の優秀台":
+                                _avm_e = _avdr_e >= 1000
+                                _avf = _avf[_avm_e.values].copy(); _avdr_e = _avdr_e[_avm_e]
+                                _avtit_e = "バラエティの優秀台"
+                            else:
+                                _avtit_e = "バラエティ"
+                            if not _avf.empty:
+                                _avs_e = _avf["台番"].argsort().values
+                                _avf = _avf.iloc[_avs_e].reset_index(drop=True)
+                                _avdr_e = _avdr_e.iloc[_avs_e].reset_index(drop=True)
+                                _avstat_e = _stat_from_diff(_avdr_e) if art_variety_mode == "全台" else None
+                                _avout_e = os.path.join(output_dir, f"{_make_safe_fn(_avtit_e)}.jpg")
+                                _save_jpeg(_build_machine_img(_avf, _avtit_e, _avstat_e), _avout_e)
+                                result["files"].append(_avout_e)
+                                _log(f"  ✅ バラエティ「{_avtit_e}」({len(_avf)}台)")
+                    except Exception:
+                        _log(f"  ❌ バラエティ画像エラー: {traceback.format_exc()}")
 
             # ── プレビューでチェックを外した画像を削除・再生成 ────────────
             _art_aprev_imgs = st.session_state.get(f"art_preview_imgs_{store}")
@@ -15080,7 +15248,7 @@ def fetch_pision_realtime(hall_name: str, date_str: str, trigger: bool = True) -
 def _insert_panel_into_machine_img(
     img: "Image.Image", machine_name: str
 ) -> "tuple[Image.Image, bool]":
-    """機種別画像（青バー＋表）の、青バーと表の間にパネル画像を差し込む。
+    """機種別画像（青バー＋表）から青バーを除去し、パネル画像＋表に差し替える。
     パネル未登録・読み込み失敗なら (img, False) をそのまま返す。"""
     info = get_machine_images(machine_name)
     panel_rel = info.get("panel") if info else None
@@ -15095,12 +15263,10 @@ def _insert_panel_into_machine_img(
     pw, ph = panel.size
     new_ph = max(1, round(ph * w / pw)) if pw > 0 else ph
     panel  = panel.resize((w, new_ph), Image.LANCZOS)
-    top    = img.crop((0, 0, w, split))            # 青バー＋赤ライン
-    bottom = img.crop((0, split, w, img.height))    # 表
-    canvas = Image.new("RGB", (w, split + new_ph + bottom.height), (255, 255, 255))
-    canvas.paste(top,    (0, 0))
-    canvas.paste(panel,  (0, split))
-    canvas.paste(bottom, (0, split + new_ph))
+    bottom = img.crop((0, split, w, img.height))    # 表（青バー除去）
+    canvas = Image.new("RGB", (w, new_ph + bottom.height), (255, 255, 255))
+    canvas.paste(panel,  (0, 0))
+    canvas.paste(bottom, (0, new_ph))
     return canvas, True
 
 
@@ -15162,21 +15328,30 @@ def _composite_slump_onto_images(
         _bare = re.sub(r"^\d{2}_", "", _fn)
         _bans = ban_map.get(_bare, [])
         if not _bans:
+            if store == "新宿歌舞伎町" and "台並び" not in _bare:
+                # スランプ無しでも青タイトルバーは除去（表のみ）
+                _bar_h0 = round(_img.width * 73 / 950) + 6
+                _img = _img.crop((0, _bar_h0, _img.width, _img.height))
             if store != "秋葉原":
                 _merged.append((_fn, _img))
             continue
         _show_mn = (_bare in _sonota_names or _bare.startswith("末尾") or _bare.startswith("バラエティ"))
         _is_zentai = (not _bare.endswith("_高配分.jpg") and _bare not in _sonota_names)
-        # 新宿歌舞伎町（かぶぱポストの結果）: 単一機種画像に青バーと表の間へパネルを差し込む
-        # ※並び画像（複数機種）は対象外
-        if store == "新宿歌舞伎町" and not _show_mn and "台並び" not in _bare:
-            _mn = re.sub(r"(_高配分)?\.jpg$", "", _bare)          # 拡張子・_高配分 除去
-            _mn = re.sub(r"[（(]優秀台[）)]\s*$", "", _mn).strip()  # タイトルの（優秀台）除去
-            _img, _panel_ok = _insert_panel_into_machine_img(_img, _mn)
-            if _panel_ok:
-                _matched_panels.add(_mn)
+        # 新宿歌舞伎町（かぶぱポストの結果）: 青タイトルバーを除去し、パネル＋表＋スランプにする
+        # ※単一機種はパネル差し替え、パネル無し・並び・バラエティ等は青バーのみ除去（表＋スランプ）
+        if store == "新宿歌舞伎町":
+            _bar_h = round(_img.width * 73 / 950) + 6  # 青バー(BAR_H)＋赤ライン(LINE_H)
+            if not _show_mn and "台並び" not in _bare:
+                _mn = re.sub(r"(_高配分)?\.jpg$", "", _bare)          # 拡張子・_高配分 除去
+                _mn = re.sub(r"[（(]優秀台[）)]\s*$", "", _mn).strip()  # タイトルの（優秀台）除去
+                _img, _panel_ok = _insert_panel_into_machine_img(_img, _mn)
+                if _panel_ok:
+                    _matched_panels.add(_mn)
+                else:
+                    _missing_panels.add(_mn)
+                    _img = _img.crop((0, _bar_h, _img.width, _img.height))  # パネル無し→青バー除去
             else:
-                _missing_panels.add(_mn)
+                _img = _img.crop((0, _bar_h, _img.width, _img.height))       # 並び・バラエティ等→青バー除去
         _g_imgs: list["Image.Image"] = []
         for _b in _bans:
             _it = _by_uid.get(str(_b))

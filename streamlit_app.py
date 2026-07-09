@@ -3555,7 +3555,8 @@ def _format_diffs(diffs: list[int], wrap: int = 3) -> str:
 
 def _build_kabupa_result_text(date, machine_names: list[str], df, diff_raw,
                               variety_bans: list[int] | None = None,
-                              variety_title: str = "バラエティ") -> str:
+                              variety_title: str = "バラエティ",
+                              narabi_blocks: list[tuple[str, list[int]]] | None = None) -> str:
     """新宿歌舞伎町「かぶぱポストの結果」専用の結果テキストを生成する。
 
     machine_names: ②個別画像などで記入した機種名（呼び出し側で順序保持・重複除去）。
@@ -3588,6 +3589,25 @@ def _build_kabupa_result_text(date, machine_names: list[str], df, diff_raw,
             "🔑",
             "📈結果速報(21時時点)",
             f"🎖️{name}({win}/{total}台)→平均{fmt_diff(avg)}",
+        ]
+    # 並び画像を作った場合は並びブロックを追加（ラベル＝機種名部分、集計＝並び台）
+    for _nlabel, _nbans in (narabi_blocks or []):
+        _nb = {int(b) for b in _nbans}
+        _nrows = df[df["台番"].apply(lambda b: int(b) in _nb)]
+        if _nrows.empty:
+            continue
+        _nd = diff_raw.loc[_nrows.index]
+        _ntotal = len(_nrows)
+        _nwin = int((_nd > 0).sum())
+        _navg = int(round(_nd.mean()))
+        lines += [
+            "",
+            f"✅{_nlabel}",
+            "🔑キーワード→ ",
+            "🔑",
+            "🔑",
+            "📈結果速報(21時時点)",
+            f"🎖️{_nlabel}({_nwin}/{_ntotal}台)→平均{fmt_diff(_navg)}",
         ]
     # バラエティ画像を作った場合はバラエティブロックを追加
     if variety_bans:
@@ -5646,6 +5666,111 @@ def show_auto_page(with_slump: bool = False) -> None:
             st.session_state[_em_fn_key] = uploaded.name
         except Exception:
             pass
+    # ④ 末尾・ジャグラー末尾画像を生成する共通関数（全プレビュー/実行経路で使用）
+    def _gen_sue_imgs_on_fly(tails, mode, is_juggler=False, ban_out=None):
+        _imgs = []
+        try:
+            _raw_of = _read_uploaded_df(uploaded)
+            _df_of, _ = normalize_df(_raw_of)
+            _nm_of, _nm_norm_of = load_name_map()
+            if _nm_of:
+                _df_of, _ = _apply_map(_df_of, _nm_of, _nm_norm_of)
+            _circle_of = {"0":"⓪","1":"①","2":"②","3":"③","4":"④",
+                          "5":"⑤","6":"⑥","7":"⑦","8":"⑧","9":"⑨"}
+            if is_juggler:
+                _df_of["ゲーム数_rounded"] = _df_of["ゲーム数"].apply(round_games)
+                _df_of["合算確率_num"] = _df_of.apply(
+                    lambda r: r["ゲーム数_rounded"] / (r["BB"] + r["RB"])
+                              if (r["BB"] + r["RB"]) > 0 else float("inf"), axis=1)
+                _jcfg_of = get_store_config(store)
+                _jug_ser_of = set(_jcfg_of["juggler_series"])
+                _jug_g_min_of = _jcfg_of["juggler_g_min"]
+                _jug_thresh_of = {m: (p, d) for m, p, d in _jcfg_of["juggler_jobs"]}
+            for _t in tails:
+                if _t == "ゾロ目":
+                    _filt = _df_of[_df_of["台番"].apply(
+                        lambda b: (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]
+                    )].copy()
+                    _circ = "ゾロ目"
+                    _lbl_base = "末尾ゾロ目" if is_juggler else "末尾ゾロ目の台"
+                elif _t.isdigit() and len(_t) in (1, 2):
+                    _filt = _df_of[_df_of["台番"].astype(str).str[-len(_t):] == _t].copy()
+                    _circ = _circle_of.get(_t, _t)
+                    _lbl_base = f"末尾{_circ}" if is_juggler else f"末尾{_circ}番台"
+                else:
+                    continue
+                if _filt.empty:
+                    continue
+                if is_juggler:
+                    _filt = _filt[_filt["機種名"].isin(_jug_ser_of)].copy()
+                    _filt = _filt[_filt["ゲーム数_rounded"] >= _jug_g_min_of].copy()
+                    if _filt.empty:
+                        continue
+                    _jp_of  = mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）")
+                    _jy_of  = mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
+                    _jb_of  = mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
+                    if _jp_of or _jy_of:
+                        _jof_total = len(_filt); _jof_td = int(_filt["差枚"].sum()); _jof_ad = int(round(_filt["差枚"].mean())); _jof_wc = int((_filt["差枚"] > 0).sum())
+                        if _jp_of:
+                            _filt = _filt[_filt["差枚"] > 0].copy()
+                            _title = f"ジャグラーの{_lbl_base}番台のプラス台"
+                        else:
+                            # 優秀台: 確率フィルター + 差枚 > 0
+                            if not _filt.empty:
+                                _ps = _filt["機種名"].map(
+                                    lambda m: _jug_thresh_of.get(m, (float("inf"), float("inf")))[0])
+                                _ds = _filt["機種名"].map(
+                                    lambda m: _jug_thresh_of.get(m, (float("inf"), float("inf")))[1])
+                                _filt = _filt[((_filt["合算確率_num"] <= _ps) & (_filt["差枚"] >= 0)) |
+                                              (_filt["差枚"] >= _ds)].copy().reset_index(drop=True)
+                            _filt = _filt[_filt["差枚"] > 0].copy()
+                            _title = f"ジャグラーの{_lbl_base}番台の優秀台"
+                        if _filt.empty:
+                            continue
+                        _stat_of = {"total_diff": _jof_td, "avg_diff": _jof_ad, "win_count": _jof_wc, "total_count": _jof_total} if _jb_of else None
+                    else:
+                        # 全台: G数フィルターのみ（確率・差枚条件なし）
+                        _title = f"ジャグラーの{_lbl_base}番台"
+                        _stat_of = {"total_diff": int(_filt["差枚"].sum()),
+                                    "avg_diff": int(round(_filt["差枚"].mean())),
+                                    "win_count": int((_filt["差枚"] > 0).sum()),
+                                    "total_count": len(_filt)}
+                else:
+                    _p_of  = mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）", "プラス台")
+                    _y_of  = mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
+                    _1k_of = mode == "+1,000枚以上の優秀台"
+                    _b_of  = mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
+                    if _p_of or _y_of or _1k_of:
+                        _of_total = len(_filt); _of_td = int(_filt["差枚"].sum()); _of_ad = int(round(_filt["差枚"].mean())); _of_wc = int((_filt["差枚"] > 0).sum())
+                        if _p_of:
+                            _filt = _filt[_filt["差枚"] > 0].copy()
+                            _title = f"{_lbl_base}のプラス台"
+                        elif _1k_of:
+                            _filt = _filt[_filt["差枚"] >= 1000].copy()
+                            _title = f"{_lbl_base}の優秀台"
+                        else:
+                            _og_col = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _filt.columns), None)
+                            _ofm = (_filt["差枚"] >= 1000) | ((_filt[_og_col] >= 1800) & (_filt["差枚"] > 0)) if _og_col else (_filt["差枚"] >= 1000)
+                            _filt = _filt[_ofm].copy()
+                            _title = f"{_lbl_base}の優秀台"
+                        if _filt.empty:
+                            continue
+                        _stat_of = {"total_diff": _of_td, "avg_diff": _of_ad, "win_count": _of_wc, "total_count": _of_total} if _b_of else None
+                    else:
+                        _title = _lbl_base
+                        _stat_of = {"total_diff": int(_filt["差枚"].sum()),
+                                    "avg_diff": int(round(_filt["差枚"].mean())),
+                                    "win_count": int((_filt["差枚"] > 0).sum()),
+                                    "total_count": len(_filt)}
+                _fn_of = f"{_make_safe_fn(_title)}.jpg"
+                _imgs.append((_fn_of, _build_machine_img(_filt, _title, _stat_of)))
+                if ban_out is not None:
+                    ban_out[_fn_of] = [int(b) for b in _filt["台番"].dropna()
+                                       if str(b).split(".")[0].lstrip("-").isdigit()]
+        except Exception:
+            pass
+        return _imgs
+
     _excel_candidates: list[str] = st.session_state.get(_em_ss_key) or load_machine_candidates()
 
     # ── 📋 取得データを作業画面内に表示（pisionを開かず照合するため）──────
@@ -6789,110 +6914,6 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 except Exception:
                                     pass
 
-                            # ─ ④ 末尾・ジャグラー末尾画像（プレビュー済みはチェック済みのみ、未生成は直接生成）─
-                            def _gen_sue_imgs_on_fly(tails, mode, is_juggler=False, ban_out=None):
-                                _imgs = []
-                                try:
-                                    _raw_of = _read_uploaded_df(uploaded)
-                                    _df_of, _ = normalize_df(_raw_of)
-                                    _nm_of, _nm_norm_of = load_name_map()
-                                    if _nm_of:
-                                        _df_of, _ = _apply_map(_df_of, _nm_of, _nm_norm_of)
-                                    _circle_of = {"0":"⓪","1":"①","2":"②","3":"③","4":"④",
-                                                  "5":"⑤","6":"⑥","7":"⑦","8":"⑧","9":"⑨"}
-                                    if is_juggler:
-                                        _df_of["ゲーム数_rounded"] = _df_of["ゲーム数"].apply(round_games)
-                                        _df_of["合算確率_num"] = _df_of.apply(
-                                            lambda r: r["ゲーム数_rounded"] / (r["BB"] + r["RB"])
-                                                      if (r["BB"] + r["RB"]) > 0 else float("inf"), axis=1)
-                                        _jcfg_of = get_store_config(store)
-                                        _jug_ser_of = set(_jcfg_of["juggler_series"])
-                                        _jug_g_min_of = _jcfg_of["juggler_g_min"]
-                                        _jug_thresh_of = {m: (p, d) for m, p, d in _jcfg_of["juggler_jobs"]}
-                                    for _t in tails:
-                                        if _t == "ゾロ目":
-                                            _filt = _df_of[_df_of["台番"].apply(
-                                                lambda b: (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]
-                                            )].copy()
-                                            _circ = "ゾロ目"
-                                            _lbl_base = "末尾ゾロ目" if is_juggler else "末尾ゾロ目の台"
-                                        elif _t.isdigit() and len(_t) in (1, 2):
-                                            _filt = _df_of[_df_of["台番"].astype(str).str[-len(_t):] == _t].copy()
-                                            _circ = _circle_of.get(_t, _t)
-                                            _lbl_base = f"末尾{_circ}" if is_juggler else f"末尾{_circ}番台"
-                                        else:
-                                            continue
-                                        if _filt.empty:
-                                            continue
-                                        if is_juggler:
-                                            _filt = _filt[_filt["機種名"].isin(_jug_ser_of)].copy()
-                                            _filt = _filt[_filt["ゲーム数_rounded"] >= _jug_g_min_of].copy()
-                                            if _filt.empty:
-                                                continue
-                                            _jp_of  = mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）")
-                                            _jy_of  = mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
-                                            _jb_of  = mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
-                                            if _jp_of or _jy_of:
-                                                _jof_total = len(_filt); _jof_td = int(_filt["差枚"].sum()); _jof_ad = int(round(_filt["差枚"].mean())); _jof_wc = int((_filt["差枚"] > 0).sum())
-                                                if _jp_of:
-                                                    _filt = _filt[_filt["差枚"] > 0].copy()
-                                                    _title = f"ジャグラーの{_lbl_base}番台のプラス台"
-                                                else:
-                                                    # 優秀台: 確率フィルター + 差枚 > 0
-                                                    if not _filt.empty:
-                                                        _ps = _filt["機種名"].map(
-                                                            lambda m: _jug_thresh_of.get(m, (float("inf"), float("inf")))[0])
-                                                        _ds = _filt["機種名"].map(
-                                                            lambda m: _jug_thresh_of.get(m, (float("inf"), float("inf")))[1])
-                                                        _filt = _filt[((_filt["合算確率_num"] <= _ps) & (_filt["差枚"] >= 0)) |
-                                                                      (_filt["差枚"] >= _ds)].copy().reset_index(drop=True)
-                                                    _filt = _filt[_filt["差枚"] > 0].copy()
-                                                    _title = f"ジャグラーの{_lbl_base}番台の優秀台"
-                                                if _filt.empty:
-                                                    continue
-                                                _stat_of = {"total_diff": _jof_td, "avg_diff": _jof_ad, "win_count": _jof_wc, "total_count": _jof_total} if _jb_of else None
-                                            else:
-                                                # 全台: G数フィルターのみ（確率・差枚条件なし）
-                                                _title = f"ジャグラーの{_lbl_base}番台"
-                                                _stat_of = {"total_diff": int(_filt["差枚"].sum()),
-                                                            "avg_diff": int(round(_filt["差枚"].mean())),
-                                                            "win_count": int((_filt["差枚"] > 0).sum()),
-                                                            "total_count": len(_filt)}
-                                        else:
-                                            _p_of  = mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）", "プラス台")
-                                            _y_of  = mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
-                                            _1k_of = mode == "+1,000枚以上の優秀台"
-                                            _b_of  = mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
-                                            if _p_of or _y_of or _1k_of:
-                                                _of_total = len(_filt); _of_td = int(_filt["差枚"].sum()); _of_ad = int(round(_filt["差枚"].mean())); _of_wc = int((_filt["差枚"] > 0).sum())
-                                                if _p_of:
-                                                    _filt = _filt[_filt["差枚"] > 0].copy()
-                                                    _title = f"{_lbl_base}のプラス台"
-                                                elif _1k_of:
-                                                    _filt = _filt[_filt["差枚"] >= 1000].copy()
-                                                    _title = f"{_lbl_base}の優秀台"
-                                                else:
-                                                    _og_col = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _filt.columns), None)
-                                                    _ofm = (_filt["差枚"] >= 1000) | ((_filt[_og_col] >= 1800) & (_filt["差枚"] > 0)) if _og_col else (_filt["差枚"] >= 1000)
-                                                    _filt = _filt[_ofm].copy()
-                                                    _title = f"{_lbl_base}の優秀台"
-                                                if _filt.empty:
-                                                    continue
-                                                _stat_of = {"total_diff": _of_td, "avg_diff": _of_ad, "win_count": _of_wc, "total_count": _of_total} if _b_of else None
-                                            else:
-                                                _title = _lbl_base
-                                                _stat_of = {"total_diff": int(_filt["差枚"].sum()),
-                                                            "avg_diff": int(round(_filt["差枚"].mean())),
-                                                            "win_count": int((_filt["差枚"] > 0).sum()),
-                                                            "total_count": len(_filt)}
-                                        _fn_of = f"{_make_safe_fn(_title)}.jpg"
-                                        _imgs.append((_fn_of, _build_machine_img(_filt, _title, _stat_of)))
-                                        if ban_out is not None:
-                                            ban_out[_fn_of] = [int(b) for b in _filt["台番"].dropna()
-                                                               if str(b).split(".")[0].lstrip("-").isdigit()]
-                                except Exception:
-                                    pass
-                                return _imgs
 
                             _sue_prevs = st.session_state.get(f"sue_preview_{store}", [])
                             if _sue_prevs:
@@ -7513,9 +7534,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _kp_vbans = sorted(ranges_to_bans(parse_ranges(variety_ranges_text.strip())))
                                     except Exception:
                                         _kp_vbans = None
+                                # 並び画像ブロック（ラベル＝機種名部分・集計＝並び台）
+                                _kp_nblocks: list[tuple[str, list[int]]] = []
+                                for _fnk2, _bl2 in _manual_ban_map.items():
+                                    _stem2 = os.path.splitext(_fnk2)[0]
+                                    if "台並び" in _stem2:
+                                        _lbl2 = re.sub(r"[(（]\d+台並び[)）].*$", "", _stem2).strip()
+                                        _kp_nblocks.append((_lbl2, _bl2))
                                 st.session_state[f"_kabupa_prev_text_{store}"] = _build_kabupa_result_text(
                                     _kp_date, _kp_names, _df_m, _diff_m,
-                                    variety_bans=_kp_vbans, variety_title="バラエティ")
+                                    variety_bans=_kp_vbans, variety_title="バラエティ",
+                                    narabi_blocks=_kp_nblocks)
                         else:
                             st.warning("⚠️ 記入された項目がないか、該当台が見つかりませんでした。")
                     except Exception as _me:
@@ -8508,9 +8537,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _kp_vbans_e = sorted(ranges_to_bans(parse_ranges(variety_ranges_text.strip())))
                                 except Exception:
                                     _kp_vbans_e = None
+                            # 並び画像ブロック（ラベル＝機種名部分・集計＝並び台）
+                            _kp_nblocks_e: list[tuple[str, list[int]]] = []
+                            for _fnk2_e, _bl2_e in _m_exec_ban_map_e.items():
+                                _stem2_e = os.path.splitext(_fnk2_e)[0]
+                                if "台並び" in _stem2_e:
+                                    _lbl2_e = re.sub(r"[(（]\d+台並び[)）].*$", "", _stem2_e).strip()
+                                    _kp_nblocks_e.append((_lbl2_e, _bl2_e))
                             _m_report_text = _build_kabupa_result_text(
                                 _m_date, _kabupa_names, _df_exec_m, _diff_exec_m,
-                                variety_bans=_kp_vbans_e, variety_title="バラエティ")
+                                variety_bans=_kp_vbans_e, variety_title="バラエティ",
+                                narabi_blocks=_kp_nblocks_e)
                         else:
                             _m_report_text = generate_report_text(
                                 store_name=store, date=_m_date,
@@ -15445,6 +15482,60 @@ def _build_variety_panel_grid(
     return _canvas
 
 
+def _narabi_panel_names(bans: list, ban2mac: dict, ban2diff: dict) -> list[str]:
+    """並び画像に載せるパネルの機種名リストを返す。
+    1機種→その機種／2機種→台番昇順の2機種／3機種以上→差枚最大の機種のみ。"""
+    seq: list[str] = []          # 台番昇順の重複なし機種
+    best_m: str | None = None
+    best_d: int | None = None
+    for _b in sorted(bans, key=lambda x: int(x)):
+        _m = ban2mac.get(str(_b))
+        if not _m:
+            continue
+        if _m not in seq:
+            seq.append(_m)
+        _d = int(ban2diff.get(str(_b), 0))
+        if best_d is None or _d > best_d:
+            best_d = _d
+            best_m = _m
+    if not seq:
+        return []
+    if len(seq) == 1:
+        return [seq[0]]
+    if len(seq) == 2:
+        return seq
+    return [best_m] if best_m else []
+
+
+def _build_panel_row(machine_names: list[str], width: int) -> "Image.Image | None":
+    """機種名リストのパネルを横一列に並べた画像を返す（幅を等分）。
+    パネル未登録は飛ばす。1枚も無ければ None。"""
+    _panels: list["Image.Image"] = []
+    for _m in machine_names:
+        _info = get_machine_images(_m)
+        _prel = _info.get("panel") if _info else None
+        if not _prel:
+            continue
+        try:
+            _panels.append(Image.open(os.path.join(BASE_DIR, _prel)).convert("RGB"))
+        except Exception:
+            continue
+    if not _panels:
+        return None
+    _cell_w = max(1, width // len(_panels))
+    _resized = [
+        _p.resize((_cell_w, max(1, round(_p.height * _cell_w / _p.width))), Image.LANCZOS)
+        for _p in _panels
+    ]
+    _h = max(im.height for im in _resized)
+    _canvas = Image.new("RGB", (width, _h), (255, 255, 255))
+    _x = 0
+    for im in _resized:
+        _canvas.paste(im, (_x, 0))
+        _x += _cell_w
+    return _canvas
+
+
 def _composite_slump_onto_images(
     img_list: list[tuple[str, "Image.Image"]],
     ban_map: dict[str, list[int]],
@@ -15533,6 +15624,13 @@ def _composite_slump_onto_images(
                     _pgrid = _build_variety_panel_grid(_bans, ban2mac, ban2diff, _img.width)
                     if _pgrid is not None:
                         _img = _vstack_images(_pgrid, _img)
+                # 並び画像は 1機種→その機種／2機種→2枚横／3機種以上→差枚最大の機種 のパネルを上に
+                elif "台並び" in _bare:
+                    _pnames = _narabi_panel_names(_bans, ban2mac, ban2diff)
+                    if _pnames:
+                        _prow = _build_panel_row(_pnames, _img.width)
+                        if _prow is not None:
+                            _img = _vstack_images(_prow, _img)
         _g_imgs: list["Image.Image"] = []
         for _b in _bans:
             _it = _by_uid.get(str(_b))

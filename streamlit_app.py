@@ -3553,10 +3553,19 @@ def _format_diffs(diffs: list[int], wrap: int = 3) -> str:
     return "\n".join(lines)
 
 
+def _sue_result_label(stem: str) -> str:
+    """末尾画像ファイル名から結果テキスト用ラベルを作る。
+    モード接尾（の優秀台/のプラス台/の台）を除去し、丸数字を通常数字に変換。
+    例「末尾⑤番台の優秀台」→「末尾5番台」／「ジャグラーの末尾③番台」→「ジャグラーの末尾3番台」。"""
+    _lbl = re.sub(r"(の優秀台|のプラス台|の台)$", "", stem)
+    return _lbl.translate(str.maketrans("⓪①②③④⑤⑥⑦⑧⑨", "0123456789"))
+
+
 def _build_kabupa_result_text(date, machine_names: list[str], df, diff_raw,
                               variety_bans: list[int] | None = None,
                               variety_title: str = "バラエティ",
-                              narabi_blocks: list[tuple[str, list[int]]] | None = None) -> str:
+                              narabi_blocks: list[tuple[str, list[int]]] | None = None,
+                              sue_blocks: list[tuple[str, list[int]]] | None = None) -> str:
     """新宿歌舞伎町「かぶぱポストの結果」専用の結果テキストを生成する。
 
     machine_names: ②個別画像などで記入した機種名（呼び出し側で順序保持・重複除去）。
@@ -3608,6 +3617,25 @@ def _build_kabupa_result_text(date, machine_names: list[str], df, diff_raw,
             "🔑",
             "📈結果速報(21時時点)",
             f"🎖️{_nlabel}({_nwin}/{_ntotal}台)→平均{fmt_diff(_navg)}",
+        ]
+    # 末尾画像・ジャグラー末尾画像を作った場合は末尾ブロックを追加
+    for _slabel, _sbans in (sue_blocks or []):
+        _sb = {int(b) for b in _sbans}
+        _srows = df[df["台番"].apply(lambda b: int(b) in _sb)]
+        if _srows.empty:
+            continue
+        _sd = diff_raw.loc[_srows.index]
+        _stotal = len(_srows)
+        _swin = int((_sd > 0).sum())
+        _savg = int(round(_sd.mean()))
+        lines += [
+            "",
+            f"✅{_slabel}",
+            "🔑キーワード→ ",
+            "🔑",
+            "🔑",
+            "📈結果速報(21時時点)",
+            f"🎖️{_slabel}({_swin}/{_stotal}台)→平均{fmt_diff(_savg)}",
         ]
     # バラエティ画像を作った場合はバラエティブロックを追加
     if variety_bans:
@@ -5667,7 +5695,7 @@ def show_auto_page(with_slump: bool = False) -> None:
         except Exception:
             pass
     # ④ 末尾・ジャグラー末尾画像を生成する共通関数（全プレビュー/実行経路で使用）
-    def _gen_sue_imgs_on_fly(tails, mode, is_juggler=False, ban_out=None):
+    def _gen_sue_imgs_on_fly(tails, mode, is_juggler=False, ban_out=None, stat_out=None):
         _imgs = []
         try:
             _raw_of = _read_uploaded_df(uploaded)
@@ -5701,11 +5729,16 @@ def show_auto_page(with_slump: bool = False) -> None:
                     continue
                 if _filt.empty:
                     continue
+                # 集計用の全台（優秀/プラス絞り込み前・ピンクバー総台数と一致）
+                _stat_bans = [int(b) for b in _filt["台番"].dropna()
+                              if str(b).split(".")[0].lstrip("-").isdigit()]
                 if is_juggler:
                     _filt = _filt[_filt["機種名"].isin(_jug_ser_of)].copy()
                     _filt = _filt[_filt["ゲーム数_rounded"] >= _jug_g_min_of].copy()
                     if _filt.empty:
                         continue
+                    _stat_bans = [int(b) for b in _filt["台番"].dropna()
+                                  if str(b).split(".")[0].lstrip("-").isdigit()]
                     _jp_of  = mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）")
                     _jy_of  = mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
                     _jb_of  = mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
@@ -5767,6 +5800,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                 if ban_out is not None:
                     ban_out[_fn_of] = [int(b) for b in _filt["台番"].dropna()
                                        if str(b).split(".")[0].lstrip("-").isdigit()]
+                if stat_out is not None:
+                    stat_out[_fn_of] = _stat_bans
         except Exception:
             pass
         return _imgs
@@ -6142,7 +6177,11 @@ def show_auto_page(with_slump: bool = False) -> None:
             if _sue_tails_ui:
                 _sue_mode_opts = (["全台", "+1,000枚以上の優秀台", "プラス台"]
                                   if with_slump and store == "秋葉原"
-                                  else ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）", "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"])
+                                  else (["全台", "優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"]
+                                        if store == "新宿歌舞伎町"
+                                        else ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）", "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"]))
+                if st.session_state.get("suebangai_mode") not in _sue_mode_opts:
+                    st.session_state.pop("suebangai_mode", None)
                 _sue_mode = st.radio("モード", _sue_mode_opts, key="suebangai_mode",
                                      horizontal=True, on_change=_save_auto_inputs, args=(store,))
                 _sue_prev_key    = f"sue_preview_{store}"
@@ -6272,7 +6311,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                                       on_change=_save_auto_inputs, args=(store,))
             _jug_tails_ui = [t.strip() for t in [_jt1, _jt2, _jt3] if t.strip()]
             if _jug_tails_ui:
-                _jug_sue_mode = st.radio("モード（ジャグラー）", ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）", "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"], key="jug_sue_mode",
+                _jug_sue_mode_opts = (["全台", "優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"]
+                                      if store == "新宿歌舞伎町"
+                                      else ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）", "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"])
+                if st.session_state.get("jug_sue_mode") not in _jug_sue_mode_opts:
+                    st.session_state.pop("jug_sue_mode", None)
+                _jug_sue_mode = st.radio("モード（ジャグラー）", _jug_sue_mode_opts, key="jug_sue_mode",
                                          horizontal=True, on_change=_save_auto_inputs, args=(store,))
                 _jsue_prev_key    = f"jug_sue_preview_{store}"
                 _jsue_prev_rt_key = f"jug_sue_prev_tails_{store}"
@@ -7399,15 +7443,16 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _manual_ban_map[f"{_make_safe_fn(_file_tit_m)}.jpg"] = [int(b) for b in _ngrp["台番"].tolist()]
 
                         # ④ 末尾画像
+                        _kp_sue_stat: dict[str, list[int]] = {}
                         if st.session_state.get("suebangai_enabled", False):
                             _m_sue_tails = [t for _i in range(1, 4) if (t := st.session_state.get(f"suebangai_tail_input_{_i}", "").strip())]
                             _m_sue_mode = st.session_state.get("suebangai_mode", "全台")
-                            for _item in _gen_sue_imgs_on_fly(_m_sue_tails, _m_sue_mode, is_juggler=False, ban_out=_manual_ban_map):
+                            for _item in _gen_sue_imgs_on_fly(_m_sue_tails, _m_sue_mode, is_juggler=False, ban_out=_manual_ban_map, stat_out=_kp_sue_stat):
                                 _manual_imgs.append(_item)
                         if st.session_state.get("jug_sue_enabled", False):
                             _m_jug_tails = [t for _i in range(1, 4) if (t := st.session_state.get(f"jug_sue_tail_input_{_i}", "").strip())]
                             _m_jug_mode = st.session_state.get("jug_sue_mode", "全台")
-                            for _item in _gen_sue_imgs_on_fly(_m_jug_tails, _m_jug_mode, is_juggler=True, ban_out=_manual_ban_map):
+                            for _item in _gen_sue_imgs_on_fly(_m_jug_tails, _m_jug_mode, is_juggler=True, ban_out=_manual_ban_map, stat_out=_kp_sue_stat):
                                 _manual_imgs.append(_item)
 
                         # ⑤ オススメ機種ピックアップ
@@ -7541,10 +7586,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     if "台並び" in _stem2:
                                         _lbl2 = re.sub(r"[(（]\d+台並び[)）].*$", "", _stem2).strip()
                                         _kp_nblocks.append((_lbl2, _bl2))
+                                # 末尾画像ブロック（ラベル＝末尾N番台等・集計＝優秀絞り込み前の全台）
+                                _kp_sblocks = [(_sue_result_label(os.path.splitext(_sfnk)[0]), _sbl)
+                                               for _sfnk, _sbl in _kp_sue_stat.items()]
                                 st.session_state[f"_kabupa_prev_text_{store}"] = _build_kabupa_result_text(
                                     _kp_date, _kp_names, _df_m, _diff_m,
                                     variety_bans=_kp_vbans, variety_title="バラエティ",
-                                    narabi_blocks=_kp_nblocks)
+                                    narabi_blocks=_kp_nblocks, sue_blocks=_kp_sblocks)
                         else:
                             st.warning("⚠️ 記入された項目がないか、該当台が見つかりませんでした。")
                     except Exception as _me:
@@ -8325,11 +8373,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _m_nami.append({"title": _ntit_e, "count": _nstat_e["total_count"], "avg_diff": _nstat_e["avg_diff"], "machine": _mach_e, "ban_range": _br_e, "bans": _bls_e})
 
                     # ④ 末尾画像
+                    _kp_sue_stat_e: dict[str, list[int]] = {}
                     if st.session_state.get("suebangai_enabled", False):
                         _m_sue_tails_e = [t for _i in range(1, 4) if (t := st.session_state.get(f"suebangai_tail_input_{_i}", "").strip())]
                         _m_sue_mode_e = st.session_state.get("suebangai_mode", "全台")
                         _sue_bans_out_e: dict[str, list[int]] = {}
-                        for _ofn_e, _img_e in _gen_sue_imgs_on_fly(_m_sue_tails_e, _m_sue_mode_e, is_juggler=False, ban_out=_sue_bans_out_e):
+                        for _ofn_e, _img_e in _gen_sue_imgs_on_fly(_m_sue_tails_e, _m_sue_mode_e, is_juggler=False, ban_out=_sue_bans_out_e, stat_out=_kp_sue_stat_e):
                             _fn_e = _unique_fn_e(_ofn_e)
                             _sout_e = os.path.join(output_dir, _fn_e)
                             _save_jpeg(_img_e, _sout_e)
@@ -8340,7 +8389,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _m_jt_e = [t for _i in range(1, 4) if (t := st.session_state.get(f"jug_sue_tail_input_{_i}", "").strip())]
                         _m_jm_e = st.session_state.get("jug_sue_mode", "全台")
                         _jsue_bans_out_e: dict[str, list[int]] = {}
-                        for _ofn_e, _img_e in _gen_sue_imgs_on_fly(_m_jt_e, _m_jm_e, is_juggler=True, ban_out=_jsue_bans_out_e):
+                        for _ofn_e, _img_e in _gen_sue_imgs_on_fly(_m_jt_e, _m_jm_e, is_juggler=True, ban_out=_jsue_bans_out_e, stat_out=_kp_sue_stat_e):
                             _fn_e = _unique_fn_e(_ofn_e)
                             _sout_e = os.path.join(output_dir, _fn_e)
                             _save_jpeg(_img_e, _sout_e)
@@ -8544,10 +8593,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 if "台並び" in _stem2_e:
                                     _lbl2_e = re.sub(r"[(（]\d+台並び[)）].*$", "", _stem2_e).strip()
                                     _kp_nblocks_e.append((_lbl2_e, _bl2_e))
+                            # 末尾画像ブロック（ラベル＝末尾N番台等・集計＝優秀絞り込み前の全台）
+                            _kp_sblocks_e = [(_sue_result_label(os.path.splitext(_sfnk_e)[0]), _sbl_e)
+                                             for _sfnk_e, _sbl_e in _kp_sue_stat_e.items()]
                             _m_report_text = _build_kabupa_result_text(
                                 _m_date, _kabupa_names, _df_exec_m, _diff_exec_m,
                                 variety_bans=_kp_vbans_e, variety_title="バラエティ",
-                                narabi_blocks=_kp_nblocks_e)
+                                narabi_blocks=_kp_nblocks_e, sue_blocks=_kp_sblocks_e)
                         else:
                             _m_report_text = generate_report_text(
                                 store_name=store, date=_m_date,
@@ -15601,7 +15653,8 @@ def _composite_slump_onto_images(
             if store != "秋葉原":
                 _merged.append((_fn, _img))
             continue
-        _show_mn = (_bare in _sonota_names or _bare.startswith("末尾") or _bare.startswith("バラエティ"))
+        _is_sue = ("末尾" in _bare)  # 末尾⑤番台／ジャグラーの末尾③番台 等
+        _show_mn = (_bare in _sonota_names or _bare.startswith("末尾") or _bare.startswith("バラエティ") or _is_sue)
         _is_zentai = (not _bare.endswith("_高配分.jpg") and _bare not in _sonota_names)
         # 新宿歌舞伎町（かぶぱポストの結果）: 青タイトルバーを除去し、パネル＋表＋スランプにする
         # ※単一機種はパネル差し替え、パネル無し・並び・バラエティ等は青バーのみ除去（表＋スランプ）
@@ -15619,8 +15672,8 @@ def _composite_slump_onto_images(
                     _img = _img.crop((0, _bar_h, _img.width, _img.height))  # パネル無し→青バー除去
             else:
                 _img = _img.crop((0, _bar_h, _img.width, _img.height))       # 並び・バラエティ等→青バー除去
-                # バラエティ画像は上位4機種のパネルを2×2で表の上に結合
-                if _bare.startswith("バラエティ"):
+                # バラエティ・末尾画像は上位4機種のパネルを2×2で表の上に結合
+                if _bare.startswith("バラエティ") or _is_sue:
                     _pgrid = _build_variety_panel_grid(_bans, ban2mac, ban2diff, _img.width)
                     if _pgrid is not None:
                         _img = _vstack_images(_pgrid, _img)

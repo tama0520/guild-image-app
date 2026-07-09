@@ -3553,7 +3553,9 @@ def _format_diffs(diffs: list[int], wrap: int = 3) -> str:
     return "\n".join(lines)
 
 
-def _build_kabupa_result_text(date, machine_names: list[str], df, diff_raw) -> str:
+def _build_kabupa_result_text(date, machine_names: list[str], df, diff_raw,
+                              variety_bans: list[int] | None = None,
+                              variety_title: str = "バラエティ") -> str:
     """新宿歌舞伎町「かぶぱポストの結果」専用の結果テキストを生成する。
 
     machine_names: ②個別画像などで記入した機種名（呼び出し側で順序保持・重複除去）。
@@ -3587,6 +3589,24 @@ def _build_kabupa_result_text(date, machine_names: list[str], df, diff_raw) -> s
             "📈結果速報(21時時点)",
             f"🎖️{name}({win}/{total}台)→平均{fmt_diff(avg)}",
         ]
+    # バラエティ画像を作った場合はバラエティブロックを追加
+    if variety_bans:
+        _vb = {int(b) for b in variety_bans}
+        _vrows = df[df["台番"].apply(lambda b: int(b) in _vb)]
+        if not _vrows.empty:
+            _vd = diff_raw.loc[_vrows.index]
+            _vtotal = len(_vrows)
+            _vwin = int((_vd > 0).sum())
+            _vavg = int(round(_vd.mean()))
+            lines += [
+                "",
+                f"✅{variety_title}",
+                "🔑キーワード→ ",
+                "🔑",
+                "🔑",
+                "📈結果速報(21時時点)",
+                f"🎖️{variety_title}({_vwin}/{_vtotal}台)→平均{fmt_diff(_vavg)}",
+            ]
     lines += [
         "",
         "📝上記以外にも仕掛けが大量にありそう🤔",
@@ -5760,26 +5780,33 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _kc.append(_v)
             _kojin_candidates = _kc
         st.caption("指定した機種の個別画像を生成します。ここに入力した機種はその他の優秀台ピックアップから除外されます。")
-        col_kz, col_ky = st.columns(2, gap="large")
+        # 新宿歌舞伎町（かぶぱ）は 左=優秀台6個・右=全台3個。それ以外は 左=全台12・右=優秀台
+        _is_kabupa = (store == "新宿歌舞伎町")
+        _kz_count = 3 if _is_kabupa else 12
+        _akihab_slump = with_slump and store == "秋葉原"
+        _ky_count = 6 if _is_kabupa else (21 if _akihab_slump else 12)
+        _cols_k = st.columns(2, gap="large")
+        if _is_kabupa:
+            col_ky, col_kz = _cols_k
+        else:
+            col_kz, col_ky = _cols_k
         with col_kz:
             st.markdown("**全台**")
-            _kz_rows = [st.columns(3) for _ in range(4)]
-            for _i, _col in enumerate([c for row in _kz_rows for c in row]):
+            _kz_rows = [st.columns(3) for _ in range((_kz_count + 2) // 3)]
+            for _i, _col in enumerate([c for row in _kz_rows for c in row][:_kz_count]):
                 with _col:
                     render_machine_autocomplete_input(str(_i + 1), f"kojin_z_{_i}_{store}", _kojin_candidates,
                                                       on_change=_save_auto_inputs, on_change_args=(store,))
-            kojin_zentai_machines = [st.session_state.get(f"kojin_z_{_i}_{store}", "") for _i in range(12)]
+            kojin_zentai_machines = [st.session_state.get(f"kojin_z_{_i}_{store}", "") for _i in range(_kz_count)]
         with col_ky:
             st.markdown("**優秀台**")
-            _akihab_slump = with_slump and store == "秋葉原"
-            _ky_count = 21 if _akihab_slump else 12
-            _ky_rows = [st.columns(3) for _ in range(_ky_count // 3)]
-            for _i, _col in enumerate([c for row in _ky_rows for c in row]):
+            _ky_rows = [st.columns(3) for _ in range((_ky_count + 2) // 3)]
+            for _i, _col in enumerate([c for row in _ky_rows for c in row][:_ky_count]):
                 with _col:
                     render_machine_autocomplete_input(str(_i + 1), f"kojin_y_{_i}_{store}", _kojin_candidates,
                                                       on_change=_save_auto_inputs, on_change_args=(store,))
             kojin_yushu_machines = [st.session_state.get(f"kojin_y_{_i}_{store}", "") for _i in range(_ky_count)]
-        if not (with_slump and store == "秋葉原") and store != "溝の口新館":
+        if not (with_slump and store == "秋葉原") and store != "溝の口新館" and store != "新宿歌舞伎町":
             st.markdown("**並び台番範囲 優秀台**")
             _col_nr, _col_nt = st.columns([2, 3])
             with _col_nr:
@@ -5815,26 +5842,27 @@ def show_auto_page(with_slump: bool = False) -> None:
         kojin_narabi_title        = st.session_state.get(f"kojin_narabi_title_{store}", "")
         kojin_narabi2_ranges_text = st.session_state.get(f"kojin_narabi2_range_{store}", "")
         kojin_narabi2_title       = st.session_state.get(f"kojin_narabi2_title_{store}", "")
-        # 個別機種の優秀台ピックアップ（全店舗・その他の優秀台ピックアップの上）
-        st.markdown("**個別機種の優秀台ピックアップ**")
-        st.caption("タイトルと台番を指定した機種は、貼った台番だけの画像を作り、自動高配分画像は生成しません。")
-        for _pi in range(_KOJIN_PICK_COUNT):
-            _col_pt, _col_pb = st.columns([2, 3])
-            with _col_pt:
-                st.text_input(
-                    "タイトル",
-                    key=f"kojin_pick_title_{_pi}_{store}",
-                    placeholder="例: マイジャグV",
-                    on_change=_save_auto_inputs, args=(store,),
-                )
-            with _col_pb:
-                st.text_area(
-                    "台番テキスト（台番を含むテキストをそのまま貼り付け）",
-                    key=f"kojin_pick_bans_{_pi}_{store}",
-                    height=68,
-                    on_change=_save_auto_inputs, args=(store,),
-                )
-        if True:  # その他の優秀台ピックアップ（全店舗）
+        # 個別機種の優秀台ピックアップ（新宿歌舞伎町=かぶぱは非表示）
+        if store != "新宿歌舞伎町":
+            st.markdown("**個別機種の優秀台ピックアップ**")
+            st.caption("タイトルと台番を指定した機種は、貼った台番だけの画像を作り、自動高配分画像は生成しません。")
+            for _pi in range(_KOJIN_PICK_COUNT):
+                _col_pt, _col_pb = st.columns([2, 3])
+                with _col_pt:
+                    st.text_input(
+                        "タイトル",
+                        key=f"kojin_pick_title_{_pi}_{store}",
+                        placeholder="例: マイジャグV",
+                        on_change=_save_auto_inputs, args=(store,),
+                    )
+                with _col_pb:
+                    st.text_area(
+                        "台番テキスト（台番を含むテキストをそのまま貼り付け）",
+                        key=f"kojin_pick_bans_{_pi}_{store}",
+                        height=68,
+                        on_change=_save_auto_inputs, args=(store,),
+                    )
+        if store != "新宿歌舞伎町":  # その他の優秀台ピックアップ（かぶぱは非表示）
             st.markdown("**その他の優秀台ピックアップ**")
             _col_set, _col_seb = st.columns([2, 3])
             with _col_set:
@@ -7477,8 +7505,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _mn = _mn.strip()
                                     if _mn and _mn not in _kp_names:
                                         _kp_names.append(_mn)
+                                # バラエティ画像を作った場合、記入した台番範囲の全台で集計（フィルタ後ではない）
+                                _kp_vbans = None
+                                if (any(_fnk.startswith("バラエティ") for _fnk in _manual_ban_map)
+                                        and variety_enabled and variety_ranges_text.strip()):
+                                    try:
+                                        _kp_vbans = sorted(ranges_to_bans(parse_ranges(variety_ranges_text.strip())))
+                                    except Exception:
+                                        _kp_vbans = None
                                 st.session_state[f"_kabupa_prev_text_{store}"] = _build_kabupa_result_text(
-                                    _kp_date, _kp_names, _df_m, _diff_m)
+                                    _kp_date, _kp_names, _df_m, _diff_m,
+                                    variety_bans=_kp_vbans, variety_title="バラエティ")
                         else:
                             st.warning("⚠️ 記入された項目がないか、該当台が見つかりませんでした。")
                     except Exception as _me:
@@ -8463,8 +8500,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _mn = _mn.strip()
                                 if _mn and _mn not in _kabupa_names:
                                     _kabupa_names.append(_mn)
+                            # バラエティ画像を作った場合、記入した台番範囲の全台で集計（フィルタ後ではない）
+                            _kp_vbans_e = None
+                            if (any(_fnk_e.startswith("バラエティ") for _fnk_e in _m_exec_ban_map_e)
+                                    and variety_enabled and variety_ranges_text.strip()):
+                                try:
+                                    _kp_vbans_e = sorted(ranges_to_bans(parse_ranges(variety_ranges_text.strip())))
+                                except Exception:
+                                    _kp_vbans_e = None
                             _m_report_text = _build_kabupa_result_text(
-                                _m_date, _kabupa_names, _df_exec_m, _diff_exec_m)
+                                _m_date, _kabupa_names, _df_exec_m, _diff_exec_m,
+                                variety_bans=_kp_vbans_e, variety_title="バラエティ")
                         else:
                             _m_report_text = generate_report_text(
                                 store_name=store, date=_m_date,
@@ -15335,6 +15381,70 @@ def _insert_panel_into_machine_img(
     return canvas, True
 
 
+def _vstack_images(top: "Image.Image", bottom: "Image.Image") -> "Image.Image":
+    """2枚の画像を縦に結合（幅は広い方に合わせ、左寄せ・余白は白）。"""
+    w = max(top.width, bottom.width)
+    canvas = Image.new("RGB", (w, top.height + bottom.height), (255, 255, 255))
+    canvas.paste(top, (0, 0))
+    canvas.paste(bottom, (0, top.height))
+    return canvas
+
+
+def _build_variety_panel_grid(
+    bans: list, ban2mac: dict, ban2diff: dict, width: int
+) -> "Image.Image | None":
+    """バラエティ画像用: 優秀台の中から差枚上位4機種のパネルを 2×2（台番昇順・上2下2）で結合。
+    パネル未登録機種は飛ばして次点を繰り上げ、4機種未満・パネル不足時はある分だけ詰める。
+    パネルが1枚も取れなければ None。"""
+    # 機種ごとに最高差枚とその台番を集計
+    best: dict[str, tuple[int, int]] = {}
+    for _b in bans:
+        _m = ban2mac.get(str(_b))
+        if not _m:
+            continue
+        _d = int(ban2diff.get(str(_b), 0))
+        if _m not in best or _d > best[_m][0]:
+            best[_m] = (_d, int(_b))
+    if not best:
+        return None
+    # 差枚降順に並べ、パネル登録ありの機種を最大4つ選ぶ
+    _ranked = sorted(best.items(), key=lambda kv: kv[1][0], reverse=True)
+    _chosen: list[tuple[int, "Image.Image"]] = []  # (代表台番, パネル画像)
+    for _m, (_d, _ban) in _ranked:
+        _info = get_machine_images(_m)
+        _prel = _info.get("panel") if _info else None
+        if not _prel:
+            continue
+        try:
+            _pan = Image.open(os.path.join(BASE_DIR, _prel)).convert("RGB")
+        except Exception:
+            continue
+        _chosen.append((_ban, _pan))
+        if len(_chosen) >= 4:
+            break
+    if not _chosen:
+        return None
+    # 台番昇順に並べ替え（上2下2）
+    _chosen.sort(key=lambda x: x[0])
+    _cell_w = max(1, width // 2)
+    _resized = [
+        _p.resize((_cell_w, max(1, round(_p.height * _cell_w / _p.width))), Image.LANCZOS)
+        for _, _p in _chosen
+    ]
+    _rows = [_resized[i:i + 2] for i in range(0, len(_resized), 2)]
+    _canvas_h = sum(max(im.height for im in row) for row in _rows)
+    _canvas = Image.new("RGB", (width, _canvas_h), (255, 255, 255))
+    _y = 0
+    for _row in _rows:
+        _rh = max(im.height for im in _row)
+        _x = 0
+        for im in _row:
+            _canvas.paste(im, (_x, _y))
+            _x += _cell_w
+        _y += _rh
+    return _canvas
+
+
 def _composite_slump_onto_images(
     img_list: list[tuple[str, "Image.Image"]],
     ban_map: dict[str, list[int]],
@@ -15418,6 +15528,11 @@ def _composite_slump_onto_images(
                     _img = _img.crop((0, _bar_h, _img.width, _img.height))  # パネル無し→青バー除去
             else:
                 _img = _img.crop((0, _bar_h, _img.width, _img.height))       # 並び・バラエティ等→青バー除去
+                # バラエティ画像は上位4機種のパネルを2×2で表の上に結合
+                if _bare.startswith("バラエティ"):
+                    _pgrid = _build_variety_panel_grid(_bans, ban2mac, ban2diff, _img.width)
+                    if _pgrid is not None:
+                        _img = _vstack_images(_pgrid, _img)
         _g_imgs: list["Image.Image"] = []
         for _b in _bans:
             _it = _by_uid.get(str(_b))

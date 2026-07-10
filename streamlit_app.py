@@ -7628,12 +7628,15 @@ def show_auto_page(with_slump: bool = False) -> None:
                             st.image(_pimg, caption=_ptitle, use_container_width=True)
                             if store == "新宿歌舞伎町":
                                 _gap_meta = st.session_state.get(f"_gap_meta_{store}", {})
-                                _match_fn = None
-                                for _mfn in _gap_meta:
-                                    if os.path.splitext(re.sub(r"^\d{2}_", "", _mfn))[0] == _ptitle \
-                                       or os.path.splitext(_mfn)[0] == _ptitle:
-                                        _match_fn = _mfn
-                                        break
+                                # _auto_previews の要素は (ファイル名, 画像)。_gap_meta も同じファイル名キー。
+                                _match_fn = _ptitle if _ptitle in _gap_meta else None
+                                if _match_fn is None:
+                                    # 接頭辞(NN_)の有無ゆらぎに対応
+                                    _pt_bare = re.sub(r"^\d{2}_", "", _ptitle)
+                                    for _mfn in _gap_meta:
+                                        if re.sub(r"^\d{2}_", "", _mfn) == _pt_bare:
+                                            _match_fn = _mfn
+                                            break
                                 _meta = _gap_meta.get(_match_fn) if _match_fn else None
                                 if _meta and _meta.get("screens"):
                                     _scr = _meta["screens"]
@@ -16127,8 +16130,11 @@ def _attach_slump_to_table_side(
         gap_y0 = PAD + (rows - 1) * (row_h + GAP)
         box_h  = row_h
         if box_w > 0 and box_h > 0:
-            fitted, ox, oy = _fit_center_in_box(gap_screen_img, box_w, box_h)
-            canvas.paste(fitted, (gap_x0 + ox, gap_y0 + oy))
+            _sw = max(1, int(box_w * _GAP_SCREEN_SHRINK))
+            _sh = max(1, int(box_h * _GAP_SCREEN_SHRINK))
+            fitted, ox, oy = _fit_center_in_box(gap_screen_img, _sw, _sh)
+            canvas.paste(fitted, (gap_x0 + (box_w - _sw) // 2 + ox,
+                                  gap_y0 + (box_h - _sh) // 2 + oy))
 
     return canvas
 
@@ -16229,6 +16235,10 @@ def _find_slump_bg() -> "object | None":
         if c.exists():
             return c
     return None
+
+
+# 空きコマにはめ込む液晶の縮小率（1.0=空き領域いっぱい。気持ち小さく見せるため 0.9）
+_GAP_SCREEN_SHRINK = 0.9
 
 
 def _fit_center_in_box(img: "Image.Image", box_w: int, box_h: int) -> tuple["Image.Image", int, int]:
@@ -16351,8 +16361,11 @@ def _attach_slump_to_table(
         gap_y0 = th + PAD + (rows - 1) * (row_h + GAP)
         box_h  = row_h
         if box_w > 0 and box_h > 0:
-            fitted, ox, oy = _fit_center_in_box(gap_screen_img, box_w, box_h)
-            canvas.paste(fitted, (gap_x0 + ox, gap_y0 + oy))
+            _sw = max(1, int(box_w * _GAP_SCREEN_SHRINK))
+            _sh = max(1, int(box_h * _GAP_SCREEN_SHRINK))
+            fitted, ox, oy = _fit_center_in_box(gap_screen_img, _sw, _sh)
+            canvas.paste(fitted, (gap_x0 + (box_w - _sw) // 2 + ox,
+                                  gap_y0 + (box_h - _sh) // 2 + oy))
 
     return canvas
 

@@ -99,6 +99,23 @@ def test_attach_side_skips_when_empty1():
     assert not found, "side: empty=1 なのに液晶がはめ込まれた"
 
 
+def test_gap_fillable_3col():
+    # 3列: 空き2以上のみ True
+    assert app._gap_fillable(4, 3) is True   # empty=2
+    assert app._gap_fillable(7, 3) is True   # empty=2
+    assert app._gap_fillable(5, 3) is False  # empty=1
+    assert app._gap_fillable(6, 3) is False  # empty=0
+    assert app._gap_fillable(0, 3) is False
+
+
+def test_gap_fillable_4col():
+    # 4列: 空き2以上のみ True
+    assert app._gap_fillable(5, 4) is True   # empty=3
+    assert app._gap_fillable(6, 4) is True   # empty=2
+    assert app._gap_fillable(7, 4) is False  # empty=1
+    assert app._gap_fillable(8, 4) is False  # empty=0
+
+
 def test_resolve_gap_screen_minus1_is_none():
     assert app._resolve_gap_screen(["dummy.png"], -1) is None
 
@@ -135,3 +152,6 @@ if __name__ == "__main__":
     test_resolve_gap_screen_empty_is_none()
     test_resolve_gap_screen_loads()
     print("OK: test_resolve")
+    test_gap_fillable_3col()
+    test_gap_fillable_4col()
+    print("OK: test_fillable")

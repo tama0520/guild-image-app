@@ -7323,12 +7323,15 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         else:
                                             if _is_gap_pv:
                                                 _gap_base_pv[_fn_pv] = {"table": _img_pv, "graphs": list(_g_imgs_pv), "side": False}
+                                                if _fn_pv in _gap_meta_pv:
+                                                    _gap_meta_pv[_fn_pv]["fillable"] = _gap_fillable(len(_g_imgs_pv), 3)
                                             _merged_pv.append((_fn_pv, _attach_slump_to_table(_img_pv, _g_imgs_pv, _ig_bbb_pv, _gap_img_pv)))
                                         if len(_g_imgs_pv) >= 16 and store != "秋葉原":
                                             try:
                                                 _side_fn_pv = os.path.splitext(_fn_pv)[0] + "_side.jpg"
                                                 if _is_gap_pv:
-                                                    _gap_meta_pv[_side_fn_pv] = _gap_meta_pv.get(_fn_pv, {})
+                                                    _gap_meta_pv[_side_fn_pv] = {**_gap_meta_pv.get(_fn_pv, {}),
+                                                                                "fillable": _gap_fillable(len(_g_imgs_pv), 4)}
                                                     _gap_base_pv[_side_fn_pv] = {"table": _img_pv, "graphs": list(_g_imgs_pv), "side": True}
                                                 _merged_pv.append((_side_fn_pv, _attach_slump_to_table_side(_img_pv, _g_imgs_pv, _ig_bbb_pv, _gap_img_pv)))
                                             except Exception:
@@ -7653,7 +7656,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             _match_fn = _mfn
                                             break
                                 _meta = _gap_meta.get(_match_fn) if _match_fn else None
-                                if _meta and _meta.get("screens"):
+                                if _meta and _meta.get("screens") and _meta.get("fillable"):
                                     _scr = _meta["screens"]
                                     _sel_key = f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _match_fn)}"
                                     _cur = st.session_state.get(_sel_key, 0)
@@ -7691,7 +7694,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                         break
                                                 st.session_state[_aprev_key] = _auto_cur
                                             st.rerun()
-                                elif _match_fn is not None and _meta is not None and not _meta.get("screens"):
+                                elif (_match_fn is not None and _meta is not None
+                                      and _meta.get("fillable") and not _meta.get("screens")):
                                     st.caption(f"🖼️液晶: 「{_meta.get('machine') or '?'}」は機種画像紐づけに液晶が未登録です")
             # 新宿歌舞伎町（かぶぱポストの結果）：画像の下に結果テキストをコピー可能な形で表示
             _kabupa_prev_text = st.session_state.get(f"_kabupa_prev_text_{store}")
@@ -15836,7 +15840,8 @@ def _composite_slump_onto_images(
         else:
             if store in _GAP_FILL_STORES:
                 _gm_m, _gp_m = _gap_screen_paths_for_bans(_bans, ban2diff, ban2mac)
-                _gap_meta_out[_fn] = {"machine": _gm_m, "screens": _gp_m}
+                _gap_meta_out[_fn] = {"machine": _gm_m, "screens": _gp_m,
+                                      "fillable": _gap_fillable(len(_g_imgs), 3)}
                 _gap_base_out[_fn] = {"table": _img, "graphs": list(_g_imgs), "side": False}
                 _gsel_m = st.session_state.get(f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _fn)}", 0)
                 _gap_img_m = _resolve_gap_screen(_gp_m, _gsel_m)
@@ -15848,7 +15853,8 @@ def _composite_slump_onto_images(
                 _side_fn = os.path.splitext(_fn)[0] + "_side.jpg"
                 if store in _GAP_FILL_STORES:
                     # _side.jpg も独立したメタ・選択キーを持たせる（⑦セレクタ表示用）
-                    _gap_meta_out[_side_fn] = {"machine": _gm_m, "screens": _gp_m}
+                    _gap_meta_out[_side_fn] = {"machine": _gm_m, "screens": _gp_m,
+                                              "fillable": _gap_fillable(len(_g_imgs), 4)}
                     _gap_base_out[_side_fn] = {"table": _img, "graphs": list(_g_imgs), "side": True}
                     _gsel_side = st.session_state.get(f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _side_fn)}", 0)
                     _gap_img_side = _resolve_gap_screen(_gp_m, _gsel_side)
@@ -16342,6 +16348,14 @@ def _featured_machine_for_bans(bans: list, ban2diff: dict, ban2mac: dict) -> "st
         if best_diff is None or d > best_diff:
             best_diff, best_ban, best_mac = d, b, m
     return best_mac if best_mac is not None else macs[0][1]
+
+
+def _gap_fillable(n: int, cols: int) -> bool:
+    """グラフ n 枚を cols 列で並べたとき、最終行の空きが2以上か（液晶をはめ込めるか）。"""
+    if n <= 0:
+        return False
+    rows = math.ceil(n / cols)
+    return (cols * rows - n) >= 2
 
 
 def _gap_screen_paths_for_bans(bans: list, ban2diff: dict, ban2mac: dict) -> "tuple[str | None, list[str]]":

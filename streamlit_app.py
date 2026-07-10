@@ -5171,6 +5171,17 @@ def _build_pision_detail_html(name: str, df: pd.DataFrame) -> str:
 '''
 
 
+def _render_pision_summary_table(rows: list) -> None:
+    """台別サマリーを通常テーブル(st.dataframe)で表示する。
+    Cloud本番で components.html(iframe) がページ再描画時に NotFoundError:removeChild を
+    誘発するため、インタラクティブ表(_build_pision_interactive_html)の代わりに使う。"""
+    if not rows:
+        return
+    _cols = ["機種名", "台数", "勝台数", "総差枚", "平均差枚", "平均G数"]
+    _sdf = pd.DataFrame([list(r)[:6] for r in rows], columns=_cols)
+    st.dataframe(_sdf, use_container_width=True, hide_index=True)
+
+
 def _build_pision_interactive_html(title: str, summary: "dict | None", rows: list,
                                     units_df, single_names=None) -> str:
     """機種名クリックで台別詳細を右パネルに表示する自己完結型HTMLを返す。
@@ -5371,11 +5382,7 @@ def render_pision_data_view(vt_df: pd.DataFrame, title: str, sel_key: str) -> No
             _rows.append(("バラエティ", _vn, _vw, _vtd, _vad, _vg))
         st.caption("📋 pisionの代わりに照合用（2台以上を平均差枚順・1台機種はバラエティに集約／数値はpisionの生データと一致）")
         _snames = set(_single["機種名"].tolist()) if not _single.empty else None
-        _comp_h = max(480, min(820, len(_rows) * 42 + 350))
-        components.html(
-            _build_pision_interactive_html(title, _meta, _rows, _units_df, _snames),
-            height=_comp_h, scrolling=True,
-        )
+        _render_pision_summary_table(_rows)
     if not _disp.empty:
         with st.expander(f"📋 台別データ（全{len(_disp)}台）", expanded=False):
             st.dataframe(_disp, use_container_width=True, hide_index=True, height=520)
@@ -5901,11 +5908,7 @@ def show_auto_page(with_slump: bool = False) -> None:
             st.caption("📋 pisionの代わりに照合用（2台以上を平均差枚順・1台機種はバラエティに集約／数値はpisionの生データと一致）")
             _units_df = st.session_state.get(_vt_units_key)
             _snames = set(_single["機種名"].tolist()) if not _single.empty else None
-            _comp_h = max(480, min(820, len(_rows) * 42 + 350))
-            components.html(
-                _build_pision_interactive_html(_title, _meta, _rows, _units_df, _snames),
-                height=_comp_h, scrolling=True,
-            )
+            _render_pision_summary_table(_rows)
         if _view_df is not None and not _view_df.empty:
             with st.expander(f"📋 台別データ（全{len(_view_df)}台）", expanded=False):
                 st.dataframe(_view_df, use_container_width=True, hide_index=True, height=520)
@@ -10635,11 +10638,7 @@ def show_auto_article_page() -> None:
             st.caption("📋 pisionの代わりに照合用（2台以上を平均差枚順・1台機種はバラエティに集約／数値はpisionの生データと一致）")
             _art_units_df = st.session_state.get(_art_vt_units_key)
             _art_snames   = set(_art_single["機種名"].tolist()) if not _art_single.empty else None
-            _art_comp_h   = max(480, min(820, len(_art_rows) * 42 + 350))
-            components.html(
-                _build_pision_interactive_html(_art_title, _art_meta_v, _art_rows, _art_units_df, _art_snames),
-                height=_art_comp_h, scrolling=True,
-            )
+            _render_pision_summary_table(_art_rows)
         if _art_view_df is not None and not _art_view_df.empty:
             with st.expander(f"📋 台別データ（全{len(_art_view_df)}台）", expanded=False):
                 st.dataframe(_art_view_df, use_container_width=True, hide_index=True, height=520)
@@ -13867,11 +13866,7 @@ def show_rote_page() -> None:
                             _rv_ucols = [c for c in ["台番", "機種名", "差枚", "BB", "RB", "AT", "ゲーム数"] if c in _rv_df.columns]
                             _rv_units = _rv_df[_rv_ucols].copy() if _rv_ucols else None
                             _rv_snames = set(_rv_single["機種名"].tolist()) if not _rv_single.empty else None
-                            _rv_h = max(300, min(700, len(_rv_rows) * 42 + 180))
-                            components.html(
-                                _build_pision_interactive_html(_rv_title, None, _rv_rows, _rv_units, _rv_snames),
-                                height=_rv_h, scrolling=True,
-                            )
+                            _render_pision_summary_table(_rv_rows)
                     except Exception:
                         pass
                 elif not _rote_is_collecting:

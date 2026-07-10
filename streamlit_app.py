@@ -7663,7 +7663,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             return "はめ込まない" if _i == -1 else f"液晶{_i + 1}"
                                         _new = st.radio(
                                             "液晶", _opts, index=_opts.index(_cur) if _cur in _opts else 0,
-                                            format_func=_fmt, key=f"radio_{_sel_key}",
+                                            format_func=_fmt, key=f"radio_{_sel_key}_{_ci}",
                                             horizontal=True, label_visibility="collapsed",
                                         )
                                         _thumb_cols = st.columns(max(1, len(_scr)))

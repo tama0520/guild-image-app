@@ -7626,6 +7626,38 @@ def show_auto_page(with_slump: bool = False) -> None:
                             st.checkbox("", key=_ck_key, label_visibility="collapsed")
                         with _sub_img:
                             st.image(_pimg, caption=_ptitle, use_container_width=True)
+                            if store == "新宿歌舞伎町":
+                                _gap_meta = st.session_state.get(f"_gap_meta_{store}", {})
+                                _match_fn = None
+                                for _mfn in _gap_meta:
+                                    if os.path.splitext(re.sub(r"^\d{2}_", "", _mfn))[0] == _ptitle \
+                                       or os.path.splitext(_mfn)[0] == _ptitle:
+                                        _match_fn = _mfn
+                                        break
+                                _meta = _gap_meta.get(_match_fn) if _match_fn else None
+                                if _meta and _meta.get("screens"):
+                                    _scr = _meta["screens"]
+                                    _sel_key = f"_gap_sel_{store}_{_match_fn}"
+                                    _cur = st.session_state.get(_sel_key, 0)
+                                    with st.expander(f"🖼️ 液晶画像を選ぶ（{_meta.get('machine') or ''}）"):
+                                        _opts = list(range(len(_scr))) + [-1]
+                                        def _fmt(_i):
+                                            return "はめ込まない" if _i == -1 else f"液晶{_i + 1}"
+                                        _new = st.radio(
+                                            "液晶", _opts, index=_opts.index(_cur) if _cur in _opts else 0,
+                                            format_func=_fmt, key=f"radio_{_sel_key}",
+                                            horizontal=True, label_visibility="collapsed",
+                                        )
+                                        _thumb_cols = st.columns(max(1, len(_scr)))
+                                        for _si, _sp in enumerate(_scr):
+                                            with _thumb_cols[_si]:
+                                                try:
+                                                    st.image(_sp, caption=f"液晶{_si + 1}", width=120)
+                                                except Exception:
+                                                    st.caption(f"液晶{_si + 1}（読込失敗）")
+                                        if _new != _cur:
+                                            st.session_state[_sel_key] = _new
+                                            st.rerun()
             # 新宿歌舞伎町（かぶぱポストの結果）：画像の下に結果テキストをコピー可能な形で表示
             _kabupa_prev_text = st.session_state.get(f"_kabupa_prev_text_{store}")
             if store == "新宿歌舞伎町" and _kabupa_prev_text:

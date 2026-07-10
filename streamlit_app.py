@@ -16183,6 +16183,26 @@ def _featured_machine_for_bans(bans: list, ban2diff: dict, ban2mac: dict) -> "st
     return best_mac if best_mac is not None else macs[0][1]
 
 
+def _gap_screen_paths_for_bans(bans: list, ban2diff: dict, ban2mac: dict) -> "tuple[str | None, list[str]]":
+    """対象機種名と、その液晶パス一覧を返す。未登録なら ([...] は空)。"""
+    mac = _featured_machine_for_bans(bans, ban2diff, ban2mac)
+    if not mac:
+        return None, []
+    info = get_machine_images(mac)
+    screens = list(info.get("screens") or []) if info else []
+    return mac, screens
+
+
+def _resolve_gap_screen(screen_paths: list, sel_idx: int) -> "Image.Image | None":
+    """選択 index の液晶画像を開いて返す。-1・範囲外・空なら None。"""
+    if not screen_paths or sel_idx is None or sel_idx < 0 or sel_idx >= len(screen_paths):
+        return None
+    try:
+        return Image.open(str(screen_paths[sel_idx])).convert("RGB")
+    except Exception:
+        return None
+
+
 def _attach_slump_to_table(
     table_img: "Image.Image",
     graph_imgs: "list[Image.Image]",

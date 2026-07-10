@@ -99,6 +99,23 @@ def test_attach_side_skips_when_empty1():
     assert not found, "side: empty=1 なのに液晶がはめ込まれた"
 
 
+def test_resolve_gap_screen_minus1_is_none():
+    assert app._resolve_gap_screen(["dummy.png"], -1) is None
+
+
+def test_resolve_gap_screen_empty_is_none():
+    assert app._resolve_gap_screen([], 0) is None
+
+
+def test_resolve_gap_screen_loads(tmp_path=None):
+    import tempfile, os as _os
+    d = tempfile.mkdtemp()
+    p = _os.path.join(d, "s.png")
+    Image.new("RGB", (40, 20), (1, 2, 3)).save(p)
+    img = app._resolve_gap_screen([p], 0)
+    assert img is not None and img.size == (40, 20)
+
+
 if __name__ == "__main__":
     test_fit_center_landscape_in_wide_box()
     test_fit_center_tall_in_wide_box()
@@ -114,3 +131,7 @@ if __name__ == "__main__":
     test_attach_side_fills_when_empty3()
     test_attach_side_skips_when_empty1()
     print("OK: test_attach_side")
+    test_resolve_gap_screen_minus1_is_none()
+    test_resolve_gap_screen_empty_is_none()
+    test_resolve_gap_screen_loads()
+    print("OK: test_resolve")

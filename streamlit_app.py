@@ -7663,6 +7663,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         if _new != _cur:
                                             st.session_state[_sel_key] = _new
                                             st.rerun()
+                                elif _match_fn is not None and _meta is not None and not _meta.get("screens"):
+                                    st.caption(f"🖼️液晶: 「{_meta.get('machine') or '?'}」は機種画像紐づけに液晶が未登録です")
             # 新宿歌舞伎町（かぶぱポストの結果）：画像の下に結果テキストをコピー可能な形で表示
             _kabupa_prev_text = st.session_state.get(f"_kabupa_prev_text_{store}")
             if store == "新宿歌舞伎町" and _kabupa_prev_text:
@@ -15726,6 +15728,7 @@ def _composite_slump_onto_images(
     _merged: list[tuple[str, "Image.Image"]] = []
     _missing_panels: set[str] = set()
     _matched_panels: set[str] = set()
+    _gap_meta_out: dict[str, dict] = {}  # ⑦プレビューの液晶セレクタ用メタ
     for (_fn, _img) in img_list:
         _bare = re.sub(r"^\d{2}_", "", _fn)
         _bans = ban_map.get(_bare, [])
@@ -15790,6 +15793,7 @@ def _composite_slump_onto_images(
         else:
             if store == "新宿歌舞伎町":
                 _gm_m, _gp_m = _gap_screen_paths_for_bans(_bans, ban2diff, ban2mac)
+                _gap_meta_out[_fn] = {"machine": _gm_m, "screens": _gp_m}
                 _gsel_m = st.session_state.get(f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _fn)}", 0)
                 _gap_img_m = _resolve_gap_screen(_gp_m, _gsel_m)
             else:
@@ -15809,6 +15813,7 @@ def _composite_slump_onto_images(
             "slump_date": date_str,
             "uid_count": len(_by_uid) if _by_uid else 0,
         }
+        st.session_state[f"_gap_meta_{store}"] = _gap_meta_out  # ⑦液晶セレクタ用
     return _merged
 
 

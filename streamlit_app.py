@@ -7288,7 +7288,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             _gmac_pv, _gpaths_pv = _gap_screen_paths_for_bans(
                                                 _bans_pv, _ban2diff_pv, _ig_ban2mac_pv)
                                             _gap_meta_pv[_fn_pv] = {"machine": _gmac_pv, "screens": _gpaths_pv}
-                                            _gsel_key_pv = f"_gap_sel_{store}_{_fn_pv}"
+                                            _gsel_key_pv = f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _fn_pv)}"
                                             _gsel_pv = st.session_state.get(_gsel_key_pv, 0)
                                             _gap_img_pv = _resolve_gap_screen(_gpaths_pv, _gsel_pv)
                                         for _b_pv in _bans_pv:
@@ -7637,7 +7637,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _meta = _gap_meta.get(_match_fn) if _match_fn else None
                                 if _meta and _meta.get("screens"):
                                     _scr = _meta["screens"]
-                                    _sel_key = f"_gap_sel_{store}_{_match_fn}"
+                                    _sel_key = f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _match_fn)}"
                                     _cur = st.session_state.get(_sel_key, 0)
                                     with st.expander(f"🖼️ 液晶画像を選ぶ（{_meta.get('machine') or ''}）"):
                                         _opts = list(range(len(_scr))) + [-1]
@@ -8176,7 +8176,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     else:
                                         if store == "新宿歌舞伎町":
                                             _gm_u2, _gp_u2 = _gap_screen_paths_for_bans(_bans_u2, _upd_ban2diff, _upd_ban2mac)
-                                            _gsel_u2 = st.session_state.get(f"_gap_sel_{store}_{_ufn}", 0)
+                                            _gsel_u2 = st.session_state.get(f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _ufn)}", 0)
                                             _gap_img_u2 = _resolve_gap_screen(_gp_u2, _gsel_u2)
                                         else:
                                             _gap_img_u2 = None
@@ -9980,7 +9980,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         else:
                                             if store == "新宿歌舞伎町":
                                                 _gm_exec, _gp_exec = _gap_screen_paths_for_bans(_bans_exec, _ban2diff_exec, _ig_ban2mac_exec)
-                                                _gsel_exec = st.session_state.get(f"_gap_sel_{store}_{_lfn_exec}", 0)
+                                                _gsel_exec = st.session_state.get(f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _lfn_exec)}", 0)
                                                 _gap_img_exec = _resolve_gap_screen(_gp_exec, _gsel_exec)
                                             else:
                                                 _gap_img_exec = None
@@ -11209,7 +11209,7 @@ def show_auto_article_page() -> None:
                                         if _g_imgs_pv2:
                                             if store == "新宿歌舞伎町":
                                                 _gm_pv2, _gp_pv2 = _gap_screen_paths_for_bans(_bans_pv2, _pv_ban2diff, _pv_ban2mac)
-                                                _gsel_pv2 = st.session_state.get(f"_gap_sel_{store}_{_fn_pv2}", 0)
+                                                _gsel_pv2 = st.session_state.get(f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _fn_pv2)}", 0)
                                                 _gap_img_pv2 = _resolve_gap_screen(_gp_pv2, _gsel_pv2)
                                             else:
                                                 _gap_img_pv2 = None
@@ -11449,7 +11449,7 @@ def show_auto_article_page() -> None:
                                                 if _g_imgs_u:
                                                     if store == "新宿歌舞伎町":
                                                         _gm_u, _gp_u = _gap_screen_paths_for_bans(_bans_u, _upd_b2diff, _upd_b2mac)
-                                                        _gsel_u = st.session_state.get(f"_gap_sel_{store}_{_fn_u}", 0)
+                                                        _gsel_u = st.session_state.get(f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _fn_u)}", 0)
                                                         _gap_img_u = _resolve_gap_screen(_gp_u, _gsel_u)
                                                     else:
                                                         _gap_img_u = None
@@ -11952,7 +11952,7 @@ def show_auto_article_page() -> None:
                                     continue
                                 if store == "新宿歌舞伎町":
                                     _gm_sl, _gp_sl = _gap_screen_paths_for_bans(_bans_sl, _art_ban2diff_sl, _art_ban2mac_sl)
-                                    _gsel_sl = st.session_state.get(f"_gap_sel_{store}_{_fp_sl}", 0)
+                                    _gsel_sl = st.session_state.get(f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _fp_sl)}", 0)
                                     _gap_img_sl = _resolve_gap_screen(_gp_sl, _gsel_sl)
                                 else:
                                     _gap_img_sl = None
@@ -15785,7 +15785,7 @@ def _composite_slump_onto_images(
         else:
             if store == "新宿歌舞伎町":
                 _gm_m, _gp_m = _gap_screen_paths_for_bans(_bans, ban2diff, ban2mac)
-                _gsel_m = st.session_state.get(f"_gap_sel_{store}_{_fn}", 0)
+                _gsel_m = st.session_state.get(f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _fn)}", 0)
                 _gap_img_m = _resolve_gap_screen(_gp_m, _gsel_m)
             else:
                 _gap_img_m = None

@@ -15801,8 +15801,16 @@ def _composite_slump_onto_images(
             _merged.append((_fn, _attach_slump_to_table(_img, _g_imgs, _bbb, _gap_img_m)))
         if len(_g_imgs) >= 16 and store != "秋葉原":
             try:
-                _merged.append((os.path.splitext(_fn)[0] + "_side.jpg",
-                                _attach_slump_to_table_side(_img, _g_imgs, _bbb, _gap_img_m)))
+                _side_fn = os.path.splitext(_fn)[0] + "_side.jpg"
+                if store == "新宿歌舞伎町":
+                    # _side.jpg も独立したメタ・選択キーを持たせる（⑦セレクタ表示用）
+                    _gap_meta_out[_side_fn] = {"machine": _gm_m, "screens": _gp_m}
+                    _gsel_side = st.session_state.get(f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _side_fn)}", 0)
+                    _gap_img_side = _resolve_gap_screen(_gp_m, _gsel_side)
+                else:
+                    _gap_img_side = None
+                _merged.append((_side_fn,
+                                _attach_slump_to_table_side(_img, _g_imgs, _bbb, _gap_img_side)))
             except Exception:
                 pass
     if store == "新宿歌舞伎町":

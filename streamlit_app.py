@@ -7265,7 +7265,6 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                 _ig_ban2mac_pv[_bs0_pv] = str(_igr_pv.get("機種名", ""))
                                     _merged_pv: list[tuple[str, "Image.Image"]] = []
                                     _gap_meta_pv: dict[str, dict] = {}
-                                    _gap_base_pv: dict[str, dict] = {}
                                     for (_fn_pv, _img_pv) in _prev_img_list:
                                         _bare_pv = re.sub(r"^\d{2}_", "", _fn_pv)
                                         _bans_pv = _pv_ban_map.get(_bare_pv, [])
@@ -7319,15 +7318,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             _pv_title = _pv_title_map.get(_bare_pv, os.path.splitext(_bare_pv)[0])
                                             if _is_gap_pv and _fn_pv in _gap_meta_pv:
                                                 _gap_meta_pv[_fn_pv]["fillable"] = _gap_fillable(len(_g_imgs_pv), 3)
-                                                _gap_base_pv[_fn_pv] = {"title": _pv_title, "graphs": list(_g_imgs_pv), "titlekind": True}
                                             _pv_slump = _build_slump_title_img(_pv_title, _g_imgs_pv, _ig_bbb_pv, _gap_img_pv)
                                             if _pv_slump is not None:
                                                 _merged_pv.append((_fn_pv, _pv_slump))
                                         else:
-                                            if _is_gap_pv:
-                                                _gap_base_pv[_fn_pv] = {"table": _img_pv, "graphs": list(_g_imgs_pv), "side": False}
-                                                if _fn_pv in _gap_meta_pv:
-                                                    _gap_meta_pv[_fn_pv]["fillable"] = _gap_fillable(len(_g_imgs_pv), 3)
+                                            if _is_gap_pv and _fn_pv in _gap_meta_pv:
+                                                _gap_meta_pv[_fn_pv]["fillable"] = _gap_fillable(len(_g_imgs_pv), 3)
                                             _merged_pv.append((_fn_pv, _attach_slump_to_table(_img_pv, _g_imgs_pv, _ig_bbb_pv, _gap_img_pv)))
                                         if len(_g_imgs_pv) >= 16 and store != "秋葉原":
                                             try:
@@ -7335,13 +7331,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                 if _is_gap_pv:
                                                     _gap_meta_pv[_side_fn_pv] = {**_gap_meta_pv.get(_fn_pv, {}),
                                                                                 "fillable": _gap_fillable(len(_g_imgs_pv), 4)}
-                                                    _gap_base_pv[_side_fn_pv] = {"table": _img_pv, "graphs": list(_g_imgs_pv), "side": True}
                                                 _merged_pv.append((_side_fn_pv, _attach_slump_to_table_side(_img_pv, _g_imgs_pv, _ig_bbb_pv, _gap_img_pv)))
                                             except Exception:
                                                 pass
                                     _prev_img_list = _merged_pv
                                     st.session_state[f"_gap_meta_{store}"] = _gap_meta_pv
-                                    st.session_state[f"_gap_base_{store}"] = _gap_base_pv
                             except Exception:
                                 pass  # pision取得失敗時は表のみ画像のままプレビュー表示
 
@@ -7674,7 +7668,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             "液晶", _opts, format_func=_fmt, key=_radio_key,
                                             horizontal=True, label_visibility="collapsed",
                                             on_change=_on_gap_screen_change,
-                                            args=(_radio_key, _sel_key, list(_scr), _match_fn, store, _aprev_key),
+                                            args=(_radio_key, _sel_key),
                                         )
                                         _thumb_cols = st.columns(max(1, len(_scr)))
                                         for _si, _sp in enumerate(_scr):
@@ -7683,6 +7677,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                     st.image(_sp, caption=f"液晶{_si + 1}", width=120)
                                                 except Exception:
                                                     st.caption(f"液晶{_si + 1}（読込失敗）")
+                                        st.caption("※選択は⑧実行（ZIP）に反映されます")
                                 elif (_match_fn is not None and _meta is not None
                                       and _meta.get("fillable") and not _meta.get("screens")):
                                     st.caption(f"🖼️液晶: 「{_meta.get('machine') or '?'}」は機種画像紐づけに液晶が未登録です")
@@ -15776,7 +15771,6 @@ def _composite_slump_onto_images(
     _missing_panels: set[str] = set()
     _matched_panels: set[str] = set()
     _gap_meta_out: dict[str, dict] = {}  # ⑦プレビューの液晶セレクタ用メタ
-    _gap_base_out: dict[str, dict] = {}  # 液晶選択の即時反映用（合成前の表＋グラフをキャッシュ）
     for (_fn, _img) in img_list:
         _bare = re.sub(r"^\d{2}_", "", _fn)
         _bans = ban_map.get(_bare, [])
@@ -15840,7 +15834,6 @@ def _composite_slump_onto_images(
                 _gm_ak, _gp_ak = _gap_screen_paths_for_bans(_bans, ban2diff, ban2mac)
                 _gap_meta_out[_fn] = {"machine": _gm_ak, "screens": _gp_ak,
                                       "fillable": _gap_fillable(len(_g_imgs), 3)}
-                _gap_base_out[_fn] = {"title": _title, "graphs": list(_g_imgs), "titlekind": True}
                 _gsel_ak = st.session_state.get(f"_gap_sel_{store}_m_{_gm_ak or ''}", 0)
                 _gap_img_ak = _resolve_gap_screen(_gp_ak, _gsel_ak)
             _slp = _build_slump_title_img(_title, _g_imgs, _bbb, _gap_img_ak)
@@ -15851,7 +15844,6 @@ def _composite_slump_onto_images(
                 _gm_m, _gp_m = _gap_screen_paths_for_bans(_bans, ban2diff, ban2mac)
                 _gap_meta_out[_fn] = {"machine": _gm_m, "screens": _gp_m,
                                       "fillable": _gap_fillable(len(_g_imgs), 3)}
-                _gap_base_out[_fn] = {"table": _img, "graphs": list(_g_imgs), "side": False}
                 _gsel_m = st.session_state.get(f"_gap_sel_{store}_m_{_gm_m or ''}", 0)
                 _gap_img_m = _resolve_gap_screen(_gp_m, _gsel_m)
             else:
@@ -15864,7 +15856,6 @@ def _composite_slump_onto_images(
                     # _side.jpg も独立したメタ・選択キーを持たせる（⑦セレクタ表示用）
                     _gap_meta_out[_side_fn] = {"machine": _gm_m, "screens": _gp_m,
                                               "fillable": _gap_fillable(len(_g_imgs), 4)}
-                    _gap_base_out[_side_fn] = {"table": _img, "graphs": list(_g_imgs), "side": True}
                     _gsel_side = st.session_state.get(f"_gap_sel_{store}_m_{_gm_m or ''}", 0)
                     _gap_img_side = _resolve_gap_screen(_gp_m, _gsel_side)
                 else:
@@ -15883,7 +15874,6 @@ def _composite_slump_onto_images(
         }
     if store in _GAP_FILL_STORES:
         st.session_state[f"_gap_meta_{store}"] = _gap_meta_out  # ⑦液晶セレクタ用
-        st.session_state[f"_gap_base_{store}"] = _gap_base_out   # 液晶選択の即時反映用
     return _merged
 
 
@@ -16377,34 +16367,13 @@ def _featured_machine_for_bans(bans: list, ban2diff: dict, ban2mac: dict) -> "st
     return best_mac if best_mac is not None else macs[0][1]
 
 
-def _on_gap_screen_change(radio_key: str, sel_key: str, screens: list,
-                          match_fn: str, store: str, aprev_key: str) -> None:
-    """液晶セレクタ(radio)の on_change コールバック。選択を保存し、その画像だけ即時再合成する。
-    expander/columns 内での st.rerun() 直呼びは Cloud で removeChild エラーを誘発するため、
-    コールバック方式にして Streamlit の自動再実行に任せる。"""
+def _on_gap_screen_change(radio_key: str, sel_key: str) -> None:
+    """液晶セレクタ(radio)の on_change コールバック。選択(機種キー)を保存するだけ。
+    ※プレビュー画像の即時再合成は行わない（PIL画像のsession_stateキャッシュが Cloud の
+    メモリ上限を超えてOOMクラッシュしたため撤去）。選択は⑧実行/🔄更新でZIPに反映される。"""
     _new = st.session_state.get(radio_key)
-    if _new is None:
-        return
-    st.session_state[sel_key] = _new
-    _base = st.session_state.get(f"_gap_base_{store}", {}).get(match_fn)
-    if not _base:
-        return
-    _new_gap = _resolve_gap_screen(screens, _new)
-    _bbb2 = _find_slump_bg()
-    if _base.get("titlekind"):
-        _newimg = _build_slump_title_img(_base["title"], _base["graphs"], _bbb2, _new_gap)
-    elif _base.get("side"):
-        _newimg = _attach_slump_to_table_side(_base["table"], _base["graphs"], _bbb2, _new_gap)
-    else:
-        _newimg = _attach_slump_to_table(_base["table"], _base["graphs"], _bbb2, _new_gap)
-    if _newimg is None:
-        return
-    _auto = st.session_state.get(aprev_key) or []
-    for _ai in range(len(_auto)):
-        if _auto[_ai][0] == match_fn:
-            _auto[_ai] = (match_fn, _newimg)
-            break
-    st.session_state[aprev_key] = _auto
+    if _new is not None:
+        st.session_state[sel_key] = _new
 
 
 def _gap_fillable(n: int, cols: int) -> bool:

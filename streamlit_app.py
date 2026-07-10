@@ -16173,6 +16173,7 @@ def _attach_slump_to_table(
     table_img: "Image.Image",
     graph_imgs: "list[Image.Image]",
     bg_path=None,
+    gap_screen_img=None,
 ) -> "Image.Image":
     """表画像の下にスランプグラフを3列で並べて合成する（稲毛スランプ付き専用）。
 
@@ -16220,6 +16221,19 @@ def _attach_slump_to_table(
         x = x_off + col * (cell_w + GAP)
         y = th + PAD + row * (row_h + GAP)
         canvas.paste(g, (x, y))
+
+    # 最終行の空きコマ（2以上）に液晶をはめ込む
+    empty = COLS * rows - n
+    if gap_screen_img is not None and empty >= 2:
+        last_count = n - (rows - 1) * COLS       # 最終行の埋まっている枚数
+        gap_x0 = PAD + last_count * cell_w + last_count * GAP   # 最後のグラフ右端 + GAP
+        gap_x1 = tw - PAD
+        box_w  = gap_x1 - gap_x0
+        gap_y0 = th + PAD + (rows - 1) * (row_h + GAP)
+        box_h  = row_h
+        if box_w > 0 and box_h > 0:
+            fitted, ox, oy = _fit_center_in_box(gap_screen_img, box_w, box_h)
+            canvas.paste(fitted, (gap_x0 + ox, gap_y0 + oy))
 
     return canvas
 

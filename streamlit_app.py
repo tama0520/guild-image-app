@@ -7662,6 +7662,21 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                     st.caption(f"液晶{_si + 1}（読込失敗）")
                                         if _new != _cur:
                                             st.session_state[_sel_key] = _new
+                                            # 選択した液晶をその画像だけ即時に貼り替える（pision再取得なし）
+                                            _base = st.session_state.get(f"_gap_base_{store}", {}).get(_match_fn)
+                                            if _base:
+                                                _new_gap = _resolve_gap_screen(_scr, _new)
+                                                _bbb2 = _find_slump_bg()
+                                                if _base.get("side"):
+                                                    _newimg = _attach_slump_to_table_side(_base["table"], _base["graphs"], _bbb2, _new_gap)
+                                                else:
+                                                    _newimg = _attach_slump_to_table(_base["table"], _base["graphs"], _bbb2, _new_gap)
+                                                _auto_cur = st.session_state.get(_aprev_key) or []
+                                                for _ai in range(len(_auto_cur)):
+                                                    if _auto_cur[_ai][0] == _match_fn:
+                                                        _auto_cur[_ai] = (_match_fn, _newimg)
+                                                        break
+                                                st.session_state[_aprev_key] = _auto_cur
                                             st.rerun()
                                 elif _match_fn is not None and _meta is not None and not _meta.get("screens"):
                                     st.caption(f"🖼️液晶: 「{_meta.get('machine') or '?'}」は機種画像紐づけに液晶が未登録です")
@@ -15729,6 +15744,7 @@ def _composite_slump_onto_images(
     _missing_panels: set[str] = set()
     _matched_panels: set[str] = set()
     _gap_meta_out: dict[str, dict] = {}  # ⑦プレビューの液晶セレクタ用メタ
+    _gap_base_out: dict[str, dict] = {}  # 液晶選択の即時反映用（合成前の表＋グラフをキャッシュ）
     for (_fn, _img) in img_list:
         _bare = re.sub(r"^\d{2}_", "", _fn)
         _bans = ban_map.get(_bare, [])
@@ -15794,6 +15810,7 @@ def _composite_slump_onto_images(
             if store == "新宿歌舞伎町":
                 _gm_m, _gp_m = _gap_screen_paths_for_bans(_bans, ban2diff, ban2mac)
                 _gap_meta_out[_fn] = {"machine": _gm_m, "screens": _gp_m}
+                _gap_base_out[_fn] = {"table": _img, "graphs": list(_g_imgs), "side": False}
                 _gsel_m = st.session_state.get(f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _fn)}", 0)
                 _gap_img_m = _resolve_gap_screen(_gp_m, _gsel_m)
             else:
@@ -15805,6 +15822,7 @@ def _composite_slump_onto_images(
                 if store == "新宿歌舞伎町":
                     # _side.jpg も独立したメタ・選択キーを持たせる（⑦セレクタ表示用）
                     _gap_meta_out[_side_fn] = {"machine": _gm_m, "screens": _gp_m}
+                    _gap_base_out[_side_fn] = {"table": _img, "graphs": list(_g_imgs), "side": True}
                     _gsel_side = st.session_state.get(f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _side_fn)}", 0)
                     _gap_img_side = _resolve_gap_screen(_gp_m, _gsel_side)
                 else:
@@ -15822,6 +15840,7 @@ def _composite_slump_onto_images(
             "uid_count": len(_by_uid) if _by_uid else 0,
         }
         st.session_state[f"_gap_meta_{store}"] = _gap_meta_out  # ⑦液晶セレクタ用
+        st.session_state[f"_gap_base_{store}"] = _gap_base_out   # 液晶選択の即時反映用
     return _merged
 
 

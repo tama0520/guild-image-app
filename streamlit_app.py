@@ -7265,6 +7265,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                 _ig_ban2mac_pv[_bs0_pv] = str(_igr_pv.get("機種名", ""))
                                     _merged_pv: list[tuple[str, "Image.Image"]] = []
                                     _gap_meta_pv: dict[str, dict] = {}
+                                    _gap_base_pv: dict[str, dict] = {}
                                     for (_fn_pv, _img_pv) in _prev_img_list:
                                         _bare_pv = re.sub(r"^\d{2}_", "", _fn_pv)
                                         _bans_pv = _pv_ban_map.get(_bare_pv, [])
@@ -7288,9 +7289,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                         _ban2diff_pv[_bp] = int(_pv_diff.loc[_idx_p])
                                                     except Exception:
                                                         pass
-                                        _is_kabupa_pv = (store == "新宿歌舞伎町")
+                                        _is_gap_pv = (store in _GAP_FILL_STORES)
                                         _gap_img_pv = None
-                                        if _is_kabupa_pv:
+                                        if _is_gap_pv:
                                             _gmac_pv, _gpaths_pv = _gap_screen_paths_for_bans(
                                                 _bans_pv, _ban2diff_pv, _ig_ban2mac_pv)
                                             _gap_meta_pv[_fn_pv] = {"machine": _gmac_pv, "screens": _gpaths_pv}
@@ -7320,15 +7321,21 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             if _pv_slump is not None:
                                                 _merged_pv.append((_fn_pv, _pv_slump))
                                         else:
+                                            if _is_gap_pv:
+                                                _gap_base_pv[_fn_pv] = {"table": _img_pv, "graphs": list(_g_imgs_pv), "side": False}
                                             _merged_pv.append((_fn_pv, _attach_slump_to_table(_img_pv, _g_imgs_pv, _ig_bbb_pv, _gap_img_pv)))
                                         if len(_g_imgs_pv) >= 16 and store != "秋葉原":
                                             try:
                                                 _side_fn_pv = os.path.splitext(_fn_pv)[0] + "_side.jpg"
+                                                if _is_gap_pv:
+                                                    _gap_meta_pv[_side_fn_pv] = _gap_meta_pv.get(_fn_pv, {})
+                                                    _gap_base_pv[_side_fn_pv] = {"table": _img_pv, "graphs": list(_g_imgs_pv), "side": True}
                                                 _merged_pv.append((_side_fn_pv, _attach_slump_to_table_side(_img_pv, _g_imgs_pv, _ig_bbb_pv, _gap_img_pv)))
                                             except Exception:
                                                 pass
                                     _prev_img_list = _merged_pv
                                     st.session_state[f"_gap_meta_{store}"] = _gap_meta_pv
+                                    st.session_state[f"_gap_base_{store}"] = _gap_base_pv
                             except Exception:
                                 pass  # pision取得失敗時は表のみ画像のままプレビュー表示
 
@@ -7632,7 +7639,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             st.checkbox("", key=_ck_key, label_visibility="collapsed")
                         with _sub_img:
                             st.image(_pimg, caption=_ptitle, use_container_width=True)
-                            if store == "新宿歌舞伎町":
+                            if store in _GAP_FILL_STORES:
                                 _gap_meta = st.session_state.get(f"_gap_meta_{store}", {})
                                 # _auto_previews の要素は (ファイル名, 画像)。_gap_meta も同じファイル名キー。
                                 _match_fn = _ptitle if _ptitle in _gap_meta else None
@@ -8202,7 +8209,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         if _u2_slump is not None:
                                             _new_prev[_ui] = (_ufn, _u2_slump)
                                     else:
-                                        if store == "新宿歌舞伎町":
+                                        if store in _GAP_FILL_STORES:
                                             _gm_u2, _gp_u2 = _gap_screen_paths_for_bans(_bans_u2, _upd_ban2diff, _upd_ban2mac)
                                             _gsel_u2 = st.session_state.get(f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _ufn)}", 0)
                                             _gap_img_u2 = _resolve_gap_screen(_gp_u2, _gsel_u2)
@@ -10020,7 +10027,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                     _ig_composite.append((_lfn_exec, _ex_buf.getvalue()))
                                                     _ig_slump_cnt += 1
                                         else:
-                                            if store == "新宿歌舞伎町":
+                                            if store in _GAP_FILL_STORES:
                                                 _gm_exec, _gp_exec = _gap_screen_paths_for_bans(_bans_exec, _ban2diff_exec, _ig_ban2mac_exec)
                                                 _gsel_exec = st.session_state.get(f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _lfn_exec)}", 0)
                                                 _gap_img_exec = _resolve_gap_screen(_gp_exec, _gsel_exec)
@@ -11249,7 +11256,7 @@ def show_auto_article_page() -> None:
                                             except Exception:
                                                 pass
                                         if _g_imgs_pv2:
-                                            if store == "新宿歌舞伎町":
+                                            if store in _GAP_FILL_STORES:
                                                 _gm_pv2, _gp_pv2 = _gap_screen_paths_for_bans(_bans_pv2, _pv_ban2diff, _pv_ban2mac)
                                                 _gsel_pv2 = st.session_state.get(f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _fn_pv2)}", 0)
                                                 _gap_img_pv2 = _resolve_gap_screen(_gp_pv2, _gsel_pv2)
@@ -11489,7 +11496,7 @@ def show_auto_article_page() -> None:
                                                     except Exception:
                                                         pass
                                                 if _g_imgs_u:
-                                                    if store == "新宿歌舞伎町":
+                                                    if store in _GAP_FILL_STORES:
                                                         _gm_u, _gp_u = _gap_screen_paths_for_bans(_bans_u, _upd_b2diff, _upd_b2mac)
                                                         _gsel_u = st.session_state.get(f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _fn_u)}", 0)
                                                         _gap_img_u = _resolve_gap_screen(_gp_u, _gsel_u)
@@ -15827,7 +15834,7 @@ def _composite_slump_onto_images(
             if _slp is not None:
                 _merged.append((_fn, _slp))
         else:
-            if store == "新宿歌舞伎町":
+            if store in _GAP_FILL_STORES:
                 _gm_m, _gp_m = _gap_screen_paths_for_bans(_bans, ban2diff, ban2mac)
                 _gap_meta_out[_fn] = {"machine": _gm_m, "screens": _gp_m}
                 _gap_base_out[_fn] = {"table": _img, "graphs": list(_g_imgs), "side": False}
@@ -15839,7 +15846,7 @@ def _composite_slump_onto_images(
         if len(_g_imgs) >= 16 and store != "秋葉原":
             try:
                 _side_fn = os.path.splitext(_fn)[0] + "_side.jpg"
-                if store == "新宿歌舞伎町":
+                if store in _GAP_FILL_STORES:
                     # _side.jpg も独立したメタ・選択キーを持たせる（⑦セレクタ表示用）
                     _gap_meta_out[_side_fn] = {"machine": _gm_m, "screens": _gp_m}
                     _gap_base_out[_side_fn] = {"table": _img, "graphs": list(_g_imgs), "side": True}
@@ -15852,13 +15859,14 @@ def _composite_slump_onto_images(
             except Exception:
                 pass
     if store == "新宿歌舞伎町":
-        # rerun で消えないよう session_state に保存し、⑦プレビュー側で表示する
+        # rerun で消えないよう session_state に保存し、⑦プレビュー側で表示する（かぶぱ専用）
         st.session_state[f"_panel_report_{store}"] = {
             "matched": sorted(_matched_panels),
             "missing": sorted(_missing_panels),
             "slump_date": date_str,
             "uid_count": len(_by_uid) if _by_uid else 0,
         }
+    if store in _GAP_FILL_STORES:
         st.session_state[f"_gap_meta_{store}"] = _gap_meta_out  # ⑦液晶セレクタ用
         st.session_state[f"_gap_base_{store}"] = _gap_base_out   # 液晶選択の即時反映用
     return _merged
@@ -16293,6 +16301,10 @@ def _find_slump_bg() -> "object | None":
 
 # 空きコマにはめ込む液晶の縮小率（1.0=空き領域いっぱい。気持ち小さく見せるため 0.9）
 _GAP_SCREEN_SHRINK = 0.95
+
+# スランプ空きコマに液晶をはめ込む対象店舗（⑥液晶セレクタも有効化）。秋葉原は
+# レイアウトが異なる（_build_slump_title_img）ため対象外。
+_GAP_FILL_STORES = {"新宿歌舞伎町", "上野新館", "上野本館", "新小岩"}
 
 
 def _fit_center_in_box(img: "Image.Image", box_w: int, box_h: int) -> tuple["Image.Image", int, int]:

@@ -7631,10 +7631,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 # _auto_previews の要素は (ファイル名, 画像)。_gap_meta も同じファイル名キー。
                                 _match_fn = _ptitle if _ptitle in _gap_meta else None
                                 if _match_fn is None:
-                                    # 接頭辞(NN_)の有無ゆらぎに対応
-                                    _pt_bare = re.sub(r"^\d{2}_", "", _ptitle)
+                                    # 接頭辞(NN_)・拡張子の有無ゆらぎに対応して照合
+                                    def _norm_fn(_s):
+                                        return os.path.splitext(re.sub(r"^\d{2}_", "", str(_s)))[0]
+                                    _pt_norm = _norm_fn(_ptitle)
                                     for _mfn in _gap_meta:
-                                        if re.sub(r"^\d{2}_", "", _mfn) == _pt_bare:
+                                        if _norm_fn(_mfn) == _pt_norm:
                                             _match_fn = _mfn
                                             break
                                 _meta = _gap_meta.get(_match_fn) if _match_fn else None
@@ -16238,7 +16240,7 @@ def _find_slump_bg() -> "object | None":
 
 
 # 空きコマにはめ込む液晶の縮小率（1.0=空き領域いっぱい。気持ち小さく見せるため 0.9）
-_GAP_SCREEN_SHRINK = 0.9
+_GAP_SCREEN_SHRINK = 0.95
 
 
 def _fit_center_in_box(img: "Image.Image", box_w: int, box_h: int) -> tuple["Image.Image", int, int]:

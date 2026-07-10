@@ -7663,14 +7663,18 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _scr = _meta["screens"]
                                     _sel_key = f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _match_fn)}"
                                     _cur = st.session_state.get(_sel_key, 0)
+                                    _radio_key = f"radio_{_sel_key}_{_ci}"
+                                    if _radio_key not in st.session_state:
+                                        st.session_state[_radio_key] = _cur
                                     with st.expander(f"🖼️ 液晶画像を選ぶ（{_meta.get('machine') or ''}）"):
                                         _opts = list(range(len(_scr))) + [-1]
                                         def _fmt(_i):
                                             return "はめ込まない" if _i == -1 else f"液晶{_i + 1}"
-                                        _new = st.radio(
-                                            "液晶", _opts, index=_opts.index(_cur) if _cur in _opts else 0,
-                                            format_func=_fmt, key=f"radio_{_sel_key}_{_ci}",
+                                        st.radio(
+                                            "液晶", _opts, format_func=_fmt, key=_radio_key,
                                             horizontal=True, label_visibility="collapsed",
+                                            on_change=_on_gap_screen_change,
+                                            args=(_radio_key, _sel_key, list(_scr), _match_fn, store, _aprev_key),
                                         )
                                         _thumb_cols = st.columns(max(1, len(_scr)))
                                         for _si, _sp in enumerate(_scr):
@@ -7679,27 +7683,6 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                     st.image(_sp, caption=f"液晶{_si + 1}", width=120)
                                                 except Exception:
                                                     st.caption(f"液晶{_si + 1}（読込失敗）")
-                                        if _new != _cur:
-                                            st.session_state[_sel_key] = _new
-                                            # 選択した液晶をその画像だけ即時に貼り替える（pision再取得なし）
-                                            _base = st.session_state.get(f"_gap_base_{store}", {}).get(_match_fn)
-                                            if _base:
-                                                _new_gap = _resolve_gap_screen(_scr, _new)
-                                                _bbb2 = _find_slump_bg()
-                                                if _base.get("titlekind"):
-                                                    _newimg = _build_slump_title_img(_base["title"], _base["graphs"], _bbb2, _new_gap)
-                                                elif _base.get("side"):
-                                                    _newimg = _attach_slump_to_table_side(_base["table"], _base["graphs"], _bbb2, _new_gap)
-                                                else:
-                                                    _newimg = _attach_slump_to_table(_base["table"], _base["graphs"], _bbb2, _new_gap)
-                                                if _newimg is not None:
-                                                    _auto_cur = st.session_state.get(_aprev_key) or []
-                                                    for _ai in range(len(_auto_cur)):
-                                                        if _auto_cur[_ai][0] == _match_fn:
-                                                            _auto_cur[_ai] = (_match_fn, _newimg)
-                                                            break
-                                                    st.session_state[_aprev_key] = _auto_cur
-                                            st.rerun()
                                 elif (_match_fn is not None and _meta is not None
                                       and _meta.get("fillable") and not _meta.get("screens")):
                                     st.caption(f"🖼️液晶: 「{_meta.get('machine') or '?'}」は機種画像紐づけに液晶が未登録です")
@@ -16392,6 +16375,36 @@ def _featured_machine_for_bans(bans: list, ban2diff: dict, ban2mac: dict) -> "st
         if best_diff is None or d > best_diff:
             best_diff, best_ban, best_mac = d, b, m
     return best_mac if best_mac is not None else macs[0][1]
+
+
+def _on_gap_screen_change(radio_key: str, sel_key: str, screens: list,
+                          match_fn: str, store: str, aprev_key: str) -> None:
+    """液晶セレクタ(radio)の on_change コールバック。選択を保存し、その画像だけ即時再合成する。
+    expander/columns 内での st.rerun() 直呼びは Cloud で removeChild エラーを誘発するため、
+    コールバック方式にして Streamlit の自動再実行に任せる。"""
+    _new = st.session_state.get(radio_key)
+    if _new is None:
+        return
+    st.session_state[sel_key] = _new
+    _base = st.session_state.get(f"_gap_base_{store}", {}).get(match_fn)
+    if not _base:
+        return
+    _new_gap = _resolve_gap_screen(screens, _new)
+    _bbb2 = _find_slump_bg()
+    if _base.get("titlekind"):
+        _newimg = _build_slump_title_img(_base["title"], _base["graphs"], _bbb2, _new_gap)
+    elif _base.get("side"):
+        _newimg = _attach_slump_to_table_side(_base["table"], _base["graphs"], _bbb2, _new_gap)
+    else:
+        _newimg = _attach_slump_to_table(_base["table"], _base["graphs"], _bbb2, _new_gap)
+    if _newimg is None:
+        return
+    _auto = st.session_state.get(aprev_key) or []
+    for _ai in range(len(_auto)):
+        if _auto[_ai][0] == match_fn:
+            _auto[_ai] = (match_fn, _newimg)
+            break
+    st.session_state[aprev_key] = _auto
 
 
 def _gap_fillable(n: int, cols: int) -> bool:

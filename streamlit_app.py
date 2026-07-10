@@ -17098,47 +17098,11 @@ def main() -> None:
         if not _pull_ok:
             st.toast(f"⚠️ git pull失敗: {_pull_msg}", icon="⚠️")
 
-    # ブラウザの戻る/進むボタンを検知してページをリロードさせる
-    # components.html は iframe 内なので window.parent を使う
-    # st.iframe は height=0 非対応のためレイアウトが崩れる→こちらを維持（警告はロガーで抑制済み）
-    components.html(
-        """
-        <script>
-        (function() {
-            var p = window.parent;
-            if (p._popstateAttached) return;
-            p._popstateAttached = true;
-            p.addEventListener('popstate', function() {
-                p.location.reload();
-            });
-        })();
-        </script>
-        """,
-        height=0,
-    )
-
-    # 入力欄のブラウザ履歴オートコンプリートを無効化
-    components.html(
-        """
-        <script>
-        (function() {
-            var p = window.parent;
-            if (p._autocompleteDisabled) return;
-            p._autocompleteDisabled = true;
-            function disableAutocomplete() {
-                p.document.querySelectorAll('input[type="text"], input:not([type])').forEach(function(el) {
-                    el.setAttribute('autocomplete', 'off');
-                });
-            }
-            disableAutocomplete();
-            new p.MutationObserver(disableAutocomplete).observe(
-                p.document.body, { childList: true, subtree: true }
-            );
-        })();
-        </script>
-        """,
-        height=0,
-    )
+    # 【removeChild対策で撤去】以前は components.html(height=0) で
+    #   ①popstate（戻る/進むでリロード）②入力オートコンプリート無効化(MutationObserver)
+    # を注入していたが、これらの不可視iframe＋DOM監視が Streamlit Cloud 本番で
+    # NotFoundError:removeChild を誘発していたため撤去した。
+    # ブラウザ戻る/進むの自動リロード・autocomplete=off は無効になるが、通常操作に影響なし。
 
     # ── サイドバー ────────────────────────────────────────────────
     with st.sidebar:

@@ -8113,11 +8113,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _upd_tmpl = find_slump_template()
                                 _upd_bbb  = _find_slump_bg()
                                 _upd_ban2mac: dict[str, str] = {}
+                                _upd_ban2diff: dict[str, int] = {}
                                 if _pv_df is not None:
-                                    for _, _r_upd in _pv_df.iterrows():
+                                    for _idx_upd, _r_upd in _pv_df.iterrows():
                                         _bs_upd = str(_r_upd.get("台番", "")).split(".")[0]
                                         if _bs_upd.lstrip("-").isdigit():
                                             _upd_ban2mac[_bs_upd] = str(_r_upd.get("機種名", ""))
+                                            if _pv_diff is not None:
+                                                try:
+                                                    _upd_ban2diff[_bs_upd] = int(_pv_diff.loc[_idx_upd])
+                                                except Exception:
+                                                    pass
                                 # 更新対象画像のban_mapを「その他を更新」時のDataFrameから動的に構築
                                 _upd_dyn_ban_map: dict[str, list[int]] = {}
                                 if _jug_extra_dfs and not (with_slump and store == "秋葉原"):
@@ -8168,11 +8174,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         if _u2_slump is not None:
                                             _new_prev[_ui] = (_ufn, _u2_slump)
                                     else:
-                                        _new_prev[_ui] = (_ufn, _attach_slump_to_table(_uimg, _g_imgs_u2, _upd_bbb))
+                                        if store == "新宿歌舞伎町":
+                                            _gm_u2, _gp_u2 = _gap_screen_paths_for_bans(_bans_u2, _upd_ban2diff, _upd_ban2mac)
+                                            _gsel_u2 = st.session_state.get(f"_gap_sel_{store}_{_ufn}", 0)
+                                            _gap_img_u2 = _resolve_gap_screen(_gp_u2, _gsel_u2)
+                                        else:
+                                            _gap_img_u2 = None
+                                        _new_prev[_ui] = (_ufn, _attach_slump_to_table(_uimg, _g_imgs_u2, _upd_bbb, _gap_img_u2))
                                     if len(_g_imgs_u2) >= 16 and store != "秋葉原":
                                         try:
                                             _side_ufn = os.path.splitext(_ufn)[0] + "_side.jpg"
-                                            _side_u2  = _attach_slump_to_table_side(_uimg, _g_imgs_u2, _upd_bbb)
+                                            _side_u2  = _attach_slump_to_table_side(_uimg, _g_imgs_u2, _upd_bbb, _gap_img_u2)
                                             for _si2, (_spn2, _) in enumerate(_new_prev):
                                                 if _spn2 == _side_ufn:
                                                     _new_prev[_si2] = (_spn2, _side_u2)
@@ -9966,7 +9978,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                     _ig_composite.append((_lfn_exec, _ex_buf.getvalue()))
                                                     _ig_slump_cnt += 1
                                         else:
-                                            _combined_exec = _attach_slump_to_table(_t_img_exec, _g_imgs_exec, _ig_bbb_exec)
+                                            if store == "新宿歌舞伎町":
+                                                _gm_exec, _gp_exec = _gap_screen_paths_for_bans(_bans_exec, _ban2diff_exec, _ig_ban2mac_exec)
+                                                _gsel_exec = st.session_state.get(f"_gap_sel_{store}_{_lfn_exec}", 0)
+                                                _gap_img_exec = _resolve_gap_screen(_gp_exec, _gsel_exec)
+                                            else:
+                                                _gap_img_exec = None
+                                            _combined_exec = _attach_slump_to_table(_t_img_exec, _g_imgs_exec, _ig_bbb_exec, _gap_img_exec)
                                             _cbuf_exec = io.BytesIO()
                                             _combined_exec.save(_cbuf_exec, format="JPEG", quality=92)
                                             _ig_composite.append((_lfn_exec, _cbuf_exec.getvalue()))
@@ -9975,7 +9993,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         # 横レイアウト（16台以上・秋葉原除く）
                                         if len(_g_imgs_exec) >= 16 and store != "秋葉原":
                                             try:
-                                                _side_img_exec = _attach_slump_to_table_side(_t_img_exec, _g_imgs_exec, _ig_bbb_exec)
+                                                _side_img_exec = _attach_slump_to_table_side(_t_img_exec, _g_imgs_exec, _ig_bbb_exec, _gap_img_exec)
                                                 _side_buf_exec = io.BytesIO()
                                                 _side_img_exec.save(_side_buf_exec, format="JPEG", quality=92)
                                                 _side_fn_exec = os.path.splitext(_lfn_exec)[0] + "_side.jpg"
@@ -11189,7 +11207,13 @@ def show_auto_article_page() -> None:
                                             except Exception:
                                                 pass
                                         if _g_imgs_pv2:
-                                            _merged_pil.append((_fn_pv2, _attach_slump_to_table(_img_pv2, _g_imgs_pv2, _pv_bgg_sl)))
+                                            if store == "新宿歌舞伎町":
+                                                _gm_pv2, _gp_pv2 = _gap_screen_paths_for_bans(_bans_pv2, _pv_ban2diff, _pv_ban2mac)
+                                                _gsel_pv2 = st.session_state.get(f"_gap_sel_{store}_{_fn_pv2}", 0)
+                                                _gap_img_pv2 = _resolve_gap_screen(_gp_pv2, _gsel_pv2)
+                                            else:
+                                                _gap_img_pv2 = None
+                                            _merged_pil.append((_fn_pv2, _attach_slump_to_table(_img_pv2, _g_imgs_pv2, _pv_bgg_sl, _gap_img_pv2)))
                                         else:
                                             _merged_pil.append((_fn_pv2, _img_pv2))
                                     _art_pil = _merged_pil
@@ -11423,7 +11447,13 @@ def show_auto_article_page() -> None:
                                                     except Exception:
                                                         pass
                                                 if _g_imgs_u:
-                                                    _merged_anp.append((_fn_u, _attach_slump_to_table(_img_u, _g_imgs_u, _upd_bgg)))
+                                                    if store == "新宿歌舞伎町":
+                                                        _gm_u, _gp_u = _gap_screen_paths_for_bans(_bans_u, _upd_b2diff, _upd_b2mac)
+                                                        _gsel_u = st.session_state.get(f"_gap_sel_{store}_{_fn_u}", 0)
+                                                        _gap_img_u = _resolve_gap_screen(_gp_u, _gsel_u)
+                                                    else:
+                                                        _gap_img_u = None
+                                                    _merged_anp.append((_fn_u, _attach_slump_to_table(_img_u, _g_imgs_u, _upd_bgg, _gap_img_u)))
                                                 else:
                                                     _merged_anp.append((_fn_u, _img_u))
                                             _anp = _merged_anp
@@ -11920,7 +11950,13 @@ def show_auto_article_page() -> None:
                                         pass
                                 if not _g_imgs_sl:
                                     continue
-                                _combined_sl = _attach_slump_to_table(_t_img_sl, _g_imgs_sl, _art_bgg_sl)
+                                if store == "新宿歌舞伎町":
+                                    _gm_sl, _gp_sl = _gap_screen_paths_for_bans(_bans_sl, _art_ban2diff_sl, _art_ban2mac_sl)
+                                    _gsel_sl = st.session_state.get(f"_gap_sel_{store}_{_fp_sl}", 0)
+                                    _gap_img_sl = _resolve_gap_screen(_gp_sl, _gsel_sl)
+                                else:
+                                    _gap_img_sl = None
+                                _combined_sl = _attach_slump_to_table(_t_img_sl, _g_imgs_sl, _art_bgg_sl, _gap_img_sl)
                                 _save_jpeg(_combined_sl, _fpath_sl)
                                 _art_slump_cnt += 1
                         _log(f"✅ スランプ: {_art_slump_cnt}枚にスランプグラフを合成")
@@ -15747,11 +15783,17 @@ def _composite_slump_onto_images(
             if _slp is not None:
                 _merged.append((_fn, _slp))
         else:
-            _merged.append((_fn, _attach_slump_to_table(_img, _g_imgs, _bbb)))
+            if store == "新宿歌舞伎町":
+                _gm_m, _gp_m = _gap_screen_paths_for_bans(_bans, ban2diff, ban2mac)
+                _gsel_m = st.session_state.get(f"_gap_sel_{store}_{_fn}", 0)
+                _gap_img_m = _resolve_gap_screen(_gp_m, _gsel_m)
+            else:
+                _gap_img_m = None
+            _merged.append((_fn, _attach_slump_to_table(_img, _g_imgs, _bbb, _gap_img_m)))
         if len(_g_imgs) >= 16 and store != "秋葉原":
             try:
                 _merged.append((os.path.splitext(_fn)[0] + "_side.jpg",
-                                _attach_slump_to_table_side(_img, _g_imgs, _bbb)))
+                                _attach_slump_to_table_side(_img, _g_imgs, _bbb, _gap_img_m)))
             except Exception:
                 pass
     if store == "新宿歌舞伎町":

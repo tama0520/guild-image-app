@@ -6705,6 +6705,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                 # 新宿歌舞伎町（かぶぱポストの結果）：記入したもののみ生成するため
                 # 「🔍 プレビュー生成」は非表示・「📝 記入部分のみ」のみ表示
                 _full_prev_btn = False
+                # スマホ幅（≤640px）のみ：プレビュー作成ボタンを赤で強調（PCは従来のグレー）
+                st.markdown(
+                    "<style>@media (max-width:640px){.st-key-manual_only_preview_btn button{"
+                    "background:#FF4B4B!important;border-color:#FF4B4B!important;color:#fff!important;}}</style>",
+                    unsafe_allow_html=True,
+                )
                 _manual_prev_btn = st.button("📝 記入部分のみプレビュー作成", key="manual_only_preview_btn", use_container_width=True)
             else:
                 _mc1, _mc2 = st.columns(2)

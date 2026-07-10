@@ -16132,6 +16132,20 @@ def _find_slump_bg() -> "object | None":
     return None
 
 
+def _fit_center_in_box(img: "Image.Image", box_w: int, box_h: int) -> tuple["Image.Image", int, int]:
+    """box(box_w×box_h)内にアスペクト比維持で最大リサイズし、中央配置のオフセットを返す。"""
+    iw, ih = img.size
+    if iw <= 0 or ih <= 0 or box_w <= 0 or box_h <= 0:
+        return img, 0, 0
+    scale = min(box_w / iw, box_h / ih)
+    new_w = max(1, int(round(iw * scale)))
+    new_h = max(1, int(round(ih * scale)))
+    resized = img.resize((new_w, new_h), Image.LANCZOS)
+    ox = (box_w - new_w) // 2
+    oy = (box_h - new_h) // 2
+    return resized, ox, oy
+
+
 def _attach_slump_to_table(
     table_img: "Image.Image",
     graph_imgs: "list[Image.Image]",

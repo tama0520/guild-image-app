@@ -8236,6 +8236,20 @@ def show_auto_page(with_slump: bool = False) -> None:
 
     # ── ⑧ 実行ボタン（常に描画・ファイル未選択時は disabled）─────────
     st.markdown(f"### {_sec_num()} 実行")
+    # 新宿歌舞伎町（かぶぱ）×スマホ幅（≤640px）のみ：プレビュー前は「自動処理を開始」を
+    # 非表示、プレビュー後はグレーで控えめにして誤爆を防ぐ。PC幅・他店舗は無変更。
+    if store == "新宿歌舞伎町":
+        if st.session_state.get(_aprev_key) is None:
+            st.markdown(
+                "<style>@media (max-width:640px){.st-key-auto_run{display:none!important;}}</style>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                "<style>@media (max-width:640px){.st-key-auto_run button{"
+                "background:#6c757d!important;border-color:#6c757d!important;color:#fff!important;}}</style>",
+                unsafe_allow_html=True,
+            )
     run_clicked = st.button(
         "▶▶ 自動処理を開始",
         type="primary",

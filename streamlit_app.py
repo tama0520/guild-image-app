@@ -7670,7 +7670,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     with _grid_cols[_col_idx]:
                         _sub_ck, _sub_img = st.columns([1, 10])
                         with _sub_ck:
-                            st.checkbox("", key=_ck_key, label_visibility="collapsed")
+                            st.checkbox("生成する", key=_ck_key, label_visibility="collapsed")
                         with _sub_img:
                             st.image(_pimg, caption=_ptitle, use_container_width=True)
                             if store in _GAP_FILL_STORES:

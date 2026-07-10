@@ -7258,6 +7258,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             if _bs0_pv.lstrip("-").isdigit():
                                                 _ig_ban2mac_pv[_bs0_pv] = str(_igr_pv.get("機種名", ""))
                                     _merged_pv: list[tuple[str, "Image.Image"]] = []
+                                    _gap_meta_pv: dict[str, dict] = {}
                                     for (_fn_pv, _img_pv) in _prev_img_list:
                                         _bare_pv = re.sub(r"^\d{2}_", "", _fn_pv)
                                         _bans_pv = _pv_ban_map.get(_bare_pv, [])
@@ -7281,6 +7282,15 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                         _ban2diff_pv[_bp] = int(_pv_diff.loc[_idx_p])
                                                     except Exception:
                                                         pass
+                                        _is_kabupa_pv = (store == "新宿歌舞伎町")
+                                        _gap_img_pv = None
+                                        if _is_kabupa_pv:
+                                            _gmac_pv, _gpaths_pv = _gap_screen_paths_for_bans(
+                                                _bans_pv, _ban2diff_pv, _ig_ban2mac_pv)
+                                            _gap_meta_pv[_fn_pv] = {"machine": _gmac_pv, "screens": _gpaths_pv}
+                                            _gsel_key_pv = f"_gap_sel_{store}_{_fn_pv}"
+                                            _gsel_pv = st.session_state.get(_gsel_key_pv, 0)
+                                            _gap_img_pv = _resolve_gap_screen(_gpaths_pv, _gsel_pv)
                                         for _b_pv in _bans_pv:
                                             _it_pv = _ig_by_uid_pv.get(str(_b_pv))
                                             if _it_pv is None or not _it_pv.get("points"):
@@ -7304,14 +7314,15 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             if _pv_slump is not None:
                                                 _merged_pv.append((_fn_pv, _pv_slump))
                                         else:
-                                            _merged_pv.append((_fn_pv, _attach_slump_to_table(_img_pv, _g_imgs_pv, _ig_bbb_pv)))
+                                            _merged_pv.append((_fn_pv, _attach_slump_to_table(_img_pv, _g_imgs_pv, _ig_bbb_pv, _gap_img_pv)))
                                         if len(_g_imgs_pv) >= 16 and store != "秋葉原":
                                             try:
                                                 _side_fn_pv = os.path.splitext(_fn_pv)[0] + "_side.jpg"
-                                                _merged_pv.append((_side_fn_pv, _attach_slump_to_table_side(_img_pv, _g_imgs_pv, _ig_bbb_pv)))
+                                                _merged_pv.append((_side_fn_pv, _attach_slump_to_table_side(_img_pv, _g_imgs_pv, _ig_bbb_pv, _gap_img_pv)))
                                             except Exception:
                                                 pass
                                     _prev_img_list = _merged_pv
+                                    st.session_state[f"_gap_meta_{store}"] = _gap_meta_pv
                             except Exception:
                                 pass  # pision取得失敗時は表のみ画像のままプレビュー表示
 

@@ -5172,14 +5172,45 @@ def _build_pision_detail_html(name: str, df: pd.DataFrame) -> str:
 
 
 def _render_pision_summary_table(rows: list) -> None:
-    """台別サマリーを通常テーブル(st.dataframe)で表示する。
-    Cloud本番で components.html(iframe) がページ再描画時に NotFoundError:removeChild を
-    誘発するため、インタラクティブ表(_build_pision_interactive_html)の代わりに使う。"""
+    """台別サマリーを Markdown テーブルで表示する。
+    ※st.dataframe/st.table は内部で pyarrow(ネイティブ)を使い、Streamlit Cloud で
+      Segmentation fault を起こすことがあるため、pyarrow を使わない st.markdown で描画する。"""
     if not rows:
         return
-    _cols = ["機種名", "台数", "勝台数", "総差枚", "平均差枚", "平均G数"]
-    _sdf = pd.DataFrame([list(r)[:6] for r in rows], columns=_cols)
-    st.dataframe(_sdf, use_container_width=True, hide_index=True)
+    def _num(v):
+        try:
+            return f"{int(v):,}"
+        except Exception:
+            return str(v)
+    _lines = ["| 機種名 | 台数 | 勝台数 | 総差枚 | 平均差枚 | 平均G数 |",
+              "|---|--:|--:|--:|--:|--:|"]
+    for r in rows:
+        r = list(r)[:6]
+        _name = str(r[0]).replace("|", "｜")
+        _lines.append(f"| {_name} | {_num(r[1])} | {_num(r[2])} | {_num(r[3])} | {_num(r[4])} | {_num(r[5])} |")
+    st.markdown("\n".join(_lines))
+
+
+def _render_df_markdown(df) -> None:
+    """DataFrame を Markdown テーブルで表示する（st.dataframe の pyarrow を避け、Cloudの
+    Segmentation fault を回避）。"""
+    if df is None or len(df) == 0:
+        return
+    _cols = list(df.columns)
+    _lines = ["| " + " | ".join(str(c) for c in _cols) + " |",
+              "|" + "|".join(["---"] * len(_cols)) + "|"]
+    for _, _row in df.iterrows():
+        _vals = []
+        for _c in _cols:
+            _v = _row[_c]
+            try:
+                if isinstance(_v, float) and _v == int(_v):
+                    _v = int(_v)
+            except Exception:
+                pass
+            _vals.append(str(_v).replace("|", "｜"))
+        _lines.append("| " + " | ".join(_vals) + " |")
+    st.markdown("\n".join(_lines))
 
 
 def _build_pision_interactive_html(title: str, summary: "dict | None", rows: list,
@@ -5385,7 +5416,7 @@ def render_pision_data_view(vt_df: pd.DataFrame, title: str, sel_key: str) -> No
         _render_pision_summary_table(_rows)
     if not _disp.empty:
         with st.expander(f"📋 台別データ（全{len(_disp)}台）", expanded=False):
-            st.dataframe(_disp, use_container_width=True, hide_index=True, height=520)
+            _render_df_markdown(_disp)
 
 
 def show_auto_page(with_slump: bool = False) -> None:
@@ -5911,7 +5942,7 @@ def show_auto_page(with_slump: bool = False) -> None:
             _render_pision_summary_table(_rows)
         if _view_df is not None and not _view_df.empty:
             with st.expander(f"📋 台別データ（全{len(_view_df)}台）", expanded=False):
-                st.dataframe(_view_df, use_container_width=True, hide_index=True, height=520)
+                _render_df_markdown(_view_df)
 
     # ── ② 処理内容（常に描画）────────────────────────────────────────
     st.caption("処理内容：① 全台系PNG ＋ 全台プラス機種別JPG　② ジャグラーシリーズ優秀台JPG　③ その他の優秀台ピックアップJPG")
@@ -10633,7 +10664,7 @@ def show_auto_article_page() -> None:
             _render_pision_summary_table(_art_rows)
         if _art_view_df is not None and not _art_view_df.empty:
             with st.expander(f"📋 台別データ（全{len(_art_view_df)}台）", expanded=False):
-                st.dataframe(_art_view_df, use_container_width=True, hide_index=True, height=520)
+                _render_df_markdown(_art_view_df)
 
     st.caption("処理内容：① 全台系PNG ＋ 全台プラス機種別JPG　② ジャグラーシリーズ優秀台JPG　③ その他の優秀台ピックアップJPG")
 

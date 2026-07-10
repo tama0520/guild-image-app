@@ -1,9 +1,11 @@
-streamlit>=1.35.0
-pandas>=2.0.0
+# Streamlit Cloud を「ローカルで安定動作している版」に固定する。
+# バージョン無指定だとCloudが最新の別バージョンを入れ、ネイティブライブラリの
+# 組み合わせ不整合で Segmentation fault を起こしていたため（2026-07-10）。
+streamlit==1.56.0
+pandas==3.0.2
+numpy==2.4.4
+pillow==12.2.0
 openpyxl>=3.1.0
-pillow>=10.0.0
-dataframe_image
-matplotlib
 python-dotenv
 requests
 beautifulsoup4

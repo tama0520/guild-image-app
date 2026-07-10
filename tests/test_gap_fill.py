@@ -23,7 +23,29 @@ def test_fit_center_tall_in_wide_box():
     assert oy == 0, oy
 
 
+def test_featured_single_machine():
+    bans = [657, 658, 659]
+    ban2mac = {"657": "ゴッドイーター", "658": "ゴッドイーター", "659": "ゴッドイーター"}
+    ban2diff = {"657": 6900, "658": 10000, "659": 3200}
+    assert app._featured_machine_for_bans(bans, ban2diff, ban2mac) == "ゴッドイーター"
+
+
+def test_featured_multi_machine_picks_max_diff():
+    bans = [5, 665, 45]
+    ban2mac = {"5": "カバネリ", "665": "ゴッドイーター", "45": "北斗転生2"}
+    ban2diff = {"5": 200, "665": 14900, "45": 900}
+    assert app._featured_machine_for_bans(bans, ban2diff, ban2mac) == "ゴッドイーター"
+
+
+def test_featured_empty_returns_none():
+    assert app._featured_machine_for_bans([], {}, {}) is None
+
+
 if __name__ == "__main__":
     test_fit_center_landscape_in_wide_box()
     test_fit_center_tall_in_wide_box()
     print("OK: test_fit_center")
+    test_featured_single_machine()
+    test_featured_multi_machine_picks_max_diff()
+    test_featured_empty_returns_none()
+    print("OK: test_featured")

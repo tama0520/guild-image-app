@@ -16146,6 +16146,29 @@ def _fit_center_in_box(img: "Image.Image", box_w: int, box_h: int) -> tuple["Ima
     return resized, ox, oy
 
 
+def _featured_machine_for_bans(bans: list, ban2diff: dict, ban2mac: dict) -> "str | None":
+    """はめ込む液晶の対象機種名を決める。1機種ならそれ、複数なら差枚最大の台の機種。"""
+    macs = []
+    for b in bans:
+        m = ban2mac.get(str(b))
+        if m:
+            macs.append((str(b), m))
+    if not macs:
+        return None
+    distinct = {m for _, m in macs}
+    if len(distinct) == 1:
+        return next(iter(distinct))
+    best_ban, best_mac = None, None
+    best_diff = None
+    for b, m in macs:
+        d = ban2diff.get(b)
+        if d is None:
+            continue
+        if best_diff is None or d > best_diff:
+            best_diff, best_ban, best_mac = d, b, m
+    return best_mac if best_mac is not None else macs[0][1]
+
+
 def _attach_slump_to_table(
     table_img: "Image.Image",
     graph_imgs: "list[Image.Image]",

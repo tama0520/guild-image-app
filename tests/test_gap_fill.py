@@ -76,6 +76,29 @@ def test_attach_3col_none_screen_no_crash():
     assert out.size[0] == 960
 
 
+def test_attach_side_fills_when_empty3():
+    # n=5 → COLS=4, rows=2, empty=3 → はめ込む
+    table = Image.new("RGB", (1200, 400), (255, 255, 255))
+    screen = Image.new("RGB", (200, 100), (255, 255, 0))
+    out = app._attach_slump_to_table_side(table, _dummy_graphs(5), None, screen)
+    px = out.load()
+    found = any(px[x, y] == (255, 255, 0)
+                for x in range(out.size[0] // 2, out.size[0])
+                for y in range(out.size[1] // 2, out.size[1], 5))
+    assert found, "side: 液晶がはめ込まれていない"
+
+
+def test_attach_side_skips_when_empty1():
+    # n=7 → COLS=4, rows=2, empty=1 → はめ込まない
+    table = Image.new("RGB", (1200, 400), (255, 255, 255))
+    screen = Image.new("RGB", (200, 100), (255, 255, 0))
+    out = app._attach_slump_to_table_side(table, _dummy_graphs(7), None, screen)
+    px = out.load()
+    found = any(px[x, y] == (255, 255, 0)
+                for x in range(out.size[0]) for y in range(out.size[1]))
+    assert not found, "side: empty=1 なのに液晶がはめ込まれた"
+
+
 if __name__ == "__main__":
     test_fit_center_landscape_in_wide_box()
     test_fit_center_tall_in_wide_box()
@@ -88,3 +111,6 @@ if __name__ == "__main__":
     test_attach_3col_skips_when_empty1()
     test_attach_3col_none_screen_no_crash()
     print("OK: test_attach_3col")
+    test_attach_side_fills_when_empty3()
+    test_attach_side_skips_when_empty1()
+    print("OK: test_attach_side")

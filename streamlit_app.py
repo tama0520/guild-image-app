@@ -15975,6 +15975,7 @@ def _attach_slump_to_table_side(
     table_img: "Image.Image",
     graph_imgs: "list[Image.Image]",
     bg_path=None,
+    gap_screen_img=None,
 ) -> "Image.Image":
     """表画像（左）＋スランプグラフ4列（右）の横レイアウト合成（16台以上用）。"""
     COLS     = 4
@@ -16030,6 +16031,19 @@ def _attach_slump_to_table_side(
         x = graph_x0 + PAD + col * (cell_w + GAP)
         y = PAD + row * (row_h + GAP)
         canvas.paste(g, (x, y))
+
+    # 最終行の空きコマ（2以上）に液晶をはめ込む
+    empty = COLS * rows - n
+    if gap_screen_img is not None and empty >= 2:
+        last_count = n - (rows - 1) * COLS
+        gap_x0 = graph_x0 + PAD + last_count * cell_w + last_count * GAP
+        gap_x1 = graph_x0 + graph_area_w - PAD
+        box_w  = gap_x1 - gap_x0
+        gap_y0 = PAD + (rows - 1) * (row_h + GAP)
+        box_h  = row_h
+        if box_w > 0 and box_h > 0:
+            fitted, ox, oy = _fit_center_in_box(gap_screen_img, box_w, box_h)
+            canvas.paste(fitted, (gap_x0 + ox, gap_y0 + oy))
 
     return canvas
 

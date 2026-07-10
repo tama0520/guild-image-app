@@ -7657,30 +7657,22 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             break
                                 _meta = _gap_meta.get(_match_fn) if _match_fn else None
                                 if _meta and _meta.get("screens") and _meta.get("fillable"):
+                                    # ※Cloudでの removeChild を避けるため、expander/サムネ画像/列を使わず
+                                    #   軽量な selectbox 1つで選ぶ（DOMを最小化）。液晶1..N ＋ はめ込まない。
                                     _scr = _meta["screens"]
                                     _sel_key = f"_gap_sel_{store}_m_{_meta.get('machine') or ''}"
                                     _cur = st.session_state.get(_sel_key, 0)
-                                    _radio_key = f"radio_{_sel_key}_{_ci}"
-                                    if _radio_key not in st.session_state:
-                                        st.session_state[_radio_key] = _cur
-                                    with st.expander(f"🖼️ 液晶画像を選ぶ（{_meta.get('machine') or ''}）"):
-                                        _opts = list(range(len(_scr))) + [-1]
-                                        def _fmt(_i):
-                                            return "はめ込まない" if _i == -1 else f"液晶{_i + 1}"
-                                        st.radio(
-                                            "液晶", _opts, format_func=_fmt, key=_radio_key,
-                                            horizontal=True, label_visibility="collapsed",
-                                            on_change=_on_gap_screen_change,
-                                            args=(_radio_key, _sel_key),
-                                        )
-                                        _thumb_cols = st.columns(max(1, len(_scr)))
-                                        for _si, _sp in enumerate(_scr):
-                                            with _thumb_cols[_si]:
-                                                try:
-                                                    st.image(_sp, caption=f"液晶{_si + 1}", width=120)
-                                                except Exception:
-                                                    st.caption(f"液晶{_si + 1}（読込失敗）")
-                                        st.caption("※選択は⑧実行（ZIP）に反映されます")
+                                    _opts = list(range(len(_scr))) + [-1]
+                                    def _fmt(_i):
+                                        return "はめ込まない" if _i == -1 else f"液晶{_i + 1}"
+                                    _sb_key = f"selbox_{_sel_key}_{_ci}"
+                                    if _sb_key not in st.session_state:
+                                        st.session_state[_sb_key] = _cur if _cur in _opts else 0
+                                    st.selectbox(
+                                        f"🖼️ 液晶（{_meta.get('machine') or ''}）→⑧実行に反映",
+                                        _opts, format_func=_fmt, key=_sb_key,
+                                        on_change=_on_gap_screen_change, args=(_sb_key, _sel_key),
+                                    )
                                 elif (_match_fn is not None and _meta is not None
                                       and _meta.get("fillable") and not _meta.get("screens")):
                                     st.caption(f"🖼️液晶: 「{_meta.get('machine') or '?'}」は機種画像紐づけに液晶が未登録です")

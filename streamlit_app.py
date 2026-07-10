@@ -7317,7 +7317,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                 pass
                                         if store == "秋葉原":
                                             _pv_title = _pv_title_map.get(_bare_pv, os.path.splitext(_bare_pv)[0])
-                                            _pv_slump = _build_slump_title_img(_pv_title, _g_imgs_pv, _ig_bbb_pv)
+                                            if _is_gap_pv and _fn_pv in _gap_meta_pv:
+                                                _gap_meta_pv[_fn_pv]["fillable"] = _gap_fillable(len(_g_imgs_pv), 3)
+                                                _gap_base_pv[_fn_pv] = {"title": _pv_title, "graphs": list(_g_imgs_pv), "titlekind": True}
+                                            _pv_slump = _build_slump_title_img(_pv_title, _g_imgs_pv, _ig_bbb_pv, _gap_img_pv)
                                             if _pv_slump is not None:
                                                 _merged_pv.append((_fn_pv, _pv_slump))
                                         else:
@@ -7683,16 +7686,19 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             if _base:
                                                 _new_gap = _resolve_gap_screen(_scr, _new)
                                                 _bbb2 = _find_slump_bg()
-                                                if _base.get("side"):
+                                                if _base.get("titlekind"):
+                                                    _newimg = _build_slump_title_img(_base["title"], _base["graphs"], _bbb2, _new_gap)
+                                                elif _base.get("side"):
                                                     _newimg = _attach_slump_to_table_side(_base["table"], _base["graphs"], _bbb2, _new_gap)
                                                 else:
                                                     _newimg = _attach_slump_to_table(_base["table"], _base["graphs"], _bbb2, _new_gap)
-                                                _auto_cur = st.session_state.get(_aprev_key) or []
-                                                for _ai in range(len(_auto_cur)):
-                                                    if _auto_cur[_ai][0] == _match_fn:
-                                                        _auto_cur[_ai] = (_match_fn, _newimg)
-                                                        break
-                                                st.session_state[_aprev_key] = _auto_cur
+                                                if _newimg is not None:
+                                                    _auto_cur = st.session_state.get(_aprev_key) or []
+                                                    for _ai in range(len(_auto_cur)):
+                                                        if _auto_cur[_ai][0] == _match_fn:
+                                                            _auto_cur[_ai] = (_match_fn, _newimg)
+                                                            break
+                                                    st.session_state[_aprev_key] = _auto_cur
                                             st.rerun()
                                 elif (_match_fn is not None and _meta is not None
                                       and _meta.get("fillable") and not _meta.get("screens")):
@@ -8209,7 +8215,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         else:
                                             _u2_title = (st.session_state.get(f"_inagawa_title_map_{store}", {}).get(_u2_bare)
                                                          or re.sub(r"[①②③④⑤⑥⑦⑧⑨⑩]", "", os.path.splitext(_u2_bare)[0]))
-                                        _u2_slump = _build_slump_title_img(_u2_title, _g_imgs_u2, _upd_bbb)
+                                        if store in _GAP_FILL_STORES:
+                                            _gm_a2, _gp_a2 = _gap_screen_paths_for_bans(_bans_u2, _upd_ban2diff, _upd_ban2mac)
+                                            _gsel_a2 = st.session_state.get(f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _ufn)}", 0)
+                                            _gap_img_a2 = _resolve_gap_screen(_gp_a2, _gsel_a2)
+                                        else:
+                                            _gap_img_a2 = None
+                                        _u2_slump = _build_slump_title_img(_u2_title, _g_imgs_u2, _upd_bbb, _gap_img_a2)
                                         if _u2_slump is not None:
                                             _new_prev[_ui] = (_ufn, _u2_slump)
                                     else:
@@ -10024,7 +10036,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         if store == "秋葉原":
                                             if _g_imgs_exec:
                                                 _ex_title = st.session_state.get(f"_inagawa_title_map_{store}", {}).get(_bare_exec, os.path.splitext(_bare_exec)[0])
-                                                _ex_slump = _build_slump_title_img(_ex_title, _g_imgs_exec, _ig_bbb_exec)
+                                                if store in _GAP_FILL_STORES:
+                                                    _gm_ax, _gp_ax = _gap_screen_paths_for_bans(_bans_exec, _ban2diff_exec, _ig_ban2mac_exec)
+                                                    _gsel_ax = st.session_state.get(f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _lfn_exec)}", 0)
+                                                    _gap_img_ax = _resolve_gap_screen(_gp_ax, _gsel_ax)
+                                                else:
+                                                    _gap_img_ax = None
+                                                _ex_slump = _build_slump_title_img(_ex_title, _g_imgs_exec, _ig_bbb_exec, _gap_img_ax)
                                                 if _ex_slump is not None:
                                                     _ex_buf = io.BytesIO()
                                                     _ex_slump.save(_ex_buf, format="JPEG", quality=92)
@@ -15834,7 +15852,15 @@ def _composite_slump_onto_images(
                 pass
         if store == "秋葉原":
             _title = os.path.splitext(_bare)[0]
-            _slp = _build_slump_title_img(_title, _g_imgs, _bbb)
+            _gap_img_ak = None
+            if store in _GAP_FILL_STORES:
+                _gm_ak, _gp_ak = _gap_screen_paths_for_bans(_bans, ban2diff, ban2mac)
+                _gap_meta_out[_fn] = {"machine": _gm_ak, "screens": _gp_ak,
+                                      "fillable": _gap_fillable(len(_g_imgs), 3)}
+                _gap_base_out[_fn] = {"title": _title, "graphs": list(_g_imgs), "titlekind": True}
+                _gsel_ak = st.session_state.get(f"_gap_sel_{store}_{re.sub(r'^\d{2}_', '', _fn)}", 0)
+                _gap_img_ak = _resolve_gap_screen(_gp_ak, _gsel_ak)
+            _slp = _build_slump_title_img(_title, _g_imgs, _bbb, _gap_img_ak)
             if _slp is not None:
                 _merged.append((_fn, _slp))
         else:
@@ -16211,6 +16237,7 @@ def _build_slump_title_img(
     title: str,
     graph_imgs: "list[Image.Image]",
     bg_path=None,
+    gap_screen_img=None,
 ) -> "Image.Image | None":
     """青タイトルバー＋スランプグラフのみの画像（表なし・秋葉原スランプ付き結果ポスト用）。"""
     if not graph_imgs:
@@ -16289,6 +16316,23 @@ def _build_slump_title_img(
         col = i % COLS
         canvas.paste(g, (PAD + col * (cell_w + GAP), y0 + PAD + row * (gh0 + GAP)))
 
+    # 最終行の空きコマ（2以上）に液晶をはめ込む
+    n = len(graph_imgs)
+    empty = COLS * rows - n
+    if gap_screen_img is not None and empty >= 2:
+        last_count = n - (rows - 1) * COLS
+        gap_x0 = PAD + last_count * cell_w + last_count * GAP
+        gap_x1 = total_w - PAD
+        box_w  = gap_x1 - gap_x0
+        gap_y0 = y0 + PAD + (rows - 1) * (gh0 + GAP)
+        box_h  = gh0
+        if box_w > 0 and box_h > 0:
+            _sw = max(1, int(box_w * _GAP_SCREEN_SHRINK))
+            _sh = max(1, int(box_h * _GAP_SCREEN_SHRINK))
+            fitted, ox, oy = _fit_center_in_box(gap_screen_img, _sw, _sh)
+            canvas.paste(fitted, (gap_x0 + (box_w - _sw) // 2 + ox,
+                                  gap_y0 + (box_h - _sh) // 2 + oy))
+
     return canvas
 
 
@@ -16309,8 +16353,8 @@ def _find_slump_bg() -> "object | None":
 _GAP_SCREEN_SHRINK = 0.95
 
 # スランプ空きコマに液晶をはめ込む対象店舗（⑥液晶セレクタも有効化）。秋葉原は
-# レイアウトが異なる（_build_slump_title_img）ため対象外。
-_GAP_FILL_STORES = {"新宿歌舞伎町", "上野新館", "上野本館", "新小岩"}
+# タイトル型レイアウト（_build_slump_title_img）だが同じ3列グリッドなので対応。
+_GAP_FILL_STORES = {"新宿歌舞伎町", "上野新館", "上野本館", "新小岩", "秋葉原"}
 
 
 def _fit_center_in_box(img: "Image.Image", box_w: int, box_h: int) -> tuple["Image.Image", int, int]:

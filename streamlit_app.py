@@ -5191,6 +5191,27 @@ def _render_pision_summary_table(rows: list) -> None:
     st.markdown("\n".join(_lines))
 
 
+def _render_pision_summary(title: str, summary: "dict | None", rows: list,
+                           units_df=None, single_names=None,
+                           height_min: int = 480, height_max: int = 820,
+                           height_pad: int = 350) -> None:
+    """機種別サマリーを表示する。
+    ローカル（Windows）では機種名クリックで台別詳細が出るインタラクティブ表（サマリー
+    ボックス＝総差枚等付き）を components.html で描画する。Streamlit Cloud では
+    components.html(iframe) が NotFoundError:removeChild を誘発するため、pyarrow を使わない
+    Markdown テーブル（_render_pision_summary_table）にフォールバックする。"""
+    if not rows:
+        return
+    if _IS_CLOUD:
+        _render_pision_summary_table(rows)
+        return
+    _comp_h = max(height_min, min(height_max, len(rows) * 42 + height_pad))
+    components.html(
+        _build_pision_interactive_html(title, summary, rows, units_df, single_names),
+        height=_comp_h, scrolling=True,
+    )
+
+
 def _render_df_markdown(df) -> None:
     """DataFrame を Markdown テーブルで表示する（st.dataframe の pyarrow を避け、Cloudの
     Segmentation fault を回避）。"""
@@ -5413,7 +5434,7 @@ def render_pision_data_view(vt_df: pd.DataFrame, title: str, sel_key: str) -> No
             _rows.append(("バラエティ", _vn, _vw, _vtd, _vad, _vg))
         st.caption("📋 pisionの代わりに照合用（2台以上を平均差枚順・1台機種はバラエティに集約／数値はpisionの生データと一致）")
         _snames = set(_single["機種名"].tolist()) if not _single.empty else None
-        _render_pision_summary_table(_rows)
+        _render_pision_summary(title, _meta, _rows, _units_df, _snames)
     if not _disp.empty:
         with st.expander(f"📋 台別データ（全{len(_disp)}台）", expanded=False):
             _render_df_markdown(_disp)
@@ -5939,7 +5960,7 @@ def show_auto_page(with_slump: bool = False) -> None:
             st.caption("📋 pisionの代わりに照合用（2台以上を平均差枚順・1台機種はバラエティに集約／数値はpisionの生データと一致）")
             _units_df = st.session_state.get(_vt_units_key)
             _snames = set(_single["機種名"].tolist()) if not _single.empty else None
-            _render_pision_summary_table(_rows)
+            _render_pision_summary(_title, _meta, _rows, _units_df, _snames)
         if _view_df is not None and not _view_df.empty:
             with st.expander(f"📋 台別データ（全{len(_view_df)}台）", expanded=False):
                 _render_df_markdown(_view_df)
@@ -10661,7 +10682,7 @@ def show_auto_article_page() -> None:
             st.caption("📋 pisionの代わりに照合用（2台以上を平均差枚順・1台機種はバラエティに集約／数値はpisionの生データと一致）")
             _art_units_df = st.session_state.get(_art_vt_units_key)
             _art_snames   = set(_art_single["機種名"].tolist()) if not _art_single.empty else None
-            _render_pision_summary_table(_art_rows)
+            _render_pision_summary(_art_title, _art_meta_v, _art_rows, _art_units_df, _art_snames)
         if _art_view_df is not None and not _art_view_df.empty:
             with st.expander(f"📋 台別データ（全{len(_art_view_df)}台）", expanded=False):
                 _render_df_markdown(_art_view_df)
@@ -13889,7 +13910,8 @@ def show_rote_page() -> None:
                             _rv_ucols = [c for c in ["台番", "機種名", "差枚", "BB", "RB", "AT", "ゲーム数"] if c in _rv_df.columns]
                             _rv_units = _rv_df[_rv_ucols].copy() if _rv_ucols else None
                             _rv_snames = set(_rv_single["機種名"].tolist()) if not _rv_single.empty else None
-                            _render_pision_summary_table(_rv_rows)
+                            _render_pision_summary(_rv_title, None, _rv_rows, _rv_units, _rv_snames,
+                                                   height_min=300, height_max=700, height_pad=180)
                     except Exception:
                         pass
                 elif not _rote_is_collecting:

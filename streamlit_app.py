@@ -8694,6 +8694,26 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _new_order_e.append(_fn_c)
                             _exec_order = _new_order_e
 
+                    # ⑥プレビューでチェックを外した画像は出力しない（縦/横 _side を個別に判定）
+                    _unchecked_bare_e: set[str] = set()
+                    for _pci_e, (_ppn_e, _) in enumerate(st.session_state.get(_aprev_key) or []):
+                        if not st.session_state.get(f"auto_prev_ck_{store}_{_pci_e}", True):
+                            _unchecked_bare_e.add(re.sub(r"^\d{2}_", "", _ppn_e))
+                    if _unchecked_bare_e:
+                        _kept_order_e: list[str] = []
+                        for _bfn_e in _exec_order:
+                            if re.sub(r"^\d{2}_", "", _bfn_e) in _unchecked_bare_e:
+                                _fp_uc_e = os.path.join(output_dir, _bfn_e)
+                                if os.path.exists(_fp_uc_e):
+                                    try:
+                                        os.remove(_fp_uc_e)
+                                    except Exception:
+                                        pass
+                                _m_log(f"  🗑️ スキップ（チェック外し）: {_bfn_e}")
+                            else:
+                                _kept_order_e.append(_bfn_e)
+                        _exec_order = _kept_order_e
+
                     # 連番プレフィックス付与
                     _seq_e = 1
                     for _bfn_e in _exec_order:
@@ -9241,8 +9261,19 @@ def show_auto_page(with_slump: bool = False) -> None:
                         if _zm2:
                             _checked_img_machines_ex.add(_zm2)
 
+                # 縦(base)を外して横(_side)にチェックした画像の base 名セット。
+                # この base は「横の生成元」なので削除・再振り分けせず残す（最終出力からは
+                # 合成ループで縦を除外し、横だけ出力する）。
+                _checked_side_bases_ex: set[str] = set()
+                for _si3, (_spn3, _) in enumerate(_aprev_imgs):
+                    if _spn3.endswith("_side.jpg") and st.session_state.get(f"auto_prev_ck_{store}_{_si3}", True):
+                        _checked_side_bases_ex.add(_spn3[:-len("_side.jpg")] + ".jpg")
+
                 for _ci, (_pname, _) in enumerate(_aprev_imgs):
                     if not st.session_state.get(f"auto_prev_ck_{store}_{_ci}", True):
+                        # 横(_side)がチェック済みの縦(base)は、横の生成元として残す（削除・再振り分けしない）
+                        if _pname in _checked_side_bases_ex:
+                            continue
                         _del_path = os.path.join(output_dir, _pname)
                         if os.path.exists(_del_path):
                             os.remove(_del_path)
@@ -10128,13 +10159,28 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             except Exception:
                                                 pass
                                     _log(f"✅ スランプ: {_ig_slump_cnt}枚にスランプグラフを合成")
+                                    # ⑥プレビューでチェックを外した画像は出力しない（縦/横 _side を個別に判定）
+                                    _unchecked_bare_ig: set[str] = set()
+                                    for _pci_ig, (_ppn_ig, _) in enumerate(st.session_state.get(f"auto_preview_imgs_{store}") or []):
+                                        if not st.session_state.get(f"auto_prev_ck_{store}_{_pci_ig}", True):
+                                            _unchecked_bare_ig.add(re.sub(r"^\d{2}_", "", _ppn_ig))
                                     # output_dirに上書き保存 & session_stateを合成済み画像で更新
+                                    _ig_composite_kept = []
                                     for _cfn_exec, _cb_exec in _ig_composite:
+                                        if re.sub(r"^\d{2}_", "", _cfn_exec) in _unchecked_bare_ig:
+                                            _cfp_uc_ig = os.path.join(output_dir, _cfn_exec)
+                                            if os.path.exists(_cfp_uc_ig):
+                                                try:
+                                                    os.remove(_cfp_uc_ig)
+                                                except Exception:
+                                                    pass
+                                            continue
+                                        _ig_composite_kept.append((_cfn_exec, _cb_exec))
                                         _cfp_exec = os.path.join(output_dir, _cfn_exec)
                                         if os.path.exists(_cfp_exec) or _cfn_exec.endswith("_side.jpg"):
                                             with open(_cfp_exec, "wb") as _cfh_exec:
                                                 _cfh_exec.write(_cb_exec)
-                                    st.session_state[f"_inagawa_jpgs_{store}"] = _ig_composite
+                                    st.session_state[f"_inagawa_jpgs_{store}"] = _ig_composite_kept
                         except Exception as _ig_exc_exec:
                             _log(f"❌ スランプグラフ合成エラー: {_ig_exc_exec}")
 

@@ -7592,7 +7592,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         if store == "秋葉原":
                                             _pv_title = _pv_title_map.get(_bare_pv, os.path.splitext(_bare_pv)[0])
                                             if _is_gap_pv and _fn_pv in _gap_meta_pv:
-                                                _fillable_pv = _gap_fillable(len(_g_imgs_pv), 3)
+                                                # その他の優秀台は実描画列数(ceil(n/10))で空き判定する
+                                                # （_build_slump_title_img の可変列と一致させる）。他は従来どおり3列。
+                                                _gap_cols_pv = (max(1, math.ceil(len(_g_imgs_pv) / 10))
+                                                                if _pv_title.startswith("その他の優秀台") else 3)
+                                                _fillable_pv = _gap_fillable(len(_g_imgs_pv), _gap_cols_pv)
                                                 _gap_meta_pv[_fn_pv]["fillable"] = _fillable_pv
                                                 # 液晶をはめ込める機種だけ再合成用baseを保持（不要機種のPILは持たない）
                                                 if _fillable_pv:
@@ -16160,7 +16164,10 @@ def _composite_slump_onto_images(
             _gap_img_ak = None
             if store in _GAP_FILL_STORES:
                 _gm_ak, _gp_ak = _gap_screen_paths_for_bans(_bans, ban2diff, ban2mac)
-                _fillable_ak = _gap_fillable(len(_g_imgs), 3)
+                # その他の優秀台は実描画列数(ceil(n/10))で空き判定（可変列と一致）。他は3列。
+                _gap_cols_ak = (max(1, math.ceil(len(_g_imgs) / 10))
+                                if _title.startswith("その他の優秀台") else 3)
+                _fillable_ak = _gap_fillable(len(_g_imgs), _gap_cols_ak)
                 _gap_meta_out[_fn] = {"machine": _gm_ak, "screens": _gp_ak,
                                       "fillable": _fillable_ak}
                 if _fillable_ak:
@@ -16556,6 +16563,10 @@ def _build_slump_title_img(
         return None
 
     COLS   = 3
+    # その他の優秀台ピックアップのみ縦最大10台で列数を動的計算（cols=ceil(台数/10)）。
+    # 他のタイトル型画像（全台系・高配分・ジャグラー・バラエティ等）は従来どおり横3列固定。
+    if title.startswith("その他の優秀台"):
+        COLS = max(1, math.ceil(len(graph_imgs) / 10))
     PAD    = 12
     GAP    = 8
     LINE_H = 6

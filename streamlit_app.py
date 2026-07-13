@@ -54,6 +54,25 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 # st.iframe は height=0 を受け付けないためレイアウトが崩れる（2026-06-01削除予定）
 _logging.getLogger("streamlit.deprecation_util").setLevel(_logging.ERROR)
 
+# ── メモリ計測（切り分け用・2026-07-13） ─────────────────────────
+# Streamlit Cloud の実RSSを標準エラーに出力し、Cloudログで実値を確認する。
+# 「1GB固定」と決めつけず起動直後・画像生成前後の増分を計測するのが目的。
+try:
+    import psutil as _psutil
+except Exception:
+    _psutil = None
+
+
+def _log_rss(label: str) -> None:
+    """現在プロセスのRSS(MB)を stderr に出力する。psutil 未導入なら無視。"""
+    try:
+        if _psutil is None:
+            return
+        _rss = _psutil.Process().memory_info().rss / (1024 * 1024)
+        print(f"[RSS] {label}: {_rss:.1f} MB", file=sys.stderr, flush=True)
+    except Exception:
+        pass
+
 # =============================================================================
 # ■ ①設定データ
 #   ─ ここを編集するだけで店舗・画像種類を追加できます ─
@@ -4104,6 +4123,7 @@ def run_auto_pipeline(
     """3ステップパイプラインを実行する。
     戻り値: {"ok": bool, "files": list[str], "error": str | None,
              "zen_dai_list", "high_ratio_list", "nami_list", "excellent_list", "date"}"""
+    _log_rss("run_auto_pipeline 開始（画像生成前）")
     try:
         cfg  = get_store_config(store)
         stem = os.path.splitext(os.path.basename(excel_path))[0]
@@ -4212,6 +4232,7 @@ def run_auto_pipeline(
             except ValueError:
                 pass
 
+        _log_rss("run_auto_pipeline 完了（画像生成後）")
         return {
             "ok":             True,
             "files":          f1 + f2 + f3,
@@ -17239,6 +17260,7 @@ def init_session_state() -> None:
 
 
 def main() -> None:
+    _log_rss("main() 起動直後")
     # ページ設定（ブラウザタブのタイトルとレイアウト）
     st.set_page_config(
         page_title="ギルド画像生成",

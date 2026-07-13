@@ -5,7 +5,12 @@ streamlit==1.56.0
 pandas==3.0.2
 numpy==2.4.4
 pillow==12.2.0
+# pandas 3.0 は pyarrow を必須依存とし import 時にネイティブ結合する。
+# 非固定だと Cloud が別バージョンを解決し Segmentation fault の疑いがあるため
+# ローカル安定版に固定する（2026-07-13 切り分け中）。
+pyarrow==23.0.1
 openpyxl>=3.1.0
+psutil
 python-dotenv
 requests
 beautifulsoup4

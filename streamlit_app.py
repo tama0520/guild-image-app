@@ -5217,36 +5217,34 @@ def _render_pision_summary_table(rows: list) -> None:
 
 
 def _render_pision_summary_box(summary: dict) -> None:
-    """①総差枚サマリー枠を st.columns + st.markdown で描画（components.html不使用）。
-    総差枚・平均差枚・平均G数・勝率を4枠で表示。数値はプラス青/マイナス赤。"""
+    """①総差枚サマリー枠を、変更前の components.html 版 .pis-sum と同じ2列縦テーブルの
+    見た目で描画する。iframe を使わず st.markdown(unsafe_allow_html=True) の静的HTML/CSSで再現。
+    表示項目・順番・数値形式は変更前と同一（総差枚→平均差枚→平均G数→勝率、勝率は plus/total）。
+    総差枚・平均差枚は色を付けず黒文字（変更前と同じ）。"""
     def _sd(v: int) -> str:
         return f"+{v:,}" if v > 0 else (f"{v:,}" if v < 0 else "±0")
-
-    def _color(v: int) -> str:
-        return "#1565c0" if v > 0 else ("#e03131" if v < 0 else "#263238")
 
     td    = int(summary.get("total_diff", 0))
     ad    = int(summary.get("avg_diff", 0))
     ag    = int(summary.get("avg_games", 0))
     plus  = int(summary.get("plus", 0))
     total = int(summary.get("total", 0))
-    wr    = f"{plus}/{total}（{round(plus / total * 100)}%）" if total else "－"
-    items = [
-        ("総差枚",   _sd(td), _color(td)),
-        ("平均差枚", _sd(ad), _color(ad)),
-        ("平均G数",  f"{ag:,}", "#263238"),
-        ("勝率",     wr,       "#263238"),
-    ]
-    for _c, (_lbl, _val, _col) in zip(st.columns(4), items):
-        with _c:
-            st.markdown(
-                "<div style='border:1px solid #dde3e6;border-radius:6px;padding:8px 10px;"
-                "text-align:center;background:#fafcfd;'>"
-                f"<div style='font-size:12px;color:#607d8b;'>{_lbl}</div>"
-                f"<div style='font-size:20px;font-weight:700;color:{_col};"
-                f"font-variant-numeric:tabular-nums;'>{_val}</div></div>",
-                unsafe_allow_html=True,
-            )
+    st.markdown(
+        "<style>"
+        ".pis-sum{border-collapse:collapse;margin-bottom:14px;}"
+        ".pis-sum th{background:#f4f6f7;border:1px solid #dde3e6;padding:6px 14px;"
+        "text-align:left;font-weight:600;width:90px;white-space:nowrap;color:#2b3a42;}"
+        ".pis-sum td{border:1px solid #dde3e6;padding:6px 18px;min-width:120px;"
+        "font-variant-numeric:tabular-nums;color:#2b3a42;}"
+        "</style>"
+        "<table class='pis-sum'><tbody>"
+        f"<tr><th>総差枚</th><td>{_sd(td)}</td></tr>"
+        f"<tr><th>平均差枚</th><td>{_sd(ad)}</td></tr>"
+        f"<tr><th>平均G数</th><td>{ag:,}</td></tr>"
+        f"<tr><th>勝率</th><td>{plus}/{total}</td></tr>"
+        "</tbody></table>",
+        unsafe_allow_html=True,
+    )
 
 
 def _build_pision_detail_markdown(name: str, df: pd.DataFrame) -> str:
@@ -5287,30 +5285,119 @@ def _build_pision_detail_markdown(name: str, df: pd.DataFrame) -> str:
     return f"**{name}（{n}台）**\n\n" + "\n".join(lines)
 
 
-def _render_pision_machine_detail(title: str, rows: list, units_df,
-                                  single_names=None) -> None:
-    """②機種名クリック相当：selectbox で機種を選ぶと台別詳細を Markdown で表示。
-    クリック可能HTML/iframe不使用。選択状態は selectbox の key（session_state）で保持。"""
-    if units_df is None or len(units_df) == 0:
-        return
-    names = [str(r[0]) for r in rows]
-    if not names:
+def _render_pision_machine_table(title: str, rows: list, units_df,
+                                 single_names=None) -> None:
+    """②機種一覧を st.dataframe（単一行選択）で左に、台別詳細を右に表示する（案C・左右5:7）。
+    状態0(iframe版)の見た目に、components.html/iframe/JavaScript を使わず可能な範囲で寄せる。
+    ・左＝st.dataframe（機種/平均差枚/総差枚/平均G数/勝率）。列整列は column_config の alignment、
+      機種名の青色は Pandas Styler の color、行高は row_height（いずれも公式機能）。
+    ・右＝状態0の台別詳細を既存 _build_pision_detail_html でそのまま静的HTML描画（DOM・CSS完全一致）。
+    ・ヘッダー背景色/点線下線/hover/選択行の任意色 は st.dataframe が canvas 描画のため再現不可（許容）。
+    st.rerun は明示的に呼ばず、選択は on_select、解除は grid 世代更新で行う。
+    店舗/日付/確定・速報の変化は rows 全体＋title の署名で検知し、変われば選択を自動解除。"""
+    if not rows:
         return
     import hashlib as _hashlib
-    _kt = "_pis_detail_" + _hashlib.md5(str(title).encode("utf-8")).hexdigest()[:8]
-    _placeholder = "（機種を選択）"
-    sel = st.selectbox("🔍 機種名を選ぶと台別詳細を表示", [_placeholder] + names, key=_kt)
-    if not sel or sel == _placeholder:
-        return
-    if sel == "バラエティ":
-        if single_names:
-            _df = units_df[units_df["機種名"].isin(single_names)]
-            if not _df.empty:
-                st.markdown(_build_pision_detail_markdown("バラエティ（1台機種すべて）", _df))
-    else:
-        _df = units_df[units_df["機種名"] == sel]
-        if not _df.empty:
-            st.markdown(_build_pision_detail_markdown(sel, _df))
+
+    def _sd(v: int) -> str:
+        return f"+{v:,}" if v > 0 else (f"{v:,}" if v < 0 else "±0")
+
+    _kt = _hashlib.md5(str(title).encode("utf-8")).hexdigest()[:8]
+    names = [str(r[0]) for r in rows]
+
+    # ── データ署名：title＋rows全体（順序維持）を安定文字列化してハッシュ化 ──
+    #   機種名一覧が同じでも台数/勝台数/差枚等が変われば署名が変わり、古い選択を解除できる。
+    _sig_src = repr((str(title), [
+        (str(r[0]), int(r[1]), int(r[2]), int(r[3]), int(r[4]), int(r[5]))
+        for r in rows
+    ]))
+    _sig = _hashlib.md5(_sig_src.encode("utf-8")).hexdigest()
+    _sig_key = f"_pis_data_sig_{_kt}"
+    _gen_key = f"_pis_grid_gen_{_kt}"
+    if _gen_key not in st.session_state:
+        st.session_state[_gen_key] = 0
+    # 署名が変わったら世代を更新して grid を作り直し、選択を解除（st.rerun は呼ばない）
+    if st.session_state.get(_sig_key) != _sig:
+        st.session_state[_sig_key] = _sig
+        st.session_state[_gen_key] += 1
+
+    _gen = st.session_state[_gen_key]
+    _grid_key = f"_pis_grid_{_kt}_{_gen}"
+
+    def _close_detail(_gk: str = _gen_key) -> None:
+        # grid 世代を進めるだけ。keyが変わり st.dataframe が再生成され選択が解除される。
+        st.session_state[_gk] = st.session_state.get(_gk, 0) + 1
+
+    # 表示用DataFrame（rows順・文字列整形。数値/符号/カンマ/勝率表記は状態0と同一）
+    _disp = pd.DataFrame({
+        "機種":     names,
+        "平均差枚": [_sd(int(r[4])) for r in rows],
+        "総差枚":   [_sd(int(r[3])) for r in rows],
+        "平均G数":  [f"{int(r[5]):,}" for r in rows],
+        "勝率":     [f"{int(r[2])}/{int(r[1])} ({round(int(r[2]) / int(r[1]) * 100)}%)"
+                     if int(r[1]) else "－" for r in rows],
+    })
+    # 機種名列だけ青字にする（Pandas Styler の color＝公式サポート範囲・行選択に影響しない）。
+    # 失敗しても機能を止めないよう素の DataFrame にフォールバック。
+    try:
+        _grid_data = _disp.style.map(lambda _v: "color:#1565c0", subset=["機種"])
+    except Exception:
+        _grid_data = _disp
+    # 行高は状態0(≒27px)に近いコンパクト値。高さは行数連動で余白を作らず約520pxで頭打ち。
+    _grid_h = min(38 + len(_disp) * 32, 520)
+
+    _col_l, _col_r = st.columns([5, 7])
+    with _col_l:
+        _event = st.dataframe(
+            _grid_data,
+            key=_grid_key,
+            on_select="rerun",
+            selection_mode="single-row",
+            hide_index=True,
+            width="stretch",
+            height=_grid_h,
+            row_height=30,
+            column_config={
+                "機種":     st.column_config.TextColumn("機種", width="large", alignment="left"),
+                "平均差枚": st.column_config.TextColumn("平均差枚", width="small", alignment="right"),
+                "総差枚":   st.column_config.TextColumn("総差枚", width="small", alignment="right"),
+                "平均G数":  st.column_config.TextColumn("平均G数", width="small", alignment="right"),
+                "勝率":     st.column_config.TextColumn("勝率", width="small", alignment="center"),
+            },
+        )
+
+    # 選択行 → rows の位置インデックス（並べ替えても位置インデックスは不変）
+    _sel_rows = []
+    try:
+        _sel_rows = _event.selection.rows
+    except Exception:
+        _sel_rows = []
+    _idx = _sel_rows[0] if _sel_rows else None
+    _valid = (_idx is not None and 0 <= _idx < len(rows))
+
+    with _col_r:
+        if not _valid:
+            # 未選択でも右カラムを維持し、レイアウトが左右に動かないようにする
+            st.markdown(
+                "<div style='color:#888;font-size:13px;padding:8px 4px;'>"
+                "← 機種を選択すると台別詳細を表示します</div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            _sel_name = names[_idx]
+            st.button("詳細を閉じる", key=f"_pis_close_{_kt}_{_gen}", on_click=_close_detail)
+            if units_df is not None and len(units_df) > 0:
+                if _sel_name == "バラエティ":
+                    if single_names:
+                        _df = units_df[units_df["機種名"].isin(single_names)]
+                        if not _df.empty:
+                            st.markdown(_build_pision_detail_html("バラエティ（1台機種すべて）", _df),
+                                        unsafe_allow_html=True)
+                else:
+                    _df = units_df[units_df["機種名"] == _sel_name]
+                    if not _df.empty:
+                        st.markdown(_build_pision_detail_html(_sel_name, _df),
+                                    unsafe_allow_html=True)
 
 
 def _render_pision_summary(title: str, summary: "dict | None", rows: list,
@@ -5318,8 +5405,8 @@ def _render_pision_summary(title: str, summary: "dict | None", rows: list,
                            height_min: int = 480, height_max: int = 820,
                            height_pad: int = 350) -> None:
     """機種別サマリーをネイティブ部品で描画する（Cloud/ローカル共通・components.html不使用）。
-    ①総差枚サマリー枠（st.columns+markdown）②機種別データ表（markdown）
-    ③機種selectbox→台別詳細（markdown）。
+    ①総差枚サマリー枠（変更前 .pis-sum を st.markdown 静的HTMLで再現）
+    ②機種一覧（st.button 行・機種名クリックで台別詳細をトグル表示）。
     以前は components.html(iframe) を使っていたが Streamlit Cloud で
     NotFoundError:removeChild を誘発したため、iframe/JSを一切使わない構成に統一した。
     height_* 引数は後方互換のため残置（未使用）。"""
@@ -5328,8 +5415,7 @@ def _render_pision_summary(title: str, summary: "dict | None", rows: list,
     st.markdown(f"#### {title}")
     if summary:
         _render_pision_summary_box(summary)
-    _render_pision_summary_table(rows)
-    _render_pision_machine_detail(title, rows, units_df, single_names)
+    _render_pision_machine_table(title, rows, units_df, single_names)
 
 
 def _render_df_markdown(df) -> None:

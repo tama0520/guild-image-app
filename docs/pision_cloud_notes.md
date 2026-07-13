@@ -106,6 +106,29 @@ Cloud で確認した操作:
 - 関連: pyarrow 固定による Cloud Segmentation fault 解消の経緯も本プロジェクトの
   安定化に寄与している（requirements.txt のコメント参照）。
 
+## Pision結果ポスト表示の確定仕様（2026-07-13）
+
+`_render_pision_summary`（結果ポスト用/データビュー/記事用/スランプ生成の4ページ共通）の
+表示は以下で確定。今後の前提とする。
+
+- **表示順**: 注意書き → 日付＋店舗名（見出し）→ 総差枚サマリー枠 → 機種別データ表 → 台別詳細。
+- **日付＋店舗名の見出し**: ネイティブ `st.markdown(f"#### <span style='font-weight:700'>{title}</span>", unsafe_allow_html=True)`。
+  - 理由: h4 既定(600)だと CJK に 600 の字面が無く日本語(店名)だけ細く見えるため、
+    span で **font-weight:700** に統一し日付(ASCII)と店名(CJK)を同一サイズ・同一太さにする。
+  - iframe 内の重複見出し `<div class="pis-title">` は**削除済み**（見出しは上側1か所のみ）。
+- **総差枚サマリー枠**: ネイティブ `_render_pision_summary_box`（`.pis-sum` 2列縦テーブル）。
+  iframe には `summary=None` を渡し二重表示しない。
+- **機種一覧＋クリック詳細**: iframe 版 `_build_pision_interactive_html`（標準実装）。
+- **文字ウェイト**: 大見出し/小見出し(`.pis-sec`)/表ヘッダー(`.pis-tbl th`)/サマリー項目名=600、
+  表本文・数値・案内文(`.hint-txt`)=400。
+- **iframe 固定高さ**: `_comp_h = max(200, min(585, len(rows) * 30 + 120))`。
+  - `components.html` は自動高さ調整できず固定 px が必要。旧式(480〜820)は実内容より高く、
+    機種別データ表と「台別データ」expander の間に大きな空白が出ていた。
+  - 上限 585 は `.pis-wrap{max-height:520px}` ＋ 見出し等（実内容≈570px）に対し約15px の余地を持たせ、
+    `.pis-wrap` の下端罫線・角丸が iframe 境界で切れないようにするための値。
+  - 台数の多い機種クリック時の詳細は `scrolling=True` の内部スクロールで全表示。
+  - 空白/罫線の見え方を再調整する場合は **585 の数値だけ**を微調整する。
+
 ## Cloud変更時のチェックリスト
 
 Pision表示や components.html に関係する変更を行った場合は、

@@ -1,0 +1,127 @@
+# Pision Cloud実装メモ
+
+> 本ドキュメントは、Pision機種一覧・台別詳細表示の Streamlit Cloud 対応に関する
+> 調査・検証結果と実装方針をまとめた設計資料です。将来の実装者・Claude Code 向け。
+> 記載内容は **現時点の Streamlit Cloud 環境・本プロジェクト構成で確認した結果** です。
+
+## 背景
+
+- 以前、Streamlit Cloud 本番で `Failed to execute 'removeChild' on 'Node': NotFoundError`
+  が断続的に発生し、画面の白化（クラッシュ）を起こしていた。
+- この対策として、Pision の機種一覧・台別詳細表を `components.html`（iframe）から
+  ネイティブ部品（st.dataframe / st.markdown 等）へ順次置き換えていた経緯がある。
+- しかし iframe 版（状態0）の方が見た目・操作性の完成度が高く、これを Cloud でも
+  安全に使えるか再検証することになった。
+
+## 今回の調査結果
+
+Git 履歴（removeChild 対策コミット）から、真因は **Pision の iframe 自体ではなかった**
+ことが判明した。
+
+- **removeChild の真因は「Streamlit 本体（親）DOM を操作する別系統の components.html」**：
+  - `ea24749` — 全ページ共通の**不可視 components.html（popstate / autocomplete 監視）**。
+    `MutationObserver` で **Streamlit の DOM ツリーを監視・改変**していた。React の再描画で
+    消そうとしたノードを、この注入スクリプトが先に移動/削除していたため、React の
+    `removeChild` が対象を見つけられず失敗していた。→ 撤去（autocomplete はローカル限定に）。
+  - `a699cef` / `77d1932` — **液晶セレクタが expander/columns 内から `st.rerun()` を直呼び**し、
+    ネストしたコンテナ内で component の再マウントを強制 → reconciler 不整合。→ on_change
+    コールバック方式・selectbox へ変更で解消。
+  - `394ba73` — Pision 表の iframe → 通常テーブル化。これは上記本命対策と**まとめて予防的に**
+    行われたもので、Pision iframe 自体が主犯だったわけではない。
+- **Pision iframe（`_build_pision_interactive_html`）の JS は親 DOM を操作していなかった**：
+  - 使用しているのは `document.querySelectorAll('.mac-row')` / `classList.add|remove` /
+    `panel.innerHTML = ...` のみで、**すべて iframe 自身の文書内で完結**。
+  - `window.parent` / `parent.document` へのアクセス、`MutationObserver`、明示的な
+    `removeChild` / `replaceChild` / `remove` は**いずれも無し**。
+- **危険だったのは「iframe × Streamlit の再マウント」の組み合わせ**：
+  - 親 DOM を触る不可視 iframe や、ネストコンテナ内 `st.rerun()` による強制再マウントが
+    重なると removeChild が誘発されやすかった。
+
+## 今回のCloud検証
+
+- 検証コミット: **af0fbb5**（`test: pision iframe table on cloud`）
+- 実装内容: `_render_pision_summary` 内で、Cloud/ローカル両方で状態0の iframe 版
+  （`_build_pision_interactive_html`、`summary=None`）を `components.html` で表示。
+  総差枚サマリー枠（`_render_pision_summary_box`）は現状維持。
+
+Cloud で確認した操作:
+
+- 表示（機種一覧・台別詳細・総差枚サマリー枠）
+- 機種名クリック
+- 同じ機種の再クリック（閉じる）
+- 別機種クリックでの詳細切り替え
+- 日付変更
+- 店舗変更
+- データ再取得
+- ページ移動（他ページ→結果ポスト用へ戻る）
+- 画像生成
+- ZIP生成
+
+**今回検証した操作範囲では、以下は再現しなかった**（※「今後も絶対安全」という意味ではない）:
+
+- removeChild なし
+- NotFoundError なし
+- Segmentation fault なし
+- 画面の白化なし
+
+## components.htmlを使ってよい条件
+
+以下を **すべて満たす** 場合に限り、比較的安全に使える:
+
+- 親 DOM を触らない（Streamlit 本体の DOM を監視・改変しない）
+- iframe 内だけで処理が完結する
+- `window.parent` / `parent.document` を使わない
+- `MutationObserver` を使わない
+- 可視コンポーネントである（height=0 の不可視注入型にしない）
+- DOM ツリー上の位置が安定している
+- 頻繁な mount / unmount を避ける（条件付きで出し入れしない）
+- `st.rerun()` と組み合わせない（特に expander/columns 等ネストコンテナ内からの直呼び）
+
+## 避けるべき実装（危険パターン）
+
+- 親 DOM を監視/改変する**不可視 components.html**（popstate / autocomplete / MutationObserver）
+- **expander / columns 等ネストコンテナ内から `st.rerun()`** を直呼びする
+- 条件分岐で**頻繁に mount / unmount** される、または**ツリー上の位置が動く** iframe
+- **同一画面で複数の iframe が同時に再マウント**される構成
+- `window.parent.document` 経由で Streamlit の要素を直接操作する処理
+
+## 今後の実装方針
+
+- Pision の機種一覧・台別詳細は **`_build_pision_interactive_html`（iframe 版）を標準実装**とする。
+- ネイティブ版 `_render_pision_machine_table`（st.dataframe 行選択）は**定義を残置**し、
+  **Cloud で問題が起きた場合のみネイティブ版へ切り替える**保険とする。
+  - 切替方法: `_render_pision_summary` 内の `components.html(...)` 呼び出しを
+    `_render_pision_machine_table(title, rows, units_df, single_names)` に戻す。
+- **新規に components.html を追加する際は、上記「使ってよい条件」を満たしたうえで、
+  Cloud 実機で risk 操作（初回取得・再取得・日付/店舗変更・ページ遷移・画像/ZIP生成）を
+  一度検証してから本採用する**（今回のプロセスを標準とする）。
+
+## 最後に
+
+- 本ドキュメントの検証結果は、**現時点の Streamlit Cloud 環境・本プロジェクト構成
+  （streamlit==1.56.0 / pandas==3.0.2 / numpy==2.4.4 / pillow==12.2.0 / pyarrow==23.0.1）
+  で確認した結果**である。
+- Streamlit のバージョン更新や環境変更により挙動が変わる可能性があるため、
+  「今回検証した操作範囲では問題は再現しなかった」という事実の記録として扱うこと。
+- 関連: pyarrow 固定による Cloud Segmentation fault 解消の経緯も本プロジェクトの
+  安定化に寄与している（requirements.txt のコメント参照）。
+
+## Cloud変更時のチェックリスト
+
+Pision表示や components.html に関係する変更を行った場合は、
+main へ反映する前に以下を確認する。
+
+- [ ] Cloud で初回データ取得
+- [ ] 機種クリック
+- [ ] 同じ機種の再クリック
+- [ ] 日付変更
+- [ ] 店舗変更
+- [ ] データ再取得
+- [ ] ページ切り替え
+- [ ] 画像生成
+- [ ] ZIP生成
+- [ ] Console に removeChild / NotFoundError が出ない
+- [ ] Manage app ログに Segmentation fault が出ない
+- [ ] RSS ログに異常増加がない
+
+**上記をすべて通過した場合のみ正式採用とする。**

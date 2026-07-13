@@ -5404,18 +5404,29 @@ def _render_pision_summary(title: str, summary: "dict | None", rows: list,
                            units_df=None, single_names=None,
                            height_min: int = 480, height_max: int = 820,
                            height_pad: int = 350) -> None:
-    """機種別サマリーをネイティブ部品で描画する（Cloud/ローカル共通・components.html不使用）。
-    ①総差枚サマリー枠（変更前 .pis-sum を st.markdown 静的HTMLで再現）
-    ②機種一覧（st.button 行・機種名クリックで台別詳細をトグル表示）。
-    以前は components.html(iframe) を使っていたが Streamlit Cloud で
-    NotFoundError:removeChild を誘発したため、iframe/JSを一切使わない構成に統一した。
-    height_* 引数は後方互換のため残置（未使用）。"""
+    """機種別サマリーを描画する。
+    【Cloud検証用（test: pision iframe table on cloud）】
+    総差枚サマリー枠は現状のネイティブ版（_render_pision_summary_box）を維持したまま、
+    機種一覧＋クリック詳細を Cloud/ローカル両方で状態0の iframe 版
+    （_build_pision_interactive_html）で表示する。iframe には summary=None を渡し、
+    iframe 内のサマリー枠は出さない（サマリー枠の二重表示を防ぐ）。
+    ※これは Cloud で removeChild/NotFoundError が再発しないかを検証するための一時実装。
+    ネイティブ版へ戻すには、下の components.html 呼び出しを
+    `_render_pision_machine_table(title, rows, units_df, single_names)` に戻す
+    （_render_pision_machine_table の定義は残置してある）。"""
     if not rows:
         return
     st.markdown(f"#### {title}")
     if summary:
         _render_pision_summary_box(summary)
-    _render_pision_machine_table(title, rows, units_df, single_names)
+    # 【Cloud検証】機種一覧＋クリック詳細を状態0の iframe 版で表示（summary=Noneで枠は非表示）
+    _comp_h = max(height_min, min(height_max, len(rows) * 42 + height_pad))
+    components.html(
+        _build_pision_interactive_html(title, None, rows, units_df, single_names),
+        height=_comp_h, scrolling=True,
+    )
+    # 【検証中のため停止】ネイティブ行選択版（119eef4）:
+    # _render_pision_machine_table(title, rows, units_df, single_names)
 
 
 def _render_df_markdown(df) -> None:

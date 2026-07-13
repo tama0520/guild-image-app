@@ -4829,12 +4829,16 @@ def render_machine_autocomplete_input(
     ・1文字以上入力 かつ 完全一致でない場合のみ候補ボタンを表示する。
     ・on_click コールバックで session_state[key] を更新する
       （widget 描画後の直接代入は Streamlit が禁止するため）。"""
+    # ウィジェット生成"前"に初期値を session_state へ入れておく。
+    # こうすると st.text_input に value= を渡す必要がなくなり、
+    # 「default value なのに Session State API でも値を設定した」警告が消える。
     if key not in st.session_state:
         st.session_state[key] = default
     _kw: dict = {"on_change": on_change}
     if on_change_args:
         _kw["args"] = on_change_args
-    st.text_input(label, value=st.session_state[key], key=key, placeholder="機種名を入力", **_kw)
+    # value= は渡さない（key 経由で session_state[key] が初期値として使われる）
+    st.text_input(label, key=key, placeholder="機種名を入力", **_kw)
     query: str = st.session_state.get(key, "")
 
     # 未入力 or すでに候補と完全一致 → 候補を非表示

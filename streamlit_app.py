@@ -5416,7 +5416,9 @@ def _render_pision_summary(title: str, summary: "dict | None", rows: list,
     （_render_pision_machine_table の定義は残置してある）。"""
     if not rows:
         return
-    st.markdown(f"#### {title}")
+    # 日付(ASCII)と店名(CJK)を同一サイズ・同一太さで表示する。h4既定の600だとCJKに
+    # 600の字面が無く日本語だけ細く見えるため、span で font-weight:700 に統一する。
+    st.markdown(f"#### <span style='font-weight:700'>{title}</span>", unsafe_allow_html=True)
     if summary:
         _render_pision_summary_box(summary)
     # 【Cloud検証】機種一覧＋クリック詳細を状態0の iframe 版で表示（summary=Noneで枠は非表示）
@@ -5513,12 +5515,12 @@ body{{margin:0;padding:0;font-family:"Meiryo","Yu Gothic",sans-serif;color:#2b3a
              text-align:left;font-weight:600;width:90px;white-space:nowrap;}}
 .pis-sum td{{border:1px solid #dde3e6;padding:6px 18px;min-width:120px;
              font-variant-numeric:tabular-nums;}}
-.pis-sec{{font-size:16px;font-weight:700;margin:6px 0 8px;}}
+.pis-sec{{font-size:16px;font-weight:600;margin:6px 0 8px;}}
 .hint{{font-size:11px;font-weight:400;color:#888;}}
-.hint-txt{{color:#888;font-size:13px;margin-top:50px;}}
+.hint-txt{{color:#888;font-size:13px;font-weight:400;margin-top:50px;}}
 .pis-wrap{{max-height:520px;overflow:auto;border:1px solid #e0e0e0;border-radius:4px;}}
 .pis-tbl{{border-collapse:collapse;width:100%;font-size:13px;}}
-.pis-tbl th{{background:#eceff1;color:#455a64;padding:8px 10px;
+.pis-tbl th{{background:#eceff1;color:#455a64;font-weight:600;padding:8px 10px;
              border-bottom:2px solid #cfd8dc;position:sticky;top:0;z-index:1;white-space:nowrap;}}
 .pis-tbl th.name{{text-align:left;}}
 .pis-tbl td{{padding:7px 10px;border-bottom:1px solid #eceff1;}}
@@ -5544,7 +5546,6 @@ body{{margin:0;padding:0;font-family:"Meiryo","Yu Gothic",sans-serif;color:#2b3a
 .pisd-tbl tr.avg td{{border-top:2px solid #cfd8dc;background:#f7fafb;font-weight:600;}}
 </style>
 </head><body>
-<div class="pis-title">{title}</div>
 <table class="pis-sum"><tbody>{sum_rows}</tbody></table>
 <div class="layout">
   <div class="col-l">

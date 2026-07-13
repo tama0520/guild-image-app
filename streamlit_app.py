@@ -5216,25 +5216,120 @@ def _render_pision_summary_table(rows: list) -> None:
     st.markdown("\n".join(_lines))
 
 
+def _render_pision_summary_box(summary: dict) -> None:
+    """①総差枚サマリー枠を st.columns + st.markdown で描画（components.html不使用）。
+    総差枚・平均差枚・平均G数・勝率を4枠で表示。数値はプラス青/マイナス赤。"""
+    def _sd(v: int) -> str:
+        return f"+{v:,}" if v > 0 else (f"{v:,}" if v < 0 else "±0")
+
+    def _color(v: int) -> str:
+        return "#1565c0" if v > 0 else ("#e03131" if v < 0 else "#263238")
+
+    td    = int(summary.get("total_diff", 0))
+    ad    = int(summary.get("avg_diff", 0))
+    ag    = int(summary.get("avg_games", 0))
+    plus  = int(summary.get("plus", 0))
+    total = int(summary.get("total", 0))
+    wr    = f"{plus}/{total}（{round(plus / total * 100)}%）" if total else "－"
+    items = [
+        ("総差枚",   _sd(td), _color(td)),
+        ("平均差枚", _sd(ad), _color(ad)),
+        ("平均G数",  f"{ag:,}", "#263238"),
+        ("勝率",     wr,       "#263238"),
+    ]
+    for _c, (_lbl, _val, _col) in zip(st.columns(4), items):
+        with _c:
+            st.markdown(
+                "<div style='border:1px solid #dde3e6;border-radius:6px;padding:8px 10px;"
+                "text-align:center;background:#fafcfd;'>"
+                f"<div style='font-size:12px;color:#607d8b;'>{_lbl}</div>"
+                f"<div style='font-size:20px;font-weight:700;color:{_col};"
+                f"font-variant-numeric:tabular-nums;'>{_val}</div></div>",
+                unsafe_allow_html=True,
+            )
+
+
+def _build_pision_detail_markdown(name: str, df: pd.DataFrame) -> str:
+    """機種選択時の台別詳細を Markdown テーブル文字列で返す（components.html不使用）。
+    台番/差枚/BB/RB/合算/ART/G数 ＋ 平均行。_build_pision_detail_html のネイティブ版。"""
+    def _sd(v: int) -> str:
+        return f"+{v:,}" if v > 0 else (f"{v:,}" if v < 0 else "±0")
+
+    def _prob(cnt: int, g: int) -> str:
+        return f"{cnt}(1/{round(g / cnt)})" if cnt > 0 else f"{cnt}"
+
+    has_bb = "BB" in df.columns
+    has_rb = "RB" in df.columns
+    has_at = "AT" in df.columns
+    has_g  = "ゲーム数" in df.columns
+    lines = ["| 台番 | 差枚 | BB | RB | 合算 | ART | G数 |",
+             "|--:|--:|--:|--:|--:|--:|--:|"]
+    for _, r in df.sort_values("台番").iterrows():
+        dai = int(r["台番"]); dv = int(r["差枚"])
+        bb = int(r["BB"]) if has_bb else 0
+        rb = int(r["RB"]) if has_rb else 0
+        at = int(r["AT"]) if has_at else 0
+        g  = int(r["ゲーム数"]) if has_g else 0
+        tot = bb + rb
+        gou = f"1/{round(g / tot)}" if tot > 0 and g else "─"
+        lines.append(f"| {dai} | {_sd(dv)} | {_prob(bb, g)} | {_prob(rb, g)} | {gou} | {at} | {g:,} |")
+    n = len(df)
+    if n:
+        tg  = int(df["ゲーム数"].sum()) if has_g else 0
+        tbb = int(df["BB"].sum()) if has_bb else 0
+        trb = int(df["RB"].sum()) if has_rb else 0
+        avg_d  = int(round(df["差枚"].mean()))
+        avg_at = int(round(df["AT"].mean())) if has_at else 0
+        avg_g  = int(round(df["ゲーム数"].mean())) if has_g else 0
+        tot = tbb + trb
+        avg_gou = f"1/{round(tg / tot)}" if tot > 0 and tg else "─"
+        lines.append(f"| **平均** | **{_sd(avg_d)}** |  |  | {avg_gou} | {avg_at} | {avg_g:,} |")
+    return f"**{name}（{n}台）**\n\n" + "\n".join(lines)
+
+
+def _render_pision_machine_detail(title: str, rows: list, units_df,
+                                  single_names=None) -> None:
+    """②機種名クリック相当：selectbox で機種を選ぶと台別詳細を Markdown で表示。
+    クリック可能HTML/iframe不使用。選択状態は selectbox の key（session_state）で保持。"""
+    if units_df is None or len(units_df) == 0:
+        return
+    names = [str(r[0]) for r in rows]
+    if not names:
+        return
+    import hashlib as _hashlib
+    _kt = "_pis_detail_" + _hashlib.md5(str(title).encode("utf-8")).hexdigest()[:8]
+    _placeholder = "（機種を選択）"
+    sel = st.selectbox("🔍 機種名を選ぶと台別詳細を表示", [_placeholder] + names, key=_kt)
+    if not sel or sel == _placeholder:
+        return
+    if sel == "バラエティ":
+        if single_names:
+            _df = units_df[units_df["機種名"].isin(single_names)]
+            if not _df.empty:
+                st.markdown(_build_pision_detail_markdown("バラエティ（1台機種すべて）", _df))
+    else:
+        _df = units_df[units_df["機種名"] == sel]
+        if not _df.empty:
+            st.markdown(_build_pision_detail_markdown(sel, _df))
+
+
 def _render_pision_summary(title: str, summary: "dict | None", rows: list,
                            units_df=None, single_names=None,
                            height_min: int = 480, height_max: int = 820,
                            height_pad: int = 350) -> None:
-    """機種別サマリーを表示する。
-    ローカル（Windows）では機種名クリックで台別詳細が出るインタラクティブ表（サマリー
-    ボックス＝総差枚等付き）を components.html で描画する。Streamlit Cloud では
-    components.html(iframe) が NotFoundError:removeChild を誘発するため、pyarrow を使わない
-    Markdown テーブル（_render_pision_summary_table）にフォールバックする。"""
+    """機種別サマリーをネイティブ部品で描画する（Cloud/ローカル共通・components.html不使用）。
+    ①総差枚サマリー枠（st.columns+markdown）②機種別データ表（markdown）
+    ③機種selectbox→台別詳細（markdown）。
+    以前は components.html(iframe) を使っていたが Streamlit Cloud で
+    NotFoundError:removeChild を誘発したため、iframe/JSを一切使わない構成に統一した。
+    height_* 引数は後方互換のため残置（未使用）。"""
     if not rows:
         return
-    if _IS_CLOUD:
-        _render_pision_summary_table(rows)
-        return
-    _comp_h = max(height_min, min(height_max, len(rows) * 42 + height_pad))
-    components.html(
-        _build_pision_interactive_html(title, summary, rows, units_df, single_names),
-        height=_comp_h, scrolling=True,
-    )
+    st.markdown(f"#### {title}")
+    if summary:
+        _render_pision_summary_box(summary)
+    _render_pision_summary_table(rows)
+    _render_pision_machine_detail(title, rows, units_df, single_names)
 
 
 def _render_df_markdown(df) -> None:
@@ -7400,33 +7495,37 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         if store == "秋葉原":
                                             _pv_title = _pv_title_map.get(_bare_pv, os.path.splitext(_bare_pv)[0])
                                             if _is_gap_pv and _fn_pv in _gap_meta_pv:
-                                                _gap_meta_pv[_fn_pv]["fillable"] = _gap_fillable(len(_g_imgs_pv), 3)
-                                                if not _IS_CLOUD:
+                                                _fillable_pv = _gap_fillable(len(_g_imgs_pv), 3)
+                                                _gap_meta_pv[_fn_pv]["fillable"] = _fillable_pv
+                                                # 液晶をはめ込める機種だけ再合成用baseを保持（不要機種のPILは持たない）
+                                                if _fillable_pv:
                                                     _gap_base_pv[_fn_pv] = {"title": _pv_title, "graphs": list(_g_imgs_pv), "titlekind": True}
                                             _pv_slump = _build_slump_title_img(_pv_title, _g_imgs_pv, _ig_bbb_pv, _gap_img_pv)
                                             if _pv_slump is not None:
                                                 _merged_pv.append((_fn_pv, _pv_slump))
                                         else:
                                             if _is_gap_pv and _fn_pv in _gap_meta_pv:
-                                                _gap_meta_pv[_fn_pv]["fillable"] = _gap_fillable(len(_g_imgs_pv), 3)
-                                                if not _IS_CLOUD:
+                                                _fillable_pv = _gap_fillable(len(_g_imgs_pv), 3)
+                                                _gap_meta_pv[_fn_pv]["fillable"] = _fillable_pv
+                                                if _fillable_pv:
                                                     _gap_base_pv[_fn_pv] = {"table": _img_pv, "graphs": list(_g_imgs_pv), "side": False}
                                             _merged_pv.append((_fn_pv, _attach_slump_to_table(_img_pv, _g_imgs_pv, _ig_bbb_pv, _gap_img_pv)))
                                         if len(_g_imgs_pv) >= 16 and store != "秋葉原":
                                             try:
                                                 _side_fn_pv = os.path.splitext(_fn_pv)[0] + "_side.jpg"
                                                 if _is_gap_pv:
+                                                    _fillable_side_pv = _gap_fillable(len(_g_imgs_pv), 4)
                                                     _gap_meta_pv[_side_fn_pv] = {**_gap_meta_pv.get(_fn_pv, {}),
-                                                                                "fillable": _gap_fillable(len(_g_imgs_pv), 4)}
-                                                    if not _IS_CLOUD:
+                                                                                "fillable": _fillable_side_pv}
+                                                    if _fillable_side_pv:
                                                         _gap_base_pv[_side_fn_pv] = {"table": _img_pv, "graphs": list(_g_imgs_pv), "side": True}
                                                 _merged_pv.append((_side_fn_pv, _attach_slump_to_table_side(_img_pv, _g_imgs_pv, _ig_bbb_pv, _gap_img_pv)))
                                             except Exception:
                                                 pass
                                     _prev_img_list = _merged_pv
                                     st.session_state[f"_gap_meta_{store}"] = _gap_meta_pv
-                                    if not _IS_CLOUD:
-                                        st.session_state[f"_gap_base_{store}"] = _gap_base_pv
+                                    # プレビュー再生成のたびに作り直す（累積させない）。fillable機種のみ保持。
+                                    st.session_state[f"_gap_base_{store}"] = _gap_base_pv
                             except Exception:
                                 pass  # pision取得失敗時は表のみ画像のままプレビュー表示
 
@@ -7751,36 +7850,25 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _opts = list(range(len(_scr))) + [-1]
                                     def _fmt(_i):
                                         return "はめ込まない" if _i == -1 else f"液晶{_i + 1}"
-                                    if _IS_CLOUD:
-                                        # Cloud: removeChild/OOM回避のため軽量な selectbox 1つ。
-                                        # 選択は⑧実行(ZIP)で反映（即時再合成なし）。
-                                        _sb_key = f"selbox_{_sel_key}_{_ci}"
-                                        if _sb_key not in st.session_state:
-                                            st.session_state[_sb_key] = _cur if _cur in _opts else 0
-                                        st.selectbox(
-                                            f"🖼️ 液晶（{_meta.get('machine') or ''}）→⑧実行に反映",
-                                            _opts, format_func=_fmt, key=_sb_key,
-                                            on_change=_on_gap_screen_change, args=(_sb_key, _sel_key),
+                                    # Cloud/ローカル共通: サムネ付きradio＋on_changeコールバックで
+                                    # 該当画像だけ即時再合成しプレビュー差替（components.html/st.rerun不使用）。
+                                    _radio_key = f"radio_{_sel_key}_{_ci}"
+                                    if _radio_key not in st.session_state:
+                                        st.session_state[_radio_key] = _cur if _cur in _opts else 0
+                                    with st.expander(f"🖼️ 液晶画像を選ぶ（{_meta.get('machine') or ''}）"):
+                                        st.radio(
+                                            "液晶", _opts, format_func=_fmt, key=_radio_key,
+                                            horizontal=True, label_visibility="collapsed",
+                                            on_change=_on_gap_screen_change,
+                                            args=(_radio_key, _sel_key, list(_scr), _match_fn, store, _aprev_key),
                                         )
-                                    else:
-                                        # ローカル: サムネ付きradio。選択でその画像だけ即時再合成しプレビュー差替。
-                                        _radio_key = f"radio_{_sel_key}_{_ci}"
-                                        if _radio_key not in st.session_state:
-                                            st.session_state[_radio_key] = _cur if _cur in _opts else 0
-                                        with st.expander(f"🖼️ 液晶画像を選ぶ（{_meta.get('machine') or ''}）"):
-                                            st.radio(
-                                                "液晶", _opts, format_func=_fmt, key=_radio_key,
-                                                horizontal=True, label_visibility="collapsed",
-                                                on_change=_on_gap_screen_change,
-                                                args=(_radio_key, _sel_key, list(_scr), _match_fn, store, _aprev_key),
-                                            )
-                                            _thumb_cols = st.columns(max(1, len(_scr)))
-                                            for _si, _sp in enumerate(_scr):
-                                                with _thumb_cols[_si]:
-                                                    try:
-                                                        st.image(_sp, caption=f"液晶{_si + 1}", width=120)
-                                                    except Exception:
-                                                        st.caption(f"液晶{_si + 1}（読込失敗）")
+                                        _thumb_cols = st.columns(max(1, len(_scr)))
+                                        for _si, _sp in enumerate(_scr):
+                                            with _thumb_cols[_si]:
+                                                try:
+                                                    st.image(_sp, caption=f"液晶{_si + 1}", width=120)
+                                                except Exception:
+                                                    st.caption(f"液晶{_si + 1}（読込失敗）")
                                 elif (_match_fn is not None and _meta is not None
                                       and _meta.get("fillable") and not _meta.get("screens")):
                                     st.caption(f"🖼️液晶: 「{_meta.get('machine') or '?'}」は機種画像紐づけに液晶が未登録です")
@@ -15913,7 +16001,7 @@ def _composite_slump_onto_images(
     _missing_panels: set[str] = set()
     _matched_panels: set[str] = set()
     _gap_meta_out: dict[str, dict] = {}  # ⑦プレビューの液晶セレクタ用メタ
-    _gap_base_out: dict[str, dict] = {}  # ローカルのみ: 液晶選択の即時再合成用(合成前の表/タイトル＋グラフ)
+    _gap_base_out: dict[str, dict] = {}  # 液晶選択の即時再合成用(合成前の表/タイトル＋グラフ・fillable機種のみ)
     for (_fn, _img) in img_list:
         _bare = re.sub(r"^\d{2}_", "", _fn)
         _bans = ban_map.get(_bare, [])
@@ -15975,9 +16063,10 @@ def _composite_slump_onto_images(
             _gap_img_ak = None
             if store in _GAP_FILL_STORES:
                 _gm_ak, _gp_ak = _gap_screen_paths_for_bans(_bans, ban2diff, ban2mac)
+                _fillable_ak = _gap_fillable(len(_g_imgs), 3)
                 _gap_meta_out[_fn] = {"machine": _gm_ak, "screens": _gp_ak,
-                                      "fillable": _gap_fillable(len(_g_imgs), 3)}
-                if not _IS_CLOUD:
+                                      "fillable": _fillable_ak}
+                if _fillable_ak:
                     _gap_base_out[_fn] = {"title": _title, "graphs": list(_g_imgs), "titlekind": True}
                 _gsel_ak = st.session_state.get(f"_gap_sel_{store}_m_{_gm_ak or ''}", 0)
                 _gap_img_ak = _resolve_gap_screen(_gp_ak, _gsel_ak)
@@ -15987,9 +16076,10 @@ def _composite_slump_onto_images(
         else:
             if store in _GAP_FILL_STORES:
                 _gm_m, _gp_m = _gap_screen_paths_for_bans(_bans, ban2diff, ban2mac)
+                _fillable_m = _gap_fillable(len(_g_imgs), 3)
                 _gap_meta_out[_fn] = {"machine": _gm_m, "screens": _gp_m,
-                                      "fillable": _gap_fillable(len(_g_imgs), 3)}
-                if not _IS_CLOUD:
+                                      "fillable": _fillable_m}
+                if _fillable_m:
                     _gap_base_out[_fn] = {"table": _img, "graphs": list(_g_imgs), "side": False}
                 _gsel_m = st.session_state.get(f"_gap_sel_{store}_m_{_gm_m or ''}", 0)
                 _gap_img_m = _resolve_gap_screen(_gp_m, _gsel_m)
@@ -16001,9 +16091,10 @@ def _composite_slump_onto_images(
                 _side_fn = os.path.splitext(_fn)[0] + "_side.jpg"
                 if store in _GAP_FILL_STORES:
                     # _side.jpg も独立したメタ・選択キーを持たせる（⑦セレクタ表示用）
+                    _fillable_side = _gap_fillable(len(_g_imgs), 4)
                     _gap_meta_out[_side_fn] = {"machine": _gm_m, "screens": _gp_m,
-                                              "fillable": _gap_fillable(len(_g_imgs), 4)}
-                    if not _IS_CLOUD:
+                                              "fillable": _fillable_side}
+                    if _fillable_side:
                         _gap_base_out[_side_fn] = {"table": _img, "graphs": list(_g_imgs), "side": True}
                     _gsel_side = st.session_state.get(f"_gap_sel_{store}_m_{_gm_m or ''}", 0)
                     _gap_img_side = _resolve_gap_screen(_gp_m, _gsel_side)
@@ -16023,8 +16114,8 @@ def _composite_slump_onto_images(
         }
     if store in _GAP_FILL_STORES:
         st.session_state[f"_gap_meta_{store}"] = _gap_meta_out  # ⑦液晶セレクタ用
-        if not _IS_CLOUD:
-            st.session_state[f"_gap_base_{store}"] = _gap_base_out  # 液晶選択の即時反映用
+        # Cloud/ローカル共通で保持（fillable機種のみ）。再生成のたびに作り直し累積させない。
+        st.session_state[f"_gap_base_{store}"] = _gap_base_out  # 液晶選択の即時反映用
     return _merged
 
 
@@ -16521,20 +16612,20 @@ def _featured_machine_for_bans(bans: list, ban2diff: dict, ban2mac: dict) -> "st
 def _on_gap_screen_change(radio_key: str, sel_key: str, screens: "list | None" = None,
                           match_fn: "str | None" = None, store: "str | None" = None,
                           aprev_key: "str | None" = None) -> None:
-    """液晶セレクタの on_change コールバック。選択(機種キー)を保存する。
-    ローカル(Windows)では追加引数(screens/match_fn/store/aprev_key)を受け取り、その画像だけ
-    即時再合成してプレビューを差し替える。Cloud では PIL画像のsession_stateキャッシュが
-    メモリ上限を超えてOOMクラッシュするため即時再合成せず、選択保存のみ（⑧実行/🔄更新で反映）。
-    expander/columns 内での st.rerun() 直呼びは Cloud で removeChild を誘発するため、
-    再合成はコールバック方式にして Streamlit の自動再実行に任せる。"""
+    """液晶セレクタの on_change コールバック。選択(機種キー)を保存し、該当画像だけ
+    即時再合成してプレビューを差し替える（Cloud/ローカル共通）。
+    components.html/iframe/st.rerun() を使わず、Streamlit の自動再実行に任せることで
+    removeChild を回避する。再合成に使う _gap_base（合成前の表/タイトル＋グラフPIL）は
+    使い終わったら即解放し、PIL画像がセッション中に累積しないようにする。"""
     _new = st.session_state.get(radio_key)
     if _new is None:
         return
     st.session_state[sel_key] = _new
-    # Cloud または即時再合成用の引数が無い場合は保存のみ
-    if _IS_CLOUD or screens is None or match_fn is None or store is None or aprev_key is None:
+    # 即時再合成用の引数が無い場合は選択保存のみ（⑧実行/🔄更新で反映）
+    if screens is None or match_fn is None or store is None or aprev_key is None:
         return
-    _base = st.session_state.get(f"_gap_base_{store}", {}).get(match_fn)
+    _gap_base_key = f"_gap_base_{store}"
+    _base = st.session_state.get(_gap_base_key, {}).get(match_fn)
     if not _base:
         return
     _new_gap = _resolve_gap_screen(screens, _new)
@@ -16553,6 +16644,15 @@ def _on_gap_screen_change(radio_key: str, sel_key: str, screens: "list | None" =
             _auto[_ai] = (match_fn, _newimg)
             break
     st.session_state[aprev_key] = _auto
+    # 再合成が終わった機種の合成前PILは不要になるので解放（メモリ累積防止）。
+    # プレビュー再生成時に必要な分だけ作り直される。
+    _bases = st.session_state.get(_gap_base_key)
+    if isinstance(_bases, dict):
+        _bases.pop(match_fn, None)
+        if _bases:
+            st.session_state[_gap_base_key] = _bases
+        else:
+            st.session_state.pop(_gap_base_key, None)
 
 
 def _gap_fillable(n: int, cols: int) -> bool:

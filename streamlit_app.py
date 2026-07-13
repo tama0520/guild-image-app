@@ -17486,31 +17486,33 @@ def main() -> None:
     # NotFoundError:removeChild を誘発していたため撤去した。
     # ブラウザ戻る/進むの自動リロード・autocomplete=off は無効になるが、通常操作に影響なし。
     #
-    # ただし autocomplete=off の注入は removeChild を起こさなかった（Cloud で問題だったのは
-    # popstate 監視側）ため、機種名入力欄にブラウザ履歴のドロップダウンが出るのを防ぐ目的で
-    # ローカル（Windows）限定で復活させる。
-    if not _IS_CLOUD:
-        components.html(
-            """
-            <script>
-            (function() {
-                var p = window.parent;
-                if (p._autocompleteDisabled) return;
-                p._autocompleteDisabled = true;
-                function disableAutocomplete() {
-                    p.document.querySelectorAll('input[type="text"], input:not([type])').forEach(function(el) {
-                        el.setAttribute('autocomplete', 'off');
-                    });
-                }
-                disableAutocomplete();
-                new p.MutationObserver(disableAutocomplete).observe(
-                    p.document.body, { childList: true, subtree: true }
-                );
-            })();
-            </script>
-            """,
-            height=0,
-        )
+    # autocomplete=off の注入は入力欄のブラウザ履歴ドロップダウンを消すためのもの。
+    # 親DOMを MutationObserver で監視する components.html（docs/pision_cloud_notes.md の
+    # 「避けるべき実装」に該当）だが、行っているのは setAttribute のみでノードの
+    # 追加/削除/移動はしない。Cloud でも履歴を消したいという要望のため Cloud/ローカル両方で
+    # 有効化し、Cloud チェックリストで removeChild/NotFoundError が再発しないか検証する。
+    # 問題が出たら再び `if not _IS_CLOUD:` ガードでローカル限定に戻す。
+    components.html(
+        """
+        <script>
+        (function() {
+            var p = window.parent;
+            if (p._autocompleteDisabled) return;
+            p._autocompleteDisabled = true;
+            function disableAutocomplete() {
+                p.document.querySelectorAll('input[type="text"], input:not([type])').forEach(function(el) {
+                    el.setAttribute('autocomplete', 'off');
+                });
+            }
+            disableAutocomplete();
+            new p.MutationObserver(disableAutocomplete).observe(
+                p.document.body, { childList: true, subtree: true }
+            );
+        })();
+        </script>
+        """,
+        height=0,
+    )
 
     # ── サイドバー ────────────────────────────────────────────────
     with st.sidebar:

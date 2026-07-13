@@ -8539,7 +8539,7 @@ def show_auto_page(with_slump: bool = False) -> None:
     # 新宿歌舞伎町（かぶぱ）×スマホ幅（≤640px）のみ：プレビュー前は「自動処理を開始」を
     # 非表示、プレビュー後はグレーで控えめにして誤爆を防ぐ。PC幅・他店舗は無変更。
     if store == "新宿歌舞伎町":
-        if st.session_state.get(_aprev_key) is None:
+        if st.session_state.get(f"auto_preview_imgs_{store}") is None:
             st.markdown(
                 "<style>@media (max-width:640px){.st-key-auto_run{display:none!important;}}</style>",
                 unsafe_allow_html=True,

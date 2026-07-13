@@ -5422,7 +5422,9 @@ def _render_pision_summary(title: str, summary: "dict | None", rows: list,
     if summary:
         _render_pision_summary_box(summary)
     # 【Cloud検証】機種一覧＋クリック詳細を状態0の iframe 版で表示（summary=Noneで枠は非表示）
-    _comp_h = max(height_min, min(height_max, len(rows) * 42 + height_pad))
+    # iframe固定高さを実内容に近づけ、表と台別データexpanderの間の空白を詰める。
+    # 台数の多い機種クリック時は scrolling=True の内部スクロールで全表示。
+    _comp_h = max(200, min(585, len(rows) * 30 + 120))
     components.html(
         _build_pision_interactive_html(title, None, rows, units_df, single_names),
         height=_comp_h, scrolling=True,

@@ -4484,6 +4484,16 @@ def _save_rec_titles(store: str) -> None:
     save_store_settings(store, prev)
 
 
+def _save_rec_machines(store: str) -> None:
+    """機種名変更時に即JSON保存。他の設定（タイトル等）は上書きしない。"""
+    prev = load_store_settings(store)
+    for n in range(1, 7):
+        prev[f"recommended_machines_{n}"] = [
+            st.session_state.get(f"rec_m{n}_{_i}_{store}", "") for _i in range(9)
+        ]
+    save_store_settings(store, prev)
+
+
 def _save_rec_enabled(store: str) -> None:
     """チェックボックス変更時に即JSON保存。"""
     prev = load_store_settings(store)
@@ -4505,7 +4515,9 @@ def _persistent_keys(store: str) -> set[str]:
     # 高田馬場は②個別画像の機種名を日付ごとに扱う（別日データ取得時は空欄・同日は保持）ため永続化しない
     if store == "高田馬場":
         return {f"variety_range_{store}"}
-    return {f"kojin_y_{i}_{store}" for i in range(8)} | {f"variety_range_{store}"}
+    return ({f"kojin_y_{i}_{store}" for i in range(21)}
+            | {f"kojin_z_{i}_{store}" for i in range(12)}
+            | {f"variety_range_{store}"})
 
 
 def _load_persistent_json() -> dict:
@@ -4768,7 +4780,7 @@ def _init_recommended_settings(store: str) -> None:
     m5 = saved.get("recommended_machines_5", [""] * 5)
     m6 = saved.get("recommended_machines_6", [""] * 5)
     defaults: dict = {
-        f"rec_enabled_{store}":  False,
+        f"rec_enabled_{store}":  saved.get("rec_enabled", False),
         f"rec_title_1_{store}": saved.get("recommended_title_1", "月間オススメ機種"),
         f"rec_title_2_{store}": saved.get("recommended_title_2", "週間オススメ機種"),
         f"rec_title_3_{store}": saved.get("recommended_title_3", ""),
@@ -4922,8 +4934,8 @@ def generate_recommended_block_image(
         if grp.empty:
             continue
         dr_m = diff_raw.loc[grp.index]
-        if juggler_cfg and machine in _jug_series:
-            # ジャグラー専用条件: G数>=2000 かつ (確率<=閾値 AND diff>=0) OR diff>=1000
+        if juggler_cfg and machine in _jug_series and min_diff <= 1:
+            # ジャグラー専用条件（プラス台のみ）: G数>=2000 かつ (確率<=閾値 AND diff>=0) OR diff>=1000
             g_mask = grp["ゲーム数_rounded"] >= _jug_g_min
             grp   = grp[g_mask].copy()
             dr_m  = dr_m[g_mask]
@@ -4936,6 +4948,7 @@ def generate_recommended_block_image(
                 mask = dr_m >= 0
             good = grp[mask].copy().reset_index(drop=True)
         else:
+            # +1,000枚以上 / +2,000枚以上 はジャグラーも差枚のみで抽出
             good = grp[dr_m >= min_diff].copy().reset_index(drop=True)
         if good.empty:
             continue
@@ -6746,7 +6759,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                 for _i, _col in enumerate(list(_b1_top) + list(_b1_mid) + list(_b1_bot)):
                     with _col:
                         render_machine_autocomplete_input(
-                            str(_i + 1), f"rec_m1_{_i}_{store}", _machine_candidates
+                            str(_i + 1), f"rec_m1_{_i}_{store}", _machine_candidates,
+                            on_change=_save_rec_machines, on_change_args=(store,),
                         )
                 machines_1 = [st.session_state.get(f"rec_m1_{_i}_{store}", "") for _i in range(9)]
                 _opts_f1 = ["プラス台", "+1,000枚以上", "+2,000枚以上"]
@@ -6771,7 +6785,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                 for _i, _col in enumerate(list(_b2_top) + list(_b2_mid) + list(_b2_bot)):
                     with _col:
                         render_machine_autocomplete_input(
-                            str(_i + 1), f"rec_m2_{_i}_{store}", _machine_candidates
+                            str(_i + 1), f"rec_m2_{_i}_{store}", _machine_candidates,
+                            on_change=_save_rec_machines, on_change_args=(store,),
                         )
                 machines_2 = [st.session_state.get(f"rec_m2_{_i}_{store}", "") for _i in range(9)]
                 _sel2 = st.radio("抽出条件", ["プラス台", "+1,000枚以上", "+2,000枚以上"], key=f"rec_f_2_{store}", horizontal=True, on_change=_save_rec_titles, args=(store,))
@@ -6797,7 +6812,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                 for _i, _col in enumerate(list(_b3_top) + list(_b3_mid) + list(_b3_bot)):
                     with _col:
                         render_machine_autocomplete_input(
-                            str(_i + 1), f"rec_m3_{_i}_{store}", _machine_candidates
+                            str(_i + 1), f"rec_m3_{_i}_{store}", _machine_candidates,
+                            on_change=_save_rec_machines, on_change_args=(store,),
                         )
                 machines_3 = [st.session_state.get(f"rec_m3_{_i}_{store}", "") for _i in range(9)]
                 _sel3 = st.radio("抽出条件", ["プラス台", "+1,000枚以上", "+2,000枚以上"], key=f"rec_f_3_{store}", horizontal=True, on_change=_save_rec_titles, args=(store,))
@@ -6819,7 +6835,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                 for _i, _col in enumerate(list(_b4_top) + list(_b4_mid) + list(_b4_bot)):
                     with _col:
                         render_machine_autocomplete_input(
-                            str(_i + 1), f"rec_m4_{_i}_{store}", _machine_candidates
+                            str(_i + 1), f"rec_m4_{_i}_{store}", _machine_candidates,
+                            on_change=_save_rec_machines, on_change_args=(store,),
                         )
                 machines_4 = [st.session_state.get(f"rec_m4_{_i}_{store}", "") for _i in range(9)]
                 _sel4 = st.radio("抽出条件", ["プラス台", "+1,000枚以上", "+2,000枚以上"], key=f"rec_f_4_{store}", horizontal=True, on_change=_save_rec_titles, args=(store,))
@@ -6845,7 +6862,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                 for _i, _col in enumerate(list(_b5_top) + list(_b5_mid) + list(_b5_bot)):
                     with _col:
                         render_machine_autocomplete_input(
-                            str(_i + 1), f"rec_m5_{_i}_{store}", _machine_candidates
+                            str(_i + 1), f"rec_m5_{_i}_{store}", _machine_candidates,
+                            on_change=_save_rec_machines, on_change_args=(store,),
                         )
                 machines_5 = [st.session_state.get(f"rec_m5_{_i}_{store}", "") for _i in range(9)]
                 _sel5 = st.radio("抽出条件", ["プラス台", "+1,000枚以上", "+2,000枚以上"], key=f"rec_f_5_{store}", horizontal=True, on_change=_save_rec_titles, args=(store,))
@@ -6867,7 +6885,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                 for _i, _col in enumerate(list(_b6_top) + list(_b6_mid) + list(_b6_bot)):
                     with _col:
                         render_machine_autocomplete_input(
-                            str(_i + 1), f"rec_m6_{_i}_{store}", _machine_candidates
+                            str(_i + 1), f"rec_m6_{_i}_{store}", _machine_candidates,
+                            on_change=_save_rec_machines, on_change_args=(store,),
                         )
                 machines_6 = [st.session_state.get(f"rec_m6_{_i}_{store}", "") for _i in range(9)]
                 _sel6 = st.radio("抽出条件", ["プラス台", "+1,000枚以上", "+2,000枚以上"], key=f"rec_f_6_{store}", horizontal=True, on_change=_save_rec_titles, args=(store,))
@@ -7331,7 +7350,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             if _rgrp.empty:
                                                 continue
                                             _rdr = _pv_diff.loc[_rgrp.index]
-                                            if _pv_jug_cfg and _rvm in _pv_jug_cfg.get("series", set()):
+                                            if _pv_jug_cfg and _rvm in _pv_jug_cfg.get("series", set()) and _thr <= 1:
                                                 _jg_col = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _rgrp.columns), None)
                                                 if _jg_col:
                                                     _jgmask = _rgrp[_jg_col] >= _pv_jug_cfg.get("g_min", 2000)
@@ -7343,6 +7362,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                 else:
                                                     _rmask = _rdr >= 0
                                             else:
+                                                # +1,000枚以上 / +2,000枚以上 はジャグラーも差枚のみ
                                                 _rmask = _rdr >= _thr
                                             _rec_bans.extend([int(b) for b in _rgrp[_rmask]["台番"].dropna()])
                                         if _rec_bans:
@@ -7803,7 +7823,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         if _rg.empty:
                                             continue
                                         _rd = _diff_m.loc[_rg.index]
-                                        if _rvm in _mj_cfg.get("series", set()):
+                                        if _rvm in _mj_cfg.get("series", set()) and _mthr <= 1:
                                             _jc = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _rg.columns), None)
                                             if _jc:
                                                 _jm = _rg[_jc] >= _mj_cfg.get("g_min", 2000)
@@ -7814,6 +7834,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             else:
                                                 _rmk = _rd >= 0
                                         else:
+                                            # +1,000枚以上 / +2,000枚以上 はジャグラーも差枚のみ
                                             _rmk = _rd >= _mthr
                                         _rec_bans_m += [int(b) for b in _rg[_rmk]["台番"].dropna()]
                                     if _rec_bans_m:
@@ -8842,7 +8863,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     if _rg_e.empty:
                                         continue
                                     _rd_e = _diff_exec_m.loc[_rg_e.index]
-                                    if _rvm_e in _mj_cfg_e.get("series", set()):
+                                    if _rvm_e in _mj_cfg_e.get("series", set()) and _mthr_e <= 1:
                                         _jc_e = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _rg_e.columns), None)
                                         if _jc_e:
                                             _jm_e = _rg_e[_jc_e] >= _mj_cfg_e.get("g_min", 2000)
@@ -8853,6 +8874,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         else:
                                             _rmk_e = _rd_e >= 0
                                     else:
+                                        # +1,000枚以上 / +2,000枚以上 はジャグラーも差枚のみ
                                         _rmk_e = _rd_e >= _mthr_e
                                     _rec_bans_e += [int(b) for b in _rg_e[_rmk_e]["台番"].dropna()]
                                 if _rec_bans_e:
@@ -9822,7 +9844,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 if _rgrp.empty:
                                     continue
                                 _rdr = diff_pipe.loc[_rgrp.index]
-                                if _juggler_cfg and _rvm in _juggler_cfg.get("series", set()):
+                                if _juggler_cfg and _rvm in _juggler_cfg.get("series", set()) and _thr <= 1:
                                     _jg_col = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _rgrp.columns), None)
                                     if _jg_col:
                                         _jgmask = _rgrp[_jg_col] >= _juggler_cfg.get("g_min", 2000)
@@ -9834,6 +9856,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     else:
                                         _rmask = _rdr >= 0
                                 else:
+                                    # +1,000枚以上 / +2,000枚以上 はジャグラーも差枚のみ
                                     _rmask = _rdr >= _thr
                                 _exec_bans.extend([int(b) for b in _rgrp[_rmask]["台番"].dropna()])
                             if _exec_bans:

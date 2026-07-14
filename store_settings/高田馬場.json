@@ -77,5 +77,8 @@
     "",
     "",
     ""
-  ]
+  ],
+  "art_variety_range": "3079-3090,3100-3115",
+  "art_variety_enabled": true,
+  "art_variety_mode": "+1,000枚以上の優秀台"
 }

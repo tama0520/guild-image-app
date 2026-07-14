@@ -4520,7 +4520,7 @@ def _persistent_keys(store: str) -> set[str]:
     # 高田馬場は②個別画像の機種名を日付ごとに扱う（別日データ取得時は空欄・同日は保持）ため永続化しない
     if store == "高田馬場":
         return {f"variety_range_{store}"}
-    return ({f"kojin_y_{i}_{store}" for i in range(21)}
+    return ({f"kojin_y_{i}_{store}" for i in range(48)}
             | {f"kojin_z_{i}_{store}" for i in range(12)}
             | {f"variety_range_{store}"})
 
@@ -4658,7 +4658,7 @@ def _auto_input_keys(store: str) -> list[str]:
              "jug_sue_mode"]
     for i in range(12):
         keys += [f"kojin_z_{i}_{store}"]
-    for i in range(21):
+    for i in range(48):
         keys += [f"kojin_y_{i}_{store}"]
     keys += [
         f"kojin_narabi_range_{store}", f"kojin_narabi_title_{store}",
@@ -4723,7 +4723,7 @@ def _restore_auto_inputs(excel_name: str, store: str) -> None:
         st.session_state["kojin_enabled"] = True
     # 新宿歌舞伎町（かぶぱポストの結果）は②優秀台を毎回空欄にする（保存値・永続値を無視）
     if store == "新宿歌舞伎町":
-        for i in range(21):
+        for i in range(48):
             st.session_state[f"kojin_y_{i}_{store}"] = ""
 
 
@@ -6237,7 +6237,7 @@ def show_auto_page(with_slump: bool = False) -> None:
         _is_kabupa = (store == "新宿歌舞伎町")
         _kz_count = 3 if _is_kabupa else 12
         _akihab_slump = with_slump and store == "秋葉原"
-        _ky_count = 6 if _is_kabupa else (21 if _akihab_slump else 12)
+        _ky_count = 6 if _is_kabupa else (48 if _akihab_slump else 12)
         _cols_k = st.columns(2, gap="large")
         if _is_kabupa:
             col_ky, col_kz = _cols_k
@@ -6253,11 +6253,28 @@ def show_auto_page(with_slump: bool = False) -> None:
             kojin_zentai_machines = [st.session_state.get(f"kojin_z_{_i}_{store}", "") for _i in range(_kz_count)]
         with col_ky:
             st.markdown("**優秀台**")
-            _ky_rows = [st.columns(3) for _ in range((_ky_count + 2) // 3)]
-            for _i, _col in enumerate([c for row in _ky_rows for c in row][:_ky_count]):
+            # 秋葉原スランプ付きは基本12個表示。13個目以降に入力があるか
+            # 「ページを広げる」ボタンを押すと最大48個まで表示する。
+            if _akihab_slump:
+                _ky_expand_key = f"kojin_y_expand_{store}"
+                _has_extra_ky = any(st.session_state.get(f"kojin_y_{_i}_{store}", "")
+                                    for _i in range(12, _ky_count))
+                _ky_expanded = st.session_state.get(_ky_expand_key, False) or _has_extra_ky
+                _ky_shown = _ky_count if _ky_expanded else 12
+            else:
+                _ky_expanded = True
+                _ky_shown = _ky_count
+            _ky_rows = [st.columns(3) for _ in range((_ky_shown + 2) // 3)]
+            for _i, _col in enumerate([c for row in _ky_rows for c in row][:_ky_shown]):
                 with _col:
                     render_machine_autocomplete_input(str(_i + 1), f"kojin_y_{_i}_{store}", _kojin_candidates,
                                                       on_change=_save_auto_inputs, on_change_args=(store,))
+            if _akihab_slump and not _ky_expanded:
+                def _expand_ky(_k=_ky_expand_key):
+                    st.session_state[_k] = True
+                st.button("▼ ページを広げる（最大48個まで入力）",
+                          key=f"kojin_y_expand_btn_{store}",
+                          on_click=_expand_ky, use_container_width=True)
             kojin_yushu_machines = [st.session_state.get(f"kojin_y_{_i}_{store}", "") for _i in range(_ky_count)]
         if not (with_slump and store == "秋葉原") and store != "溝の口新館" and store != "新宿歌舞伎町":
             st.markdown("**並び台番範囲 優秀台**")
@@ -16620,10 +16637,11 @@ def _build_slump_title_img(
         return None
 
     COLS   = 3
-    # その他の優秀台ピックアップのみ縦最大10台で列数を動的計算（cols=ceil(台数/10)）。
+    # その他の優秀台ピックアップのみ縦最大10台で列数を動的計算。
+    # 横3列を基本とし、3列でも縦が10を超える台数（31台以上）のときだけ列を増やす。
     # 他のタイトル型画像（全台系・高配分・ジャグラー・バラエティ等）は従来どおり横3列固定。
     if title.startswith("その他の優秀台"):
-        COLS = max(1, math.ceil(len(graph_imgs) / 10))
+        COLS = max(min(3, len(graph_imgs)), math.ceil(len(graph_imgs) / 10))
     PAD    = 12
     GAP    = 8
     LINE_H = 6

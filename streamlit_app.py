@@ -8249,6 +8249,32 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                 else:
                                                     _upd_extra_dfs.append(_mygood)
                                                     _upd_extra_diffs.append(_mygood_diff)
+                                # ジャグラーシリーズ優秀台画像そのものをチェック外し → その他の優秀台ピックアップへ移す
+                                if _pname == "ジャグラーシリーズ優秀台.jpg" and not (with_slump and store == "秋葉原"):
+                                    _jug_hr_names_u = set(_pv_hr.values())
+                                    # 優先順: jug_pool_df → jug_overflow_df → jug_excellent_list(+1000台)
+                                    if _pv_jug_pool is not None and not _pv_jug_pool.empty:
+                                        _jbase_u = _pv_jug_pool.copy()
+                                    elif _pv_jug_ov is not None and not _pv_jug_ov.empty:
+                                        _jbase_u = _pv_jug_ov[~_pv_jug_ov["機種名"].isin(_jug_hr_names_u)].copy()
+                                    elif _pv_jug_ex:
+                                        _jbans_u = {item["ban"] for item in _pv_jug_ex if item["name"] not in _jug_hr_names_u}
+                                        _jbase_u = _pv_df[_pv_df["台番"].apply(lambda b: int(b) in _jbans_u)].copy() if _jbans_u else pd.DataFrame()
+                                    else:
+                                        _jbase_u = pd.DataFrame()
+                                    if not _jbase_u.empty:
+                                        _jbase_u = _jbase_u.reset_index(drop=True)
+                                        if _sue_bans_upd:
+                                            _jkeep_u = ~_jbase_u["台番"].apply(int).isin(_sue_bans_upd)
+                                            _jbase_u = _jbase_u[_jkeep_u.values].copy().reset_index(drop=True)
+                                    if not _jbase_u.empty:
+                                        _ban2diff_u = {int(b): d for b, d in zip(_pv_df["台番"], _pv_diff)}
+                                        _jdiff_u = _jbase_u["台番"].apply(lambda b: _ban2diff_u.get(int(b), 0)).reset_index(drop=True)
+                                        # その他へは +1,000枚以上の台のみ（+2,000/+3,000分割画像は _sonota_split の再生成で振り分け）
+                                        _j1k_u = _jdiff_u >= 1000
+                                        if _j1k_u.any():
+                                            _upd_extra_dfs.append(_jbase_u[_j1k_u.values].copy().reset_index(drop=True))
+                                            _upd_extra_diffs.append(_jdiff_u[_j1k_u].reset_index(drop=True))
                         _new_prev = list(_auto_previews)
                         _updated  = False
                         # overflowデータ（ジャグラー）がジャグラーシリーズ優秀台に移る台番を事前計算

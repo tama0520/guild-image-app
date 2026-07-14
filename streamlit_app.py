@@ -1776,7 +1776,7 @@ def _navigate(page: str, store: str | None = None, itype: str | None = None) -> 
     params: dict[str, str] = {"page": page}
     s = st.session_state.get("selected_store", "")
     t = st.session_state.get("selected_image_type", "")
-    if page in ("image_type", "work", "auto", "auto_slump", "rote") and s:
+    if page in ("image_type", "work", "auto", "auto_slump", "rote", "auto_article") and s:
         params["store"] = s
     if page == "work" and t:
         params["type"] = t
@@ -4506,6 +4506,23 @@ def _save_rec_enabled(store: str) -> None:
     save_store_settings(store, prev)
 
 
+def _save_art_variety(store: str) -> None:
+    """記事用バラエティの台番範囲・モードを店舗設定JSONに即保存（店舗単位）。
+    日付（Excel）をまたいでも台番・モードを保持する。
+
+    ★使用有無（art_variety_enabled）は店舗＋日付単位のため本関数では保存しない
+    （article_page_inputs.json の per-Excel 方式＝_save_article_inputs が担当）。
+    ★台番範囲は text_input のウィジェットキーにしか値が無い。未描画時に空で潰さない
+    よう、キーが存在する時だけ更新する（モードも同様）。"""
+    prev = load_store_settings(store)
+    _k = f"art_variety_range_{store}"
+    if _k in st.session_state:
+        prev["art_variety_range"] = st.session_state[_k]
+    if "art_variety_mode" in st.session_state:
+        prev["art_variety_mode"] = st.session_state["art_variety_mode"]
+    save_store_settings(store, prev)
+
+
 # ── 自動処理ページ入力値の永続化 ──────────────────────────────────────────────
 _AUTO_INPUTS_JSON = os.path.join(BASE_DIR, "auto_page_inputs.json")
 _AUTO_PERSISTENT_JSON = os.path.join(BASE_DIR, "auto_page_persistent_inputs.json")
@@ -4731,12 +4748,15 @@ def _restore_auto_inputs(excel_name: str, store: str) -> None:
 
 def _article_input_keys(store: str) -> list[str]:
     keys = ["art_kojin_enabled", "art_narabi_enabled", "art_narabi_ranges_input",
-            "art_suebangai_enabled", "art_suebangai_tail_input"]
-    for i in range(6):
+            "art_suebangai_enabled", "art_suebangai_tail_input",
+            "art_variety_enabled"]
+    for i in range(12):
         keys += [f"art_kojin_z_{i}_{store}", f"art_kojin_y_{i}_{store}"]
     keys += [
         f"art_kojin_narabi_range_{store}", f"art_kojin_narabi_title_{store}",
         f"art_kojin_narabi2_range_{store}", f"art_kojin_narabi2_title_{store}",
+        f"art_sonota_extra_title_{store}", f"art_sonota_extra_text_{store}",
+        f"art_sonota_extra_auto_{store}",
     ]
     for i in range(_KOJIN_PICK_COUNT):
         keys += [f"art_kojin_pick_title_{i}_{store}", f"art_kojin_pick_bans_{i}_{store}"]
@@ -4770,7 +4790,10 @@ def _restore_article_inputs(excel_name: str, store: str) -> None:
     saved = _load_article_inputs_json().get(excel_name, {})
     for k in _article_input_keys(store):
         if k not in saved:
-            st.session_state[k] = False if k.endswith("_enabled") else ""
+            if k.startswith("art_sonota_extra_auto_"):
+                st.session_state[k] = "なし"
+            else:
+                st.session_state[k] = False if k.endswith("_enabled") else ""
     for k, v in saved.items():
         st.session_state[k] = v
 
@@ -11061,6 +11084,9 @@ def show_auto_article_page() -> None:
     kojin_narabi_title: str = ""
     kojin_narabi2_ranges_text: str = ""
     kojin_narabi2_title: str = ""
+    art_sonota_extra_title: str = ""
+    art_sonota_extra_text: str = ""
+    art_sonota_extra_auto: str = "なし"
     st.markdown(f"### {_sec_num()} 個別画像")
     kojin_enabled = st.checkbox("個別画像も生成する", key="art_kojin_enabled",
                                 on_change=_save_article_inputs, args=(store,))
@@ -11070,22 +11096,20 @@ def show_auto_article_page() -> None:
         col_kz, col_ky = st.columns(2, gap="large")
         with col_kz:
             st.markdown("**全台**")
-            _kz_top = st.columns(3)
-            _kz_bot = st.columns(3)
-            for _i, _col in enumerate(list(_kz_top) + list(_kz_bot)):
+            _kz_rows = [st.columns(3) for _ in range(4)]
+            for _i, _col in enumerate([c for row in _kz_rows for c in row]):
                 with _col:
                     render_machine_autocomplete_input(str(_i + 1), f"art_kojin_z_{_i}_{store}", _kojin_candidates,
                                                       on_change=_save_article_inputs, on_change_args=(store,))
-            kojin_zentai_machines = [st.session_state.get(f"art_kojin_z_{_i}_{store}", "") for _i in range(6)]
+            kojin_zentai_machines = [st.session_state.get(f"art_kojin_z_{_i}_{store}", "") for _i in range(12)]
         with col_ky:
             st.markdown("**優秀台**")
-            _ky_top = st.columns(3)
-            _ky_bot = st.columns(3)
-            for _i, _col in enumerate(list(_ky_top) + list(_ky_bot)):
+            _ky_rows = [st.columns(3) for _ in range(4)]
+            for _i, _col in enumerate([c for row in _ky_rows for c in row]):
                 with _col:
                     render_machine_autocomplete_input(str(_i + 1), f"art_kojin_y_{_i}_{store}", _kojin_candidates,
                                                       on_change=_save_article_inputs, on_change_args=(store,))
-            kojin_yushu_machines = [st.session_state.get(f"art_kojin_y_{_i}_{store}", "") for _i in range(6)]
+            kojin_yushu_machines = [st.session_state.get(f"art_kojin_y_{_i}_{store}", "") for _i in range(12)]
         st.markdown("**並び台番範囲 優秀台**")
         _col_nr, _col_nt = st.columns([2, 3])
         with _col_nr:
@@ -11140,6 +11164,35 @@ def show_auto_article_page() -> None:
                     height=68,
                     on_change=_save_article_inputs, args=(store,),
                 )
+
+        st.markdown("**その他の優秀台ピックアップ**")
+        _col_aset, _col_aseb = st.columns([2, 3])
+        with _col_aset:
+            st.text_input(
+                "タイトル",
+                value=st.session_state.get(f"art_sonota_extra_title_{store}", "") or "その他の優秀台ピックアップ",
+                key=f"art_sonota_extra_title_{store}",
+                placeholder="例: その他の優秀台ピックアップ",
+                on_change=_save_article_inputs, args=(store,),
+            )
+        with _col_aseb:
+            st.text_area(
+                "台番テキスト（台番を含むテキストをそのまま貼り付け）",
+                value=st.session_state.get(f"art_sonota_extra_text_{store}", ""),
+                key=f"art_sonota_extra_text_{store}",
+                height=80,
+                on_change=_save_article_inputs, args=(store,),
+            )
+        st.radio(
+            "台番テキストが空欄のとき、下記の閾値で「その他の優秀台ピックアップ」を自動抽出（📝記入部分のみモード）",
+            options=["なし", "+1,000枚以上", "+2,000枚以上", "+3,000枚以上"],
+            key=f"art_sonota_extra_auto_{store}",
+            horizontal=True,
+            on_change=_save_article_inputs, args=(store,),
+        )
+        art_sonota_extra_title = st.session_state.get(f"art_sonota_extra_title_{store}", "")
+        art_sonota_extra_text  = st.session_state.get(f"art_sonota_extra_text_{store}", "")
+        art_sonota_extra_auto  = st.session_state.get(f"art_sonota_extra_auto_{store}", "なし")
 
     # ── ③ 並び画像オプション ─────────────────────────────────────────
     narabi_ok     = False
@@ -11338,22 +11391,41 @@ def show_auto_article_page() -> None:
     art_variety_ranges_text: str = ""
     art_variety_mode: str = "全台"
     st.markdown(f"### {_sec_num()} バラエティ画像")
-    art_variety_enabled = st.checkbox("個別画像も生成する", key="art_variety_enabled")
-    if art_variety_enabled:
+    # 台番範囲・モードは店舗単位で store_settings から復元（日付をまたいで保持）。
+    _av_saved = load_store_settings(store)
+    _avr_key = f"art_variety_range_{store}"
+    if _avr_key not in st.session_state:
+        st.session_state[_avr_key] = _av_saved.get("art_variety_range", "")
+    if "art_variety_mode" not in st.session_state:
+        st.session_state["art_variety_mode"] = _av_saved.get("art_variety_mode", "全台")
+    # 使用有無（enabled）は店舗＋日付単位＝article_page_inputs.json の per-Excel 方式。
+    # 日付未確定の初期画面は False。日付ロード時は _restore_article_inputs が
+    # 現在Excel(日付)の保存値（未保存＝新規日付は False）を設定する。旧 store_settings の
+    # art_variety_enabled は参照しない。
+    if "art_variety_enabled" not in st.session_state:
+        st.session_state["art_variety_enabled"] = False
+    art_variety_enabled = st.checkbox("個別画像も生成する", key="art_variety_enabled",
+                                      on_change=_save_article_inputs, args=(store,))
+    # 台番欄・モードは checkbox の状態に関係なく毎run必ず生成（常時mount）する。
+    # checkbox で unmount すると remount 時にフロントエンドの空値が session/JSON を
+    # 上書きしてしまうため。OFF時は st-key-art_variety_box に display:none を当てて
+    # 「見た目だけ非表示」にする（DOMからは削除されないので値は保持される）。
+    if not art_variety_enabled:
+        st.markdown("<style>.st-key-art_variety_box{display:none !important;}</style>",
+                    unsafe_allow_html=True)
+    with st.container(key="art_variety_box"):
         st.markdown("**バラエティの台番範囲**")
-        _avr_key = f"art_variety_range_{store}"
-        if _avr_key not in st.session_state:
-            st.session_state[_avr_key] = ""
         art_variety_ranges_text = st.text_input(
             "台番範囲（例: 1-50）",
-            value=st.session_state[_avr_key],
             key=_avr_key,
             placeholder="例: 1-50",
+            on_change=_save_art_variety, args=(store,),
         )
         art_variety_mode = st.radio(
             "モード", ["全台", "+1,000枚以上の優秀台", "プラス台"],
             key="art_variety_mode",
             horizontal=True,
+            on_change=_save_art_variety, args=(store,),
         )
 
     # ── ⑤ プレビュー ────────────────────────────────────────────────
@@ -11378,8 +11450,14 @@ def show_auto_article_page() -> None:
 
         _art_auto_previews = st.session_state.get(_art_aprev_key)
         if _art_auto_previews is None:
-            if st.button("🔍 プレビュー生成", key="art_preview_btn"):
-                with st.spinner("画像を生成中（しばらくお待ちください）…"):
+            _apbc1, _apbc2 = st.columns(2)
+            with _apbc1:
+                _art_full_btn = st.button("🔍 プレビュー生成", key="art_preview_btn", use_container_width=True)
+            with _apbc2:
+                _art_manual_btn = st.button("📝 記入部分のみプレビュー作成", key="art_manual_preview_btn", use_container_width=True)
+            if _art_full_btn or _art_manual_btn:
+                _art_manual = _art_manual_btn
+                with st.spinner("記入部分のみプレビュー生成中…" if _art_manual else "画像を生成中（しばらくお待ちください）…"):
                     import tempfile as _atf
                     _art_xl_bytes = uploaded.getvalue()
                     uploaded.seek(0)
@@ -11416,6 +11494,11 @@ def show_auto_article_page() -> None:
                         )
                         _art_pil: list[tuple[str, "Image.Image"]] = []
                         _art_nb_map: dict[str, list[int]] = {}
+                        _art_son_added = False
+                        _art_son_fn = "その他の優秀台ピックアップ.jpg"
+                        _art_son_bans: list[int] = []
+                        _art_var_fn: "str | None" = None
+                        _art_var_bans: list[int] = []
                         if _art_pr["ok"]:
                             _art_fpm: dict[str, tuple[str, "Image.Image"]] = {}
                             for _fp in _art_pr["files"]:
@@ -11438,6 +11521,7 @@ def show_auto_article_page() -> None:
                                     _azitems.append((int(round(_kd.mean())), "kojin", (_km, _kg, _kd)))
                             for _av, _tp, _da in sorted(_azitems, key=lambda x: x[0], reverse=True):
                                 if _tp == "pipeline":
+                                    if _art_manual: continue  # 記入部分のみ：自動全台系はスキップ
                                     _fn = f"{_make_safe_fn(_da['name'])}.jpg"
                                     if _fn in _art_fpm: _art_pil.append(_art_fpm[_fn])
                                 else:
@@ -11461,6 +11545,7 @@ def show_auto_article_page() -> None:
                                     _ahitems.append((int(round(_kda.mean())), "kojin", (_km, _kgp)))
                             for _av, _tp, _da in sorted(_ahitems, key=lambda x: x[0], reverse=True):
                                 if _tp == "pipeline":
+                                    if _art_manual: continue  # 記入部分のみ：自動高配分はスキップ
                                     _fn = f"{_make_safe_fn(_da['name'])}_高配分.jpg"
                                     if _fn in _art_fpm: _art_pil.append(_art_fpm[_fn])
                                 else:
@@ -11508,10 +11593,44 @@ def show_auto_article_page() -> None:
                                                 _art_pil.append((f"{_base}.jpg", _build_machine_img(_rp, _base, _stat_from_diff(_rdi))))
                                         except Exception: pass
                             # ④ ジャグラーシリーズ優秀台
-                            if "ジャグラーシリーズ優秀台.jpg" in _art_fpm:
+                            if not _art_manual and "ジャグラーシリーズ優秀台.jpg" in _art_fpm:
                                 _art_pil.append(_art_fpm["ジャグラーシリーズ優秀台.jpg"])
                             # ⑤ その他の優秀台ピックアップ
-                            if "その他の優秀台ピックアップ.jpg" in _art_fpm:
+                            # 台番テキスト貼付 or 自動抽出（📝記入部分のみモード）があれば
+                            # パイプライン版を置き換える。なければパイプライン版を使用。
+                            _art_son_added = False
+                            _art_son_fn = f"{_make_safe_fn(art_sonota_extra_title.strip() or 'その他の優秀台ピックアップ')}.jpg"
+                            _art_son_bans: list[int] = []
+                            if _apdf is not None:
+                                if art_sonota_extra_text.strip():
+                                    _se_bans_a = set(expand_machine_numbers(art_sonota_extra_text))
+                                    if _se_bans_a:
+                                        _se_df_a = _apdf[_apdf["台番"].apply(lambda b: int(b) in _se_bans_a)].copy()
+                                        if not _se_df_a.empty:
+                                            _se_df_a = _se_df_a.iloc[_se_df_a["台番"].argsort()].reset_index(drop=True)
+                                            _se_tit_a = art_sonota_extra_title.strip() or "その他の優秀台ピックアップ"
+                                            _art_pil.append((_art_son_fn, _build_machine_img(_se_df_a, _se_tit_a, None)))
+                                            _art_son_bans = [int(b) for b in _se_df_a["台番"].tolist()]
+                                            _art_son_added = True
+                                elif art_sonota_extra_auto in _SONOTA_AUTO_THR and _apdi is not None:
+                                    _exc_mac_a = {m.strip() for m in (kojin_zentai_machines + kojin_yushu_machines) if m.strip()}
+                                    _exc_ban_a: set[int] = set()
+                                    for _pt_a, _pb_a in _collect_kojin_pick(store, prefix="art_"):
+                                        _exc_ban_a |= set(_pb_a)
+                                    for _bl_a in (narabi_ranges or []):
+                                        _exc_ban_a |= {int(b) for b in _bl_a}
+                                    for _txt_a in (kojin_narabi_ranges_text, kojin_narabi2_ranges_text):
+                                        if _txt_a and _txt_a.strip():
+                                            try: _exc_ban_a |= ranges_to_bans(parse_ranges(_txt_a.strip()))
+                                            except Exception: pass
+                                    _se_auto_a = _manual_sonota_auto_extract(
+                                        _apdf, _apdi, _SONOTA_AUTO_THR[art_sonota_extra_auto], _exc_mac_a, _exc_ban_a)
+                                    if not _se_auto_a.empty:
+                                        _se_tit_a = art_sonota_extra_title.strip() or "その他の優秀台ピックアップ"
+                                        _art_pil.append((_art_son_fn, _build_machine_img(_se_auto_a, _se_tit_a, None)))
+                                        _art_son_bans = [int(b) for b in _se_auto_a["台番"].tolist()]
+                                        _art_son_added = True
+                            if not _art_son_added and not _art_manual and "その他の優秀台ピックアップ.jpg" in _art_fpm:
                                 _art_pil.append(_art_fpm["その他の優秀台ピックアップ.jpg"])
                             # バラエティ画像
                             if art_variety_enabled and art_variety_ranges_text.strip() and _apdf is not None and _apdi is not None:
@@ -11535,8 +11654,12 @@ def show_auto_article_page() -> None:
                                             _avdf = _avdf.iloc[_avs].reset_index(drop=True)
                                             _avdr = _avdr.iloc[_avs].reset_index(drop=True)
                                             _avstat = _stat_from_diff(_avdr) if art_variety_mode == "全台" else None
-                                            _art_pil.append((f"{_make_safe_fn(_avtit)}.jpg",
+                                            _art_var_fn = f"{_make_safe_fn(_avtit)}.jpg"
+                                            _art_pil.append((_art_var_fn,
                                                              _build_machine_img(_avdf, _avtit, _avstat)))
+                                            # スランプ合成用: 表に掲載された最終台番（表示順・重複/NaN除去）
+                                            _art_var_bans = list(dict.fromkeys(
+                                                int(b) for b in _avdf["台番"].dropna()))
                                 except Exception:
                                     pass
                             # 個別機種の優秀台ピックアップ（貼った台番のみ・ピンクバーなし）
@@ -11592,11 +11715,19 @@ def show_auto_article_page() -> None:
                                 int(str(b).split(".")[0]) for b in _jpool_pv["台番"].dropna()
                                 if str(b).split(".")[0].lstrip("-").isdigit()
                             ]
-                        _son_bns_pv = sorted({int(_e["ban"]) for _e in _art_pr.get("sonota_excellent_list", []) if "ban" in _e})
-                        if _son_bns_pv:
-                            _pv_bm_sl["その他の優秀台ピックアップ.jpg"] = _son_bns_pv
+                        if _art_son_added:
+                            # 台番テキスト貼付/自動抽出でその他を上書きした場合はそのファイル名・台番を使う
+                            if _art_son_bans:
+                                _pv_bm_sl[_art_son_fn] = sorted(set(_art_son_bans))
+                        else:
+                            _son_bns_pv = sorted({int(_e["ban"]) for _e in _art_pr.get("sonota_excellent_list", []) if "ban" in _e})
+                            if _son_bns_pv:
+                                _pv_bm_sl["その他の優秀台ピックアップ.jpg"] = _son_bns_pv
                         for _fn_nb_pv2, _bns_nb_pv2 in _art_nb_map.items():
                             _pv_bm_sl[_fn_nb_pv2] = _bns_nb_pv2
+                        # バラエティ画像（生成成功時のみ・掲載された最終台番）
+                        if _art_var_fn and _art_var_bans:
+                            _pv_bm_sl[_art_var_fn] = _art_var_bans
                         try:
                             _pv_rt_cached = st.session_state.get(f"_art_tb_rt_items_{store}")
                             _pv_rt_date   = st.session_state.get(f"_art_tb_rt_items_date_{store}", "")
@@ -12134,6 +12265,8 @@ def show_auto_article_page() -> None:
                         _log(f"  ✅ 個別機種の優秀台ピックアップ「{_pk_tit_e}」({len(_pk_df_e)}台)")
 
             # ── バラエティ画像生成（高田馬場記事用）────────────────────────
+            _art_var_fn_e: "str | None" = None
+            _art_var_bans_e: list[int] = []
             if art_variety_enabled and art_variety_ranges_text.strip() and result["ok"]:
                 _avdf_e = result.get("df"); _avdr_all = result.get("diff_raw")
                 if _avdf_e is not None and _avdr_all is not None:
@@ -12157,9 +12290,13 @@ def show_auto_article_page() -> None:
                                 _avf = _avf.iloc[_avs_e].reset_index(drop=True)
                                 _avdr_e = _avdr_e.iloc[_avs_e].reset_index(drop=True)
                                 _avstat_e = _stat_from_diff(_avdr_e) if art_variety_mode == "全台" else None
-                                _avout_e = os.path.join(output_dir, f"{_make_safe_fn(_avtit_e)}.jpg")
+                                _art_var_fn_e = f"{_make_safe_fn(_avtit_e)}.jpg"
+                                _avout_e = os.path.join(output_dir, _art_var_fn_e)
                                 _save_jpeg(_build_machine_img(_avf, _avtit_e, _avstat_e), _avout_e)
                                 result["files"].append(_avout_e)
+                                # スランプ合成用: 表に掲載された最終台番（表示順・重複/NaN除去）
+                                _art_var_bans_e = list(dict.fromkeys(
+                                    int(b) for b in _avf["台番"].dropna()))
                                 _log(f"  ✅ バラエティ「{_avtit_e}」({len(_avf)}台)")
                     except Exception:
                         _log(f"  ❌ バラエティ画像エラー: {traceback.format_exc()}")
@@ -12323,6 +12460,9 @@ def show_auto_article_page() -> None:
                     _art_bm_sl["その他の優秀台ピックアップ.jpg"] = _son_bns_sl
                 for _fn_nb_sl, _bns_nb_sl in st.session_state.get(f"art_preview_narabi_{store}", {}).items():
                     _art_bm_sl[_fn_nb_sl] = _bns_nb_sl
+                # バラエティ画像（生成成功時のみ・掲載された最終台番）
+                if _art_var_fn_e and _art_var_bans_e:
+                    _art_bm_sl[_art_var_fn_e] = _art_var_bans_e
 
                 _log(f"📡 スランプ: pisionデータ取得中（日付={_art_date_sl}）")
                 try:

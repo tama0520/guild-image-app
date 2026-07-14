@@ -3705,10 +3705,10 @@ def generate_report_text(
     def _diff_emoji(diffs: list[int]) -> str:
         return "🌋" if diffs and max(diffs) >= 4000 else "💎"
 
-    # 稲毛以外の全店舗: 全台系濃厚・高配分の(1/2台)機種を両方から降格し、
-    # +2,000枚以上の台をその他の優秀台へ回す（稲毛のみ(1/2台)機種を残す）
+    # 稲毛・高田馬場以外の全店舗: 全台系濃厚・高配分の(1/2台)機種を両方から降格し、
+    # +2,000枚以上の台をその他の優秀台へ回す（稲毛・高田馬場は(1/2台)機種を残す）
     _demoted_names: set[str] = set()
-    if store_name != "稲毛":
+    if store_name not in ("稲毛", "高田馬場"):
         _demoted_names = {
             item["name"] for item in (list(high_ratio_list) + list(zen_dai_list))
             if item.get("count") == 1 and item.get("total") == 2

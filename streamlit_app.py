@@ -3705,26 +3705,31 @@ def generate_report_text(
     def _diff_emoji(diffs: list[int]) -> str:
         return "🌋" if diffs and max(diffs) >= 4000 else "💎"
 
-    # 西武新宿のみ: 高配分の(1/2台)機種は高配分に載せず、+2,000枚以上の台をその他の優秀台へ回す
+    # 稲毛以外の全店舗: 全台系濃厚・高配分の(1/2台)機種を両方から降格し、
+    # +2,000枚以上の台をその他の優秀台へ回す（稲毛のみ(1/2台)機種を残す）
     _demoted_names: set[str] = set()
-    if store_name == "西武新宿":
+    if store_name != "稲毛":
         _demoted_names = {
-            item["name"] for item in high_ratio_list
+            item["name"] for item in (list(high_ratio_list) + list(zen_dai_list))
             if item.get("count") == 1 and item.get("total") == 2
         }
 
+    # 全店舗: プラス（平均>0）の機種すべてに平均差枚を表示
+    _avg_show_thr = 0
+
     def zen_dai_section() -> str:
-        if not zen_dai_list:
+        _zd_list = [it for it in zen_dai_list if it["name"] not in _demoted_names]
+        if not _zd_list:
             return "（なし）"
         lines = []
         sorted_list = sorted(
-            zen_dai_list,
+            _zd_list,
             key=lambda x: x.get("all_avg_diff", 0),
             reverse=True,
         )
         for item in sorted_list:
             avg = item.get("all_avg_diff", 0)
-            avg_str = f"→平均{_fmt_diff(avg)}" if avg > 800 else ""
+            avg_str = f"→平均{_fmt_diff(avg)}" if avg > _avg_show_thr else ""
             lines.append(f"🎖️{item['name']}({item['count']}/{item['total']}台){avg_str}")
             if item["diffs"]:
                 emoji = _diff_emoji(item["diffs"])
@@ -3747,7 +3752,7 @@ def generate_report_text(
                 avg = item["all_avg_diff"]
             else:
                 avg = int(round(sum(item["diffs"]) / len(item["diffs"]))) if item["diffs"] else 0
-            avg_str = f"→平均{_fmt_diff(avg)}" if (avg > 800 or item.get("always_show_avg")) else ""
+            avg_str = f"→平均{_fmt_diff(avg)}" if (avg > _avg_show_thr or item.get("always_show_avg")) else ""
             lines.append(f"🎖️{item['name']}({item['count']}/{item['total']}台){avg_str}")
             if item["diffs"]:
                 emoji = _diff_emoji(item["diffs"])
@@ -5684,8 +5689,8 @@ def show_auto_page(with_slump: bool = False) -> None:
     def _sec_num() -> str:
         _sec_state["n"] += 1
         return _CIRCLED_SEC[_sec_state["n"] - 1]
-    # その他の優秀台ピックアップ分割（秋葉原=①②③・上野新館/上野本館=①②）
-    _sonota_split = with_slump and store in ("秋葉原", "上野新館", "上野本館")
+    # その他の優秀台ピックアップ分割（秋葉原=①②③・上野新館/上野本館/新小岩=①②）
+    _sonota_split = with_slump and store in ("秋葉原", "上野新館", "上野本館", "新小岩")
     _sonota_extra_thrs = [(2000, "その他の優秀台+2,000枚以上.jpg")]
     if store == "秋葉原":
         _sonota_extra_thrs.append((3000, "その他の優秀台+3,000枚以上.jpg"))

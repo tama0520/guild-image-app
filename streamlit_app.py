@@ -17706,13 +17706,16 @@ def main() -> None:
         if not _pull_ok:
             st.toast(f"⚠️ git pull失敗: {_pull_msg}", icon="⚠️")
 
-    # 【removeChild対策で撤去】以前は components.html(height=0) で
+    # 不可視 components.html(height=0) を1つだけ注入し、以下2つを独立したIIFEで登録する。
     #   ①popstate（戻る/進むでリロード）②入力オートコンプリート無効化(MutationObserver)
-    # を注入していたが、これらの不可視iframe＋DOM監視が Streamlit Cloud 本番で
-    # NotFoundError:removeChild を誘発していたため撤去した。
-    # ブラウザ戻る/進むの自動リロード・autocomplete=off は無効になるが、通常操作に影響なし。
     #
-    # autocomplete=off の注入は入力欄のブラウザ履歴ドロップダウンを消すためのもの。
+    # ①popstate: _navigate() の st.query_params 更新は pushState でURLに履歴を積むが、
+    # 戻る/進むでURLが変わってもStreamlitは再実行されず session_state.page が古いままになる。
+    # popstate で location.reload() し、リロード後の _sync_from_query_params() に
+    # URL→session_state の復元を任せる（ea24749 で撤去したものを最小構成で復活）。
+    # 行うのは window.parent への addEventListener と reload のみで、親DOMには一切触れない。
+    #
+    # ②autocomplete=off の注入は入力欄のブラウザ履歴ドロップダウンを消すためのもの。
     # 親DOMを MutationObserver で監視する components.html（docs/pision_cloud_notes.md の
     # 「避けるべき実装」に該当）だが、行っているのは setAttribute のみでノードの
     # 追加/削除/移動はしない。Cloud でも履歴を消したいという要望のため Cloud/ローカル両方で
@@ -17721,6 +17724,14 @@ def main() -> None:
     components.html(
         """
         <script>
+        (function() {
+            var p = window.parent;
+            if (p._popstateAttached) return;
+            p._popstateAttached = true;
+            p.addEventListener('popstate', function() {
+                p.location.reload();
+            });
+        })();
         (function() {
             var p = window.parent;
             if (p._autocompleteDisabled) return;

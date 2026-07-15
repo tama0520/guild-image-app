@@ -178,12 +178,85 @@ Cloud で確認した操作:
 
 - **ローカル**: 確認済み。ブラウザの戻る/進むでの復元、Alt＋←、多段遷移
   （トップ→店舗→画像種類→work / 結果ポスト用）、リロードループなし、記事用ページの
-  F5 後の店舗復元、Console エラー 0 件を確認。
-- **Streamlit Cloud**: **本ドキュメント記載時点では未確認**。Cloud 上での起動・戻る/進む・
-  Pision 結果ポスト用/記事用の表示・removeChild / NotFoundError・白画面・リロードループは
-  **いずれも未検証**であり、ユーザー確認待ちの状態。
-  - ローカルで再現しないことは Cloud での安全を意味しない（removeChild は元々
-    **Cloud 本番でのみ再現**した事象）。Cloud 反映後に上記チェックリストで確認すること。
+  F5 後の店舗復元、Console エラー 0 件を確認。**戻るは1回で正常**。
+- **Streamlit Cloud**: 確認済み。アプリの正常起動・主要ページの表示・戻る操作の動作、
+  白画面 / リロードループ / removeChild / NotFoundError が出ないことを確認。
+  **ただし戻る（マウスの戻る含む）は2回押す必要がある**
+  （下記「既知の未解決問題：Cloudのみ戻る操作が2回必要」参照）。
+
+### 既知の未解決問題：Cloudのみ戻る操作が2回必要（2026-07-15）
+
+**症状**: Streamlit Cloud でのみ、ブラウザの戻るボタン／マウスの戻るボタンを**2回押さないと**
+前ページへ戻らない。1回目は URL は戻るが画面が変わらない。それ以外（起動・主要ページの表示・
+進む・白画面 / リロードループ / removeChild / NotFoundError）は正常。
+
+#### 確定事項
+
+- **Cloud では戻る操作が2回必要**（Cloud 実機で確認）。
+- **ローカルでは1回で正常**（Windows / py 3.14。`_navigate()` 1回につき pushState 1回、
+  reload で history.length は増えないことを実測）。
+- **Streamlit Issue #9878 は、同種の Community Cloud 限定事象として `status:confirmed`**。
+  https://github.com/streamlit/streamlit/issues/9878
+  - **2026-07-15 時点で Open**（`type:bug` / `status:confirmed` / `priority:P3` /
+    `feature:query-params`）。2024-11-17 起票、2025-06-12 更新。担当者・修正PRなし。
+  - 報告者: "It seems like this only affects community cloud? I was unable to reproduce on a
+    local instance of streamlit."（**Cloud のみ発生・ローカルでは再現しない**）
+  - メンテナ(sfc-gh-bnisco, 2024-11-19)が原因を `App.tsx` の `handlePageInfoChanged` と特定し、
+    **"each re-run of this app will (erroneously) push a new state to the browser history"** と説明。
+  - **2026-07-15 時点で、develop ブランチでも URL を比較せず無条件に
+    `window.history.pushState` する実装が残っている**ことを確認。
+- **現時点でアプリ側の公式回避策は確認できていない**（下記「回避策の状況」参照）。
+- **診断コミット `4038d3c` で、ローカル・Cloud 両方の履歴操作が壊れた**。
+  **`296a39b` で完全 revert 済み**（`streamlit_app.py` は `31c2dcb` 時点とバイト単位で一致）。
+
+#### 推定（確定していない事項）
+
+- 症状から、**同一URLの履歴エントリが1つ余分に積まれている可能性**がある
+  （1回目の戻るがその重複を消費し、画面が変わらないと考えると「ちょうど2回」と整合する）。
+  関連として `page_info_changed` は `streamlit/runtime/forward_msg_queue.py` の `clear()` で
+  **保持対象（lifecycle msg）**であり、再実行をまたいで再送され得る。
+- **今回の症状が Issue #9878 と同一原因である可能性が極めて高い**。症状およびローカル／Cloud の
+  差が極めてよく一致しているが、**同バグに起因すると断定はできていない**。
+  「なぜ Cloud だけか」の Cloud 側の引き金は**公式にも未特定**。`/~/+/` が履歴を追加している事実や、
+  Cloud で `location.reload()` が特殊という情報は**確認できなかった**。
+- 診断コード(`4038d3c`)が壊れた原因は、**iframe 再生成後に古いクロージャのラッパーが
+  親ウィンドウへ残った可能性**。ガード `p.__histDiagWrapped` は親に立つ一方、退避した `origPush` は
+  その時の iframe のクロージャにあり、Streamlit が rerun で components.html の iframe を作り直すと
+  参照が失われるため。ローカルで 10/10 PASS でも「rerun で iframe が再生成される条件」を
+  突けておらず検証不足だった。
+
+#### 回避策の状況
+
+- 現在の `_navigate()`（`st.query_params.from_dict()`）は公式APIの正しい使い方。複数キーで
+  履歴が複数積まれる Issue #8347 は **固定中の 1.56.0 で修正済み**（`update()` に
+  "to ensure only one one ForwardMsg is sent" とあり ForwardMsg は1通。ローカル実測とも一致）。
+- 現在の **popstate → `location.reload()` 方式は必要**。Issue #13963 に
+  "single-page apps don't trigger backend reruns for history navigation at all" とあり、
+  `pages/` を持たない本アプリでは reload 以外に URL 変更をバックエンドへ伝える手段が公式にない。
+- 修正対象は Streamlit 本体のフロントエンド(TypeScript)で、アプリ側の Python からは変更できない。
+  関連 PR #9902 は **closed・未マージ**（2025-03-10 ブランチ削除）。
+- **現在固定している Streamlit 1.56.0 では未解決。将来のバージョンで修正される可能性があるため、
+  更新時に Issue #9878 と実装状況を再確認する。**
+
+**運用**: Cloud では当面、**戻る操作を2回行う暫定運用**とする。
+
+#### 現在の main へ推測修正を入れないこと（禁止事項）
+
+- `history.pushState` / `replaceState` のラップ
+- `history.back()` の自動実行 / `history.go(-2)` / 無条件の連続 back
+- Cloud だけを対象にした推測修正
+- Streamlit 本体のフロントエンドをアプリ側から上書きする処理
+- 新しい診断コードの追加
+- 原因未確認のまま正式仕様（`31c2dcb`）を変更すること
+
+再調査する場合は **main を直接変更せず、別ブランチまたはローカルの検証環境**で行う。
+
+#### Streamlit 更新時の再確認
+
+streamlit のバージョンを上げる際は、**Issue #9878 の解決状況を必ず再確認**する
+（Closed になっていれば本項の暫定運用を解除できる可能性がある）。あわせて
+`frontend/app/src/App.tsx` の `handlePageInfoChanged` に
+**URL 比較（同一URLなら push しない）**が入ったかを確認する。
 
 ### 今後のルール
 

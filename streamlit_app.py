@@ -17686,6 +17686,171 @@ def init_session_state() -> None:
             st.session_state[key] = val
 
 
+# =============================================================================
+# ■ ブラウザ履歴診断（調査用・撤去可能ブロック ここから）
+# -----------------------------------------------------------------------------
+# Cloud でのみ「戻る1回目が効かない（2回押すと戻る）」件の原因調査用。
+# 記録専用で、遷移方式・reload条件・同期ロジックには一切手を入れない。
+# 撤去方法は docs/pision_cloud_notes.md「ブラウザ履歴診断」節を参照
+# （最短は main() 内の _HIST_DIAG = False）。
+# =============================================================================
+
+# 診断の ON/OFF。False にすると JS も表示も注入されず height=0 に戻り、
+# 正式版（31c2dcb）と同一の挙動になる。
+_HIST_DIAG = True
+
+# 診断JS。既存 components.html の <script> 先頭に連結して使う（新規iframeは作らない）。
+# 禁止事項は行わない: 親DOMの削除/移動/置換・removeChild・MutationObserver・
+# Streamlit内部DOMの探索/操作・history.back()やgo(-2)の自動実行・replaceStateでの対症療法。
+# 触るのは window.parent の location/history/sessionStorage と、iframe自身の文書のみ。
+_HIST_DIAG_JS = """
+(function() {
+    var p = window.parent;
+    var LK = '__hist_diag_log', CK = '__hist_diag_cnt';
+
+    function load(k, d) {
+        try { var v = p.sessionStorage.getItem(k); return v ? JSON.parse(v) : d; }
+        catch (e) { return d; }
+    }
+    function save(k, v) {
+        try { p.sessionStorage.setItem(k, JSON.stringify(v)); } catch (e) {}
+    }
+    function cnt() { return load(CK, { push: 0, replace: 0, pop: 0 }); }
+
+    // 遷移種別（Navigation Timing。navigate / reload / back_forward が分かる）
+    function navType() {
+        try {
+            var es = p.performance.getEntriesByType('navigation');
+            if (es && es.length && es[0].type) return es[0].type;
+            if (p.performance.navigation) return 'legacy:' + p.performance.navigation.type;
+        } catch (e) {}
+        return '(unknown)';
+    }
+
+    // 1行記録する。sessionStorage に貯めるので reload をまたいで残る。
+    function rec(ev, extra) {
+        try {
+            var c = cnt(), hs;
+            try { hs = JSON.stringify(p.history.state); } catch (e) { hs = '(unserializable)'; }
+            var o = {
+                time: new Date().toISOString(),
+                event: ev,
+                href: p.location.href,
+                pathname: p.location.pathname,
+                search: p.location.search,
+                historyLength: p.history.length,
+                historyState: hs,
+                navType: navType(),
+                popCount: c.pop, pushCount: c.push, replaceCount: c.replace
+            };
+            if (extra) { for (var k in extra) { o[k] = extra[k]; } }
+            var a = load(LK, []);
+            a.push(o);
+            if (a.length > 300) { a = a.slice(-300); }
+            save(LK, a);
+            render();
+        } catch (e) {}
+    }
+
+    // pushState/replaceState のラップは1回だけ。二重ラップすると計測が壊れる。
+    // 記録後は元関数を this・全引数つきで apply し、戻り値もそのまま返す（動作を変えない）。
+    if (!p.__histDiagWrapped) {
+        p.__histDiagWrapped = true;
+        var origPush = p.history.pushState, origReplace = p.history.replaceState;
+        p.history.pushState = function() {
+            try {
+                var c = cnt(); c.push++; save(CK, c);
+                if (typeof p.__histDiagRec === 'function') {
+                    p.__histDiagRec('pushState', {
+                        argUrl: String(arguments[2]), argsLen: arguments.length
+                    });
+                }
+            } catch (e) {}
+            return origPush.apply(this, arguments);
+        };
+        p.history.replaceState = function() {
+            try {
+                var c = cnt(); c.replace++; save(CK, c);
+                if (typeof p.__histDiagRec === 'function') {
+                    p.__histDiagRec('replaceState', {
+                        argUrl: String(arguments[2]), argsLen: arguments.length
+                    });
+                }
+            } catch (e) {}
+            return origReplace.apply(this, arguments);
+        };
+    }
+
+    // 記録専用の popstate リスナー（reload はしない。実際の reload は既存IIFEの担当）。
+    // ここで残す href が「reload直前のURL」になる。
+    if (!p.__histDiagPop) {
+        p.__histDiagPop = true;
+        p.addEventListener('popstate', function() {
+            try {
+                var c = cnt(); c.pop++; save(CK, c);
+                if (typeof p.__histDiagRec === 'function') {
+                    p.__histDiagRec('popstate', { reloadFrom: p.location.href });
+                }
+            } catch (e) {}
+        });
+    }
+
+    function fmt(a) {
+        var out = [];
+        for (var i = 0; i < a.length; i++) {
+            var o = a[i], parts = [];
+            for (var k in o) { parts.push(k + '=' + o[k]); }
+            out.push('#' + (i + 1) + '  ' + parts.join(' | '));
+        }
+        return out.join('\\n');
+    }
+    function render() {
+        try {
+            var el = document.getElementById('hd-log');
+            if (el) { el.value = fmt(load(LK, [])); }
+            var s = document.getElementById('hd-sum');
+            if (s) {
+                var c = cnt();
+                s.textContent = '\\u{1F50D} ブラウザ履歴診断（pushState ' + c.push
+                    + ' / replaceState ' + c.replace + ' / popstate ' + c.pop
+                    + ' / history.length ' + p.history.length + '）';
+            }
+        } catch (e) {}
+    }
+
+    // rerun で iframe が作り直されると旧 document への参照が古くなるため、
+    // 毎回この注入分の rec/render を最新として親に載せ替える（ラップ本体は1回のみ）。
+    p.__histDiagRec = rec;
+    p.__histDiagRender = render;
+    p.__histDiagClear = function() {
+        save(LK, []); save(CK, { push: 0, replace: 0, pop: 0 }); render();
+    };
+
+    rec('script-init');
+    setTimeout(render, 0);
+})();
+"""
+
+# 診断の表示部（既存 components.html の中に描画する。iframe自身の文書内で完結）
+_HIST_DIAG_HTML = """
+<details id="hd" style="font-family:sans-serif;border:1px solid #bbb;border-radius:6px;padding:6px;background:#fafafa;">
+  <summary id="hd-sum" style="cursor:pointer;font-weight:700;font-size:13px;">\U0001F50D ブラウザ履歴診断</summary>
+  <div style="margin:6px 0;font-size:11px;color:#555;">
+    調査用の一時表示です。下のログを全選択してコピーできます。
+    <button type="button" onclick="var e=document.getElementById('hd-log');e.focus();e.select();try{document.execCommand('copy');}catch(_){}"
+            style="margin-left:6px;font-size:11px;">全選択してコピー</button>
+    <button type="button" onclick="if(window.parent.__histDiagClear)window.parent.__histDiagClear();"
+            style="margin-left:4px;font-size:11px;">ログをクリア</button>
+  </div>
+  <textarea id="hd-log" readonly wrap="off"
+            style="width:100%;height:190px;font-family:monospace;font-size:11px;white-space:pre;overflow:auto;"></textarea>
+</details>
+"""
+
+# ■ ブラウザ履歴診断（撤去可能ブロック ここまで）
+# =============================================================================
+
+
 def main() -> None:
     _log_rss("main() 起動直後")
     # ページ設定（ブラウザタブのタイトルとレイアウト）
@@ -17721,9 +17886,15 @@ def main() -> None:
     # 追加/削除/移動はしない。Cloud でも履歴を消したいという要望のため Cloud/ローカル両方で
     # 有効化し、Cloud チェックリストで removeChild/NotFoundError が再発しないか検証する。
     # 問題が出たら再び `if not _IS_CLOUD:` ガードでローカル限定に戻す。
+    # 【診断】撤去時はこの3行と、下の components.html の連結・height を元に戻す。
+    _diag_js = _HIST_DIAG_JS if _HIST_DIAG else ""
+    _diag_html = _HIST_DIAG_HTML if _HIST_DIAG else ""
+    _diag_h = 300 if _HIST_DIAG else 0
+
     components.html(
-        """
-        <script>
+        "<script>"
+        + _diag_js
+        + """
         (function() {
             var p = window.parent;
             if (p._popstateAttached) return;
@@ -17747,8 +17918,9 @@ def main() -> None:
             );
         })();
         </script>
-        """,
-        height=0,
+        """
+        + _diag_html,
+        height=_diag_h,
     )
 
     # ── サイドバー ────────────────────────────────────────────────

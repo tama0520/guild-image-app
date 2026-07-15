@@ -79,7 +79,9 @@ Cloud で確認した操作:
 
 ## 避けるべき実装（危険パターン）
 
-- 親 DOM を監視/改変する**不可視 components.html**（popstate / autocomplete / MutationObserver）
+- 親 DOM を**監視/改変**する**不可視 components.html**（autocomplete の MutationObserver 等）
+  - ただし「不可視 components.html」自体が危険なのではなく、**親 DOM の監視/改変**が危険。
+    親 DOM に一切触れない popstate 登録は該当しない（「ブラウザ履歴対応（正式仕様）」参照）。
 - **expander / columns 等ネストコンテナ内から `st.rerun()`** を直呼びする
 - 条件分岐で**頻繁に mount / unmount** される、または**ツリー上の位置が動く** iframe
 - **同一画面で複数の iframe が同時に再マウント**される構成
@@ -129,6 +131,65 @@ Cloud で確認した操作:
   - 台数の多い機種クリック時の詳細は `scrolling=True` の内部スクロールで全表示。
   - 空白/罫線の見え方を再調整する場合は **585 の数値だけ**を微調整する。
 
+## ブラウザ履歴対応（正式仕様）（2026-07-15・31c2dcb）
+
+ブラウザの **戻るボタン / 進むボタン / Alt＋← / マウスの戻る・進むボタン** でページ遷移
+できることを**正式仕様**とする。この挙動を壊さないこと。
+
+- **実装コミット**: `31c2dcbedaac7c5ea4aa4f738be95454028825da`（短縮 `31c2dcb`）
+- 変更ファイルは `streamlit_app.py` のみ（`main()` 内の既存 components.html 1 箇所）。
+  `_navigate()` / `_sync_from_query_params()` / 各ページの遷移処理は**変更していない**。
+
+### 実装方式
+
+`main()` の**既存 components.html 内**で popstate を監視し、URL 変更時に `location.reload()`
+を実行、リロード後の再実行で `_sync_from_query_params()` が URL → `session_state` を復元する。
+
+- popstate 処理は**既存 autocomplete 用 components.html に統合**する。
+  **新しい components.html は追加しない**（不可視 iframe を増やさない）。
+- 既存 autocomplete 側は先頭に `if (p._autocompleteDisabled) return;` の早期 return を持つため、
+  **popstate を同一 IIFE に入れてはならない**（2回目以降の注入で popstate 登録がスキップされる）。
+  同一 `<script>` 内に**独立した IIFE として並べ**、フラグも
+  `_popstateAttached` / `_autocompleteDisabled` に**分離**する。
+
+### popstate 処理で行ってよい処理（これのみ）
+
+- `window.parent` への popstate 登録
+- 二重登録防止フラグ
+- `location.reload()`
+
+### popstate 処理で行ってはならない処理
+
+- 親 DOM 操作 / `removeChild` / `MutationObserver` / Streamlit 内部 DOM 操作
+- iframe 外の DOM 書き換え、クリックイベントの疑似発火、Streamlit 内部 DOM の探索
+
+### 経緯（再撤去しないための記録）
+
+- `ea24749` で Cloud の removeChild 対策として popstate と autocomplete の
+  components.html を**まとめて撤去**したが、**真因は autocomplete 側の MutationObserver**
+  による親 DOM 監視であり、popstate 側は無関係だった。
+- popstate を失った結果、`_navigate()` の `st.query_params` 更新は pushState で URL 履歴を
+  積むものの、戻る/進むで URL が変わっても Streamlit が再実行されず `session_state.page` が
+  古いまま残り、**画面が切り替わらない**（＝履歴が積まれていないように見える）状態になっていた。
+- popstate は `addEventListener` と `reload()` のみで親 DOM に触れないため、安全に復活できる。
+  **removeChild 対策を理由に popstate を再撤去しないこと。**
+
+### 検証状況（2026-07-15 時点）
+
+- **ローカル**: 確認済み。ブラウザの戻る/進むでの復元、Alt＋←、多段遷移
+  （トップ→店舗→画像種類→work / 結果ポスト用）、リロードループなし、記事用ページの
+  F5 後の店舗復元、Console エラー 0 件を確認。
+- **Streamlit Cloud**: **本ドキュメント記載時点では未確認**。Cloud 上での起動・戻る/進む・
+  Pision 結果ポスト用/記事用の表示・removeChild / NotFoundError・白画面・リロードループは
+  **いずれも未検証**であり、ユーザー確認待ちの状態。
+  - ローカルで再現しないことは Cloud での安全を意味しない（removeChild は元々
+    **Cloud 本番でのみ再現**した事象）。Cloud 反映後に上記チェックリストで確認すること。
+
+### 今後のルール
+
+ブラウザ履歴やページ遷移（`_navigate()` / `_sync_from_query_params()` / `st.query_params` /
+各ページの遷移処理）を変更する場合は、**必ず今回の実装との互換性を確認してから**変更する。
+
 ## Cloud変更時のチェックリスト
 
 Pision表示や components.html に関係する変更を行った場合は、
@@ -143,6 +204,8 @@ main へ反映する前に以下を確認する。
 - [ ] ページ切り替え
 - [ ] 画像生成
 - [ ] ZIP生成
+- [ ] ブラウザの戻る/進むでページが復元される（トップ→店舗→結果ポスト用の多段で確認）
+- [ ] 戻る/進むを繰り返してもリロードループ・白画面が起きない
 - [ ] Console に removeChild / NotFoundError が出ない
 - [ ] Manage app ログに Segmentation fault が出ない
 - [ ] RSS ログに異常増加がない

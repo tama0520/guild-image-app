@@ -4707,13 +4707,29 @@ def _load_auto_inputs_json() -> dict:
     return {}
 
 
+def _merge_auto_entry(existing: "dict | None", store: str) -> dict:
+    """既存エントリへ store のキーのうち session_state にあるものだけを上書きして返す。
+
+    全置換にすると、別店舗のキーセットで保存されたとき（店舗をまたぐExcel切り替え）に
+    旧店舗固有キー（kojin_z_0_高田馬場 等）が丸ごと消えるため、マージ方式にする。
+    - session_state に「キーが存在しない」→ 既存値を残す（消さない）
+    - session_state に「キーが存在する」→ 値が "" や False でもそのまま保存する
+      （ユーザーが意図的に空へ変更したケースを正しく反映するため）
+    """
+    entry = dict(existing or {})
+    for k in _auto_input_keys(store):
+        if k in st.session_state:
+            entry[k] = st.session_state[k]
+    return entry
+
+
 def _save_auto_inputs(store: str) -> None:
     """自動処理ページの入力値を Excelファイル名をキーにして JSON 保存。"""
     excel_name = st.session_state.get("auto_current_excel")
     if not excel_name:
         return
     data = _load_auto_inputs_json()
-    data[excel_name] = {k: st.session_state[k] for k in _auto_input_keys(store) if k in st.session_state}
+    data[excel_name] = _merge_auto_entry(data.get(excel_name), store)
     try:
         with open(_AUTO_INPUTS_JSON, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -6047,9 +6063,13 @@ def show_auto_page(with_slump: bool = False) -> None:
         if st.session_state.get("_auto_prev_excel") != uploaded.name:
             # 切り替え前の入力値を旧ファイル名で先に保存（再フェッチ時の値消え防止）
             _prev_excel = st.session_state.get("_auto_prev_excel")
+            # 旧Excelは「切り替え前の店舗」のキーセットで保存する。
+            # 現在の store を使うと、店舗をまたぐ切り替えで旧店舗固有キーが消える。
+            # 初回表示など未保持のときは現在の店舗にフォールバック（従来動作）。
+            _prev_store = st.session_state.get("_auto_prev_store", store)
             if _prev_excel:
                 _cur_save = _load_auto_inputs_json()
-                _cur_save[_prev_excel] = {k: st.session_state[k] for k in _auto_input_keys(store) if k in st.session_state}
+                _cur_save[_prev_excel] = _merge_auto_entry(_cur_save.get(_prev_excel), _prev_store)
                 try:
                     with open(_AUTO_INPUTS_JSON, "w", encoding="utf-8") as _sf:
                         json.dump(_cur_save, _sf, ensure_ascii=False, indent=2)
@@ -6057,6 +6077,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     pass
             _restore_auto_inputs(uploaded.name, store)
             st.session_state["_auto_prev_excel"] = uploaded.name
+            st.session_state["_auto_prev_store"] = store
         # 毎レンダーで自動保存（ボタン未押下でブラウザを閉じても値が残るようにする）
         _save_auto_inputs(store)
 

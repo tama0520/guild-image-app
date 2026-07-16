@@ -2966,9 +2966,12 @@ def run_step2_juggler(
     article_mode: bool = False,
     sonota_exclude: set[str] = frozenset(),
     no_merge_image: bool = False,
+    rec_ban_level: bool = False,
 ) -> tuple[list[str], pd.DataFrame | None, pd.Series | None, list[dict], list[dict]]:
     """Step 2: ジャグラーシリーズ優秀台フィルター。
     少数機種は統合画像へ。5台以下なら overflow として Step 3 へ渡す。
+    rec_ban_level=True（新小岩スランプ付き）: ⑤オススメ機種にジャグラーが含まれても
+    統合画像を通常どおり生成する（⑤側で台番単位に除外するため）。
     戻り値: (generated, overflow_df, overflow_diff, high_ratio_list, jug_excellent_list)"""
     juggler_jobs  = cfg["juggler_jobs"]
     juggler_g_min = cfg["juggler_g_min"]
@@ -3010,7 +3013,9 @@ def run_step2_juggler(
         filtered_ex = mdf_ex[mask_ex].copy().reset_index(drop=True)
         dr_f_ex     = dr_m_ex[mask_ex].reset_index(drop=True)
         # +1000枚以上の台を excellent_list 用に収集（並び除外・個別・オススメ機種は除外）
-        if machine not in recommended_machines:
+        # sonota_exclude も見る: rec_ban_level 時は⑤機種が recommended_machines に入らないため、
+        # ここを通さないと⑤機種の台が「その他の優秀台」へ流入して⑤ブロックと重複する。
+        if machine not in recommended_machines and machine not in sonota_exclude:
             for _i in range(len(filtered_ex)):
                 _d = int(dr_f_ex.iloc[_i])
                 if _d >= 1000:
@@ -3094,8 +3099,9 @@ def run_step2_juggler(
         return generated, combined, dr_combined, high_ratio_list, jug_excellent_list, None
 
     # オススメ機種にジャグラーが含まれる場合は統合画像を作らずoverflowへ
+    # rec_ban_level 時は統合画像を通常どおり生成し、⑤側で掲載台番を除外する
     _juggler_names = {m for m, _, _ in juggler_jobs}
-    if sonota_exclude & _juggler_names:
+    if sonota_exclude & _juggler_names and not rec_ban_level:
         log(f"  ジャグラーシリーズ優秀台: オススメ機種に含まれるため統合画像スキップ → overflow")
         return generated, combined, dr_combined, high_ratio_list, jug_excellent_list, None
 
@@ -4124,8 +4130,11 @@ def run_auto_pipeline(
     jug_suebangai_tails: list[str] = [],
     variety_bans: set[int] = set(),
     jug_no_merge_image: bool = False,
+    rec_ban_level: bool = False,
 ) -> dict:
     """3ステップパイプラインを実行する。
+    rec_ban_level=True（新小岩スランプ付き）: ⑤オススメ機種を機種単位で抑制しない。
+    呼び出し側で recommended_machines から⑤機種を外して渡すこと。
     戻り値: {"ok": bool, "files": list[str], "error": str | None,
              "zen_dai_list", "high_ratio_list", "nami_list", "excellent_list", "date"}"""
     _log_rss("run_auto_pipeline 開始（画像生成前）")
@@ -4180,7 +4189,7 @@ def run_auto_pipeline(
         log("② ジャグラーシリーズ優秀台")
         _jug_series = cfg["juggler_series"]
         _zen_dai_jug = {item["name"] for item in zen_dai_list if item["name"] in _jug_series}
-        f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude, no_merge_image=jug_no_merge_image)
+        f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude, no_merge_image=jug_no_merge_image, rec_ban_level=rec_ban_level)
 
         log("③ その他の優秀台ピックアップ")
         f3, oth_hr, sonota_excellent = run_step3_other(df, diff_raw, output_dir, cfg, narabi_bans, ov_df, ov_diff, log, recommended_machines, suebangai_bans, article_mode=article_mode, sonota_exclude=sonota_exclude)
@@ -4912,11 +4921,15 @@ def filter_recommended_machines(
     df: pd.DataFrame,
     zen_dai_names: set[str],
     high_ratio_names: set[str],
+    ban_level: bool = False,
 ) -> tuple[list[str], list[str]]:
     """オススメ機種リストを絞り込む。
     - 空白・重複を除去
     - Excel に存在しない機種をスキップ
     - 全台系・高配分判定済み機種を除外
+    ban_level=True（新小岩スランプ付き）: 機種単位の除外を行わない。
+    全台系・高配分に該当した機種も残し、掲載済み台番の除外は
+    generate_recommended_block_image の exclude_bans で台番単位に行う。
     戻り値: (掲載対象機種リスト, 除外ログリスト)"""
     all_in_excel = set(df["機種名"].astype(str).unique())
     valid: list[str] = []
@@ -4927,15 +4940,75 @@ def filter_recommended_machines(
         if not m or m in seen:
             continue
         seen.add(m)
-        if m in zen_dai_names:
+        if not ban_level and m in zen_dai_names:
             logs.append(f"「{m}」は全台系に該当したためオススメ機種ピックアップから除外しました")
-        elif m in high_ratio_names:
+        elif not ban_level and m in high_ratio_names:
             logs.append(f"「{m}」は高配分機種に該当したため除外しました")
         elif m not in all_in_excel:
             logs.append(f"「{m}」はExcelに存在しないためスキップしました")
         else:
             valid.append(m)
     return valid, logs
+
+
+def _collect_published_bans(result: dict) -> set[int]:
+    """自動生成画像へ実際に掲載された台番を集める（⑤の台番単位除外用・新小岩スランプ付き）。
+    収集元は既存の掲載済み台番情報のみ（新規に判定はしない）:
+      - zen_dai_list[].bans        全台系画像（⑧実行では②個別(全台)も含む）
+      - high_ratio_list[].bans     高配分・ジャグラー高配分（has_image=True のみ）
+      - jug_pool_df["台番"]        ジャグラーシリーズ優秀台.jpg
+      - sonota_excellent_list[].ban その他の優秀台ピックアップ
+    has_image=False は画像が無い＝除外すべき台がないため bans を持たない。"""
+    bans: set[int] = set()
+
+    def _add(vals) -> None:
+        for _b in vals:
+            try:
+                bans.add(int(_b))
+            except (TypeError, ValueError):
+                pass
+
+    for _it in result.get("zen_dai_list", []):
+        _add(_it.get("bans", []))
+    for _it in result.get("high_ratio_list", []):
+        if _it.get("has_image", True):
+            _add(_it.get("bans", []))
+    _jp = result.get("jug_pool_df")
+    if _jp is not None and not _jp.empty and "台番" in _jp.columns:
+        _add(_jp["台番"].dropna())
+    for _it in result.get("sonota_excellent_list", []):
+        if "ban" in _it:
+            _add([_it["ban"]])
+    return bans
+
+
+def _collect_kojin_bans(df, diff_raw, zentai: list[str], yushu: list[str],
+                        store: str, force_1k: bool = False) -> set[int]:
+    """②個別画像へ掲載される台番を集める（⑦プレビュー用）。
+    ⑦では②画像が result を経由せず直接描画されるため、_collect_published_bans では拾えない。
+    ⑧実行では result["zen_dai_list"]/["high_ratio_list"] に bans 付きで積まれるため不要。"""
+    bans: set[int] = set()
+    if df is None or diff_raw is None:
+        return bans
+    for _m in zentai:
+        _m = _m.strip()
+        if not _m:
+            continue
+        _grp = df[df["機種名"] == _m]
+        if not _grp.empty:
+            bans |= {int(b) for b in _grp["台番"].dropna()}
+    for _m in yushu:
+        _m = _m.strip()
+        if not _m:
+            continue
+        _grp_all = df[df["機種名"] == _m]
+        if _grp_all.empty:
+            continue
+        _dr_all = diff_raw.loc[_grp_all.index]
+        _p = _kojin_yushu_filter(_m, _grp_all, _dr_all, get_store_config(store), force_1k=force_1k)
+        if not _p.empty:
+            bans |= {int(b) for b in _p["台番"].dropna()}
+    return bans
 
 
 def generate_recommended_block_image(
@@ -4945,15 +5018,19 @@ def generate_recommended_block_image(
     diff_raw: pd.Series,
     narabi_bans: set[int] = set(),
     min_diff: int = 1,
+    exclude_bans: set[int] = frozenset(),
 ) -> "Image.Image | None":
     """オススメ機種ブロックの優秀台統合画像を生成する。
     min_diff 以上の台を抽出。narabi_bans に含まれる台番は除外する。
+    exclude_bans（新小岩スランプ付き）: 既に自動生成画像へ掲載された台番を除外する。
     ジャグラーも含め全機種を差枚のみで抽出する（プラス台＝差枚>=1）。"""
     dfs = []
     for machine in machines:
         grp = df[df["機種名"] == machine].copy()
         if narabi_bans:
             grp = grp[~grp["台番"].isin(narabi_bans)]
+        if exclude_bans:
+            grp = grp[~grp["台番"].isin(exclude_bans)]
         if grp.empty:
             continue
         dr_m = diff_raw.loc[grp.index]
@@ -5694,6 +5771,11 @@ def show_auto_page(with_slump: bool = False) -> None:
         return _CIRCLED_SEC[_sec_state["n"] - 1]
     # その他の優秀台ピックアップ分割（秋葉原=①②③・上野新館/上野本館/新小岩=①②）
     _sonota_split = with_slump and store in ("秋葉原", "上野新館", "上野本館", "新小岩")
+    # ⑤オススメ機種の台番単位除外（新小岩スランプ付きのみ・2026-07-16）
+    # True: ⑤登録を理由に全台系・高配分・ジャグラー画像／結果テキストを抑制せず、
+    #       自動生成画像へ実際に掲載された台番だけを⑤ブロックから台番単位で除外する。
+    # False（他店舗・通常結果ポスト用）: 従来どおり⑤登録機種を機種単位で抑制・除外する。
+    _rec_ban_level = with_slump and store == "新小岩"
     _sonota_extra_thrs = [(2000, "その他の優秀台+2,000枚以上.jpg")]
     if store == "秋葉原":
         _sonota_extra_thrs.append((3000, "その他の優秀台+3,000枚以上.jpg"))
@@ -7004,9 +7086,11 @@ def show_auto_page(with_slump: bool = False) -> None:
         _aprev_jug_ov_key   = f"auto_preview_jug_ov_{store}"
         _aprev_narabi_key   = f"auto_preview_narabi_{store}"
         _aprev_hr_img_key   = f"auto_preview_hr_img_{store}"
+        # ⑤台番単位除外用: 自動生成画像へ掲載された台番（🔄その他を更新でも使う）
+        _aprev_pub_bans_key = f"auto_preview_pub_bans_{store}"
         # Excel が変わったらプレビューをクリア
         if st.session_state.get(_aprev_fname) != uploaded.name:
-            for _k in (_aprev_key, _aprev_df_key, _aprev_di_key, _aprev_ex_key, _aprev_hr_key, _aprev_zen_key, _aprev_jug_ex_key, _aprev_jug_pool_key, _aprev_jug_ov_key, _aprev_narabi_key):
+            for _k in (_aprev_key, _aprev_df_key, _aprev_di_key, _aprev_ex_key, _aprev_hr_key, _aprev_zen_key, _aprev_jug_ex_key, _aprev_jug_pool_key, _aprev_jug_ov_key, _aprev_narabi_key, _aprev_pub_bans_key):
                 st.session_state.pop(_k, None)
             st.session_state.pop(f"sue_preview_{store}", None)
             st.session_state.pop(f"sue_prev_tails_{store}", None)
@@ -7059,7 +7143,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _tmp_excel = os.path.join(_tmpdir, uploaded.name)
                         with open(_tmp_excel, "wb") as _tf:
                             _tf.write(_excel_bytes)
-                        _prev_rec_names: set[str] = {
+                        # rec_ban_level 時は⑤由来を入れない（②由来の抑制のみ維持）。
+                        # ⑤機種の「その他の優秀台」流入は sonota_exclude が引き続き防ぐ。
+                        _prev_rec_names: set[str] = set() if _rec_ban_level else {
                             m.strip()
                             for block in recommended_blocks
                             for m in block["machines"]
@@ -7086,6 +7172,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             jug_suebangai_tails=_prev_jug_sue_tails,
                             variety_bans=(ranges_to_bans(parse_ranges(variety_ranges_text.strip())) if (_variety_ui and variety_enabled and variety_ranges_text.strip()) else set()),
                             jug_no_merge_image=(with_slump and store == "秋葉原"),
+                            rec_ban_level=_rec_ban_level,
                         )
                         # スランプ付き: その他の優秀台ピックアップ①②(③)生成（プレビュー用・秋葉原/上野新館）
                         if _sonota_split and _prev_result.get("ok"):
@@ -7338,6 +7425,15 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 if kojin_enabled:
                                     _pv_zen  |= {m.strip() for m in kojin_zentai_machines if m.strip()}
                                     _pv_high |= {m.strip() for m in kojin_yushu_machines if m.strip()}
+                                # 台番単位除外用: 自動生成画像へ実際に掲載された台番（②個別画像を含む）
+                                _pv_pub_bans: set[int] = set()
+                                if _rec_ban_level:
+                                    _pv_pub_bans = _collect_published_bans(_prev_result)
+                                    if kojin_enabled:
+                                        _pv_pub_bans |= _collect_kojin_bans(
+                                            _pv_df, _pv_diff, kojin_zentai_machines, kojin_yushu_machines,
+                                            store, force_1k=(with_slump and store == "秋葉原"))
+                                    st.session_state[_aprev_pub_bans_key] = _pv_pub_bans
                                 _sfx_map  = {1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
                                 for _block in recommended_blocks:
                                     _bt = _block["title"].strip()
@@ -7346,13 +7442,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         continue
                                     if not _bt:
                                         _bt = "オススメ機種"
-                                    _valid, _ = filter_recommended_machines(_bm, _pv_df, _pv_zen, _pv_high)
+                                    _valid, _ = filter_recommended_machines(_bm, _pv_df, _pv_zen, _pv_high, ban_level=_rec_ban_level)
                                     if not _valid:
                                         continue
                                     for _thr in _block.get("thresholds", [1]):
                                         _rec_img = generate_recommended_block_image(
                                             _bt, _valid, _pv_df, _pv_diff, _prev_narabi_bans,
-                                            min_diff=_thr
+                                            min_diff=_thr, exclude_bans=_pv_pub_bans
                                         )
                                         if _rec_img is None:
                                             continue
@@ -7365,6 +7461,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             _rgrp = _pv_df[_pv_df["機種名"] == _rvm].copy()
                                             if _prev_narabi_bans:
                                                 _rgrp = _rgrp[~_rgrp["台番"].isin(_prev_narabi_bans)]
+                                            if _pv_pub_bans:
+                                                _rgrp = _rgrp[~_rgrp["台番"].isin(_pv_pub_bans)]
                                             if _rgrp.empty:
                                                 continue
                                             _rdr = _pv_diff.loc[_rgrp.index]
@@ -8424,19 +8522,29 @@ def show_auto_page(with_slump: bool = False) -> None:
                             if kojin_enabled and kojin_narabi2_ranges_text.strip():
                                 try: _upd_nb |= ranges_to_bans(parse_ranges(kojin_narabi2_ranges_text.strip()))
                                 except Exception: pass
+                            # 台番単位除外: プレビュー時の掲載済み台番から、チェックを外した機種の台を戻す
+                            # （画像が消えた＝その台はどこにも載っていない → ⑤で拾えるようにする）
+                            _upd_pub_bans: set[int] = set()
+                            if _rec_ban_level:
+                                _upd_pub_bans = set(st.session_state.get(_aprev_pub_bans_key, set()))
+                                if _upd_pub_bans and _rec_unchecked_machines:
+                                    _upd_pub_bans -= {
+                                        int(_b) for _b in
+                                        _pv_df[_pv_df["機種名"].isin(_rec_unchecked_machines)]["台番"].dropna()
+                                    }
                             _sfx_map_r = {1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
                             for _block_r in recommended_blocks:
                                 _bt_r = _block_r["title"].strip() or "オススメ機種"
                                 _bm_r = _block_r["machines"]
                                 if not any(m.strip() in _rec_unchecked_machines for m in _bm_r if m.strip()):
                                     continue
-                                _valid_r, _ = filter_recommended_machines(_bm_r, _pv_df, _pv_zen_r, _pv_high_r)
+                                _valid_r, _ = filter_recommended_machines(_bm_r, _pv_df, _pv_zen_r, _pv_high_r, ban_level=_rec_ban_level)
                                 if not _valid_r:
                                     continue
                                 for _thr_r in _block_r.get("thresholds", [1]):
                                     _rec_img_r = generate_recommended_block_image(
                                         _bt_r, _valid_r, _pv_df, _pv_diff, _upd_nb,
-                                        min_diff=_thr_r
+                                        min_diff=_thr_r, exclude_bans=_upd_pub_bans
                                     )
                                     if _rec_img_r is None:
                                         continue
@@ -9140,12 +9248,14 @@ def show_auto_page(with_slump: bool = False) -> None:
                 log_lines.append(msg)
                 st.write(msg)
 
-            _rec_names: set[str] = {
+            # rec_ban_level 時は⑤由来を入れない（②由来の抑制のみ維持）。
+            # ⑤機種の「その他の優秀台」流入は sonota_exclude が引き続き防ぐ。
+            _rec_names: set[str] = (set() if _rec_ban_level else {
                 m.strip()
                 for block in recommended_blocks
                 for m in block["machines"]
                 if m.strip()
-            } | {
+            }) | {
                 m.strip()
                 for m in (kojin_zentai_machines + kojin_yushu_machines)
                 if m.strip()
@@ -9167,6 +9277,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 jug_suebangai_tails=_jug_sue_tails_run,
                 variety_bans=(ranges_to_bans(parse_ranges(variety_ranges_text.strip())) if (_variety_ui and variety_enabled and variety_ranges_text.strip()) else set()),
                 jug_no_merge_image=(with_slump and store == "秋葉原"),
+                rec_ban_level=_rec_ban_level,
             )
 
             # スランプ付き: その他の優秀台ピックアップ①②(③)生成（秋葉原/上野新館）
@@ -9763,6 +9874,16 @@ def show_auto_page(with_slump: bool = False) -> None:
                     if kojin_enabled:
                         zen_dai_names    |= {m.strip() for m in kojin_zentai_machines if m.strip()}
                         high_ratio_names |= {m.strip() for m in kojin_yushu_machines if m.strip()}
+                    # 台番単位除外用: 自動生成画像へ実際に掲載された台番
+                    # ②個別画像はこの時点でまだ result に積まれていない（生成は後段）ため、
+                    # ⑦プレビューと同じ _collect_kojin_bans で先回りして集める。
+                    _exec_pub_bans: set[int] = set()
+                    if _rec_ban_level:
+                        _exec_pub_bans = _collect_published_bans(result)
+                        if kojin_enabled:
+                            _exec_pub_bans |= _collect_kojin_bans(
+                                df_pipe, diff_pipe, kojin_zentai_machines, kojin_yushu_machines,
+                                store, force_1k=(with_slump and store == "秋葉原"))
                     for block in recommended_blocks:
                         b_title    = block["title"].strip()
                         b_machines = block["machines"]
@@ -9772,7 +9893,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                         if not b_title:
                             b_title = "オススメ機種"
                         valid, exc_logs = filter_recommended_machines(
-                            b_machines, df_pipe, zen_dai_names, high_ratio_names
+                            b_machines, df_pipe, zen_dai_names, high_ratio_names,
+                            ban_level=_rec_ban_level
                         )
                         recommended_exclusion_logs.extend(exc_logs)
                         if not valid:
@@ -9782,7 +9904,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         for _thr in block.get("thresholds", [1]):
                             img = generate_recommended_block_image(
                                 b_title, valid, df_pipe, diff_pipe, narabi_bans,
-                                min_diff=_thr
+                                min_diff=_thr, exclude_bans=_exec_pub_bans
                             )
                             if img is None:
                                 _log(f"  オススメ「{b_title}」({_threshold_suffix.get(_thr, str(_thr))}): 該当台なし")
@@ -9799,6 +9921,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _rgrp = df_pipe[df_pipe["機種名"] == _rvm].copy()
                                 if narabi_bans:
                                     _rgrp = _rgrp[~_rgrp["台番"].isin(narabi_bans)]
+                                if _exec_pub_bans:
+                                    _rgrp = _rgrp[~_rgrp["台番"].isin(_exec_pub_bans)]
                                 if _rgrp.empty:
                                     continue
                                 _rdr = diff_pipe.loc[_rgrp.index]

@@ -14,6 +14,7 @@ Streamlit + PIL で実装
 
 import copy
 import datetime
+import hashlib
 import math
 import io
 import json
@@ -7715,8 +7716,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         if _is_gap_pv:
                                             _gmac_pv, _gpaths_pv = _gap_screen_paths_for_bans(
                                                 _bans_pv, _ban2diff_pv, _ig_ban2mac_pv)
-                                            _gap_meta_pv[_fn_pv] = {"machine": _gmac_pv, "screens": _gpaths_pv}
-                                            _gsel_key_pv = f"_gap_sel_{store}_m_{_gmac_pv or ''}"
+                                            _gap_meta_pv[_fn_pv] = {"machine": _gmac_pv, "screens": _gpaths_pv,
+                                                                    "bans": list(_bans_pv)}
+                                            _gsel_key_pv = _gap_sel_key(store, _bans_pv, _gmac_pv)
                                             _gsel_pv = st.session_state.get(_gsel_key_pv, 0)
                                             _gap_img_pv = _resolve_gap_screen(_gpaths_pv, _gsel_pv)
                                         for _b_pv in _bans_pv:
@@ -8075,16 +8077,22 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _meta = _gap_meta.get(_match_fn) if _match_fn else None
                                 if _meta and _meta.get("screens") and _meta.get("fillable"):
                                     _scr = _meta["screens"]
-                                    _sel_key = f"_gap_sel_{store}_m_{_meta.get('machine') or ''}"
+                                    # 正式キーは台番ベース（同一機種でも台番が違えば別選択・
+                                    # 台番が同じ縦版/横版は共有）
+                                    _sel_key = _gap_sel_key(store, _meta.get("bans"), _meta.get("machine"))
                                     _cur = st.session_state.get(_sel_key, 0)
                                     _opts = list(range(len(_scr))) + [-1]
                                     def _fmt(_i):
                                         return "はめ込まない" if _i == -1 else f"液晶{_i + 1}"
                                     # Cloud/ローカル共通: サムネ付きradio＋on_changeコールバックで
-                                    # 該当画像だけ即時再合成しプレビュー差替（components.html/st.rerun不使用）。
+                                    # 同じ正式キーの画像を即時再合成しプレビュー差替（components.html/st.rerun不使用）。
+                                    # ウィジェットキーは表示位置で一意化（縦版/横版が同一画面に並ぶため）。
+                                    # 表示値は毎回そのウィジェットの正式キーへ同期し、
+                                    # 「表示はradio単位・保存は別単位」の二重構造を残さない。
                                     _radio_key = f"radio_{_sel_key}_{_ci}"
-                                    if _radio_key not in st.session_state:
-                                        st.session_state[_radio_key] = _cur if _cur in _opts else 0
+                                    _want = _cur if _cur in _opts else 0
+                                    if st.session_state.get(_radio_key) != _want:
+                                        st.session_state[_radio_key] = _want
                                     with st.expander(f"🖼️ 液晶画像を選ぶ（{_meta.get('machine') or ''}）"):
                                         st.radio(
                                             "液晶", _opts, format_func=_fmt, key=_radio_key,
@@ -8645,7 +8653,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                          or re.sub(r"[①②③④⑤⑥⑦⑧⑨⑩]", "", os.path.splitext(_u2_bare)[0]))
                                         if store in _GAP_FILL_STORES:
                                             _gm_a2, _gp_a2 = _gap_screen_paths_for_bans(_bans_u2, _upd_ban2diff, _upd_ban2mac)
-                                            _gsel_a2 = st.session_state.get(f"_gap_sel_{store}_m_{_gm_a2 or ''}", 0)
+                                            _gsel_a2 = st.session_state.get(_gap_sel_key(store, _bans_u2, _gm_a2), 0)
                                             _gap_img_a2 = _resolve_gap_screen(_gp_a2, _gsel_a2)
                                         else:
                                             _gap_img_a2 = None
@@ -8655,7 +8663,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     else:
                                         if store in _GAP_FILL_STORES:
                                             _gm_u2, _gp_u2 = _gap_screen_paths_for_bans(_bans_u2, _upd_ban2diff, _upd_ban2mac)
-                                            _gsel_u2 = st.session_state.get(f"_gap_sel_{store}_m_{_gm_u2 or ''}", 0)
+                                            _gsel_u2 = st.session_state.get(_gap_sel_key(store, _bans_u2, _gm_u2), 0)
                                             _gap_img_u2 = _resolve_gap_screen(_gp_u2, _gsel_u2)
                                         else:
                                             _gap_img_u2 = None
@@ -10481,7 +10489,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                 _ex_title = st.session_state.get(f"_inagawa_title_map_{store}", {}).get(_bare_exec, os.path.splitext(_bare_exec)[0])
                                                 if store in _GAP_FILL_STORES:
                                                     _gm_ax, _gp_ax = _gap_screen_paths_for_bans(_bans_exec, _ban2diff_exec, _ig_ban2mac_exec)
-                                                    _gsel_ax = st.session_state.get(f"_gap_sel_{store}_m_{_gm_ax or ''}", 0)
+                                                    _gsel_ax = st.session_state.get(_gap_sel_key(store, _bans_exec, _gm_ax), 0)
                                                     _gap_img_ax = _resolve_gap_screen(_gp_ax, _gsel_ax)
                                                 else:
                                                     _gap_img_ax = None
@@ -10494,7 +10502,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         else:
                                             if store in _GAP_FILL_STORES:
                                                 _gm_exec, _gp_exec = _gap_screen_paths_for_bans(_bans_exec, _ban2diff_exec, _ig_ban2mac_exec)
-                                                _gsel_exec = st.session_state.get(f"_gap_sel_{store}_m_{_gm_exec or ''}", 0)
+                                                _gsel_exec = st.session_state.get(_gap_sel_key(store, _bans_exec, _gm_exec), 0)
                                                 _gap_img_exec = _resolve_gap_screen(_gp_exec, _gsel_exec)
                                             else:
                                                 _gap_img_exec = None
@@ -11842,7 +11850,7 @@ def show_auto_article_page() -> None:
                                         if _g_imgs_pv2:
                                             if store in _GAP_FILL_STORES:
                                                 _gm_pv2, _gp_pv2 = _gap_screen_paths_for_bans(_bans_pv2, _pv_ban2diff, _pv_ban2mac)
-                                                _gsel_pv2 = st.session_state.get(f"_gap_sel_{store}_m_{_gm_pv2 or ''}", 0)
+                                                _gsel_pv2 = st.session_state.get(_gap_sel_key(store, _bans_pv2, _gm_pv2), 0)
                                                 _gap_img_pv2 = _resolve_gap_screen(_gp_pv2, _gsel_pv2)
                                             else:
                                                 _gap_img_pv2 = None
@@ -12082,7 +12090,7 @@ def show_auto_article_page() -> None:
                                                 if _g_imgs_u:
                                                     if store in _GAP_FILL_STORES:
                                                         _gm_u, _gp_u = _gap_screen_paths_for_bans(_bans_u, _upd_b2diff, _upd_b2mac)
-                                                        _gsel_u = st.session_state.get(f"_gap_sel_{store}_m_{_gm_u or ''}", 0)
+                                                        _gsel_u = st.session_state.get(_gap_sel_key(store, _bans_u, _gm_u), 0)
                                                         _gap_img_u = _resolve_gap_screen(_gp_u, _gsel_u)
                                                     else:
                                                         _gap_img_u = None
@@ -12594,7 +12602,7 @@ def show_auto_article_page() -> None:
                                     continue
                                 if store == "新宿歌舞伎町":
                                     _gm_sl, _gp_sl = _gap_screen_paths_for_bans(_bans_sl, _art_ban2diff_sl, _art_ban2mac_sl)
-                                    _gsel_sl = st.session_state.get(f"_gap_sel_{store}_m_{_gm_sl or ''}", 0)
+                                    _gsel_sl = st.session_state.get(_gap_sel_key(store, _bans_sl, _gm_sl), 0)
                                     _gap_img_sl = _resolve_gap_screen(_gp_sl, _gsel_sl)
                                 else:
                                     _gap_img_sl = None
@@ -16428,10 +16436,10 @@ def _composite_slump_onto_images(
                                 if _title.startswith("その他の優秀台") else 3)
                 _fillable_ak = _gap_fillable(len(_g_imgs), _gap_cols_ak)
                 _gap_meta_out[_fn] = {"machine": _gm_ak, "screens": _gp_ak,
-                                      "fillable": _fillable_ak}
+                                      "fillable": _fillable_ak, "bans": list(_bans)}
                 if _fillable_ak:
                     _gap_base_out[_fn] = {"title": _title, "graphs": list(_g_imgs), "titlekind": True}
-                _gsel_ak = st.session_state.get(f"_gap_sel_{store}_m_{_gm_ak or ''}", 0)
+                _gsel_ak = st.session_state.get(_gap_sel_key(store, _bans, _gm_ak), 0)
                 _gap_img_ak = _resolve_gap_screen(_gp_ak, _gsel_ak)
             _slp = _build_slump_title_img(_title, _g_imgs, _bbb, _gap_img_ak)
             if _slp is not None:
@@ -16441,10 +16449,10 @@ def _composite_slump_onto_images(
                 _gm_m, _gp_m = _gap_screen_paths_for_bans(_bans, ban2diff, ban2mac)
                 _fillable_m = _gap_fillable(len(_g_imgs), 3)
                 _gap_meta_out[_fn] = {"machine": _gm_m, "screens": _gp_m,
-                                      "fillable": _fillable_m}
+                                      "fillable": _fillable_m, "bans": list(_bans)}
                 if _fillable_m:
                     _gap_base_out[_fn] = {"table": _img, "graphs": list(_g_imgs), "side": False}
-                _gsel_m = st.session_state.get(f"_gap_sel_{store}_m_{_gm_m or ''}", 0)
+                _gsel_m = st.session_state.get(_gap_sel_key(store, _bans, _gm_m), 0)
                 _gap_img_m = _resolve_gap_screen(_gp_m, _gsel_m)
             else:
                 _gap_img_m = None
@@ -16455,11 +16463,12 @@ def _composite_slump_onto_images(
                 if store in _GAP_FILL_STORES:
                     # _side.jpg も独立したメタ・選択キーを持たせる（⑦セレクタ表示用）
                     _fillable_side = _gap_fillable(len(_g_imgs), 4)
+                    # 台番が同じ＝縦版と同じ正式キー → 選択を共有する
                     _gap_meta_out[_side_fn] = {"machine": _gm_m, "screens": _gp_m,
-                                              "fillable": _fillable_side}
+                                              "fillable": _fillable_side, "bans": list(_bans)}
                     if _fillable_side:
                         _gap_base_out[_side_fn] = {"table": _img, "graphs": list(_g_imgs), "side": True}
-                    _gsel_side = st.session_state.get(f"_gap_sel_{store}_m_{_gm_m or ''}", 0)
+                    _gsel_side = st.session_state.get(_gap_sel_key(store, _bans, _gm_m), 0)
                     _gap_img_side = _resolve_gap_screen(_gp_m, _gsel_side)
                 else:
                     _gap_img_side = None
@@ -16980,47 +16989,75 @@ def _featured_machine_for_bans(bans: list, ban2diff: dict, ban2mac: dict) -> "st
 def _on_gap_screen_change(radio_key: str, sel_key: str, screens: "list | None" = None,
                           match_fn: "str | None" = None, store: "str | None" = None,
                           aprev_key: "str | None" = None) -> None:
-    """液晶セレクタの on_change コールバック。選択(機種キー)を保存し、該当画像だけ
-    即時再合成してプレビューを差し替える（Cloud/ローカル共通）。
+    """液晶セレクタの on_change コールバック。選択を**正式キー(台番ベース)**へ保存し、
+    同じ正式キーを使うプレビュー画像を**すべて**再合成して差し替える（Cloud/ローカル共通）。
+
+    同じ台番の縦版(_side なし)と横版(_side.jpg)は選択を共有するため両方更新する。
+    正式キーが異なる画像（台番が違う同一機種の画像など）は再合成しない。
     components.html/iframe/st.rerun() を使わず、Streamlit の自動再実行に任せることで
-    removeChild を回避する。再合成に使う _gap_base（合成前の表/タイトル＋グラフPIL）は
-    使い終わったら即解放し、PIL画像がセッション中に累積しないようにする。"""
+    removeChild を回避する。
+    _gap_base（合成前の表/タイトル＋グラフPIL）は再選択のたびに使うため保持する。
+    プレビュー再生成のたびに dict ごと作り直されるので累積はしない。"""
     _new = st.session_state.get(radio_key)
     if _new is None:
         return
     st.session_state[sel_key] = _new
     # 即時再合成用の引数が無い場合は選択保存のみ（⑧実行/🔄更新で反映）
-    if screens is None or match_fn is None or store is None or aprev_key is None:
+    if screens is None or store is None or aprev_key is None:
         return
-    _gap_base_key = f"_gap_base_{store}"
-    _base = st.session_state.get(_gap_base_key, {}).get(match_fn)
-    if not _base:
+    _bases = st.session_state.get(f"_gap_base_{store}") or {}
+    _meta_all = st.session_state.get(f"_gap_meta_{store}") or {}
+    # 同じ正式キーを持つ画像だけを再合成対象にする（無関係な画像は触らない）
+    _targets = [_fn for _fn, _m in _meta_all.items()
+                if _gap_sel_key(store, _m.get("bans"), _m.get("machine")) == sel_key]
+    if match_fn and match_fn not in _targets:
+        _targets.append(match_fn)
+    if not _targets:
         return
     _new_gap = _resolve_gap_screen(screens, _new)
     _bbb2 = _find_slump_bg()
-    if _base.get("titlekind"):
-        _newimg = _build_slump_title_img(_base["title"], _base["graphs"], _bbb2, _new_gap)
-    elif _base.get("side"):
-        _newimg = _attach_slump_to_table_side(_base["table"], _base["graphs"], _bbb2, _new_gap)
-    else:
-        _newimg = _attach_slump_to_table(_base["table"], _base["graphs"], _bbb2, _new_gap)
-    if _newimg is None:
-        return
     _auto = st.session_state.get(aprev_key) or []
-    for _ai in range(len(_auto)):
-        if _auto[_ai][0] == match_fn:
-            _auto[_ai] = (match_fn, _newimg)
-            break
-    st.session_state[aprev_key] = _auto
-    # 再合成が終わった機種の合成前PILは不要になるので解放（メモリ累積防止）。
-    # プレビュー再生成時に必要な分だけ作り直される。
-    _bases = st.session_state.get(_gap_base_key)
-    if isinstance(_bases, dict):
-        _bases.pop(match_fn, None)
-        if _bases:
-            st.session_state[_gap_base_key] = _bases
+    for _tfn in _targets:
+        _base = _bases.get(_tfn)
+        if not _base:
+            continue
+        if _base.get("titlekind"):
+            _newimg = _build_slump_title_img(_base["title"], _base["graphs"], _bbb2, _new_gap)
+        elif _base.get("side"):
+            _newimg = _attach_slump_to_table_side(_base["table"], _base["graphs"], _bbb2, _new_gap)
         else:
-            st.session_state.pop(_gap_base_key, None)
+            _newimg = _attach_slump_to_table(_base["table"], _base["graphs"], _bbb2, _new_gap)
+        if _newimg is None:
+            continue
+        for _ai in range(len(_auto)):
+            if _auto[_ai][0] == _tfn:
+                _auto[_ai] = (_tfn, _newimg)
+                break
+    st.session_state[aprev_key] = _auto
+
+
+def _gap_sel_key(store: str, bans: "list | None", machine: "str | None") -> str:
+    """液晶選択の正式キー。**掲載台番の集合**で画像を識別する。
+
+    機種名単位だと同一機種の複数画像（例: 並び画像2枚）が同じ選択へ統一されてしまう。
+    台番集合はプレビューと⑧実行の双方で同じ元データから再現できるため、
+    ファイル名（NN_接頭辞・タイトル由来のゆらぎ）に依存せず一致する。
+
+    ファイル名・_side・レイアウト種別は**含めない**＝台番が同じ縦版と横版は選択を共有する。
+    hash() はプロセスごとに値が変わるため使わず hashlib を使う。
+    台番が取得できない場合のみ、従来の機種名単位キーへフォールバックする。
+    """
+    _norm: list[int] = []
+    for _b in (bans or []):
+        try:
+            _norm.append(int(_b))
+        except (TypeError, ValueError):
+            continue
+    if not _norm:
+        return f"_gap_sel_{store}_m_{machine or ''}"
+    _src = f"{store}|{machine or ''}|" + ",".join(str(_b) for _b in sorted(_norm))
+    _h = hashlib.md5(_src.encode("utf-8")).hexdigest()[:12]
+    return f"_gap_sel_{store}_b_{_h}"
 
 
 def _gap_fillable(n: int, cols: int) -> bool:

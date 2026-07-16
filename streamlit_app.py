@@ -4945,16 +4945,11 @@ def generate_recommended_block_image(
     diff_raw: pd.Series,
     narabi_bans: set[int] = set(),
     min_diff: int = 1,
-    juggler_cfg: "dict | None" = None,
 ) -> "Image.Image | None":
     """オススメ機種ブロックの優秀台統合画像を生成する。
     min_diff 以上の台を抽出。narabi_bans に含まれる台番は除外する。
-    juggler_cfg を渡すとジャグラー機種に専用抽出条件を適用する。"""
+    ジャグラーも含め全機種を差枚のみで抽出する（プラス台＝差枚>=1）。"""
     dfs = []
-    _jug_series  = juggler_cfg.get("series", set())  if juggler_cfg else set()
-    _jug_map     = juggler_cfg.get("jobs_map", {})   if juggler_cfg else {}
-    _jug_g_min   = juggler_cfg.get("g_min", 2000)    if juggler_cfg else 2000
-    _jug_d_bonus = juggler_cfg.get("diff_bonus", 1000) if juggler_cfg else 1000
     for machine in machines:
         grp = df[df["機種名"] == machine].copy()
         if narabi_bans:
@@ -4962,22 +4957,7 @@ def generate_recommended_block_image(
         if grp.empty:
             continue
         dr_m = diff_raw.loc[grp.index]
-        if juggler_cfg and machine in _jug_series and min_diff <= 1:
-            # ジャグラー専用条件（プラス台のみ）: G数>=2000 かつ (確率<=閾値 AND diff>=0) OR diff>=1000
-            g_mask = grp["ゲーム数_rounded"] >= _jug_g_min
-            grp   = grp[g_mask].copy()
-            dr_m  = dr_m[g_mask]
-            if grp.empty:
-                continue
-            prob_thr = _jug_map.get(machine)
-            if prob_thr is not None and "合算確率_num" in grp.columns:
-                mask = ((grp["合算確率_num"] <= prob_thr) & (dr_m >= 0)) | (dr_m >= _jug_d_bonus)
-            else:
-                mask = dr_m >= 0
-            good = grp[mask].copy().reset_index(drop=True)
-        else:
-            # +1,000枚以上 / +2,000枚以上 はジャグラーも差枚のみで抽出
-            good = grp[dr_m >= min_diff].copy().reset_index(drop=True)
+        good = grp[dr_m >= min_diff].copy().reset_index(drop=True)
         if good.empty:
             continue
         dfs.append(good)
@@ -7353,13 +7333,6 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _prev_img_list.append((_se_fn_pv, _build_machine_img(_se_df_pv, _se_tit_pv, None)))
                             _rec_ban_map: dict[str, list[int]] = {}
                             if recommended_blocks and _pv_df is not None and _pv_diff is not None:
-                                _pv_scfg = get_store_config(store)
-                                _pv_jug_cfg = {
-                                    "series":     _pv_scfg["juggler_series"],
-                                    "jobs_map":   {j[0]: j[1] for j in _pv_scfg["juggler_jobs"]},
-                                    "g_min":      _pv_scfg["juggler_g_min"],
-                                    "diff_bonus": _pv_scfg["diff_bonus"],
-                                }
                                 _pv_zen   = {item["name"] for item in _prev_result.get("zen_dai_list", [])}
                                 _pv_high  = {item["name"] for item in _prev_result.get("high_ratio_list", []) if item.get("has_image", True)}
                                 if kojin_enabled:
@@ -7379,7 +7352,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     for _thr in _block.get("thresholds", [1]):
                                         _rec_img = generate_recommended_block_image(
                                             _bt, _valid, _pv_df, _pv_diff, _prev_narabi_bans,
-                                            min_diff=_thr, juggler_cfg=_pv_jug_cfg
+                                            min_diff=_thr
                                         )
                                         if _rec_img is None:
                                             continue
@@ -7395,20 +7368,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             if _rgrp.empty:
                                                 continue
                                             _rdr = _pv_diff.loc[_rgrp.index]
-                                            if _pv_jug_cfg and _rvm in _pv_jug_cfg.get("series", set()) and _thr <= 1:
-                                                _jg_col = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _rgrp.columns), None)
-                                                if _jg_col:
-                                                    _jgmask = _rgrp[_jg_col] >= _pv_jug_cfg.get("g_min", 2000)
-                                                    _rgrp = _rgrp[_jgmask]
-                                                    _rdr  = _rdr[_jgmask]
-                                                _jpthr = _pv_jug_cfg["jobs_map"].get(_rvm)
-                                                if _jpthr is not None and "合算確率_num" in _rgrp.columns:
-                                                    _rmask = ((_rgrp["合算確率_num"] <= _jpthr) & (_rdr >= 0)) | (_rdr >= _pv_jug_cfg.get("diff_bonus", 1000))
-                                                else:
-                                                    _rmask = _rdr >= 0
-                                            else:
-                                                # +1,000枚以上 / +2,000枚以上 はジャグラーも差枚のみ
-                                                _rmask = _rdr >= _thr
+                                            _rmask = _rdr >= _thr
                                             _rec_bans.extend([int(b) for b in _rgrp[_rmask]["台番"].dropna()])
                                         if _rec_bans:
                                             _rec_ban_map[_rec_fn] = sorted(_rec_bans)
@@ -7840,14 +7800,7 @@ def show_auto_page(with_slump: bool = False) -> None:
 
                         # ⑤ オススメ機種ピックアップ
                         if recommended_blocks:
-                            _ms_cfg = get_store_config(store)
-                            _mj_cfg = {
-                                "series":     _ms_cfg["juggler_series"],
-                                "jobs_map":   {j[0]: j[1] for j in _ms_cfg["juggler_jobs"]},
-                                "g_min":      _ms_cfg["juggler_g_min"],
-                                "diff_bonus": _ms_cfg["diff_bonus"],
-                            }
-                            _ms_sfx = {1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
+                            _ms_sfx ={1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
                             for _blk in recommended_blocks:
                                 _mbt = _blk["title"].strip() or "オススメ機種"
                                 _mbm = [m.strip() for m in _blk["machines"] if m.strip()]
@@ -7856,7 +7809,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 for _mthr in _blk.get("thresholds", [1]):
                                     _mrimg = generate_recommended_block_image(
                                         _mbt, _mbm, _df_m, _diff_m, set(),
-                                        min_diff=_mthr, juggler_cfg=_mj_cfg,
+                                        min_diff=_mthr,
                                     )
                                     if _mrimg is None:
                                         continue
@@ -7868,20 +7821,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         if _rg.empty:
                                             continue
                                         _rd = _diff_m.loc[_rg.index]
-                                        if _rvm in _mj_cfg.get("series", set()) and _mthr <= 1:
-                                            _jc = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _rg.columns), None)
-                                            if _jc:
-                                                _jm = _rg[_jc] >= _mj_cfg.get("g_min", 2000)
-                                                _rg = _rg[_jm]; _rd = _rd[_jm]
-                                            _jt = _mj_cfg["jobs_map"].get(_rvm)
-                                            if _jt is not None and "合算確率_num" in _rg.columns:
-                                                _rmk = ((_rg["合算確率_num"] <= _jt) & (_rd >= 0)) | (_rd >= _mj_cfg.get("diff_bonus", 1000))
-                                            else:
-                                                _rmk = _rd >= 0
-                                        else:
-                                            # +1,000枚以上 / +2,000枚以上 はジャグラーも差枚のみ
-                                            _rmk = _rd >= _mthr
-                                        _rec_bans_m += [int(b) for b in _rg[_rmk]["台番"].dropna()]
+                                        _rmk = _rd >= _mthr
+                                        _rec_bans_m +=[int(b) for b in _rg[_rmk]["台番"].dropna()]
                                     if _rec_bans_m:
                                         _manual_ban_map[f"オススメ_{_make_safe_fn(_mbt)}_{_ms_sfxv}.jpg"] = sorted(set(_rec_bans_m))
 
@@ -8470,14 +8411,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _updated = True
                         # オススメ機種ピックアップ再生成（チェック外し機種がオススメに含まれる場合）
                         if _rec_unchecked_machines and _pv_df is not None and _pv_diff is not None:
-                            _pv_scfg_r = get_store_config(store)
-                            _pv_jcfg_r = {
-                                "series":     _pv_scfg_r["juggler_series"],
-                                "jobs_map":   {j[0]: j[1] for j in _pv_scfg_r["juggler_jobs"]},
-                                "g_min":      _pv_scfg_r["juggler_g_min"],
-                                "diff_bonus": _pv_scfg_r["diff_bonus"],
-                            }
-                            _pv_zen_r  = set(st.session_state.get(_aprev_zen_key, {}).values())
+                            _pv_zen_r  =set(st.session_state.get(_aprev_zen_key, {}).values())
                             _pv_hr_img = st.session_state.get(_aprev_hr_img_key, set())
                             _pv_high_r = (_pv_hr_img - _rec_unchecked_machines)
                             if kojin_enabled:
@@ -8502,7 +8436,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 for _thr_r in _block_r.get("thresholds", [1]):
                                     _rec_img_r = generate_recommended_block_image(
                                         _bt_r, _valid_r, _pv_df, _pv_diff, _upd_nb,
-                                        min_diff=_thr_r, juggler_cfg=_pv_jcfg_r
+                                        min_diff=_thr_r
                                     )
                                     if _rec_img_r is None:
                                         continue
@@ -8884,16 +8818,14 @@ def show_auto_page(with_slump: bool = False) -> None:
 
                     # ⑤ オススメ機種ピックアップ
                     if recommended_blocks:
-                        _ms_cfg_e = get_store_config(store)
-                        _mj_cfg_e = {"series": _ms_cfg_e["juggler_series"], "jobs_map": {j[0]: j[1] for j in _ms_cfg_e["juggler_jobs"]}, "g_min": _ms_cfg_e["juggler_g_min"], "diff_bonus": _ms_cfg_e["diff_bonus"]}
-                        _ms_sfx_e = {1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
+                        _ms_sfx_e ={1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
                         for _blk_e in recommended_blocks:
                             _mbt_e = _blk_e["title"].strip() or "オススメ機種"
                             _mbm_e = [m.strip() for m in _blk_e["machines"] if m.strip()]
                             if not _mbm_e:
                                 continue
                             for _mthr_e in _blk_e.get("thresholds", [1]):
-                                _mrimg_e = generate_recommended_block_image(_mbt_e, _mbm_e, _df_exec_m, _diff_exec_m, set(), min_diff=_mthr_e, juggler_cfg=_mj_cfg_e)
+                                _mrimg_e = generate_recommended_block_image(_mbt_e, _mbm_e, _df_exec_m, _diff_exec_m, set(), min_diff=_mthr_e)
                                 if _mrimg_e is None:
                                     continue
                                 _ms_sfxv_e = _ms_sfx_e.get(_mthr_e, str(_mthr_e))
@@ -8908,20 +8840,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     if _rg_e.empty:
                                         continue
                                     _rd_e = _diff_exec_m.loc[_rg_e.index]
-                                    if _rvm_e in _mj_cfg_e.get("series", set()) and _mthr_e <= 1:
-                                        _jc_e = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _rg_e.columns), None)
-                                        if _jc_e:
-                                            _jm_e = _rg_e[_jc_e] >= _mj_cfg_e.get("g_min", 2000)
-                                            _rg_e = _rg_e[_jm_e]; _rd_e = _rd_e[_jm_e]
-                                        _jt_e = _mj_cfg_e["jobs_map"].get(_rvm_e)
-                                        if _jt_e is not None and "合算確率_num" in _rg_e.columns:
-                                            _rmk_e = ((_rg_e["合算確率_num"] <= _jt_e) & (_rd_e >= 0)) | (_rd_e >= _mj_cfg_e.get("diff_bonus", 1000))
-                                        else:
-                                            _rmk_e = _rd_e >= 0
-                                    else:
-                                        # +1,000枚以上 / +2,000枚以上 はジャグラーも差枚のみ
-                                        _rmk_e = _rd_e >= _mthr_e
-                                    _rec_bans_e += [int(b) for b in _rg_e[_rmk_e]["台番"].dropna()]
+                                    _rmk_e = _rd_e >= _mthr_e
+                                    _rec_bans_e +=[int(b) for b in _rg_e[_rmk_e]["台番"].dropna()]
                                 if _rec_bans_e:
                                     _m_exec_ban_map_e[_mrfn_e] = sorted(set(_rec_bans_e))
                                 _m_log(f"  ✅ オススメ「{_mbt_e}」({_ms_sfxv_e})")
@@ -9843,13 +9763,6 @@ def show_auto_page(with_slump: bool = False) -> None:
                     if kojin_enabled:
                         zen_dai_names    |= {m.strip() for m in kojin_zentai_machines if m.strip()}
                         high_ratio_names |= {m.strip() for m in kojin_yushu_machines if m.strip()}
-                    _scfg = get_store_config(store)
-                    _juggler_cfg = {
-                        "series":     _scfg["juggler_series"],
-                        "jobs_map":   {j[0]: j[1] for j in _scfg["juggler_jobs"]},
-                        "g_min":      _scfg["juggler_g_min"],
-                        "diff_bonus": _scfg["diff_bonus"],
-                    }
                     for block in recommended_blocks:
                         b_title    = block["title"].strip()
                         b_machines = block["machines"]
@@ -9869,7 +9782,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         for _thr in block.get("thresholds", [1]):
                             img = generate_recommended_block_image(
                                 b_title, valid, df_pipe, diff_pipe, narabi_bans,
-                                min_diff=_thr, juggler_cfg=_juggler_cfg
+                                min_diff=_thr
                             )
                             if img is None:
                                 _log(f"  オススメ「{b_title}」({_threshold_suffix.get(_thr, str(_thr))}): 該当台なし")
@@ -9889,20 +9802,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 if _rgrp.empty:
                                     continue
                                 _rdr = diff_pipe.loc[_rgrp.index]
-                                if _juggler_cfg and _rvm in _juggler_cfg.get("series", set()) and _thr <= 1:
-                                    _jg_col = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _rgrp.columns), None)
-                                    if _jg_col:
-                                        _jgmask = _rgrp[_jg_col] >= _juggler_cfg.get("g_min", 2000)
-                                        _rgrp = _rgrp[_jgmask]
-                                        _rdr  = _rdr[_jgmask]
-                                    _jpthr = _juggler_cfg["jobs_map"].get(_rvm)
-                                    if _jpthr is not None and "合算確率_num" in _rgrp.columns:
-                                        _rmask = ((_rgrp["合算確率_num"] <= _jpthr) & (_rdr >= 0)) | (_rdr >= _juggler_cfg.get("diff_bonus", 1000))
-                                    else:
-                                        _rmask = _rdr >= 0
-                                else:
-                                    # +1,000枚以上 / +2,000枚以上 はジャグラーも差枚のみ
-                                    _rmask = _rdr >= _thr
+                                _rmask = _rdr >= _thr
                                 _exec_bans.extend([int(b) for b in _rgrp[_rmask]["台番"].dropna()])
                             if _exec_bans:
                                 _exec_rec_ban_map[_rec_fn_exec] = sorted(_exec_bans)

@@ -26,6 +26,10 @@ Git 履歴（removeChild 対策コミット）から、真因は **Pision の if
   - `a699cef` / `77d1932` — **液晶セレクタが expander/columns 内から `st.rerun()` を直呼び**し、
     ネストしたコンテナ内で component の再マウントを強制 → reconciler 不整合。→ on_change
     コールバック方式・selectbox へ変更で解消。
+    - **その後 `c21f20f` で、Cloud でもネイティブのサムネ radio へ戻した**（`_IS_CLOUD` 分岐は撤去）。
+      危険だったのは `st.rerun()` 直呼びであって radio 自体ではなかったため。現在は
+      **Cloud/ローカル共通で「サムネ radio ＋ `on_change` コールバック」**が正式。
+      `st.rerun()` 直呼びを再導入しない限りこの構成で問題は出ていない（2026-07-16 時点）。
   - `394ba73` — Pision 表の iframe → 通常テーブル化。これは上記本命対策と**まとめて予防的に**
     行われたもので、Pision iframe 自体が主犯だったわけではない。
 - **Pision iframe（`_build_pision_interactive_html`）の JS は親 DOM を操作していなかった**：

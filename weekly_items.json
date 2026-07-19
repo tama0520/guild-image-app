@@ -47,7 +47,7 @@
           true,
           true,
           true,
-          false
+          true
         ],
         [
           false,
@@ -187,16 +187,6 @@
       ],
       "machine_name": "東京喰種",
       "date_checks": {
-        "2026-07-12": [
-          false,
-          false,
-          true,
-          false,
-          false,
-          true,
-          false,
-          false
-        ],
         "2026-07-13": [
           false,
           true,
@@ -256,6 +246,16 @@
           true,
           false,
           false
+        ],
+        "2026-07-19": [
+          false,
+          true,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false
         ]
       },
       "blank_days": [
@@ -268,13 +268,13 @@
         false
       ],
       "blank_date_checks": {
-        "2026-07-12": false,
         "2026-07-13": false,
         "2026-07-14": false,
         "2026-07-15": false,
         "2026-07-16": false,
         "2026-07-17": false,
-        "2026-07-18": false
+        "2026-07-18": false,
+        "2026-07-19": false
       }
     },
     "t3": {
@@ -315,6 +315,9 @@
           "ハピジャグV",
           "ジャグラーガールズ"
         ],
+        "2,6": [
+          "ウルトラミラジャグ"
+        ],
         "3,0": [
           "ミスジャグ"
         ],
@@ -349,6 +352,9 @@
         ],
         "4,5": [
           "ネオアイム"
+        ],
+        "4,6": [
+          "マイジャグV"
         ],
         "5,3": [
           "対象台が3/5でプラス差枚"

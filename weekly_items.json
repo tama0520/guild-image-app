@@ -15,10 +15,19 @@
       "checks": [
         [
           false,
-          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
           true,
           false,
-          true,
+          false,
+          false,
+          false,
           false,
           false
         ],
@@ -32,22 +41,13 @@
           false
         ],
         [
-          false,
           true,
           false,
           false,
-          true,
+          false,
+          false,
           false,
           false
-        ],
-        [
-          true,
-          false,
-          true,
-          true,
-          true,
-          true,
-          true
         ],
         [
           false,
@@ -86,7 +86,7 @@
           false
         ]
       ],
-      "start_date": "2026-07-13",
+      "start_date": "2026-07-20",
       "machine_name": "スマスロ北斗の拳",
       "blank_days": [
         false,
@@ -187,16 +187,6 @@
       ],
       "machine_name": "東京喰種",
       "date_checks": {
-        "2026-07-13": [
-          false,
-          true,
-          true,
-          false,
-          true,
-          true,
-          false,
-          false
-        ],
         "2026-07-14": [
           false,
           false,
@@ -256,6 +246,16 @@
           true,
           false,
           false
+        ],
+        "2026-07-20": [
+          false,
+          false,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false
         ]
       },
       "blank_days": [
@@ -268,13 +268,13 @@
         false
       ],
       "blank_date_checks": {
-        "2026-07-13": false,
         "2026-07-14": false,
         "2026-07-15": false,
         "2026-07-16": false,
         "2026-07-17": false,
         "2026-07-18": false,
-        "2026-07-19": false
+        "2026-07-19": false,
+        "2026-07-20": false
       }
     },
     "t3": {
@@ -291,76 +291,17 @@
       "title": "週間オススメ ジャグラーシリーズ",
       "machine_name": "ジャグラー系",
       "cell_machines": {
-        "0,3": [
-          "ゴージャグ3"
-        ],
-        "1,3": [
-          "対象台が3/5でプラス差枚"
-        ],
         "2,0": [
-          "ネオアイム"
-        ],
-        "2,1": [
-          "ハピジャグV",
           "ジャグラーガールズ"
-        ],
-        "2,2": [
-          "ミスジャグ"
-        ],
-        "2,3": [
-          "ゴージャグ3",
-          "ウルトラミラジャグ"
-        ],
-        "2,4": [
-          "ハピジャグV",
-          "ジャグラーガールズ"
-        ],
-        "2,6": [
-          "ウルトラミラジャグ"
-        ],
-        "3,0": [
-          "ミスジャグ"
-        ],
-        "3,2": [
-          "ファンキー2"
-        ],
-        "3,4": [
-          "ウルトラミラジャグ"
         ],
         "4,0": [
           "マイジャグV",
           "ネオアイム",
-          "ファンキー2"
-        ],
-        "4,1": [
           "ファンキー2",
-          "ゴージャグ3",
-          "ジャグラーガールズ"
-        ],
-        "4,2": [
-          "マイジャグV",
-          "ネオアイム"
-        ],
-        "4,3": [
-          "マイジャグV",
-          "ネオアイム",
-          "ファンキー2"
-        ],
-        "4,4": [
-          "マイジャグV",
-          "ジャグラーガールズ"
-        ],
-        "4,5": [
-          "ネオアイム"
-        ],
-        "4,6": [
-          "マイジャグV"
-        ],
-        "5,3": [
-          "対象台が3/5でプラス差枚"
+          "ゴージャグ3"
         ]
       },
-      "start_date": "2026-07-13",
+      "start_date": "2026-07-20",
       "blank_days": [
         false,
         false,

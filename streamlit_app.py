@@ -11762,6 +11762,15 @@ def show_auto_article_page() -> None:
                                         _kgp_pv = _kojin_yushu_filter(_km_pv2, _kga_pv, _kda_pv, get_store_config(store)).reset_index(drop=True)
                                         if not _kgp_pv.empty:
                                             _pv_bm_sl[_fn_ky_pv] = [int(b) for b in _kgp_pv["台番"].tolist()]
+                            for _km_pvz in kojin_zentai_machines:
+                                _km_pvz = _km_pvz.strip()
+                                if not _km_pvz:
+                                    continue
+                                _fn_kz_pv = f"{_km_pvz}.jpg"
+                                if any(fn == _fn_kz_pv for fn, _ in _art_pil):
+                                    _kgz_pv = _pv_pr_df[_pv_pr_df["機種名"] == _km_pvz]
+                                    if not _kgz_pv.empty:
+                                        _pv_bm_sl[_fn_kz_pv] = [int(b) for b in _kgz_pv["台番"].tolist()]
                         _jpool_pv = _art_pr.get("jug_pool_df")
                         if _jpool_pv is not None and not _jpool_pv.empty:
                             _pv_bm_sl["ジャグラーシリーズ優秀台.jpg"] = [
@@ -12209,6 +12218,28 @@ def show_auto_article_page() -> None:
                             _save_jpeg(_nim.convert("RGB"), _np)
                         except Exception:
                             pass
+                # ⑦プレビューでチェックを外した並び画像を narabi_dir から削除（完全一致）
+                # narabiスクリプトはmake_safeでASCIIコロン→全角コロンに変換するため両方試みる
+                _art_aprev_imgs_n = st.session_state.get(f"art_preview_imgs_{store}")
+                if ok_n and _art_aprev_imgs_n and os.path.isdir(narabi_dir):
+                    for _ci, (_pname, _) in enumerate(_art_aprev_imgs_n):
+                        if not st.session_state.get(f"art_prev_ck_{store}_{_ci}", True):
+                            _del_n = os.path.join(narabi_dir, _pname)
+                            if not os.path.exists(_del_n):
+                                _del_n = os.path.join(narabi_dir, _pname.replace(":", "："))
+                            if os.path.exists(_del_n):
+                                os.remove(_del_n)
+                                _log(f"  🗑️ スキップ(並び): {_pname}")
+                # 残りの並び画像を output_dir 直下に移動してサブフォルダを削除
+                if ok_n and os.path.isdir(narabi_dir):
+                    for _nf in sorted(os.listdir(narabi_dir)):
+                        if _nf.lower().endswith((".jpg", ".jpeg")):
+                            os.rename(os.path.join(narabi_dir, _nf),
+                                      os.path.join(output_dir, _nf))
+                    try:
+                        os.rmdir(narabi_dir)
+                    except OSError:
+                        pass
 
             # ── 個別画像生成 ─────────────────────────────────────────
             if kojin_enabled and result["ok"]:
@@ -12234,6 +12265,7 @@ def show_auto_article_page() -> None:
                             "total":        len(_kgrp),
                             "diffs":        sorted([int(d) for d in _kdr.tolist() if int(d) >= 1000], reverse=True),
                             "all_avg_diff": int(round(_kdr.mean())),
+                            "bans":         [int(b) for b in _kgrp["台番"].tolist()],
                         })
                         _log(f"  ✅ 個別(全台)「{_km}」({len(_kgrp)}台)")
                     for _km in kojin_yushu_machines:
@@ -12565,7 +12597,8 @@ def show_auto_article_page() -> None:
                             for _fp_sl in sorted(os.listdir(output_dir)):
                                 if not _fp_sl.lower().endswith((".jpg", ".jpeg")):
                                     continue
-                                _bans_sl = _art_bm_sl.get(_fp_sl, [])
+                                # 並びスクリプトはmake_safeでASCIIコロン→全角コロンに変換するため両方試みる
+                                _bans_sl = _art_bm_sl.get(_fp_sl) or _art_bm_sl.get(_fp_sl.replace("：", ":"), [])
                                 if not _bans_sl:
                                     continue
                                 _fpath_sl = os.path.join(output_dir, _fp_sl)

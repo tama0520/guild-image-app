@@ -5005,14 +5005,18 @@ def filter_recommended_machines(
     return valid, logs
 
 
-def _collect_published_bans(result: dict) -> set[int]:
+def _collect_published_bans(result: dict, include_jug_pool: bool = True) -> set[int]:
     """自動生成画像へ実際に掲載された台番を集める（⑤の台番単位除外用・新小岩スランプ付き）。
     収集元は既存の掲載済み台番情報のみ（新規に判定はしない）:
       - zen_dai_list[].bans        全台系画像（⑧実行では②個別(全台)も含む）
       - high_ratio_list[].bans     高配分・ジャグラー高配分（has_image=True のみ）
       - jug_pool_df["台番"]        ジャグラーシリーズ優秀台.jpg
       - sonota_excellent_list[].ban その他の優秀台ピックアップ
-    has_image=False は画像が無い＝除外すべき台がないため bans を持たない。"""
+    has_image=False は画像が無い＝除外すべき台がないため bans を持たない。
+    include_jug_pool=False のとき jug_pool_df（ジャグラーシリーズ優秀台.jpg）由来の台番だけを
+    集合へ含めない（新小岩スランプ付き⑤で jug_pool 台の重複掲載を許可するため）。
+    他カテゴリ（全台系・高配分・その他）にも載る台は、そちらのブロックが台番を追加するため
+    引き続き除外される。"""
     bans: set[int] = set()
 
     def _add(vals) -> None:
@@ -5027,9 +5031,10 @@ def _collect_published_bans(result: dict) -> set[int]:
     for _it in result.get("high_ratio_list", []):
         if _it.get("has_image", True):
             _add(_it.get("bans", []))
-    _jp = result.get("jug_pool_df")
-    if _jp is not None and not _jp.empty and "台番" in _jp.columns:
-        _add(_jp["台番"].dropna())
+    if include_jug_pool:
+        _jp = result.get("jug_pool_df")
+        if _jp is not None and not _jp.empty and "台番" in _jp.columns:
+            _add(_jp["台番"].dropna())
     for _it in result.get("sonota_excellent_list", []):
         if "ban" in _it:
             _add([_it["ban"]])
@@ -7489,7 +7494,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 # 台番単位除外用: 自動生成画像へ実際に掲載された台番（②個別画像を含む）
                                 _pv_pub_bans: set[int] = set()
                                 if _rec_ban_level:
-                                    _pv_pub_bans = _collect_published_bans(_prev_result)
+                                    # 新小岩スランプ付き⑤: jug_pool（ジャグラーシリーズ優秀台.jpg）由来の
+                                    # 台番は除外しない（重複掲載を許可）。他カテゴリ由来の除外は維持。
+                                    _pv_pub_bans = _collect_published_bans(_prev_result, include_jug_pool=False)
                                     if kojin_enabled:
                                         _pv_pub_bans |= _collect_kojin_bans(
                                             _pv_df, _pv_diff, kojin_zentai_machines, kojin_yushu_machines,
@@ -9951,7 +9958,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                     # ⑦プレビューと同じ _collect_kojin_bans で先回りして集める。
                     _exec_pub_bans: set[int] = set()
                     if _rec_ban_level:
-                        _exec_pub_bans = _collect_published_bans(result)
+                        # 新小岩スランプ付き⑤: jug_pool（ジャグラーシリーズ優秀台.jpg）由来の
+                        # 台番は除外しない（重複掲載を許可）。他カテゴリ由来の除外は維持。
+                        _exec_pub_bans = _collect_published_bans(result, include_jug_pool=False)
                         if kojin_enabled:
                             _exec_pub_bans |= _collect_kojin_bans(
                                 df_pipe, diff_pipe, kojin_zentai_machines, kojin_yushu_machines,

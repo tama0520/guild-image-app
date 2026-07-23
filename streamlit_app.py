@@ -6133,6 +6133,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     continue
                 if _filt.empty:
                     continue
+                _filt = _filt.sort_values("台番", kind="stable")
                 # 集計用の全台（優秀/プラス絞り込み前・ピンクバー総台数と一致）
                 _stat_bans = [int(b) for b in _filt["台番"].dropna()
                               if str(b).split(".")[0].lstrip("-").isdigit()]
@@ -6638,6 +6639,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         if _filtered.empty:
                                             st.error(f"❌ {_base_label} の台が見つかりません。")
                                             continue
+                                        _filtered = _filtered.sort_values("台番", kind="stable")
                                         _is_plus_s   = _sue_mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）", "プラス台")
                                         _is_yushu_s  = _sue_mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
                                         _is_1k_s     = _sue_mode == "+1,000枚以上の優秀台"
@@ -7619,6 +7621,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         continue
                                     if _filt_bm.empty:
                                         continue
+                                    _filt_bm = _filt_bm.sort_values("台番", kind="stable")
                                     _is_plus_bm  = _sue_mode_bm in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）", "プラス台")
                                     _is_yushu_bm = _sue_mode_bm in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
                                     _is_1k_bm    = _sue_mode_bm == "+1,000枚以上の優秀台"
@@ -9489,6 +9492,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         continue
                     if _filt.empty:
                         continue
+                    _filt = _filt.sort_values("台番", kind="stable")
                     if is_juggler:
                         _filt = _filt[_filt["機種名"].isin(_jug_ser)].copy()
                         _filt = _filt[_filt["ゲーム数_rounded"] >= _jug_g_min].copy()

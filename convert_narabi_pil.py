@@ -79,7 +79,7 @@ def fmt_diff(v):
 
 def fmt_prob(bb, rb, g_rounded):
     total = bb + rb
-    if total == 0: return "───"
+    if total == 0: return "――"
     return f"1/{g_rounded / total:.1f}"
 
 diff_raw = df["差枚数"].copy()

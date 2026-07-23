@@ -7738,7 +7738,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _g_imgs_pv: list["Image.Image"] = []
                                         _show_mn_pv = (_bare_pv in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg",
                                                                        "その他の優秀台+1,000枚以上.jpg", "その他の優秀台+2,000枚以上.jpg", "その他の優秀台+3,000枚以上.jpg")
-                                                       or _bare_pv.startswith("末尾") or _bare_pv.startswith("バラエティ"))
+                                                       or _bare_pv.startswith("末尾") or _bare_pv.startswith("バラエティ")
+                                                       or _bare_pv.startswith("オススメ"))
                                         _is_zentai_pv = (not _bare_pv.endswith("_高配分.jpg") and
                                                          _bare_pv not in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg",
                                                                           "その他の優秀台+1,000枚以上.jpg", "その他の優秀台+2,000枚以上.jpg", "その他の優秀台+3,000枚以上.jpg"))
@@ -10505,7 +10506,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _g_imgs_exec: list["Image.Image"] = []
                                         _show_mn_exec = (_bare_exec in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg",
                                                                         "その他の優秀台+1,000枚以上.jpg", "その他の優秀台+2,000枚以上.jpg", "その他の優秀台+3,000枚以上.jpg")
-                                                        or _bare_exec.startswith("末尾") or _bare_exec.startswith("バラエティ"))
+                                                        or _bare_exec.startswith("末尾") or _bare_exec.startswith("バラエティ")
+                                                        or _bare_exec.startswith("オススメ"))
                                         _is_zentai_exec = (not _bare_exec.endswith("_高配分.jpg") and
                                                            _bare_exec not in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg",
                                                                               "その他の優秀台+1,000枚以上.jpg", "その他の優秀台+2,000枚以上.jpg", "その他の優秀台+3,000枚以上.jpg"))

@@ -3559,6 +3559,24 @@ def _fmt_diff(n: int) -> str:
     return f"{sign}{n:,}枚"
 
 
+def _sue_plus1000_list(sub_df, diff_series) -> list[dict]:
+    """末尾フィルタ済み台のうち差枚>=1000の台を差枚降順で {ban,name,diff} リスト化する。
+    sub_df: 末尾一致（＋ジャグラーなら対象機種）で絞り込み済み DataFrame。
+    diff_series: sub_df と index が一致する差枚 Series。
+    機種名は sub_df["機種名"]（変換済み）をそのまま使う（新規変換はしない）。"""
+    if sub_df is None or sub_df.empty:
+        return []
+    _d = diff_series.loc[sub_df.index]
+    _mask = _d >= 1000
+    _sf = sub_df[_mask]
+    _df2 = _d[_mask]
+    if _sf.empty:
+        return []
+    _order = _df2.sort_values(ascending=False).index
+    return [{"ban": int(_sf.loc[i, "台番"]), "name": str(_sf.loc[i, "機種名"]), "diff": int(_df2.loc[i])}
+            for i in _order]
+
+
 def _format_diffs(diffs: list[int], wrap: int = 3) -> str:
     """差枚リストを重複×N統合・wrap台ごと折り返しフォーマット"""
     if not diffs:
@@ -3724,6 +3742,14 @@ def generate_report_text(
     # 全店舗: プラス（平均>0）の機種すべてに平均差枚を表示
     _avg_show_thr = 0
 
+    # 末尾一覧へ掲載する+1,000枚台の台番集合（その他の優秀台からの二重掲載防止用）。
+    # 台番は店舗内で一意な物理台番号のため、機種名表記差異の影響を受けない ban 単独キーで除外する。
+    _sue_plus_bans: set[int] = set()
+    for _sd in (suebangai_data or []):
+        _sue_plus_bans |= {int(_p["ban"]) for _p in _sd.get("plus1000", [])}
+    for _jd in (jug_sue_data or []):
+        _sue_plus_bans |= {int(_p["ban"]) for _p in _jd.get("plus1000", [])}
+
     def zen_dai_section() -> str:
         _zd_list = [it for it in zen_dai_list if it["name"] not in _demoted_names]
         if not _zd_list:
@@ -3793,19 +3819,29 @@ def generate_report_text(
     def suebangai_section() -> str:
         _circle_map = {"0":"⓪","1":"①","2":"②","3":"③","4":"④",
                        "5":"⑤","6":"⑥","7":"⑦","8":"⑧","9":"⑨"}
+        _item_emoji = STORE_REC_CONFIG.get(store_name, {}).get("item_emoji", "🚩")
         lines = []
+
+        def _plus1000_lines(_item) -> list[str]:
+            # 末尾サマリー直下に、その末尾の+1,000枚以上台を差枚降順で追加（0台なら追加しない）。
+            # 整形・機種名・差枚は「その他の優秀台」と同一（_item_emoji / _fmt_diff / 変換済み機種名）
+            return [f"{_item_emoji}【{_p['ban']}番台】{_p['name']}→{_fmt_diff(_p['diff'])}"
+                    for _p in _item.get("plus1000", [])]
+
         if suebangai_data:
             lines.append("👑優秀末尾")
             for _item in suebangai_data:
                 _t = _item["tail"]
                 _label = "末尾ゾロ目の台" if _t == "ゾロ目" else f"末尾{_circle_map.get(_t, _t)}番台"
                 lines.append(f"🎁{_label}({_item['win_count']}/{_item['total']}台)→平均{_fmt_diff(_item['avg_diff'])}")
+                lines.extend(_plus1000_lines(_item))
         if jug_sue_data:
             lines.append("👑ジャグラーの優秀末尾")
             for _item in jug_sue_data:
                 _t = _item["tail"]
                 _label = "末尾ゾロ目番台" if _t == "ゾロ目" else f"末尾{_circle_map.get(_t, _t)}番台"
                 lines.append(f"🎁{_label}({_item['win_count']}/{_item['total']}台)→平均{_fmt_diff(_item['avg_diff'])}")
+                lines.extend(_plus1000_lines(_item))
         return "\n".join(lines)
 
     def excellent_section() -> str:
@@ -3825,7 +3861,8 @@ def generate_report_text(
                     if _d >= 2000 and (_nm, _ban) not in _seen:
                         _ex_src.append({"name": _nm, "ban": _ban, "diff": _d})
                         _seen.add((_nm, _ban))
-        filtered = [x for x in _ex_src if x["diff"] >= excellent_min_diff and x["name"] not in high_ratio_names and x["name"] not in _poster_ex]
+        filtered = [x for x in _ex_src if x["diff"] >= excellent_min_diff and x["name"] not in high_ratio_names and x["name"] not in _poster_ex
+                    and (x.get("ban") is None or int(x["ban"]) not in _sue_plus_bans)]
         if not filtered:
             return "（なし）"
         sorted_items = sorted(filtered, key=lambda x: x["diff"], reverse=True)
@@ -9125,7 +9162,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _sf_rt = _df_exec_m[_df_exec_m["台番"].apply(lambda b: (str(int(b))[-len(_t_rt):] == _t_rt) if _t_rt.isdigit() and len(_t_rt) in (1,2) else ((s:=str(int(b))) and len(s)>=2 and s[-2]==s[-1]))]
                                 if _sf_rt.empty: continue
                                 _sfd_rt = _diff_exec_m.loc[_sf_rt.index]
-                                _m_sue_data.append({"tail": _t_rt, "total": len(_sf_rt), "win_count": int((_sfd_rt > 0).sum()), "avg_diff": int(round(_sfd_rt.mean()))})
+                                _m_sue_data.append({"tail": _t_rt, "total": len(_sf_rt), "win_count": int((_sfd_rt > 0).sum()), "avg_diff": int(round(_sfd_rt.mean())), "plus1000": _sue_plus1000_list(_sf_rt, _diff_exec_m)})
                         _m_jug_data: list[dict] = []
                         if st.session_state.get("jug_sue_enabled", False):
                             _jug_ser_rt = set(get_store_config(store)["juggler_series"])
@@ -9134,7 +9171,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _sf_rt = _sf_rt[_sf_rt["機種名"].isin(_jug_ser_rt)]
                                 if _sf_rt.empty: continue
                                 _sfd_rt = _diff_exec_m.loc[_sf_rt.index]
-                                _m_jug_data.append({"tail": _t_rt, "total": len(_sf_rt), "win_count": int((_sfd_rt > 0).sum()), "avg_diff": int(round(_sfd_rt.mean()))})
+                                _m_jug_data.append({"tail": _t_rt, "total": len(_sf_rt), "win_count": int((_sfd_rt > 0).sum()), "avg_diff": int(round(_sfd_rt.mean())), "plus1000": _sue_plus1000_list(_sf_rt, _diff_exec_m)})
                         if store == "新宿歌舞伎町":
                             # かぶぱポストの結果：②個別画像で記入した機種名（全台＋優秀台）を
                             # 順序保持・重複除去して ✅ ブロックにする。
@@ -9460,6 +9497,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         "total": len(_f2),
                         "win_count": int((_f2["差枚"] > 0).sum()),
                         "avg_diff": int(round(_f2["差枚"].mean())) if len(_f2) > 0 else 0,
+                        "plus1000": _sue_plus1000_list(_f2, _f2["差枚"]),
                     })
                 return _stats
 

@@ -44,7 +44,7 @@
           true,
           true,
           true,
-          false,
+          true,
           false,
           false,
           false
@@ -187,16 +187,6 @@
       ],
       "machine_name": "東京喰種",
       "date_checks": {
-        "2026-07-16": [
-          false,
-          true,
-          true,
-          true,
-          false,
-          true,
-          false,
-          false
-        ],
         "2026-07-17": [
           false,
           false,
@@ -256,6 +246,16 @@
           true,
           false,
           false
+        ],
+        "2026-07-23": [
+          false,
+          true,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false
         ]
       },
       "blank_days": [
@@ -268,13 +268,13 @@
         false
       ],
       "blank_date_checks": {
-        "2026-07-16": false,
         "2026-07-17": false,
         "2026-07-18": false,
         "2026-07-19": false,
         "2026-07-20": false,
         "2026-07-21": false,
-        "2026-07-22": false
+        "2026-07-22": false,
+        "2026-07-23": false
       }
     },
     "t3": {
@@ -291,6 +291,9 @@
       "title": "週間オススメ ジャグラーシリーズ",
       "machine_name": "ジャグラー系",
       "cell_machines": {
+        "0,3": [
+          "ゴージャグ3"
+        ],
         "2,0": [
           "ジャグラーガールズ"
         ],
@@ -299,6 +302,9 @@
         ],
         "2,2": [
           "ネオアイム"
+        ],
+        "3,3": [
+          "ウルトラミラジャグ"
         ],
         "4,0": [
           "マイジャグV",
@@ -312,6 +318,11 @@
         ],
         "4,2": [
           "マイジャグV",
+          "ファンキー2"
+        ],
+        "4,3": [
+          "マイジャグV",
+          "ネオアイム",
           "ファンキー2"
         ],
         "6,2": [

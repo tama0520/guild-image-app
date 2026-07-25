@@ -19,7 +19,7 @@
           true,
           false,
           false,
-          false,
+          true,
           false
         ],
         [
@@ -187,16 +187,6 @@
       ],
       "machine_name": "東京喰種",
       "date_checks": {
-        "2026-07-18": [
-          false,
-          false,
-          true,
-          false,
-          false,
-          true,
-          false,
-          false
-        ],
         "2026-07-19": [
           false,
           true,
@@ -256,6 +246,16 @@
           true,
           false,
           false
+        ],
+        "2026-07-25": [
+          false,
+          false,
+          true,
+          false,
+          true,
+          true,
+          false,
+          false
         ]
       },
       "blank_days": [
@@ -268,13 +268,13 @@
         false
       ],
       "blank_date_checks": {
-        "2026-07-18": false,
         "2026-07-19": false,
         "2026-07-20": false,
         "2026-07-21": false,
         "2026-07-22": false,
         "2026-07-23": false,
-        "2026-07-24": false
+        "2026-07-24": false,
+        "2026-07-25": false
       }
     },
     "t3": {
@@ -326,6 +326,9 @@
           "ファンキー2"
         ],
         "4,4": [
+          "マイジャグV"
+        ],
+        "4,5": [
           "マイジャグV"
         ],
         "6,2": [

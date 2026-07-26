@@ -95,7 +95,7 @@
         false,
         false,
         false,
-        false
+        true
       ]
     },
     "t2": {
@@ -187,16 +187,6 @@
       ],
       "machine_name": "東京喰種",
       "date_checks": {
-        "2026-07-19": [
-          false,
-          true,
-          true,
-          false,
-          false,
-          true,
-          false,
-          false
-        ],
         "2026-07-20": [
           false,
           false,
@@ -256,6 +246,16 @@
           true,
           false,
           false
+        ],
+        "2026-07-26": [
+          false,
+          true,
+          true,
+          true,
+          false,
+          false,
+          false,
+          false
         ]
       },
       "blank_days": [
@@ -268,13 +268,13 @@
         false
       ],
       "blank_date_checks": {
-        "2026-07-19": false,
         "2026-07-20": false,
         "2026-07-21": false,
         "2026-07-22": false,
         "2026-07-23": false,
         "2026-07-24": false,
-        "2026-07-25": false
+        "2026-07-25": false,
+        "2026-07-26": false
       }
     },
     "t3": {
@@ -330,6 +330,9 @@
         ],
         "4,5": [
           "マイジャグV"
+        ],
+        "4,6": [
+          "ゴージャグ3"
         ],
         "6,2": [
           "マイジャグV",

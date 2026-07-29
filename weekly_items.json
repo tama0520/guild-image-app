@@ -16,16 +16,7 @@
         [
           false,
           true,
-          false,
-          false,
-          false,
-          false,
-          false
-        ],
-        [
-          false,
-          false,
-          false,
+          true,
           false,
           false,
           false,
@@ -35,6 +26,15 @@
           false,
           false,
           false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          true,
           false,
           false,
           false,
@@ -43,7 +43,7 @@
         [
           false,
           true,
-          false,
+          true,
           false,
           false,
           false,
@@ -187,16 +187,6 @@
       ],
       "machine_name": "東京喰種",
       "date_checks": {
-        "2026-07-22": [
-          false,
-          true,
-          true,
-          true,
-          true,
-          true,
-          false,
-          false
-        ],
         "2026-07-23": [
           false,
           true,
@@ -256,6 +246,16 @@
           true,
           false,
           false
+        ],
+        "2026-07-29": [
+          false,
+          false,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false
         ]
       },
       "blank_days": [
@@ -268,13 +268,13 @@
         false
       ],
       "blank_date_checks": {
-        "2026-07-22": false,
         "2026-07-23": false,
         "2026-07-24": false,
         "2026-07-25": false,
         "2026-07-26": false,
         "2026-07-27": false,
-        "2026-07-28": false
+        "2026-07-28": false,
+        "2026-07-29": false
       }
     },
     "t3": {
@@ -300,6 +300,9 @@
         "2,1": [
           "ジャグラーガールズ"
         ],
+        "2,2": [
+          "マイジャグV"
+        ],
         "3,0": [
           "ウルトラミラジャグ"
         ],
@@ -308,6 +311,11 @@
         ],
         "4,1": [
           "マイジャグV"
+        ],
+        "4,2": [
+          "マイジャグV",
+          "ネオアイム",
+          "ジャグラーガールズ"
         ]
       },
       "start_date": "2026-07-27",

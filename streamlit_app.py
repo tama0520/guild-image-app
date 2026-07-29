@@ -3730,12 +3730,13 @@ def generate_report_text(
     def _diff_emoji(diffs: list[int]) -> str:
         return "🌋" if diffs and max(diffs) >= 4000 else "💎"
 
-    # 稲毛・高田馬場以外の全店舗: 全台系濃厚・高配分の(1/2台)機種を両方から降格し、
-    # +2,000枚以上の台をその他の優秀台へ回す（稲毛・高田馬場は(1/2台)機種を残す）
+    # 稲毛以外の全店舗: 高配分の(1/2台)機種を降格し、+2,000枚以上の台をその他の優秀台へ回す
+    # （全台系濃厚の(1/2台)機種は降格しない・稲毛は高配分の(1/2台)機種も残す）
     _demoted_names: set[str] = set()
-    if store_name not in ("稲毛", "高田馬場"):
+    _zen_dai_names = {item["name"] for item in zen_dai_list}
+    if store_name != "稲毛":
         _demoted_names = {
-            item["name"] for item in (list(high_ratio_list) + list(zen_dai_list))
+            item["name"] for item in high_ratio_list
             if item.get("count") == 1 and item.get("total") == 2
         }
 
@@ -3751,7 +3752,8 @@ def generate_report_text(
         _sue_plus_bans |= {int(_p["ban"]) for _p in _jd.get("plus1000", [])}
 
     def zen_dai_section() -> str:
-        _zd_list = [it for it in zen_dai_list if it["name"] not in _demoted_names]
+        # 全台系濃厚は(1/2台)降格の対象外（降格は高配分のみ）
+        _zd_list = list(zen_dai_list)
         if not _zd_list:
             return "（なし）"
         lines = []
@@ -3847,12 +3849,15 @@ def generate_report_text(
     def excellent_section() -> str:
         _item_emoji = STORE_REC_CONFIG.get(store_name, {}).get("item_emoji", "🚩")
         # 降格した(1/2台)機種は除外対象から外し、その+2,000枚以上の台をその他の優秀台に含める
-        high_ratio_names = {item["name"] for item in high_ratio_list} - _demoted_names
+        high_ratio_names = ({item["name"] for item in high_ratio_list} - _demoted_names) | (_demoted_names & _zen_dai_names)
         _poster_ex = get_store_config(store_name).get("poster_extra_exclude", set())
         _ex_src = list(excellent_list)
         if _demoted_names and df is not None and diff_raw is not None:
             _seen = {(x["name"], x.get("ban")) for x in _ex_src}
             for _nm in _demoted_names:
+                # 全台系濃厚に残っている機種はその他の優秀台へ回さない（二重掲載防止）
+                if _nm in _zen_dai_names:
+                    continue
                 _sub = df[df["機種名"] == _nm]
                 _dr = diff_raw.loc[_sub.index]
                 for _i in _sub.index:

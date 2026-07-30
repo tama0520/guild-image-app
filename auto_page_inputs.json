@@ -11752,8 +11752,8 @@
   },
   "20260729_渋谷新館_20S.xlsx": {
     "kojin_enabled": false,
-    "narabi_enabled": false,
-    "narabi_ranges_input": "",
+    "narabi_enabled": true,
+    "narabi_ranges_input": "2183-2185,2188-2190,2195-2197,2203-2205,2209-2211,2213-2215",
     "suebangai_enabled": false,
     "suebangai_tail_input_1": "",
     "suebangai_tail_input_2": "",

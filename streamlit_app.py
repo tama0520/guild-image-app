@@ -3717,6 +3717,30 @@ def _sue_result_label(stem: str) -> str:
     return _lbl.translate(str.maketrans("⓪①②③④⑤⑥⑦⑧⑨", "0123456789"))
 
 
+def _variety_excellent_items(img_df, diff_series=None, min_diff: int = 1000) -> list[dict]:
+    """⑤バラエティ画像に **実際に掲載された** DataFrame から、結果テキスト用の
+    優秀台一覧 [{ban, name, diff}, ...] を差枚降順（同差枚は台番昇順）で返す。
+
+    img_df は「正式なバラエティ候補 → 既存モードによる抽出 → 🎯掲載台を選ぶ適用」
+    まで済んだ DataFrame を渡すこと（ここで候補を再抽出しない）。画像と結果テキストで
+    別々に計算しないことで、画像から外した台がテキストへ残る不一致を構造的に防ぐ。
+    diff_series を省略した場合は img_df["差枚"] を使う。"""
+    if img_df is None or getattr(img_df, "empty", True):
+        return []
+    _d = img_df["差枚"] if diff_series is None else diff_series.loc[img_df.index]
+    _mask = _d >= min_diff
+    _sub  = img_df[_mask.values] if hasattr(_mask, "values") else img_df[_mask]
+    if _sub.empty:
+        return []
+    _items = [{"ban":  int(_sub.loc[_i, "台番"]),
+               "name": str(_sub.loc[_i, "機種名"]),
+               "diff": int(_d.loc[_i])}
+              for _i in _sub.index]
+    # 差枚降順・同差枚は台番昇順（並びを安定させる）
+    _items.sort(key=lambda x: (-x["diff"], x["ban"]))
+    return _items
+
+
 def _build_kabupa_result_text(date, machine_names: list[str], df, diff_raw,
                               variety_bans: list[int] | None = None,
                               variety_title: str = "バラエティ",
@@ -3831,8 +3855,11 @@ def generate_report_text(
     suebangai_data: list[dict] | None = None,
     jug_sue_data: list[dict] | None = None,
     excellent_min_diff: int = 2000,
+    variety_excellent: list[dict] | None = None,
 ) -> str:
-    """画像生成で使ったデータをそのまま文章化して返す"""
+    """画像生成で使ったデータをそのまま文章化して返す。
+    variety_excellent: ⑤バラエティ画像に実際に掲載された+1,000枚以上の台
+      （_variety_excellent_items() の戻り値）。None / 空なら見出しごと出力しない。"""
     weekday_jp = ["月", "火", "水", "木", "金", "土", "日"]
     if date is not None:
         date_str = f"{date.month}/{date.day}({weekday_jp[date.weekday()]})"
@@ -3957,6 +3984,17 @@ def generate_report_text(
                 lines.append(f"🎁{_label}({_item['win_count']}/{_item['total']}台)→平均{_fmt_diff(_item['avg_diff'])}")
                 lines.extend(_plus1000_lines(_item))
         return "\n".join(lines)
+
+    def variety_section() -> str:
+        """👑バラエティの優秀台。台数・平均差枚のサマリー行は付けない（末尾とは異なる）。
+        整形は末尾の+1,000枚以上一覧と同一（_item_emoji / 変換済み機種名 / _fmt_diff）。"""
+        if not variety_excellent:
+            return ""
+        _item_emoji = STORE_REC_CONFIG.get(store_name, {}).get("item_emoji", "🚩")
+        return "\n".join(
+            ["👑バラエティの優秀台"] +
+            [f"{_item_emoji}【{_p['ban']}番台】{_p['name']}→{_fmt_diff(_p['diff'])}"
+             for _p in variety_excellent])
 
     def excellent_section() -> str:
         _item_emoji = STORE_REC_CONFIG.get(store_name, {}).get("item_emoji", "🚩")
@@ -4255,6 +4293,10 @@ def generate_report_text(
     _sue_sec = suebangai_section()
     if _sue_sec:
         parts += [_sue_sec, ""]
+    # ④末尾 と「その他の優秀台」の間に⑤バラエティの優秀台を差し込む
+    _var_sec = variety_section()
+    if _var_sec:
+        parts += [_var_sec, ""]
     if store_name == "渋谷新館":
         parts.append(shibuyashinkan_poster_section())
         parts.append("")
@@ -8561,10 +8603,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _mvs = _mvdf["台番"].argsort().values
                                         _mvdf = _mvdf.iloc[_mvs].reset_index(drop=True)
                                         _mvdr = _mvdr.iloc[_mvs].reset_index(drop=True)
+                                        # 集計（ピンクバー）は除外前の候補台基準のまま
                                         _mvstat = _stat_from_diff(_mvdr) if variety_mode == "全台" else None
-                                        _mvfn = f"{_make_safe_fn(_mvtit)}.jpg"
-                                        _manual_imgs.append((_mvfn, _build_machine_img(_mvdf, _mvtit, _mvstat)))
-                                        _manual_ban_map[_mvfn] = [int(b) for b in _mvdf["台番"].dropna()]
+                                        # 🎯掲載台を選ぶ（⑤バラエティ）: 📝実行と同じ除外を適用し、
+                                        # 📝プレビューと📝実行の掲載台を一致させる。
+                                        _mvdf, _mik_v, _mball_v = _unit_ex_pick(
+                                            _unit_ex_state(store, _excel_stem), "variety",
+                                            _mvtit, _mvdf)
+                                        if not _mvdf.empty:
+                                            _mvfn = f"{_make_safe_fn(_mvtit)}.jpg"
+                                            _manual_imgs.append((_mvfn, _build_machine_img(_mvdf, _mvtit, _mvstat)))
+                                            _manual_ban_map[_mvfn] = [int(b) for b in _mvdf["台番"].dropna()]
                             except Exception:
                                 pass
 
@@ -9618,6 +9667,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _m_log(f"  ✅ オススメ「{_mbt_e}」({_ms_sfxv_e})")
 
                     # ⑤ バラエティ画像（秋葉原・新宿歌舞伎町スランプ付き＋高田馬場）
+                    # 結果テキスト「👑バラエティの優秀台」用（画像を生成した場合のみ埋まる）
+                    _variety_excellent_m: list[dict] = []
                     if _variety_ui and variety_enabled and variety_ranges_text.strip():
                         try:
                             _mvb_e = ranges_to_bans(parse_ranges(variety_ranges_text.strip()))
@@ -9638,13 +9689,24 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _mvs_e = _mvdf_e["台番"].argsort().values
                                     _mvdf_e = _mvdf_e.iloc[_mvs_e].reset_index(drop=True)
                                     _mvdr_e = _mvdr_e.iloc[_mvs_e].reset_index(drop=True)
+                                    # 集計（ピンクバー）は除外前の候補台基準のまま
                                     _mvstat_e = _stat_from_diff(_mvdr_e) if variety_mode == "全台" else None
-                                    _mvfn_e = _unique_fn_e(f"{_make_safe_fn(_mvtit_e)}.jpg")
-                                    _save_jpeg(_build_machine_img(_mvdf_e, _mvtit_e, _mvstat_e),
-                                               os.path.join(output_dir, _mvfn_e))
-                                    _exec_order.append(_mvfn_e)
-                                    _m_exec_ban_map_e[_mvfn_e] = [int(b) for b in _mvdf_e["台番"].dropna()]
-                                    _m_log(f"  ✅ バラエティ「{_mvtit_e}」({len(_mvdf_e)}台)")
+                                    # 🎯掲載台を選ぶ（⑤バラエティ）: 抽出・モード判定・集計のあとに間引く。
+                                    # variety_bans（重複除外用）は変更しない。
+                                    _mvdf_e, _mik_v_e, _mball_v_e = _unit_ex_pick(
+                                        _unit_ex_state(store, _excel_stem_run), "variety",
+                                        _mvtit_e, _mvdf_e)
+                                    if _mvdf_e.empty:
+                                        _m_log("  バラエティ: 掲載台が0台のため画像なし")
+                                    else:
+                                        _mvfn_e = _unique_fn_e(f"{_make_safe_fn(_mvtit_e)}.jpg")
+                                        _save_jpeg(_build_machine_img(_mvdf_e, _mvtit_e, _mvstat_e),
+                                                   os.path.join(output_dir, _mvfn_e))
+                                        _exec_order.append(_mvfn_e)
+                                        _m_exec_ban_map_e[_mvfn_e] = [int(b) for b in _mvdf_e["台番"].dropna()]
+                                        # 結果テキスト「👑バラエティの優秀台」用（再抽出しない）
+                                        _variety_excellent_m = _variety_excellent_items(_mvdf_e)
+                                        _m_log(f"  ✅ バラエティ「{_mvtit_e}」({len(_mvdf_e)}台)")
                         except Exception:
                             _m_log(f"  ❌ バラエティ画像エラー: {traceback.format_exc()}")
 
@@ -9816,6 +9878,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 diff_raw=_diff_exec_m, df=_df_exec_m,
                                 suebangai_data=_m_sue_data or None,
                                 jug_sue_data=_m_jug_data or None,
+                                variety_excellent=_variety_excellent_m or None,
                                 excellent_min_diff=(_SONOTA_AUTO_THR[sonota_extra_auto]
                                                     if (store == "秋葉原" and sonota_extra_auto in _SONOTA_AUTO_THR)
                                                     else 2000),
@@ -10769,6 +10832,8 @@ def show_auto_page(with_slump: bool = False) -> None:
             # ── バラエティ画像生成（秋葉原スランプ付きのみ）──────────────────────
             # ⑤バラエティのファイル名 → 掲載台番（🎯除外後）。ban_map・スランプ合成用
             _var_ban_run: dict[str, list[int]] = {}
+            # 結果テキスト「👑バラエティの優秀台」用（画像を生成した場合のみ埋まる）
+            _variety_excellent_run: list[dict] = []
             if _variety_ui and variety_enabled and variety_ranges_text.strip() and result["ok"]:
                 df_v = result.get("df"); diff_v = result.get("diff_raw")
                 if df_v is not None and diff_v is not None:
@@ -10812,6 +10877,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _var_ban_run[_var_fn_ex] = [
                                         int(b) for b in _var_df_ex["台番"].dropna()
                                         if str(b).split(".")[0].lstrip("-").isdigit()]
+                                    # 結果テキスト「👑バラエティの優秀台」用。
+                                    # 画像へ載せたDataFrameそのものから作る（再抽出しない）。
+                                    # ⑦プレビューで生成チェックを外した画像は載せない。
+                                    _var_side_fn = os.path.splitext(_var_fn_ex)[0] + "_side.jpg"
+                                    if (st.session_state.get(_pv_ck_key(store, uploaded.name, _var_fn_ex), True)
+                                            or st.session_state.get(_pv_ck_key(store, uploaded.name, _var_side_fn), False)):
+                                        _variety_excellent_run = _variety_excellent_items(_var_df_ex)
                                     _log(f"  ✅ バラエティ「{_var_title_ex}」({len(_var_df_ex)}台)")
                     except Exception:
                         _log(f"  ❌ バラエティ画像エラー: {traceback.format_exc()}")
@@ -11326,6 +11398,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 df=result.get("df"),
                 suebangai_data=_sue_stats_data or None,
                 jug_sue_data=_jug_sue_stats_data or None,
+                variety_excellent=_variety_excellent_run or None,
             )
             # オススメ機種ブロックの優秀台（+1000枚以上）を挿入（拡張機能店舗）
             if store in EXTENDED_FEATURE_STORES and recommended_blocks:

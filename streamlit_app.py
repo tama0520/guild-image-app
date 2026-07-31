@@ -7691,7 +7691,16 @@ def show_auto_page(with_slump: bool = False) -> None:
         # プレビュー表示中は「🔍 プレビュー生成」が画面に無いため、既存の更新ボタンから
         # 同じ生成ブロック（run_auto_pipeline）へ入れるようにする。
         _unit_regen = bool(st.session_state.pop(f"_unit_regen_{store}", False))
-        if _auto_previews is None or _unit_regen:
+        # 新宿歌舞伎町（かぶぱポストの結果）は📝記入部分のみ経路しか持たない。
+        # 掲載台の再生成要求をフルプレビュー経路（run_auto_pipeline）へ流すと
+        # 「📝のはずがフル画像が出る」不一致になるため、📝経路へ振り分ける。
+        _kabupa_manual_regen = (
+            _unit_regen and store == "新宿歌舞伎町"
+            and bool(st.session_state.get(f"_manual_preview_mode_{store}", False))
+        )
+        if _kabupa_manual_regen:
+            _unit_regen = False   # フルプレビュー経路には入れない
+        if _auto_previews is None or _unit_regen or _kabupa_manual_regen:
             if store == "新宿歌舞伎町":
                 # 新宿歌舞伎町（かぶぱポストの結果）：記入したもののみ生成するため
                 # 「🔍 プレビュー生成」は非表示・「📝 記入部分のみ」のみ表示
@@ -8436,7 +8445,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     # 「未反映」判定用スナップショット（今回のプレビューへ反映済みの内容）
                     st.session_state[_unit_snap_key] = _unit_ex_snapshot(_unit_ex_state(store, _excel_stem))
                 st.rerun()
-            if _manual_prev_btn:
+            if _manual_prev_btn or _kabupa_manual_regen:
                 _save_auto_inputs(store)
                 with st.spinner("記入部分のみプレビュー生成中…"):
                     try:
@@ -8450,6 +8459,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _diff_m = _df_m["差枚"].copy()
                         _manual_imgs: list[tuple[str, "Image.Image"]] = []
                         _manual_ban_map: dict[str, list[int]] = {}
+                        # 🎯掲載台を選ぶ（新宿歌舞伎町＝かぶぱポストの結果のみ）:
+                        # 対象画像 → {kind, machine(画像キー), bans(除外前の掲載候補)}。
+                        # 他店舗の📝経路ではパネルを出さないため空のままにする。
+                        _kabupa_unit = (store == "新宿歌舞伎町")
+                        _manual_unit_src: dict[str, dict] = {}
 
                         # ② 個別画像 - 全台
                         if kojin_enabled:
@@ -8475,12 +8489,23 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 if _mga.empty:
                                     continue
                                 _mda = _diff_m.loc[_mga.index]
+                                # 正式な候補台を抽出（抽出条件・集計は変更しない）
                                 _mgp = _kojin_yushu_filter(_km_base, _mga, _mda, _m_cfg).reset_index(drop=True)
                                 if _mgp.empty:
                                     continue
                                 _mtit = f"{_km}（優秀台）"
-                                _manual_imgs.append((f"{_make_safe_fn(_mtit)}.jpg", _build_machine_img(_mgp, _mtit, None)))
-                                _manual_ban_map[f"{_make_safe_fn(_mtit)}.jpg"] = [int(b) for b in _mgp["台番"].tolist()]
+                                _mfn_ky = f"{_make_safe_fn(_mtit)}.jpg"
+                                if _kabupa_unit:
+                                    # 🎯掲載台を選ぶ（②個別・優秀台）: 抽出後・画像生成前に間引く。
+                                    # kind/安定キーはフルプレビュー・⑧実行と同一。
+                                    _mgp, _mik_ky, _mball_ky = _unit_ex_pick(
+                                        _unit_ex_state(store, _excel_stem), "kojin_yushu", _km, _mgp)
+                                    _manual_unit_src[_mfn_ky] = {"kind": "kojin_yushu",
+                                                                 "machine": _mik_ky, "bans": _mball_ky}
+                                    if _mgp.empty:
+                                        continue   # 全台除外 → 画像を作らない
+                                _manual_imgs.append((_mfn_ky, _build_machine_img(_mgp, _mtit, None)))
+                                _manual_ban_map[_mfn_ky] = [int(b) for b in _mgp["台番"].tolist()]
 
                             # ② その他の優秀台ピックアップ（溝の口新館専用）
                             if sonota_extra_text.strip():
@@ -8546,12 +8571,16 @@ def show_auto_page(with_slump: bool = False) -> None:
                         if st.session_state.get("suebangai_enabled", False):
                             _m_sue_tails = [t for _i in range(1, 4) if (t := st.session_state.get(f"suebangai_tail_input_{_i}", "").strip())]
                             _m_sue_mode = st.session_state.get("suebangai_mode", "全台")
-                            for _item in _gen_sue_imgs_on_fly(_m_sue_tails, _m_sue_mode, is_juggler=False, ban_out=_manual_ban_map, stat_out=_kp_sue_stat):
+                            # src_out は🎯パネル用。かぶぱ以外は None＝パネルを出さない
+                            # （除外そのものは _gen_sue_imgs_on_fly 内で従来どおり全店舗に効く）
+                            for _item in _gen_sue_imgs_on_fly(_m_sue_tails, _m_sue_mode, is_juggler=False, ban_out=_manual_ban_map, stat_out=_kp_sue_stat,
+                                                              src_out=(_manual_unit_src if _kabupa_unit else None)):
                                 _manual_imgs.append(_item)
                         if st.session_state.get("jug_sue_enabled", False):
                             _m_jug_tails = [t for _i in range(1, 4) if (t := st.session_state.get(f"jug_sue_tail_input_{_i}", "").strip())]
                             _m_jug_mode = st.session_state.get("jug_sue_mode", "全台")
-                            for _item in _gen_sue_imgs_on_fly(_m_jug_tails, _m_jug_mode, is_juggler=True, ban_out=_manual_ban_map, stat_out=_kp_sue_stat):
+                            for _item in _gen_sue_imgs_on_fly(_m_jug_tails, _m_jug_mode, is_juggler=True, ban_out=_manual_ban_map, stat_out=_kp_sue_stat,
+                                                              src_out=(_manual_unit_src if _kabupa_unit else None)):
                                 _manual_imgs.append(_item)
 
                         # ⑤ オススメ機種ピックアップ
@@ -8610,6 +8639,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _mvdf, _mik_v, _mball_v = _unit_ex_pick(
                                             _unit_ex_state(store, _excel_stem), "variety",
                                             _mvtit, _mvdf)
+                                        if _kabupa_unit:
+                                            _manual_unit_src[f"{_make_safe_fn(_mvtit)}.jpg"] = {
+                                                "kind": "variety", "machine": _mik_v, "bans": _mball_v}
                                         if not _mvdf.empty:
                                             _mvfn = f"{_make_safe_fn(_mvtit)}.jpg"
                                             _manual_imgs.append((_mvfn, _build_machine_img(_mvdf, _mvtit, _mvstat)))
@@ -8644,6 +8676,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 )
                             st.session_state[_aprev_key] = _manual_imgs
                             st.session_state[f"_manual_preview_mode_{store}"] = True
+                            # 🎯掲載台を選ぶ（かぶぱのみ）: パネル用の候補と未反映判定用スナップショット。
+                            # 他店舗は _manual_unit_src が空なのでパネルは出ない（従来どおり）。
+                            if _kabupa_unit:
+                                st.session_state[_aprev_unit_key] = _manual_unit_src
+                                st.session_state[_unit_snap_key] = _unit_ex_snapshot(
+                                    _unit_ex_state(store, _excel_stem))
+                                # パネル一覧（台番・機種名・差枚）の表示用。
+                                # _aprev_df_key は「🔄その他を更新」の再振り分け条件に使われるため
+                                # 流用せず、📝経路専用キーに保持する。
+                                st.session_state[f"_manual_unit_df_{store}"] = _df_m
+                                st.session_state[f"_manual_unit_di_{store}"] = _diff_m
                             # 新宿歌舞伎町（かぶぱポストの結果）：プレビュー時に結果テキストも生成して保持
                             if store == "新宿歌舞伎町":
                                 import datetime as _dt_kp
@@ -8692,6 +8735,12 @@ def show_auto_page(with_slump: bool = False) -> None:
             st.caption(f"📋 {len(_auto_previews)}枚の画像プレビュー　チェックした画像のみ生成されます")
             # 🎯掲載台パネルの二重描画防止（同名プレビューが並んだ際のキー衝突対策）
             _unit_panel_done: set[tuple] = set()
+            # パネル一覧の表示元。📝記入部分のみ経路（かぶぱ）は専用キーに保持している
+            _unit_pdf = st.session_state.get(_aprev_df_key)
+            _unit_pdi = st.session_state.get(_aprev_di_key)
+            if _unit_pdf is None or _unit_pdi is None:
+                _unit_pdf = st.session_state.get(f"_manual_unit_df_{store}")
+                _unit_pdi = st.session_state.get(f"_manual_unit_di_{store}")
             for _row_start in range(0, len(_auto_previews), 3):
                 _grid_cols = st.columns(3)
                 for _col_idx, _ci in enumerate(range(_row_start, min(_row_start + 3, len(_auto_previews)))):
@@ -8768,8 +8817,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _render_unit_ex_panel(
                                     store, _excel_stem, _u_src["kind"], _u_src.get("machine"),
                                     _u_src.get("bans", []),
-                                    st.session_state.get(_aprev_df_key),
-                                    st.session_state.get(_aprev_di_key),
+                                    _unit_pdf, _unit_pdi,
                                     "🔄 その他を更新",
                                 )
             # 全台除外で画像が消えた対象は、グリッドに出せる画像が無くパネルも消えてしまう。
@@ -8783,8 +8831,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _render_unit_ex_panel(
                         store, _excel_stem, _ov["kind"], _ov.get("machine"),
                         _ov.get("bans", []),
-                        st.session_state.get(_aprev_df_key),
-                        st.session_state.get(_aprev_di_key),
+                        _unit_pdf, _unit_pdi,
                         "🔄 その他を更新",
                     )
             # 新宿歌舞伎町（かぶぱポストの結果）：画像の下に結果テキストをコピー可能な形で表示
@@ -8818,9 +8865,11 @@ def show_auto_page(with_slump: bool = False) -> None:
             with _btn_upd:
                 # 🎯掲載台の未反映変更があるときは on_click が再生成フラグを立て、
                 # 次の再実行で既存の生成ブロック（run_auto_pipeline）が走る。
+                # 新宿歌舞伎町（かぶぱ）は📝記入部分のみ経路が再生成される。
                 # 未反映変更が無いときはフラグが立たず、従来どおりの再振り分けだけを行う。
                 if st.button("🔄 その他を更新", key="auto_preview_update_btn", use_container_width=True,
-                             on_click=_on_unit_apply_click, args=(store, _excel_stem)) and not _unit_regen:
+                             on_click=_on_unit_apply_click, args=(store, _excel_stem)) \
+                        and not _unit_regen and not _kabupa_manual_regen:
                     _pv_df     = st.session_state.get(_aprev_df_key)
                     _pv_diff   = st.session_state.get(_aprev_di_key)
                     _pv_ex     = st.session_state.get(_aprev_ex_key, [])
@@ -9484,6 +9533,26 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _used_fns_e.add(candidate)
                         return candidate
 
+                    # 🎯掲載台を選ぶ（新宿歌舞伎町＝かぶぱポストの結果のみ）
+                    _kabupa_unit_e = (store == "新宿歌舞伎町")
+
+                    def _kabupa_rm_stale(base_fn: str) -> None:
+                        """全台除外で画像を作らない場合に、前回実行の同名画像を消す。
+                        縦版・横版(_side)・連番プレフィックス付き(NN_)のすべてを対象にする
+                        （output_dir はローカルで営業日ごとに再利用されるため）。"""
+                        _stem_rm = os.path.splitext(base_fn)[0]
+                        _targets = {base_fn, f"{_stem_rm}_side.jpg"}
+                        try:
+                            for _f_rm in os.listdir(output_dir):
+                                if re.sub(r"^\d{2}_", "", _f_rm) in _targets:
+                                    try:
+                                        os.remove(os.path.join(output_dir, _f_rm))
+                                        _m_log(f"  🗑️ 掲載台0台のため削除: {_f_rm}")
+                                    except Exception:
+                                        pass
+                        except FileNotFoundError:
+                            pass
+
                     # ② 個別画像 - 全台
                     if kojin_enabled:
                         for _km_e in kojin_zentai_machines:
@@ -9513,10 +9582,21 @@ def show_auto_page(with_slump: bool = False) -> None:
                             if _mga_e.empty:
                                 continue
                             _mda_e = _diff_exec_m.loc[_mga_e.index]
+                            # 正式な候補台を抽出（抽出条件・集計は変更しない）
                             _mgp_e = _kojin_yushu_filter(_km_base_e, _mga_e, _mda_e, _me_cfg).reset_index(drop=True)
                             if _mgp_e.empty:
                                 continue
                             _metit = f"{_km_e}（優秀台）"
+                            if _kabupa_unit_e:
+                                # 🎯掲載台を選ぶ（②個別・優秀台）: 📝プレビューと同じ安定キーで間引く
+                                _mgp_e, _mik_ky_e, _mball_ky_e = _unit_ex_pick(
+                                    _unit_ex_state(store, _excel_stem_run), "kojin_yushu", _km_e, _mgp_e)
+                                if _mgp_e.empty:
+                                    # 全台除外: 画像を作らず、前回実行の同名画像（縦・横）を削除する
+                                    _kabupa_rm_stale(f"{_make_safe_fn(_metit)}.jpg")
+                                    _m_log(f"  優秀台「{_metit}」: 掲載台が0台のため画像なし")
+                                    continue
+                                _mgp_e = _mgp_e.reset_index(drop=True)
                             _mefn_e = _unique_fn_e(f"{_make_safe_fn(_metit)}.jpg")
                             _meout = os.path.join(output_dir, _mefn_e)
                             _save_jpeg(_build_machine_img(_mgp_e, _metit, None), _meout)
@@ -9617,24 +9697,37 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _m_sue_tails_e = [t for _i in range(1, 4) if (t := st.session_state.get(f"suebangai_tail_input_{_i}", "").strip())]
                         _m_sue_mode_e = st.session_state.get("suebangai_mode", "全台")
                         _sue_bans_out_e: dict[str, list[int]] = {}
-                        for _ofn_e, _img_e in _gen_sue_imgs_on_fly(_m_sue_tails_e, _m_sue_mode_e, is_juggler=False, ban_out=_sue_bans_out_e, stat_out=_kp_sue_stat_e):
+                        _sue_src_out_e: dict[str, dict] = {}
+                        for _ofn_e, _img_e in _gen_sue_imgs_on_fly(_m_sue_tails_e, _m_sue_mode_e, is_juggler=False, ban_out=_sue_bans_out_e, stat_out=_kp_sue_stat_e,
+                                                                   src_out=_sue_src_out_e):
                             _fn_e = _unique_fn_e(_ofn_e)
                             _sout_e = os.path.join(output_dir, _fn_e)
                             _save_jpeg(_img_e, _sout_e)
                             _exec_order.append(_fn_e)
                             _m_exec_ban_map_e[_fn_e] = _sue_bans_out_e.get(_ofn_e, [])
                             _m_log(f"  ✅ 末尾画像「{_fn_e}」")
+                        if _kabupa_unit_e:
+                            # 全台除外で作られなかった末尾画像は、前回実行の同名画像を残さない
+                            for _ofn_rm in _sue_src_out_e:
+                                if _ofn_rm not in _sue_bans_out_e:
+                                    _kabupa_rm_stale(_ofn_rm)
                     if st.session_state.get("jug_sue_enabled", False):
                         _m_jt_e = [t for _i in range(1, 4) if (t := st.session_state.get(f"jug_sue_tail_input_{_i}", "").strip())]
                         _m_jm_e = st.session_state.get("jug_sue_mode", "全台")
                         _jsue_bans_out_e: dict[str, list[int]] = {}
-                        for _ofn_e, _img_e in _gen_sue_imgs_on_fly(_m_jt_e, _m_jm_e, is_juggler=True, ban_out=_jsue_bans_out_e, stat_out=_kp_sue_stat_e):
+                        _jsue_src_out_e: dict[str, dict] = {}
+                        for _ofn_e, _img_e in _gen_sue_imgs_on_fly(_m_jt_e, _m_jm_e, is_juggler=True, ban_out=_jsue_bans_out_e, stat_out=_kp_sue_stat_e,
+                                                                   src_out=_jsue_src_out_e):
                             _fn_e = _unique_fn_e(_ofn_e)
                             _sout_e = os.path.join(output_dir, _fn_e)
                             _save_jpeg(_img_e, _sout_e)
                             _exec_order.append(_fn_e)
                             _m_exec_ban_map_e[_fn_e] = _jsue_bans_out_e.get(_ofn_e, [])
                             _m_log(f"  ✅ ジャグラー末尾画像「{_fn_e}」")
+                        if _kabupa_unit_e:
+                            for _ofn_rm in _jsue_src_out_e:
+                                if _ofn_rm not in _jsue_bans_out_e:
+                                    _kabupa_rm_stale(_ofn_rm)
 
                     # ⑤ オススメ機種ピックアップ
                     if recommended_blocks:
@@ -9697,6 +9790,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _unit_ex_state(store, _excel_stem_run), "variety",
                                         _mvtit_e, _mvdf_e)
                                     if _mvdf_e.empty:
+                                        # 全台除外: 前回実行の同名画像（縦・横）を残さない（かぶぱのみ）
+                                        if _kabupa_unit_e:
+                                            _kabupa_rm_stale(f"{_make_safe_fn(_mvtit_e)}.jpg")
                                         _m_log("  バラエティ: 掲載台が0台のため画像なし")
                                     else:
                                         _mvfn_e = _unique_fn_e(f"{_make_safe_fn(_mvtit_e)}.jpg")

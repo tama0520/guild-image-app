@@ -6145,6 +6145,30 @@ def _pv_ck_key(store: str, excel_name: str, fname: str) -> str:
     return f"auto_prev_ck_{_sig}"
 
 
+def _dedup_previews(items: list) -> list:
+    """⑦プレビューの同一ファイル名要素を1件へ正規化する。
+
+    _pv_ck_key() は「店舗|Excel|ファイル名」だけで作る安定キーのため、同名要素が並ぶと
+    st.checkbox が同じ key で二重登録され StreamlitDuplicateElementKey になる（Cloudで発生）。
+    同名は本番でも同じ1ファイルへ書かれるので、リスト側を1件へ正規化する。
+
+    - 表示位置 = 最初の出現位置（画像順の正式仕様を維持。⑧の _order も
+      `if _fn not in _order` で最初の位置を採用しており同じ）
+    - 内容 = 最後の要素（②個別画像は run_auto_pipeline の後に同名で上書き保存されるため、
+      本番の実効的な上書き順＝後勝ちに一致させる）
+    - 異なるファイル名は削除しない（縦版と横版(_side)は別名なので統合されない）
+    """
+    _pos: dict[str, int] = {}
+    _out: list = []
+    for _fn, _img in items:
+        if _fn in _pos:
+            _out[_pos[_fn]] = (_fn, _img)   # 後勝ち・位置は据え置き
+        else:
+            _pos[_fn] = len(_out)
+            _out.append((_fn, _img))
+    return _out
+
+
 def _unit_ex_pending(store: str, excel_stem: str) -> bool:
     """未反映の掲載台変更があるか（プレビュー生成時のスナップショットとの差分）。"""
     _snap = st.session_state.get(f"_unit_excl_snap_{store}_{excel_stem}")
@@ -8397,7 +8421,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             except Exception:
                                 pass  # pision取得失敗時は表のみ画像のままプレビュー表示
 
-                    st.session_state[_aprev_key]    = _prev_img_list
+                    st.session_state[_aprev_key]    = _dedup_previews(_prev_img_list)
                     st.session_state[_aprev_df_key] = _prev_result.get("df")
                     st.session_state[_aprev_di_key] = _prev_result.get("diff_raw")
                     st.session_state[_aprev_ex_key] = _prev_result.get("sonota_excellent_list", [])
@@ -8674,7 +8698,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _manual_imgs, _manual_ban_map, store,
                                     ban2mac=_m_ban2mac, ban2diff=_m_ban2diff, date_str=_m_date_str,
                                 )
-                            st.session_state[_aprev_key] = _manual_imgs
+                            st.session_state[_aprev_key] = _dedup_previews(_manual_imgs)
                             st.session_state[f"_manual_preview_mode_{store}"] = True
                             # 🎯掲載台を選ぶ（かぶぱのみ）: パネル用の候補と未反映判定用スナップショット。
                             # 他店舗は _manual_unit_src が空なのでパネルは出ない（従来どおり）。
@@ -9412,7 +9436,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         except Exception:
                                             pass
                         if _updated:
-                            st.session_state[_aprev_key] = _new_prev
+                            st.session_state[_aprev_key] = _dedup_previews(_new_prev)
                             st.rerun()
             with _btn_clr:
                 if st.button("🔄 プレビューをクリア", key="auto_preview_clear_btn", use_container_width=True):

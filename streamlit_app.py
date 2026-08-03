@@ -4756,6 +4756,10 @@ def _persistent_keys(store: str) -> set[str]:
     # 高田馬場は②個別画像の機種名を日付ごとに扱う（別日データ取得時は空欄・同日は保持）ため永続化しない
     if store == "高田馬場":
         return {f"variety_range_{store}"}
+    # 秋葉原は②個別画像の「全台」だけ日付ごとに扱う（別日データ取得時は空欄）。優秀台は永続化する
+    if store == "秋葉原":
+        return ({f"kojin_y_{i}_{store}" for i in range(48)}
+                | {f"variety_range_{store}"})
     return ({f"kojin_y_{i}_{store}" for i in range(48)}
             | {f"kojin_z_{i}_{store}" for i in range(12)}
             | {f"variety_range_{store}"})

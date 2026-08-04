@@ -12739,6 +12739,8 @@ def show_auto_article_page() -> None:
                                                     pass
                                 if _pv_tmpl_sl is not None:
                                     _merged_pil: list[tuple[str, "Image.Image"]] = []
+                                    _art_gap_meta_pv: dict[str, dict] = {}  # ⑦液晶セレクタ用
+                                    _art_gap_base_pv: dict[str, dict] = {}  # 液晶選び直しの即時再合成用
                                     for (_fn_pv2, _img_pv2) in _art_pil:
                                         _bans_pv2 = _pv_bm_sl.get(_fn_pv2, [])
                                         if not _bans_pv2:
@@ -12778,16 +12780,28 @@ def show_auto_article_page() -> None:
                                             except Exception:
                                                 pass
                                         if _g_imgs_pv2:
-                                            if store in _GAP_FILL_STORES:
+                                            if store in _GAP_FILL_STORES or store in _ARTICLE_GAP_FILL_STORES:
                                                 _gm_pv2, _gp_pv2 = _gap_screen_paths_for_bans(_bans_pv2, _pv_ban2diff, _pv_ban2mac)
                                                 _gsel_pv2 = st.session_state.get(_gap_sel_key(store, _bans_pv2, _gm_pv2), 0)
                                                 _gap_img_pv2 = _resolve_gap_screen(_gp_pv2, _gsel_pv2)
+                                                # ⑦液晶セレクタ用メタ＋選び直し時の再合成ベース（記事用は縦版のみ・_sideなし）。
+                                                # base の table はパネル適用後の画像＝再合成してもパネルが消えない。
+                                                _fillable_pv2 = _gap_fillable(len(_g_imgs_pv2), 3)
+                                                _art_gap_meta_pv[_fn_pv2] = {"machine": _gm_pv2, "screens": _gp_pv2,
+                                                                             "fillable": _fillable_pv2, "bans": list(_bans_pv2)}
+                                                if _fillable_pv2:
+                                                    _art_gap_base_pv[_fn_pv2] = {"table": _img_pv2,
+                                                                                 "graphs": list(_g_imgs_pv2), "side": False}
                                             else:
                                                 _gap_img_pv2 = None
                                             _merged_pil.append((_fn_pv2, _attach_slump_to_table(_img_pv2, _g_imgs_pv2, _pv_bgg_sl, _gap_img_pv2)))
                                         else:
                                             _merged_pil.append((_fn_pv2, _img_pv2))
                                     _art_pil = _merged_pil
+                                    if store in _ARTICLE_GAP_FILL_STORES:
+                                        # 記事用専用キー（通常ページの _gap_meta_/_gap_base_ とは分離）
+                                        st.session_state[f"_art_gap_meta_{store}"] = _art_gap_meta_pv
+                                        st.session_state[f"_art_gap_base_{store}"] = _art_gap_base_pv
                         except Exception:
                             pass  # スランプ取得失敗時は表のみプレビュー
 
@@ -12827,6 +12841,48 @@ def show_auto_article_page() -> None:
                         with _sc: st.checkbox("", key=_ck, label_visibility="collapsed")
                         with _si2:
                             st.image(_pi, caption=_pt, use_container_width=True)
+                            # 🖼️ 液晶画像を選ぶ（記事用・空き2コマ以上の画像のみ）。
+                            # 通常⑦と同じ正式キー(_gap_sel_key)・同じ on_change 方式。
+                            # components.html / 独自JS / st.rerun 直呼びは使わない。
+                            if store in _ARTICLE_GAP_FILL_STORES:
+                                _agap_meta = st.session_state.get(f"_art_gap_meta_{store}", {})
+                                _amatch_fn = _pt if _pt in _agap_meta else None
+                                if _amatch_fn is None and _agap_meta:
+                                    def _anorm_fn(_s):
+                                        return os.path.splitext(re.sub(r"^\d{2}_", "", str(_s)))[0]
+                                    _apt_norm = _anorm_fn(_pt)
+                                    for _amfn in _agap_meta:
+                                        if _anorm_fn(_amfn) == _apt_norm:
+                                            _amatch_fn = _amfn
+                                            break
+                                _ameta = _agap_meta.get(_amatch_fn) if _amatch_fn else None
+                                if _ameta and _ameta.get("screens") and _ameta.get("fillable"):
+                                    _ascr = _ameta["screens"]
+                                    _asel_key = _gap_sel_key(store, _ameta.get("bans"), _ameta.get("machine"))
+                                    _acur  = st.session_state.get(_asel_key, 0)
+                                    _aopts = list(range(len(_ascr))) + [-1]
+                                    def _afmt(_i):
+                                        return "はめ込まない" if _i == -1 else f"液晶{_i + 1}"
+                                    _aradio_key = f"art_radio_{_asel_key}_{_ci}"
+                                    _awant = _acur if _acur in _aopts else 0
+                                    if st.session_state.get(_aradio_key) != _awant:
+                                        st.session_state[_aradio_key] = _awant
+                                    with st.expander(f"🖼️ 液晶画像を選ぶ（{_ameta.get('machine') or ''}）"):
+                                        st.radio(
+                                            "液晶", _aopts, format_func=_afmt, key=_aradio_key,
+                                            horizontal=True, label_visibility="collapsed",
+                                            on_change=_on_gap_screen_change,
+                                            args=(_aradio_key, _asel_key, list(_ascr), _amatch_fn,
+                                                  store, _art_aprev_key,
+                                                  f"_art_gap_base_{store}", f"_art_gap_meta_{store}"),
+                                        )
+                                        _athumbs = st.columns(max(1, len(_ascr)))
+                                        for _asi, _asp in enumerate(_ascr):
+                                            with _athumbs[_asi]:
+                                                try:
+                                                    st.image(_asp, caption=f"液晶{_asi + 1}", width=120)
+                                                except Exception:
+                                                    pass
                             # 🎯 掲載台を選ぶ（②個別・優秀台／⑤バラエティのみ）
                             _au_src = _art_unit_map.get(_pt)
                             if _au_src is None and _art_unit_map:
@@ -13046,6 +13102,15 @@ def show_auto_article_page() -> None:
                                                     continue
                                                 _g_imgs_u: list["Image.Image"] = []
                                                 _show_mn_u = (_fn_u in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg"))
+                                                # 記事用のパネル合成（プレビュー生成・⑧本番と同じ処理・同じ順序）
+                                                if store in _ARTICLE_PANEL_STORES:
+                                                    _is_sue_u = ("末尾" in _fn_u)
+                                                    _img_u, _, _ = _apply_panel_to_table_img(
+                                                        _img_u, re.sub(r"^\d{2}_", "", _fn_u), _bans_u,
+                                                        _upd_b2mac, _upd_b2diff,
+                                                        _show_mn_u or _is_sue_u or _fn_u.startswith("バラエティ"),
+                                                        _is_sue_u,
+                                                        crop_bar=False)  # 記事用は元画像をcropしない
                                                 for _b_u in _bans_u:
                                                     _it_u = _upd_by_uid.get(str(_b_u))
                                                     if _it_u is None or not _it_u.get("points"):
@@ -13062,10 +13127,24 @@ def show_auto_article_page() -> None:
                                                     except Exception:
                                                         pass
                                                 if _g_imgs_u:
-                                                    if store in _GAP_FILL_STORES:
+                                                    if store in _GAP_FILL_STORES or store in _ARTICLE_GAP_FILL_STORES:
                                                         _gm_u, _gp_u = _gap_screen_paths_for_bans(_bans_u, _upd_b2diff, _upd_b2mac)
                                                         _gsel_u = st.session_state.get(_gap_sel_key(store, _bans_u, _gm_u), 0)
                                                         _gap_img_u = _resolve_gap_screen(_gp_u, _gsel_u)
+                                                        if store in _ARTICLE_GAP_FILL_STORES:
+                                                            # 更新した画像のメタ・再合成ベースだけを差し替える（他は保持）
+                                                            _fillable_u = _gap_fillable(len(_g_imgs_u), 3)
+                                                            _amu = dict(st.session_state.get(f"_art_gap_meta_{store}", {}))
+                                                            _abu = dict(st.session_state.get(f"_art_gap_base_{store}", {}))
+                                                            _amu[_fn_u] = {"machine": _gm_u, "screens": _gp_u,
+                                                                           "fillable": _fillable_u, "bans": list(_bans_u)}
+                                                            if _fillable_u:
+                                                                _abu[_fn_u] = {"table": _img_u,
+                                                                               "graphs": list(_g_imgs_u), "side": False}
+                                                            else:
+                                                                _abu.pop(_fn_u, None)
+                                                            st.session_state[f"_art_gap_meta_{store}"] = _amu
+                                                            st.session_state[f"_art_gap_base_{store}"] = _abu
                                                     else:
                                                         _gap_img_u = None
                                                     _merged_anp.append((_fn_u, _attach_slump_to_table(_img_u, _g_imgs_u, _upd_bgg, _gap_img_u)))
@@ -13641,7 +13720,7 @@ def show_auto_article_page() -> None:
                                         pass
                                 if not _g_imgs_sl:
                                     continue
-                                if store == "新宿歌舞伎町":
+                                if store == "新宿歌舞伎町" or store in _ARTICLE_GAP_FILL_STORES:
                                     _gm_sl, _gp_sl = _gap_screen_paths_for_bans(_bans_sl, _art_ban2diff_sl, _art_ban2mac_sl)
                                     _gsel_sl = st.session_state.get(_gap_sel_key(store, _bans_sl, _gm_sl), 0)
                                     _gap_img_sl = _resolve_gap_screen(_gp_sl, _gsel_sl)
@@ -18024,6 +18103,10 @@ _GAP_SCREEN_SHRINK = 0.95
 # タイトル型レイアウト（_build_slump_title_img）だが同じ3列グリッドなので対応。
 _GAP_FILL_STORES = {"新宿歌舞伎町", "上野新館", "上野本館", "新小岩", "秋葉原"}
 
+# 記事用ページ経路だけで液晶をはめ込む店舗（通常ページには一切適用しない）。
+# session_state も専用キー（_art_gap_meta_/_art_gap_base_）で通常ページと分離する。
+_ARTICLE_GAP_FILL_STORES = {"高田馬場"}
+
 
 def _fit_center_in_box(img: "Image.Image", box_w: int, box_h: int) -> tuple["Image.Image", int, int]:
     """box(box_w×box_h)内にアスペクト比維持で最大リサイズし、中央配置のオフセットを返す。"""
@@ -18064,7 +18147,9 @@ def _featured_machine_for_bans(bans: list, ban2diff: dict, ban2mac: dict) -> "st
 
 def _on_gap_screen_change(radio_key: str, sel_key: str, screens: "list | None" = None,
                           match_fn: "str | None" = None, store: "str | None" = None,
-                          aprev_key: "str | None" = None) -> None:
+                          aprev_key: "str | None" = None,
+                          base_key: "str | None" = None,
+                          meta_key: "str | None" = None) -> None:
     """液晶セレクタの on_change コールバック。選択を**正式キー(台番ベース)**へ保存し、
     同じ正式キーを使うプレビュー画像を**すべて**再合成して差し替える（Cloud/ローカル共通）。
 
@@ -18081,8 +18166,10 @@ def _on_gap_screen_change(radio_key: str, sel_key: str, screens: "list | None" =
     # 即時再合成用の引数が無い場合は選択保存のみ（⑧実行/🔄更新で反映）
     if screens is None or store is None or aprev_key is None:
         return
-    _bases = st.session_state.get(f"_gap_base_{store}") or {}
-    _meta_all = st.session_state.get(f"_gap_meta_{store}") or {}
+    # base_key/meta_key 未指定なら従来どおり通常ページのキー（既存呼び出しは挙動不変）。
+    # 記事用は専用キー（_art_gap_base_/_art_gap_meta_）を渡して通常ページと分離する。
+    _bases = st.session_state.get(base_key or f"_gap_base_{store}") or {}
+    _meta_all = st.session_state.get(meta_key or f"_gap_meta_{store}") or {}
     # 同じ正式キーを持つ画像だけを再合成対象にする（無関係な画像は触らない）
     _targets = [_fn for _fn, _m in _meta_all.items()
                 if _gap_sel_key(store, _m.get("bans"), _m.get("machine")) == sel_key]

@@ -6092,6 +6092,11 @@ def _unit_ex_state(store: str, excel_stem: str) -> dict:
     _st.setdefault("juggler", {})
     _st.setdefault("art_kojin", {})
     _st.setdefault("art_variety", {})
+    # 記事用の追加系統（通常ページの high/juggler/sonota/suebangai とは別キー）
+    _st.setdefault("art_high", {})       # 高配分（機種名単位）
+    _st.setdefault("art_juggler", {})    # ジャグラーシリーズ優秀台（機種名単位）
+    _st.setdefault("art_sonota", {})     # その他の優秀台ピックアップ（機種名なし）
+    _st.setdefault("art_suebangai", {})  # ④末尾（sue:/jug: を前置した画像キー単位）
     # 結果ポスト用／スランプ付き結果ポスト用（show_auto_page）の系統。いずれも画像単位の安定キー。
     _st.setdefault("kojin_yushu", {})   # ②個別画像の「優秀台」
     _st.setdefault("suebangai", {})     # ④末尾画像（通常末尾＝sue: / ジャグラー末尾＝jug: を前置）
@@ -6163,10 +6168,11 @@ def _unit_ex_mark(state: dict, kind: str, machine: "str | None", ban: int, exclu
 
 def _unit_ex_row_machine(kind: str, panel_machine: "str | None", row_machine: str) -> "str | None":
     """除外辞書のキーに使う機種名。
-    高配分＝画像の機種、その他＝機種を持たない、ジャグラー統合＝その行の機種。"""
+    高配分＝画像の機種、その他＝機種を持たない、ジャグラー統合＝その行の機種。
+    記事用の art_juggler も統合画像なので行ごとの機種名で持つ（art_sonota は機種を持たない）。"""
     if kind == "sonota":
         return None
-    if kind == "juggler":
+    if kind in ("juggler", "art_juggler"):
         return row_machine
     return panel_machine
 
@@ -6378,6 +6384,22 @@ def _art_sue_settings() -> "tuple[list[str], str, list[str], str]":
     return _tails, _mode, _jtails, _jmode
 
 
+def _art_pipeline_exclude(state: dict) -> dict:
+    """記事用の除外stateを pipeline の exclude_units 形式へ投影する（読み取り専用）。
+
+    pipeline 本体は "high"/"juggler"/"sonota" の固定キーを**読むだけ**なので、
+    記事用の art_high / art_juggler / art_sonota を同じ集合オブジェクトのまま
+    別名で渡す。pipeline は無変更、通常ページの state とも混ざらない。
+    art_sonota は機種名を持たない系統（キー None）なので集合へ展開する。"""
+    if not state:
+        return {}
+    return {
+        "high":    state.get("art_high") or {},
+        "juggler": state.get("art_juggler") or {},
+        "sonota":  (state.get("art_sonota") or {}).get(None) or set(),
+    }
+
+
 def _art_tail_bans(df: "pd.DataFrame", tails: list) -> set:
     """末尾リストに該当する台番集合を返す（ゾロ目・1〜2桁）。
     判定は run_auto_pipeline の suebangai_bans 算出と同一。重複は集合で吸収する。"""
@@ -6455,6 +6477,7 @@ def _compute_sue_stats_for(store: str, tails, is_juggler: bool, df_run,
 def _build_sue_images(uploaded, store: str, tails, mode: str, is_juggler: bool = False,
                       ban_out=None, stat_out=None, src_out=None,
                       exclude_state: "dict | None" = None,
+                      exclude_kind: str = "suebangai",
                       article_mode: bool = False,
                       hq_scale: float = 1.0):
     """④末尾／ジャグラー末尾画像を作る共通関数（通常ページ・記事用ページ共通）。
@@ -6573,10 +6596,10 @@ def _build_sue_images(uploaded, store: str, tails, mode: str, is_juggler: bool =
             # 🎯掲載台を選ぶ（④末尾）: 候補抽出・集計（_stat_of / _stat_bans）を
             # 確定させたあと、画像へ載せる台だけを間引く。
             _filt, _ik_of, _ball_of = _unit_ex_pick(
-                exclude_state, "suebangai",
+                exclude_state, exclude_kind,
                 f"{'jug' if is_juggler else 'sue'}:{_title}", _filt)
             if src_out is not None:
-                src_out[_fn_of] = {"kind": "suebangai", "machine": _ik_of, "bans": _ball_of,
+                src_out[_fn_of] = {"kind": exclude_kind, "machine": _ik_of, "bans": _ball_of,
                                    "tail": _t, "is_juggler": bool(is_juggler)}
             if _filt.empty:
                 continue   # 全台除外 → 画像を作らない
@@ -12653,6 +12676,8 @@ def show_auto_article_page() -> None:
                             article_mode=True,
                             # ジャグラーシリーズ優秀台／その他の優秀台ピックアップを高解像度で描画
                             hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0),
+                            # 🎯掲載台を選ぶ（高配分／ジャグラー統合／その他）: 記事用stateの投影
+                            exclude_units=_art_pipeline_exclude(_art_unit_state),
                         )
                         _art_pil: list[tuple[str, "Image.Image"]] = []
                         _art_nb_map: dict[str, list[int]] = {}
@@ -12801,7 +12826,9 @@ def show_auto_article_page() -> None:
                                         is_juggler=_is_jug_pv,
                                         ban_out=_art_sue_ban, stat_out=_art_sue_stat,
                                         src_out=_art_sue_src, article_mode=True,
-                                        hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0)):
+                                        hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0),
+                                        exclude_state=_art_unit_state,
+                                        exclude_kind="art_suebangai"):
                                     _art_pil.append((_sfn_pv, _simg_pv))
                             # ④ ジャグラーシリーズ優秀台
                             if not _art_manual and "ジャグラーシリーズ優秀台.jpg" in _art_fpm:
@@ -13095,6 +13122,25 @@ def show_auto_article_page() -> None:
                     }
                     st.session_state[_art_aprev_jug_ex_key]   = _art_pr.get("jug_excellent_list", [])
                     st.session_state[_art_aprev_jug_pool_key] = _art_pr.get("jug_pool_df")
+                    # 🎯掲載台を選ぶ（高配分／ジャグラー統合／その他／末尾）:
+                    # 除外前の候補台番をパネル用に登録する（通常ページ 8449- と同型）。
+                    for _hu_a in _art_pr.get("high_ratio_list", []):
+                        _bu_a = _hu_a.get("bans_all")
+                        if _bu_a:
+                            _art_unit_src[f"{_make_safe_fn(_hu_a['name'])}_高配分.jpg"] = {
+                                "kind": "art_high", "machine": _hu_a["name"], "bans": list(_bu_a)}
+                    _jg_bans_a = _art_pr.get("jug_bans_all") or []
+                    if _jg_bans_a and _art_pr.get("jug_pool_df") is not None:
+                        _art_unit_src["ジャグラーシリーズ優秀台.jpg"] = {
+                            "kind": "art_juggler", "machine": None, "bans": list(_jg_bans_a)}
+                    _su_bans_a = _art_pr.get("sonota_bans_all") or []
+                    if _su_bans_a and not _art_son_added:
+                        _art_unit_src["その他の優秀台ピックアップ.jpg"] = {
+                            "kind": "art_sonota", "machine": None, "bans": list(_su_bans_a)}
+                    for _sfn_a, _ssrc_a in _art_sue_src.items():
+                        _art_unit_src[_sfn_a] = {"kind": _ssrc_a["kind"],
+                                                 "machine": _ssrc_a["machine"],
+                                                 "bans": list(_ssrc_a.get("bans") or [])}
                     st.session_state[_art_aprev_narabi_key]   = _art_nb_map
                     # ④末尾画像: 次回🎯用の候補台番と、🔄更新で使う確定掲載台番
                     st.session_state[f"art_sue_src_{store}"]  = _art_sue_src
@@ -13214,6 +13260,10 @@ def show_auto_article_page() -> None:
                         # 末尾画像へ載せる台は その他の優秀台／ジャグラー統合へ重複させない
                         # （通常ページの _sue_bans_upd と同じ考え方）
                         _a_st_upd, _a_jt_upd = _art_sue_exclude_tails()
+                        # 🎯掲載台を選ぶ（その他／ジャグラー統合）: OFF台を復活させない
+                        _a_ustate_upd = _unit_ex_state(store, _art_unit_stem)
+                        _a_son_ex_upd = (_a_ustate_upd.get("art_sonota") or {}).get(None) or set()
+                        _a_jug_ex_upd = _a_ustate_upd.get("art_juggler") or {}
                         _a_sue_bans_upd = _art_tail_bans(_apdf2, _a_st_upd)
                         _a_jug_bans_upd = _a_sue_bans_upd | _art_tail_bans(_apdf2, _a_jt_upd)
                         _ajss  = set(get_store_config(store)["juggler_series"])
@@ -13289,6 +13339,8 @@ def show_auto_article_page() -> None:
                             _asc = pd.concat(_aadf, ignore_index=True)
                             if _a_sue_bans_upd:   # 末尾画像の掲載台は重複させない
                                 _asc = _asc[~_asc["台番"].apply(int).isin(_a_sue_bans_upd)].copy()
+                            if _a_son_ex_upd:     # 🎯でOFFにした台は復活させない
+                                _asc = _asc[~_asc["台番"].apply(int).isin(_a_son_ex_upd)].copy()
                             _asc = _asc.iloc[_asc["台番"].argsort()].reset_index(drop=True)
                             if not _asc.empty:
                                 _asi = _build_machine_img(
@@ -13311,6 +13363,10 @@ def show_auto_article_page() -> None:
                             _ajc = pd.concat(_ajbase + _ajdfs, ignore_index=True)
                             if _a_jug_bans_upd:   # 末尾／ジャグラー末尾の掲載台は重複させない
                                 _ajc = _ajc[~_ajc["台番"].apply(int).isin(_a_jug_bans_upd)].copy()
+                            if _a_jug_ex_upd:     # 🎯でOFFにした台は復活させない（機種名単位）
+                                _ajc = _ajc[~_ajc.apply(
+                                    lambda _r: int(_r["台番"]) in (_a_jug_ex_upd.get(str(_r["機種名"])) or set()),
+                                    axis=1).values].copy()
                             _ajc = _ajc.iloc[_ajc["台番"].argsort()].reset_index(drop=True)
                             if len(_ajc) <= 5:
                                 # 5台以下 → overflowと同じ扱い: その他の優秀台ピックアップへ
@@ -13321,6 +13377,8 @@ def show_auto_article_page() -> None:
                                 _aov_son = _aov_son.drop_duplicates(subset=["台番"])
                                 if _a_sue_bans_upd:   # 末尾画像の掲載台は重複させない
                                     _aov_son = _aov_son[~_aov_son["台番"].apply(int).isin(_a_sue_bans_upd)].copy()
+                                if _a_son_ex_upd:     # 🎯でOFFにした台は復活させない
+                                    _aov_son = _aov_son[~_aov_son["台番"].apply(int).isin(_a_son_ex_upd)].copy()
                                 _aov_son = _aov_son.iloc[_aov_son["台番"].argsort()].reset_index(drop=True)
                                 _aov_img = _build_machine_img(
                                     _aov_son, "その他の優秀台ピックアップ", None,
@@ -13548,6 +13606,8 @@ def show_auto_article_page() -> None:
                 article_mode=True,
                 # ジャグラーシリーズ優秀台／その他の優秀台ピックアップを高解像度で描画
                 hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0),
+                # 🎯掲載台を選ぶ（高配分／ジャグラー統合／その他）: 記事用stateの投影
+                exclude_units=_art_pipeline_exclude(_art_unit_state_e),
             )
 
             # ── 並び画像（subprocess）────────────────────────────────
@@ -13785,6 +13845,28 @@ def show_auto_article_page() -> None:
                     except Exception:
                         _log(f"  ❌ バラエティ画像エラー: {traceback.format_exc()}")
 
+            # ── 🎯全台OFFで作られなかった画像の古い同名ファイルを削除（記事用）──
+            # pipeline は画像を書かないだけなので、営業日フォルダに前回の画像が残る。
+            # 末尾・②個別優秀台・⑤バラエティと同じ方式で明示的に消す。
+            if result["ok"]:
+                _art_stale_fns: list[str] = []
+                for _hu_d in result.get("high_ratio_list", []):
+                    if not _hu_d.get("has_image", True):
+                        _art_stale_fns.append(f"{_make_safe_fn(_hu_d['name'])}_高配分.jpg")
+                _jp_d = result.get("jug_pool_df")
+                if (_jp_d is None or getattr(_jp_d, "empty", True)) and (result.get("jug_bans_all") or []):
+                    _art_stale_fns.append("ジャグラーシリーズ優秀台.jpg")
+                if not result.get("sonota_excellent_list") and (result.get("sonota_bans_all") or []):
+                    _art_stale_fns.append("その他の優秀台ピックアップ.jpg")
+                for _fn_d in _art_stale_fns:
+                    _p_d = os.path.join(output_dir, _fn_d)
+                    if os.path.exists(_p_d):
+                        try:
+                            os.remove(_p_d)
+                            _log(f"  🗑️ 掲載台0台のため削除: {_fn_d}")
+                        except Exception:
+                            pass
+
             # ── ④ 末尾・ジャグラー末尾画像（記事用）────────────────────────
             # ⑦プレビューと同じ _build_sue_images / 同じ入力値（_art_sue_settings）で作る。
             # pipeline へ渡す suebangai_tails（他画像からの末尾台除外）は変更していない。
@@ -13801,7 +13883,9 @@ def show_auto_article_page() -> None:
                             uploaded, store, _tails_e, _mode_e, is_juggler=_isjug_e,
                             ban_out=_art_sue_ban_e, stat_out=_art_sue_stat_e,
                             src_out=_art_sue_src_e, article_mode=True,
-                            hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0)):
+                            hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0),
+                            exclude_state=_art_unit_state_e,
+                            exclude_kind="art_suebangai"):
                         _sout_e = os.path.join(output_dir, _sfn_e)
                         _save_jpeg(_simg_e, _sout_e,
                                    **({"target_kb": _ART_HQ_TARGET_KB}

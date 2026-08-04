@@ -12752,6 +12752,14 @@ def show_auto_article_page() -> None:
                                             not _fn_pv2.endswith("（優秀台）.jpg") and
                                             _fn_pv2 not in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
                                         )
+                                        # 記事用のパネル合成（高田馬場のみ）: 表→パネル→スランプ生成→結合 の順
+                                        if store in _ARTICLE_PANEL_STORES:
+                                            _is_sue_pv2 = ("末尾" in _fn_pv2)
+                                            _img_pv2, _, _ = _apply_panel_to_table_img(
+                                                _img_pv2, re.sub(r"^\d{2}_", "", _fn_pv2), _bans_pv2,
+                                                _pv_ban2mac, _pv_ban2diff,
+                                                _show_mn_pv2 or _is_sue_pv2, _is_sue_pv2,
+                                                crop_bar=False)  # 記事用は元画像をcropしない
                                         for _b_pv2 in _bans_pv2:
                                             _it_pv2 = _pv_by_uid.get(str(_b_pv2))
                                             if _it_pv2 is None or not _it_pv2.get("points"):
@@ -13580,6 +13588,7 @@ def show_auto_article_page() -> None:
                                         except Exception:
                                             pass
                         _art_slump_cnt = 0
+                        _art_missing_panels: set[str] = set()
                         if _art_tmpl_sl is None:
                             _log("⚠️ スランプ: テンプレート画像(base_3000_bk.png)が見つかりません")
                         else:
@@ -13603,6 +13612,16 @@ def show_auto_article_page() -> None:
                                     not _fp_sl.endswith("（優秀台）.jpg") and
                                     _fp_sl not in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
                                 )
+                                # 記事用のパネル合成（高田馬場のみ）: 表→パネル→スランプ生成→結合 の順
+                                if store in _ARTICLE_PANEL_STORES:
+                                    _is_sue_sl = ("末尾" in _fp_sl)
+                                    _t_img_sl, _mn_sl, _pok_sl = _apply_panel_to_table_img(
+                                        _t_img_sl, re.sub(r"^\d{2}_", "", _fp_sl), _bans_sl,
+                                        _art_ban2mac_sl, _art_ban2diff_sl,
+                                        _show_mn_sl or _is_sue_sl, _is_sue_sl,
+                                        crop_bar=False)  # 記事用は元画像をcropしない
+                                    if _mn_sl is not None and not _pok_sl:
+                                        _art_missing_panels.add(_mn_sl)
                                 for _b_sl in _bans_sl:
                                     _it_sl = _art_by_uid_sl.get(str(_b_sl))
                                     if _it_sl is None or not _it_sl.get("points"):
@@ -13632,6 +13651,9 @@ def show_auto_article_page() -> None:
                                 _save_jpeg(_combined_sl, _fpath_sl)
                                 _art_slump_cnt += 1
                         _log(f"✅ スランプ: {_art_slump_cnt}枚にスランプグラフを合成")
+                        if _art_missing_panels:
+                            _log("⚠️ パネル未登録（パネルなしで生成）: "
+                                 + "、".join(sorted(_art_missing_panels)))
                 except Exception as _sl_exc:
                     _log(f"❌ スランプグラフ合成エラー: {_sl_exc}")
 
@@ -17336,6 +17358,59 @@ def _build_panel_row(machine_names: list[str], width: int) -> "Image.Image | Non
     return _canvas
 
 
+# パネル合成の対象店舗。
+#   _PANEL_STORES         … 通常経路（📝記入部分のみ＝かぶぱポストの結果）でパネルを合成する店舗
+#   _ARTICLE_PANEL_STORES … 記事用ページ経路だけでパネルを合成する店舗（通常ページには適用しない）
+_PANEL_STORES = {"新宿歌舞伎町"}
+_ARTICLE_PANEL_STORES = {"高田馬場"}
+
+
+def _apply_panel_to_table_img(
+    img: "Image.Image", bare_fn: str, bans: list,
+    ban2mac: dict, ban2diff: dict, show_mn: bool, is_sue: bool,
+    crop_bar: bool = True,
+) -> "tuple[Image.Image, str | None, bool]":
+    """表画像の上部へパネル画像を合成して返す。
+
+    新宿歌舞伎町（かぶぱポストの結果）の既存処理をそのまま関数化したもの。
+    ・単一機種  → ファイル名から機種名を復元してパネルへ差し替え（未登録なら青バー除去のみ）
+    ・バラエティ／末尾 → 差枚上位4機種のパネルを 2×2 で表の上へ
+    ・台並び    → _narabi_panel_names のルールでパネル行を表の上へ
+
+    crop_bar=False（記事用）は**元画像を一切cropせず**、パネルを上へ足すだけにする。
+    記事用は表レイアウトが異なり、青バー相当の高さをcropすると表の先頭行が欠けるため。
+    戻り値: (加工後img, 照合した機種名 or None, パネル成否)"""
+    _bar_h = round(img.width * 73 / 950) + 6  # 青バー(BAR_H)＋赤ライン(LINE_H)
+    if not show_mn and "台並び" not in bare_fn:
+        _mn = re.sub(r"(_高配分)?\.jpg$", "", bare_fn)          # 拡張子・_高配分 除去
+        _mn = re.sub(r"[（(]優秀台[）)]\s*$", "", _mn).strip()  # タイトルの（優秀台）除去
+        _mn = re.sub(r"・[23]F$", "", _mn).strip()             # 階サフィックス（・2F/・3F）除去
+        if not crop_bar:
+            _prow1 = _build_panel_row([_mn], img.width)
+            if _prow1 is None:
+                return img, _mn, False                          # パネル無し→元画像そのまま
+            return _vstack_images(_prow1, img), _mn, True
+        img, _panel_ok = _insert_panel_into_machine_img(img, _mn)
+        if not _panel_ok:
+            img = img.crop((0, _bar_h, img.width, img.height))  # パネル無し→青バー除去
+        return img, _mn, _panel_ok
+    if crop_bar:
+        img = img.crop((0, _bar_h, img.width, img.height))      # 並び・バラエティ等→青バー除去
+    # バラエティ・末尾画像は上位4機種のパネルを2×2で表の上に結合
+    if bare_fn.startswith("バラエティ") or is_sue:
+        _pgrid = _build_variety_panel_grid(bans, ban2mac, ban2diff, img.width)
+        if _pgrid is not None:
+            img = _vstack_images(_pgrid, img)
+    # 並び画像は 1機種→その機種／2機種→2枚横／3機種以上→差枚最大の機種 のパネルを上に
+    elif "台並び" in bare_fn:
+        _pnames = _narabi_panel_names(bans, ban2mac, ban2diff)
+        if _pnames:
+            _prow = _build_panel_row(_pnames, img.width)
+            if _prow is not None:
+                img = _vstack_images(_prow, img)
+    return img, None, False
+
+
 def _composite_slump_onto_images(
     img_list: list[tuple[str, "Image.Image"]],
     ban_map: dict[str, list[int]],
@@ -17396,7 +17471,7 @@ def _composite_slump_onto_images(
         _bare = re.sub(r"^\d{2}_", "", _fn)
         _bans = ban_map.get(_bare, [])
         if not _bans:
-            if store == "新宿歌舞伎町" and "台並び" not in _bare:
+            if store in _PANEL_STORES and "台並び" not in _bare:
                 # スランプ無しでも青タイトルバーは除去（表のみ）
                 _bar_h0 = round(_img.width * 73 / 950) + 6
                 _img = _img.crop((0, _bar_h0, _img.width, _img.height))
@@ -17408,32 +17483,11 @@ def _composite_slump_onto_images(
         _is_zentai = (not _bare.endswith("_高配分.jpg") and _bare not in _sonota_names)
         # 新宿歌舞伎町（かぶぱポストの結果）: 青タイトルバーを除去し、パネル＋表＋スランプにする
         # ※単一機種はパネル差し替え、パネル無し・並び・バラエティ等は青バーのみ除去（表＋スランプ）
-        if store == "新宿歌舞伎町":
-            _bar_h = round(_img.width * 73 / 950) + 6  # 青バー(BAR_H)＋赤ライン(LINE_H)
-            if not _show_mn and "台並び" not in _bare:
-                _mn = re.sub(r"(_高配分)?\.jpg$", "", _bare)          # 拡張子・_高配分 除去
-                _mn = re.sub(r"[（(]優秀台[）)]\s*$", "", _mn).strip()  # タイトルの（優秀台）除去
-                _mn = re.sub(r"・[23]F$", "", _mn).strip()             # 階サフィックス（・2F/・3F）除去→基本名でパネル照合
-                _img, _panel_ok = _insert_panel_into_machine_img(_img, _mn)
-                if _panel_ok:
-                    _matched_panels.add(_mn)
-                else:
-                    _missing_panels.add(_mn)
-                    _img = _img.crop((0, _bar_h, _img.width, _img.height))  # パネル無し→青バー除去
-            else:
-                _img = _img.crop((0, _bar_h, _img.width, _img.height))       # 並び・バラエティ等→青バー除去
-                # バラエティ・末尾画像は上位4機種のパネルを2×2で表の上に結合
-                if _bare.startswith("バラエティ") or _is_sue:
-                    _pgrid = _build_variety_panel_grid(_bans, ban2mac, ban2diff, _img.width)
-                    if _pgrid is not None:
-                        _img = _vstack_images(_pgrid, _img)
-                # 並び画像は 1機種→その機種／2機種→2枚横／3機種以上→差枚最大の機種 のパネルを上に
-                elif "台並び" in _bare:
-                    _pnames = _narabi_panel_names(_bans, ban2mac, ban2diff)
-                    if _pnames:
-                        _prow = _build_panel_row(_pnames, _img.width)
-                        if _prow is not None:
-                            _img = _vstack_images(_prow, _img)
+        if store in _PANEL_STORES:
+            _img, _mn_p, _panel_ok = _apply_panel_to_table_img(
+                _img, _bare, _bans, ban2mac, ban2diff, _show_mn, _is_sue)
+            if _mn_p is not None:
+                (_matched_panels if _panel_ok else _missing_panels).add(_mn_p)
         _g_imgs: list["Image.Image"] = []
         for _b in _bans:
             _it = _by_uid.get(str(_b))
@@ -17498,7 +17552,7 @@ def _composite_slump_onto_images(
                                 _attach_slump_to_table_side(_img, _g_imgs, _bbb, _gap_img_side)))
             except Exception:
                 pass
-    if store == "新宿歌舞伎町":
+    if store in _PANEL_STORES:
         # rerun で消えないよう session_state に保存し、⑦プレビュー側で表示する（かぶぱ専用）
         st.session_state[f"_panel_report_{store}"] = {
             "matched": sorted(_matched_panels),

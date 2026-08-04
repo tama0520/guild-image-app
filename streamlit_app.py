@@ -2628,9 +2628,12 @@ def _build_machine_img(
     df_m: pd.DataFrame,
     title: str,
     summary_stat: dict | None = None,
+    no_bar: bool = False,
 ) -> Image.Image:
     """パイプライン用機種別画像。旧スクリプトと同じ寸法で生成する。
-    title が「（優秀台）」で終わる場合は2パーツ描画（gap=-22）。"""
+    title が「（優秀台）」で終わる場合は2パーツ描画（gap=-22）。
+    no_bar=True で青タイトルバー＋赤ラインを**描かずに**生成する（記事用の並び画像）。
+    ピンクサマリーバーの有無・表の内容は no_bar でも変わらない。"""
 
     # ── テーブル部分（タイトル・ピンクバーなし）─────────────────────
     df_d = _add_prob_col(df_m)
@@ -2708,22 +2711,26 @@ def _build_machine_img(
         pd_.text((x2 - bb2[0], ty_p), part2, fill=(0, 0, 0, 255), font=font_sum)
         pd_.rectangle([0, 0, w-1, pink_h-1], outline=(170, 170, 170, 255))
 
-        total_h = BAR_H + LINE_H + table_img.height + pink_h
+        _top_h  = 0 if no_bar else BAR_H + LINE_H
+        total_h = _top_h + table_img.height + pink_h
         final   = Image.new("RGBA", (w, total_h), (255, 255, 255, 255))
-        final.paste(bar,       (0, 0))
-        final.paste(line,      (0, BAR_H))
-        final.paste(table_img, (0, BAR_H + LINE_H))
-        final.paste(pink,      (0, BAR_H + LINE_H + table_img.height))
+        if not no_bar:
+            final.paste(bar,   (0, 0))
+            final.paste(line,  (0, BAR_H))
+        final.paste(table_img, (0, _top_h))
+        final.paste(pink,      (0, _top_h + table_img.height))
     else:
         ImageDraw.Draw(table_img).line(
             [(0, table_img.height-1), (w-1, table_img.height-1)],
             fill=(170, 170, 170, 255), width=1,
         )
-        total_h = BAR_H + LINE_H + table_img.height
+        _top_h  = 0 if no_bar else BAR_H + LINE_H
+        total_h = _top_h + table_img.height
         final   = Image.new("RGBA", (w, total_h), (255, 255, 255, 255))
-        final.paste(bar,       (0, 0))
-        final.paste(line,      (0, BAR_H))
-        final.paste(table_img, (0, BAR_H + LINE_H))
+        if not no_bar:
+            final.paste(bar,   (0, 0))
+            final.paste(line,  (0, BAR_H))
+        final.paste(table_img, (0, _top_h))
 
     return final.convert("RGB")
 
@@ -4601,11 +4608,16 @@ def ranges_to_bans(ranges: list[list[int]]) -> set[int]:
 
 
 def _patch_and_run_narabi(
-    script_path: str, input_path: str, split_dir: str, ranges: list
+    script_path: str, input_path: str, split_dir: str, ranges: list,
+    no_bar: bool = False,
 ) -> tuple[bool, str, str]:
-    """並びスクリプト専用: INPUT/SPLIT_DIR/RANGES を書き換えて実行する"""
+    """並びスクリプト専用: INPUT/SPLIT_DIR/RANGES を書き換えて実行する。
+    no_bar=True のときは NO_BAR も書き換え、青タイトルバーなしで生成させる
+    （記事用ページ専用。既定 False＝通常ページは従来どおり）。"""
     with open(script_path, encoding="utf-8") as f:
         code = f.read()
+    if no_bar:
+        code = re.sub(r'^NO_BAR\s*=\s*(True|False)', 'NO_BAR = True', code, flags=re.MULTILINE)
 
     for var, val in [("INPUT", input_path), ("SPLIT_DIR", split_dir)]:
         code = re.sub(
@@ -4988,7 +5000,12 @@ def _restore_auto_inputs(excel_name: str, store: str) -> None:
 def _article_input_keys(store: str) -> list[str]:
     keys = ["art_kojin_enabled", "art_narabi_enabled", "art_narabi_ranges_input",
             "art_suebangai_enabled", "art_suebangai_tail_input",
+            "art_suebangai_mode", "art_jug_sue_enabled", "art_jug_sue_mode",
             "art_variety_enabled"]
+    # 末尾3枠・ジャグラー末尾3枠（画像生成用。pipelineへ渡す除外用の末尾は
+    # 従来どおり art_suebangai_tail_input の1枠のみ＝既存の重複除外を変えない）
+    for i in range(1, 4):
+        keys += [f"art_suebangai_tail_input_{i}", f"art_jug_sue_tail_input_{i}"]
     for i in range(12):
         keys += [f"art_kojin_z_{i}_{store}", f"art_kojin_y_{i}_{store}"]
     keys += [
@@ -6288,6 +6305,243 @@ def _render_unit_ex_panel(store: str, excel_stem: str, kind: str, machine: "str 
         st.caption(f"ℹ️ チェック変更後は「{apply_label}」を押すと反映されます")
 
 
+def _art_sue_settings() -> "tuple[list[str], str, list[str], str]":
+    """記事用④末尾の入力値を返す（⑦プレビュー・🔄更新・⑧本番で同じ値を使う）。
+    戻り値: (通常末尾リスト, 通常モード, ジャグラー末尾リスト, ジャグラーモード)。
+    チェックがOFFの系統は空リストを返す。"""
+    _tails: list[str] = []
+    if st.session_state.get("art_suebangai_enabled", False):
+        _tails = [t for i in range(1, 4)
+                  if (t := st.session_state.get(f"art_suebangai_tail_input_{i}", "").strip())]
+    _mode = st.session_state.get("art_suebangai_mode", "全台")
+    # ジャグラー末尾は通常ページ（上野新館 等）と同じく通常末尾のON/OFFとは独立
+    _jtails: list[str] = []
+    if st.session_state.get("art_jug_sue_enabled", False):
+        _jtails = [t for i in range(1, 4)
+                   if (t := st.session_state.get(f"art_jug_sue_tail_input_{i}", "").strip())]
+    _jmode = st.session_state.get("art_jug_sue_mode", "全台")
+    return _tails, _mode, _jtails, _jmode
+
+
+def _art_tail_bans(df: "pd.DataFrame", tails: list) -> set:
+    """末尾リストに該当する台番集合を返す（ゾロ目・1〜2桁）。
+    判定は run_auto_pipeline の suebangai_bans 算出と同一。重複は集合で吸収する。"""
+    _out: set[int] = set()
+    if df is None or "台番" not in getattr(df, "columns", []):
+        return _out
+    for _t in (tails or []):
+        _ts = str(_t).strip()
+        if _ts == "ゾロ目":
+            _out |= {int(b) for b in df["台番"]
+                     if (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]}
+        elif _ts.isdigit() and len(_ts) in (1, 2):
+            _out |= {int(b) for b in df["台番"] if str(int(b))[-len(_ts):] == _ts}
+    return _out
+
+
+def _art_sue_exclude_tails() -> "tuple[list[str], list[str]]":
+    """他画像から末尾台を除外するために pipeline へ渡す末尾を返す。
+
+    戻り値: (suebangai_tails, jug_suebangai_tails)
+    通常ページ（上野新館 等）と同じく **末尾①②③すべて**を渡す。
+    ＝末尾画像へ載せる台は、高配分・ジャグラーシリーズ優秀台・その他の優秀台・
+      バラエティへ重複掲載されない（除外は候補抽出の段階で pipeline が行う）。
+    末尾判定（ゾロ目・1〜2桁）は pipeline 側の既存処理をそのまま使う。
+
+    上段の単独入力欄（art_suebangai_tail_input）は上野新館に合わせて廃止したため、
+    末尾①②③がすべて空のときだけ旧キーへフォールバックする（過去保存日の互換）。"""
+    _tails, _, _jtails, _ = _art_sue_settings()
+    if st.session_state.get("art_suebangai_enabled", False) and not _tails:
+        _legacy = (st.session_state.get("art_suebangai_tail_input", "") or "").strip()
+        if _legacy:
+            _tails = [_legacy]
+    return _tails, _jtails
+
+
+def _compute_sue_stats_for(store: str, tails, is_juggler: bool, df_run,
+                           allowed_bans=None) -> list[dict]:
+    """末尾ごとの統計（total/win_count/avg_diff/plus1000）を返す（結果テキスト用）。
+
+    show_auto_page 内のネスト関数 _compute_sue_stats の本体をそのまま移したもの。
+    通常ページ・記事用ページの両方から同じ引数で呼ぶ（文章生成の重複実装をしない）。
+
+    is_juggler=False: 末尾一致する全台（機種不問）
+    is_juggler=True:  末尾一致するジャグラー機種のみ（G数・確率フィルターなし）
+    allowed_bans: 実際に画像へ載った台番集合（None なら従来どおり全件）。
+      total / win_count / avg_diff は **元データ基準のまま**で、
+      plus1000（サマリー直下の +1,000枚以上一覧）だけを掲載台に絞る。"""
+    _stats = []
+    _jug_ser2: set[str] = set()
+    if is_juggler:
+        _jug_ser2 = set(get_store_config(store)["juggler_series"])
+    for _t in tails:
+        if _t == "ゾロ目":
+            _f2 = df_run[df_run["台番"].apply(
+                lambda b: (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]
+            )].copy()
+        elif _t.isdigit() and len(_t) in (1, 2):
+            _f2 = df_run[df_run["台番"].astype(str).str[-len(_t):] == _t].copy()
+        else:
+            continue
+        if is_juggler:
+            _f2 = _f2[_f2["機種名"].isin(_jug_ser2)].copy()
+        if _f2.empty:
+            continue
+        _stats.append({
+            "tail": _t,
+            "total": len(_f2),
+            "win_count": int((_f2["差枚"] > 0).sum()),
+            "avg_diff": int(round(_f2["差枚"].mean())) if len(_f2) > 0 else 0,
+            "plus1000": _sue_plus1000_list(_f2, _f2["差枚"], allowed_bans=allowed_bans),
+        })
+    return _stats
+
+
+def _build_sue_images(uploaded, store: str, tails, mode: str, is_juggler: bool = False,
+                      ban_out=None, stat_out=None, src_out=None,
+                      exclude_state: "dict | None" = None,
+                      article_mode: bool = False):
+    """④末尾／ジャグラー末尾画像を作る共通関数（通常ページ・記事用ページ共通）。
+
+    show_auto_page 内のネスト関数 _gen_sue_imgs_on_fly の本体をそのまま移したもの。
+    抽出条件・タイトル・ファイル名・台番昇順・集計値はすべて従来どおり。
+
+    exclude_state: 🎯掲載台を選ぶの除外辞書。None なら除外なし（記事用は今回 None）。
+    article_mode:  True で記事用の見た目（青タイトルバーなし）にする。
+                   集計あり→_build_article_machine_img（白サマリー）、なし→_build_machine_img_no_bar。
+    戻り値: [(ファイル名, PIL Image), ...]
+    src_out[fn] = {kind, machine(画像キー), bans(除外前候補), tail, is_juggler}
+    ban_out[fn] = 確定掲載台番 / stat_out[fn] = 集計対象台番（絞り込み前）
+    """
+    _imgs = []
+    try:
+        _raw_of = _read_uploaded_df(uploaded)
+        _df_of, _ = normalize_df(_raw_of)
+        _nm_of, _nm_norm_of = load_name_map()
+        if _nm_of:
+            _df_of, _ = _apply_map(_df_of, _nm_of, _nm_norm_of)
+        _circle_of = {"0":"⓪","1":"①","2":"②","3":"③","4":"④",
+                      "5":"⑤","6":"⑥","7":"⑦","8":"⑧","9":"⑨"}
+        if is_juggler:
+            _df_of["ゲーム数_rounded"] = _df_of["ゲーム数"].apply(round_games)
+            _df_of["合算確率_num"] = _df_of.apply(
+                lambda r: r["ゲーム数_rounded"] / (r["BB"] + r["RB"])
+                          if (r["BB"] + r["RB"]) > 0 else float("inf"), axis=1)
+            _jcfg_of = get_store_config(store)
+            _jug_ser_of = set(_jcfg_of["juggler_series"])
+            _jug_g_min_of = _jcfg_of["juggler_g_min"]
+            _jug_thresh_of = {m: (p, d) for m, p, d in _jcfg_of["juggler_jobs"]}
+        for _t in tails:
+            if _t == "ゾロ目":
+                _filt = _df_of[_df_of["台番"].apply(
+                    lambda b: (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]
+                )].copy()
+                _circ = "ゾロ目"
+                _lbl_base = "末尾ゾロ目" if is_juggler else "末尾ゾロ目の台"
+            elif _t.isdigit() and len(_t) in (1, 2):
+                _filt = _df_of[_df_of["台番"].astype(str).str[-len(_t):] == _t].copy()
+                _circ = _circle_of.get(_t, _t)
+                _lbl_base = f"末尾{_circ}" if is_juggler else f"末尾{_circ}番台"
+            else:
+                continue
+            if _filt.empty:
+                continue
+            _filt = _filt.sort_values("台番", kind="stable")
+            # 集計用の全台（優秀/プラス絞り込み前・ピンクバー総台数と一致）
+            _stat_bans = [int(b) for b in _filt["台番"].dropna()
+                          if str(b).split(".")[0].lstrip("-").isdigit()]
+            if is_juggler:
+                _filt = _filt[_filt["機種名"].isin(_jug_ser_of)].copy()
+                _filt = _filt[_filt["ゲーム数_rounded"] >= _jug_g_min_of].copy()
+                if _filt.empty:
+                    continue
+                _stat_bans = [int(b) for b in _filt["台番"].dropna()
+                              if str(b).split(".")[0].lstrip("-").isdigit()]
+                _jp_of  = mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）")
+                _jy_of  = mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
+                _jb_of  = mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
+                if _jp_of or _jy_of:
+                    _jof_total = len(_filt); _jof_td = int(_filt["差枚"].sum()); _jof_ad = int(round(_filt["差枚"].mean())); _jof_wc = int((_filt["差枚"] > 0).sum())
+                    if _jp_of:
+                        _filt = _filt[_filt["差枚"] > 0].copy()
+                        _title = f"ジャグラーの{_lbl_base}番台のプラス台"
+                    else:
+                        # 優秀台: 確率フィルター + 差枚 > 0
+                        if not _filt.empty:
+                            _ps = _filt["機種名"].map(
+                                lambda m: _jug_thresh_of.get(m, (float("inf"), float("inf")))[0])
+                            _ds = _filt["機種名"].map(
+                                lambda m: _jug_thresh_of.get(m, (float("inf"), float("inf")))[1])
+                            _filt = _filt[((_filt["合算確率_num"] <= _ps) & (_filt["差枚"] >= 0)) |
+                                          (_filt["差枚"] >= _ds)].copy().reset_index(drop=True)
+                        _filt = _filt[_filt["差枚"] > 0].copy()
+                        _title = f"ジャグラーの{_lbl_base}番台の優秀台"
+                    if _filt.empty:
+                        continue
+                    _stat_of = {"total_diff": _jof_td, "avg_diff": _jof_ad, "win_count": _jof_wc, "total_count": _jof_total} if _jb_of else None
+                else:
+                    # 全台: G数フィルターのみ（確率・差枚条件なし）
+                    _title = f"ジャグラーの{_lbl_base}番台"
+                    _stat_of = {"total_diff": int(_filt["差枚"].sum()),
+                                "avg_diff": int(round(_filt["差枚"].mean())),
+                                "win_count": int((_filt["差枚"] > 0).sum()),
+                                "total_count": len(_filt)}
+            else:
+                _p_of  = mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）", "プラス台")
+                _y_of  = mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
+                _1k_of = mode == "+1,000枚以上の優秀台"
+                _b_of  = mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
+                if _p_of or _y_of or _1k_of:
+                    _of_total = len(_filt); _of_td = int(_filt["差枚"].sum()); _of_ad = int(round(_filt["差枚"].mean())); _of_wc = int((_filt["差枚"] > 0).sum())
+                    if _p_of:
+                        _filt = _filt[_filt["差枚"] > 0].copy()
+                        _title = f"{_lbl_base}のプラス台"
+                    elif _1k_of:
+                        _filt = _filt[_filt["差枚"] >= 1000].copy()
+                        _title = f"{_lbl_base}の優秀台"
+                    else:
+                        _og_col = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _filt.columns), None)
+                        _ofm = (_filt["差枚"] >= 1000) | ((_filt[_og_col] >= 1800) & (_filt["差枚"] > 0)) if _og_col else (_filt["差枚"] >= 1000)
+                        _filt = _filt[_ofm].copy()
+                        _title = f"{_lbl_base}の優秀台"
+                    if _filt.empty:
+                        continue
+                    _stat_of = {"total_diff": _of_td, "avg_diff": _of_ad, "win_count": _of_wc, "total_count": _of_total} if _b_of else None
+                else:
+                    _title = _lbl_base
+                    _stat_of = {"total_diff": int(_filt["差枚"].sum()),
+                                "avg_diff": int(round(_filt["差枚"].mean())),
+                                "win_count": int((_filt["差枚"] > 0).sum()),
+                                "total_count": len(_filt)}
+            _fn_of = f"{_make_safe_fn(_title)}.jpg"
+            # 🎯掲載台を選ぶ（④末尾）: 候補抽出・集計（_stat_of / _stat_bans）を
+            # 確定させたあと、画像へ載せる台だけを間引く。
+            _filt, _ik_of, _ball_of = _unit_ex_pick(
+                exclude_state, "suebangai",
+                f"{'jug' if is_juggler else 'sue'}:{_title}", _filt)
+            if src_out is not None:
+                src_out[_fn_of] = {"kind": "suebangai", "machine": _ik_of, "bans": _ball_of,
+                                   "tail": _t, "is_juggler": bool(is_juggler)}
+            if _filt.empty:
+                continue   # 全台除外 → 画像を作らない
+            if article_mode:
+                # 記事用は青タイトルバーなし。集計ありは白サマリー（クラウン＋タイトル＋統計）、
+                # 集計なしは表のみ＝記事用の他画像と同じ見た目にそろえる。
+                _img_of = (_build_article_machine_img(_filt, _title, _stat_of) if _stat_of
+                           else _build_machine_img_no_bar(_filt))
+            else:
+                _img_of = _build_machine_img(_filt, _title, _stat_of)
+            _imgs.append((_fn_of, _img_of))
+            if ban_out is not None:
+                ban_out[_fn_of] = [int(b) for b in _filt["台番"].dropna()
+                                   if str(b).split(".")[0].lstrip("-").isdigit()]
+            if stat_out is not None:
+                stat_out[_fn_of] = _stat_bans
+    except Exception:
+        pass
+    return _imgs
+
+
 def show_auto_page(with_slump: bool = False) -> None:
     """自動処理ページ: PIL パイプラインで全画像を生成する"""
     store = st.session_state.selected_store
@@ -6612,129 +6866,16 @@ def show_auto_page(with_slump: bool = False) -> None:
         except Exception:
             pass
     # ④ 末尾・ジャグラー末尾画像を生成する共通関数（全プレビュー/実行経路で使用）
-    # src_out: 🎯掲載台を選ぶ用に {ファイル名: {kind, machine, bans(除外前)}} を書き出す
+    # 実体はモジュールレベルの _build_sue_images()（記事用ページからも呼ぶため切り出し済み）。
+    # 引数・戻り値・除外辞書の渡し方は従来どおりで、通常ページの出力は変わらない。
     def _gen_sue_imgs_on_fly(tails, mode, is_juggler=False, ban_out=None, stat_out=None,
                              src_out=None):
-        _imgs = []
-        _excel_stem_ue = os.path.splitext(uploaded.name)[0] if uploaded is not None else ""
-        try:
-            _raw_of = _read_uploaded_df(uploaded)
-            _df_of, _ = normalize_df(_raw_of)
-            _nm_of, _nm_norm_of = load_name_map()
-            if _nm_of:
-                _df_of, _ = _apply_map(_df_of, _nm_of, _nm_norm_of)
-            _circle_of = {"0":"⓪","1":"①","2":"②","3":"③","4":"④",
-                          "5":"⑤","6":"⑥","7":"⑦","8":"⑧","9":"⑨"}
-            if is_juggler:
-                _df_of["ゲーム数_rounded"] = _df_of["ゲーム数"].apply(round_games)
-                _df_of["合算確率_num"] = _df_of.apply(
-                    lambda r: r["ゲーム数_rounded"] / (r["BB"] + r["RB"])
-                              if (r["BB"] + r["RB"]) > 0 else float("inf"), axis=1)
-                _jcfg_of = get_store_config(store)
-                _jug_ser_of = set(_jcfg_of["juggler_series"])
-                _jug_g_min_of = _jcfg_of["juggler_g_min"]
-                _jug_thresh_of = {m: (p, d) for m, p, d in _jcfg_of["juggler_jobs"]}
-            for _t in tails:
-                if _t == "ゾロ目":
-                    _filt = _df_of[_df_of["台番"].apply(
-                        lambda b: (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]
-                    )].copy()
-                    _circ = "ゾロ目"
-                    _lbl_base = "末尾ゾロ目" if is_juggler else "末尾ゾロ目の台"
-                elif _t.isdigit() and len(_t) in (1, 2):
-                    _filt = _df_of[_df_of["台番"].astype(str).str[-len(_t):] == _t].copy()
-                    _circ = _circle_of.get(_t, _t)
-                    _lbl_base = f"末尾{_circ}" if is_juggler else f"末尾{_circ}番台"
-                else:
-                    continue
-                if _filt.empty:
-                    continue
-                _filt = _filt.sort_values("台番", kind="stable")
-                # 集計用の全台（優秀/プラス絞り込み前・ピンクバー総台数と一致）
-                _stat_bans = [int(b) for b in _filt["台番"].dropna()
-                              if str(b).split(".")[0].lstrip("-").isdigit()]
-                if is_juggler:
-                    _filt = _filt[_filt["機種名"].isin(_jug_ser_of)].copy()
-                    _filt = _filt[_filt["ゲーム数_rounded"] >= _jug_g_min_of].copy()
-                    if _filt.empty:
-                        continue
-                    _stat_bans = [int(b) for b in _filt["台番"].dropna()
-                                  if str(b).split(".")[0].lstrip("-").isdigit()]
-                    _jp_of  = mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）")
-                    _jy_of  = mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
-                    _jb_of  = mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
-                    if _jp_of or _jy_of:
-                        _jof_total = len(_filt); _jof_td = int(_filt["差枚"].sum()); _jof_ad = int(round(_filt["差枚"].mean())); _jof_wc = int((_filt["差枚"] > 0).sum())
-                        if _jp_of:
-                            _filt = _filt[_filt["差枚"] > 0].copy()
-                            _title = f"ジャグラーの{_lbl_base}番台のプラス台"
-                        else:
-                            # 優秀台: 確率フィルター + 差枚 > 0
-                            if not _filt.empty:
-                                _ps = _filt["機種名"].map(
-                                    lambda m: _jug_thresh_of.get(m, (float("inf"), float("inf")))[0])
-                                _ds = _filt["機種名"].map(
-                                    lambda m: _jug_thresh_of.get(m, (float("inf"), float("inf")))[1])
-                                _filt = _filt[((_filt["合算確率_num"] <= _ps) & (_filt["差枚"] >= 0)) |
-                                              (_filt["差枚"] >= _ds)].copy().reset_index(drop=True)
-                            _filt = _filt[_filt["差枚"] > 0].copy()
-                            _title = f"ジャグラーの{_lbl_base}番台の優秀台"
-                        if _filt.empty:
-                            continue
-                        _stat_of = {"total_diff": _jof_td, "avg_diff": _jof_ad, "win_count": _jof_wc, "total_count": _jof_total} if _jb_of else None
-                    else:
-                        # 全台: G数フィルターのみ（確率・差枚条件なし）
-                        _title = f"ジャグラーの{_lbl_base}番台"
-                        _stat_of = {"total_diff": int(_filt["差枚"].sum()),
-                                    "avg_diff": int(round(_filt["差枚"].mean())),
-                                    "win_count": int((_filt["差枚"] > 0).sum()),
-                                    "total_count": len(_filt)}
-                else:
-                    _p_of  = mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）", "プラス台")
-                    _y_of  = mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
-                    _1k_of = mode == "+1,000枚以上の優秀台"
-                    _b_of  = mode in ("プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）")
-                    if _p_of or _y_of or _1k_of:
-                        _of_total = len(_filt); _of_td = int(_filt["差枚"].sum()); _of_ad = int(round(_filt["差枚"].mean())); _of_wc = int((_filt["差枚"] > 0).sum())
-                        if _p_of:
-                            _filt = _filt[_filt["差枚"] > 0].copy()
-                            _title = f"{_lbl_base}のプラス台"
-                        elif _1k_of:
-                            _filt = _filt[_filt["差枚"] >= 1000].copy()
-                            _title = f"{_lbl_base}の優秀台"
-                        else:
-                            _og_col = next((c for c in ["ゲーム数_rounded", "ゲーム数"] if c in _filt.columns), None)
-                            _ofm = (_filt["差枚"] >= 1000) | ((_filt[_og_col] >= 1800) & (_filt["差枚"] > 0)) if _og_col else (_filt["差枚"] >= 1000)
-                            _filt = _filt[_ofm].copy()
-                            _title = f"{_lbl_base}の優秀台"
-                        if _filt.empty:
-                            continue
-                        _stat_of = {"total_diff": _of_td, "avg_diff": _of_ad, "win_count": _of_wc, "total_count": _of_total} if _b_of else None
-                    else:
-                        _title = _lbl_base
-                        _stat_of = {"total_diff": int(_filt["差枚"].sum()),
-                                    "avg_diff": int(round(_filt["差枚"].mean())),
-                                    "win_count": int((_filt["差枚"] > 0).sum()),
-                                    "total_count": len(_filt)}
-                _fn_of = f"{_make_safe_fn(_title)}.jpg"
-                # 🎯掲載台を選ぶ（④末尾）: 候補抽出・集計（_stat_of / _stat_bans）を
-                # 確定させたあと、画像へ載せる台だけを間引く。
-                _filt, _ik_of, _ball_of = _unit_ex_pick(
-                    _unit_ex_state(store, _excel_stem_ue), "suebangai",
-                    f"{'jug' if is_juggler else 'sue'}:{_title}", _filt)
-                if src_out is not None:
-                    src_out[_fn_of] = {"kind": "suebangai", "machine": _ik_of, "bans": _ball_of}
-                if _filt.empty:
-                    continue   # 全台除外 → 画像を作らない
-                _imgs.append((_fn_of, _build_machine_img(_filt, _title, _stat_of)))
-                if ban_out is not None:
-                    ban_out[_fn_of] = [int(b) for b in _filt["台番"].dropna()
-                                       if str(b).split(".")[0].lstrip("-").isdigit()]
-                if stat_out is not None:
-                    stat_out[_fn_of] = _stat_bans
-        except Exception:
-            pass
-        return _imgs
+        return _build_sue_images(
+            uploaded, store, tails, mode, is_juggler=is_juggler,
+            ban_out=ban_out, stat_out=stat_out, src_out=src_out,
+            exclude_state=_unit_ex_state(
+                store, os.path.splitext(uploaded.name)[0] if uploaded is not None else ""),
+        )
 
     _excel_candidates: list[str] = st.session_state.get(_em_ss_key) or load_machine_candidates()
 
@@ -10265,37 +10406,10 @@ def show_auto_page(with_slump: bool = False) -> None:
 
             # ── ④ 末尾・ジャグラー末尾の保存（プレビュー済みはチェック済みのみ、未生成はオンザフライ）──
             def _compute_sue_stats(tails, mode, is_juggler, df_run, allowed_bans=None) -> list[dict]:
-                """末尾ごとの統計（total/win_count/avg_diff）を返す。
-                is_juggler=False: 末尾一致する全台（機種不問）
-                is_juggler=True:  末尾一致するジャグラー機種のみ（G数・確率フィルターなし）
-                allowed_bans: 🎯掲載台を選ぶで実際に画像へ載った台番集合（None なら従来どおり）。
-                  total / win_count / avg_diff は **元データ基準のまま**で、
-                  plus1000（サマリー直下の +1,000枚以上一覧）だけを掲載台に絞る。"""
-                _stats = []
-                _jug_ser2: set[str] = set()
-                if is_juggler:
-                    _jug_ser2 = set(get_store_config(store)["juggler_series"])
-                for _t in tails:
-                    if _t == "ゾロ目":
-                        _f2 = df_run[df_run["台番"].apply(
-                            lambda b: (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]
-                        )].copy()
-                    elif _t.isdigit() and len(_t) in (1, 2):
-                        _f2 = df_run[df_run["台番"].astype(str).str[-len(_t):] == _t].copy()
-                    else:
-                        continue
-                    if is_juggler:
-                        _f2 = _f2[_f2["機種名"].isin(_jug_ser2)].copy()
-                    if _f2.empty:
-                        continue
-                    _stats.append({
-                        "tail": _t,
-                        "total": len(_f2),
-                        "win_count": int((_f2["差枚"] > 0).sum()),
-                        "avg_diff": int(round(_f2["差枚"].mean())) if len(_f2) > 0 else 0,
-                        "plus1000": _sue_plus1000_list(_f2, _f2["差枚"], allowed_bans=allowed_bans),
-                    })
-                return _stats
+                """実体はモジュールレベルの _compute_sue_stats_for()（記事用からも呼ぶため切り出し済み）。
+                mode は互換のため受け取るが集計には使わない（集計は元データ基準・従来どおり）。"""
+                return _compute_sue_stats_for(store, tails, is_juggler, df_run,
+                                              allowed_bans=allowed_bans)
 
             def _save_sue_imgs_run(tails, mode, is_juggler, df_run) -> list[str]:
                 """④プレビュー未生成時の⑧末尾画像保存。
@@ -12225,13 +12339,33 @@ def show_auto_article_page() -> None:
         suebangai_enabled = st.checkbox("末尾画像も生成する", key="art_suebangai_enabled",
                                         on_change=_save_article_inputs, args=(store,))
         if suebangai_enabled:
-            tail_input = st.text_input(
-                "末尾（例: 5、ゾロ目は「ゾロ目」と入力）",
-                value="",
-                key="art_suebangai_tail_input",
-                on_change=_save_article_inputs, args=(store,),
-            )
-            if tail_input.strip():
+            # UI構成は上野新館（スランプ付き結果ポスト用）と同じ。
+            # 他画像からの末尾台除外（pipelineの suebangai_tails）は
+            # 従来どおり1枠だけ＝末尾①を使う（_art_sue_exclude_tails）。
+            _atc1, _atc2, _atc3 = st.columns(3)
+            with _atc1:
+                _a_ti1 = st.text_input("末尾①", value="", key="art_suebangai_tail_input_1",
+                                       placeholder="例: 5",
+                                       on_change=_save_article_inputs, args=(store,))
+            with _atc2:
+                _a_ti2 = st.text_input("末尾②", value="", key="art_suebangai_tail_input_2",
+                                       placeholder="例: 7",
+                                       on_change=_save_article_inputs, args=(store,))
+            with _atc3:
+                _a_ti3 = st.text_input("末尾③", value="", key="art_suebangai_tail_input_3",
+                                       placeholder="ゾロ目",
+                                       on_change=_save_article_inputs, args=(store,))
+            _a_sue_tails_ui = [t.strip() for t in [_a_ti1, _a_ti2, _a_ti3] if t.strip()]
+            if _a_sue_tails_ui:
+                _a_sue_mode_opts = ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）",
+                                    "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"]
+                if st.session_state.get("art_suebangai_mode") not in _a_sue_mode_opts:
+                    st.session_state.pop("art_suebangai_mode", None)
+                st.radio("モード", _a_sue_mode_opts, key="art_suebangai_mode",
+                         horizontal=True, on_change=_save_article_inputs, args=(store,))
+
+            # 既存の単発保存ボタン（末尾①を対象・従来どおりその場で保存/DL）
+            if _a_ti1.strip():
                 _sc1, _sc2 = st.columns(2)
                 with _sc1:
                     sue_zentai = st.button("全台", key="art_sue_zentai_btn",
@@ -12243,7 +12377,7 @@ def show_auto_article_page() -> None:
                                           disabled=(uploaded is None))
 
                 if (sue_zentai or sue_yushu) and uploaded is not None:
-                    _tail = tail_input.strip()
+                    _tail = _a_ti1.strip()
                     try:
                         _raw = pd.read_excel(uploaded)
                         uploaded.seek(0)
@@ -12309,6 +12443,36 @@ def show_auto_article_page() -> None:
                         st.error(f"❌ エラー: {_e}")
                         with st.expander("詳細"):
                             st.code(traceback.format_exc())
+            if not _a_sue_tails_ui:
+                st.info("末尾を入力してください。")
+
+        # ジャグラー専用末尾画像（上野新館 スランプ付き結果ポスト用と同じ構成）
+        st.markdown("##### ジャグラー末尾画像")
+        _a_jug_sue_enabled = st.checkbox("ジャグラー機種の末尾画像も生成する",
+                                         key="art_jug_sue_enabled",
+                                         on_change=_save_article_inputs, args=(store,))
+        if _a_jug_sue_enabled:
+            _ajc1, _ajc2, _ajc3 = st.columns(3)
+            with _ajc1:
+                _a_jt1 = st.text_input("末尾①（ジャグラー）", value="",
+                                       key="art_jug_sue_tail_input_1", placeholder="例: 7",
+                                       on_change=_save_article_inputs, args=(store,))
+            with _ajc2:
+                _a_jt2 = st.text_input("末尾②（ジャグラー）", value="",
+                                       key="art_jug_sue_tail_input_2", placeholder="例: 3",
+                                       on_change=_save_article_inputs, args=(store,))
+            with _ajc3:
+                _a_jt3 = st.text_input("末尾③（ジャグラー）", value="",
+                                       key="art_jug_sue_tail_input_3", placeholder="ゾロ目",
+                                       on_change=_save_article_inputs, args=(store,))
+            _a_jug_tails_ui = [t.strip() for t in [_a_jt1, _a_jt2, _a_jt3] if t.strip()]
+            if _a_jug_tails_ui:
+                _a_jug_mode_opts = ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）",
+                                    "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"]
+                if st.session_state.get("art_jug_sue_mode") not in _a_jug_mode_opts:
+                    st.session_state.pop("art_jug_sue_mode", None)
+                st.radio("モード（ジャグラー）", _a_jug_mode_opts, key="art_jug_sue_mode",
+                         horizontal=True, on_change=_save_article_inputs, args=(store,))
             else:
                 st.info("末尾を入力してください。")
 
@@ -12416,10 +12580,8 @@ def show_auto_article_page() -> None:
                             _art_prec |= {m.strip() for m in kojin_yushu_machines if m.strip()}
                         _art_pick_suppress = _kojin_pick_suppressed_machines(uploaded, store, prefix="art_")
                         _art_prec |= _art_pick_suppress
-                        _art_stails: list[str] = []
-                        if st.session_state.get("art_suebangai_enabled", False):
-                            _at = st.session_state.get("art_suebangai_tail_input", "").strip()
-                            if _at: _art_stails = [_at]
+                        # 他画像からの末尾台除外（通常ページと同じく末尾①②③＋ジャグラー末尾）
+                        _art_stails, _art_jstails = _art_sue_exclude_tails()
                         _art_vbans = (ranges_to_bans(parse_ranges(art_variety_ranges_text.strip()))
                                       if (art_variety_enabled and art_variety_ranges_text.strip()) else set())
                         _art_pr = run_auto_pipeline(
@@ -12428,11 +12590,17 @@ def show_auto_article_page() -> None:
                             narabi_ranges=narabi_ranges if narabi_ok else None,
                             recommended_machines=_art_prec,
                             suebangai_tails=_art_stails,
+                            jug_suebangai_tails=_art_jstails,
                             variety_bans=_art_vbans,
                             article_mode=True,
                         )
                         _art_pil: list[tuple[str, "Image.Image"]] = []
                         _art_nb_map: dict[str, list[int]] = {}
+                        # ④末尾画像: ファイル名 → 掲載台番（ban_map・スランプ用）／
+                        # 候補台番（次回🎯用）／集計対象台番
+                        _art_sue_ban:  dict[str, list[int]] = {}
+                        _art_sue_src:  dict[str, dict]      = {}
+                        _art_sue_stat: dict[str, list[int]] = {}
                         # ②個別・優秀台のファイル名 → 掲載台番（🎯除外後）。ban_map用
                         _art_ky_bans: dict[str, list[int]] = {}
                         _art_son_added = False
@@ -12536,7 +12704,9 @@ def show_auto_article_page() -> None:
                                     _art_nb_map[f"{_fnt}.jpg"] = [int(b) for b in _ng["台番"].tolist()]
                                     _nst = {"total_diff": int(_nds2.sum()), "avg_diff": int(round(_nds2.mean())),
                                             "win_count": int((_nds2 > 0).sum()), "total_count": len(_ng)}
-                                    _art_pil.append((f"{_fnt}.jpg", _build_machine_img(_ng, _nt, _nst)))
+                                    # 記事用の並び画像は青タイトルバーなし（⑧のNO_BAR出力と揃える）
+                                    _art_pil.append((f"{_fnt}.jpg",
+                                                     _build_machine_img(_ng, _nt, _nst, no_bar=True)))
                             if kojin_enabled and _apdf is not None and _apdi is not None:
                                 for _rt, _rts in [(kojin_narabi_ranges_text, kojin_narabi_title),
                                                    (kojin_narabi2_ranges_text, kojin_narabi2_title)]:
@@ -12550,6 +12720,20 @@ def show_auto_article_page() -> None:
                                                 _base = _rts.strip() or f"{_rt.strip()}の優秀台"
                                                 _art_pil.append((f"{_base}.jpg", _build_machine_img(_rp, _base, _stat_from_diff(_rdi))))
                                         except Exception: pass
+                            # ④ 末尾画像（通常末尾／ジャグラー末尾・並びの後・ジャグラーの前）
+                            # 抽出・タイトル・ファイル名・集計は通常ページと同じ _build_sue_images。
+                            # 記事用は article_mode=True（青タイトルバーなし）・🎯は未対応（今回は除外なし）。
+                            _a_st, _a_sm, _a_jt, _a_jm = _art_sue_settings()
+                            for _sue_tails_pv, _sue_mode_pv, _is_jug_pv in (
+                                    (_a_st, _a_sm, False), (_a_jt, _a_jm, True)):
+                                if not _sue_tails_pv:
+                                    continue
+                                for _sfn_pv, _simg_pv in _build_sue_images(
+                                        uploaded, store, _sue_tails_pv, _sue_mode_pv,
+                                        is_juggler=_is_jug_pv,
+                                        ban_out=_art_sue_ban, stat_out=_art_sue_stat,
+                                        src_out=_art_sue_src, article_mode=True):
+                                    _art_pil.append((_sfn_pv, _simg_pv))
                             # ④ ジャグラーシリーズ優秀台
                             if not _art_manual and "ジャグラーシリーズ優秀台.jpg" in _art_fpm:
                                 _art_pil.append(_art_fpm["ジャグラーシリーズ優秀台.jpg"])
@@ -12700,6 +12884,10 @@ def show_auto_article_page() -> None:
                                 _pv_bm_sl["その他の優秀台ピックアップ.jpg"] = _son_bns_pv
                         for _fn_nb_pv2, _bns_nb_pv2 in _art_nb_map.items():
                             _pv_bm_sl[_fn_nb_pv2] = _bns_nb_pv2
+                        # ④末尾画像（掲載台のみ・パネル/スランプ/液晶はban_map経由で連動）
+                        for _fn_sue_pv, _bns_sue_pv in _art_sue_ban.items():
+                            if _bns_sue_pv:
+                                _pv_bm_sl[_fn_sue_pv] = _bns_sue_pv
                         # バラエティ画像（生成成功時のみ・掲載された最終台番）
                         if _art_var_fn and _art_var_bans:
                             _pv_bm_sl[_art_var_fn] = _art_var_bans
@@ -12757,11 +12945,16 @@ def show_auto_article_page() -> None:
                                         # 記事用のパネル合成（高田馬場のみ）: 表→パネル→スランプ生成→結合 の順
                                         if store in _ARTICLE_PANEL_STORES:
                                             _is_sue_pv2 = ("末尾" in _fn_pv2)
+                                            _bare_pv2 = re.sub(r"^\d{2}_", "", _fn_pv2)
+                                            _is_multi_pv2 = _art_is_multi_machine(
+                                                _bare_pv2, _bans_pv2, _pv_ban2mac)
                                             _img_pv2, _, _ = _apply_panel_to_table_img(
-                                                _img_pv2, re.sub(r"^\d{2}_", "", _fn_pv2), _bans_pv2,
+                                                _img_pv2, _bare_pv2, _bans_pv2,
                                                 _pv_ban2mac, _pv_ban2diff,
-                                                _show_mn_pv2 or _is_sue_pv2, _is_sue_pv2,
-                                                crop_bar=False)  # 記事用は元画像をcropしない
+                                                _show_mn_pv2 or _is_sue_pv2 or _is_multi_pv2,
+                                                _is_sue_pv2,
+                                                crop_bar=False,      # 記事用は元画像をcropしない
+                                                is_multi=_is_multi_pv2)
                                         for _b_pv2 in _bans_pv2:
                                             _it_pv2 = _pv_by_uid.get(str(_b_pv2))
                                             if _it_pv2 is None or not _it_pv2.get("points"):
@@ -12820,6 +13013,10 @@ def show_auto_article_page() -> None:
                     st.session_state[_art_aprev_jug_ex_key]   = _art_pr.get("jug_excellent_list", [])
                     st.session_state[_art_aprev_jug_pool_key] = _art_pr.get("jug_pool_df")
                     st.session_state[_art_aprev_narabi_key]   = _art_nb_map
+                    # ④末尾画像: 次回🎯用の候補台番と、🔄更新で使う確定掲載台番
+                    st.session_state[f"art_sue_src_{store}"]  = _art_sue_src
+                    st.session_state[f"art_sue_ban_{store}"]  = _art_sue_ban
+                    st.session_state[f"art_sue_stat_{store}"] = _art_sue_stat
                     st.session_state[_art_aprev_unit_key]     = _art_unit_src
                     st.session_state[f"_art_prev_manual_{store}"] = bool(_art_manual)
                     # 「未反映」判定用スナップショット（今回のプレビューへ反映済みの内容）
@@ -12931,6 +13128,11 @@ def show_auto_article_page() -> None:
                     _apzen  = st.session_state.get(_art_aprev_zen_key, {})
                     _apnb   = st.session_state.get(_art_aprev_narabi_key, {})
                     if _apdf2 is not None and _apdi2 is not None:
+                        # 末尾画像へ載せる台は その他の優秀台／ジャグラー統合へ重複させない
+                        # （通常ページの _sue_bans_upd と同じ考え方）
+                        _a_st_upd, _a_jt_upd = _art_sue_exclude_tails()
+                        _a_sue_bans_upd = _art_tail_bans(_apdf2, _a_st_upd)
+                        _a_jug_bans_upd = _a_sue_bans_upd | _art_tail_bans(_apdf2, _a_jt_upd)
                         _ajss  = set(get_store_config(store)["juggler_series"])
                         _akset = {m.strip() for m in (kojin_zentai_machines + kojin_yushu_machines) if m.strip()}
                         _audfs:  list[pd.DataFrame] = []
@@ -13002,22 +13204,27 @@ def show_auto_article_page() -> None:
                             else:
                                 _aadf = _audfs; _aadi = _audis
                             _asc = pd.concat(_aadf, ignore_index=True)
+                            if _a_sue_bans_upd:   # 末尾画像の掲載台は重複させない
+                                _asc = _asc[~_asc["台番"].apply(int).isin(_a_sue_bans_upd)].copy()
                             _asc = _asc.iloc[_asc["台番"].argsort()].reset_index(drop=True)
-                            _asi = _build_machine_img(_asc, "その他の優秀台ピックアップ", None)
-                            _upd_bm["その他の優秀台ピックアップ.jpg"] = _bans_from_df(_asc)
-                            for _ci, (_pn2, _) in enumerate(_anp):
-                                if _pn2 == "その他の優秀台ピックアップ.jpg":
-                                    _anp[_ci] = (_pn2, _asi); break
-                            else:
-                                _anp.append(("その他の優秀台ピックアップ.jpg", _asi))
-                                st.session_state[f"art_prev_ck_{store}_{len(_anp)-1}"] = True
-                            _aup = True
+                            if not _asc.empty:
+                                _asi = _build_machine_img(_asc, "その他の優秀台ピックアップ", None)
+                                _upd_bm["その他の優秀台ピックアップ.jpg"] = _bans_from_df(_asc)
+                                for _ci, (_pn2, _) in enumerate(_anp):
+                                    if _pn2 == "その他の優秀台ピックアップ.jpg":
+                                        _anp[_ci] = (_pn2, _asi); break
+                                else:
+                                    _anp.append(("その他の優秀台ピックアップ.jpg", _asi))
+                                    st.session_state[f"art_prev_ck_{store}_{len(_anp)-1}"] = True
+                                _aup = True
                         if _ajdfs:
                             _ajbase = [_apjp.copy()] if _apjp is not None and not _apjp.empty else (
                                 [_apdf2[_apdf2["台番"].apply(lambda b: int(b) in {it["ban"] for it in _apje})].copy().reset_index(drop=True)]
                                 if _apje else []
                             )
                             _ajc = pd.concat(_ajbase + _ajdfs, ignore_index=True)
+                            if _a_jug_bans_upd:   # 末尾／ジャグラー末尾の掲載台は重複させない
+                                _ajc = _ajc[~_ajc["台番"].apply(int).isin(_a_jug_bans_upd)].copy()
                             _ajc = _ajc.iloc[_ajc["台番"].argsort()].reset_index(drop=True)
                             if len(_ajc) <= 5:
                                 # 5台以下 → overflowと同じ扱い: その他の優秀台ピックアップへ
@@ -13026,6 +13233,8 @@ def show_auto_article_page() -> None:
                                 _aov_dfs = ([_aov_rows] if not _aov_rows.empty else []) + _ajdfs
                                 _aov_son = pd.concat(_aov_dfs, ignore_index=True)
                                 _aov_son = _aov_son.drop_duplicates(subset=["台番"])
+                                if _a_sue_bans_upd:   # 末尾画像の掲載台は重複させない
+                                    _aov_son = _aov_son[~_aov_son["台番"].apply(int).isin(_a_sue_bans_upd)].copy()
                                 _aov_son = _aov_son.iloc[_aov_son["台番"].argsort()].reset_index(drop=True)
                                 _aov_img = _build_machine_img(_aov_son, "その他の優秀台ピックアップ", None)
                                 _upd_bm["その他の優秀台ピックアップ.jpg"] = _bans_from_df(_aov_son)
@@ -13105,12 +13314,17 @@ def show_auto_article_page() -> None:
                                                 # 記事用のパネル合成（プレビュー生成・⑧本番と同じ処理・同じ順序）
                                                 if store in _ARTICLE_PANEL_STORES:
                                                     _is_sue_u = ("末尾" in _fn_u)
+                                                    _bare_u = re.sub(r"^\d{2}_", "", _fn_u)
+                                                    _is_multi_u = _art_is_multi_machine(
+                                                        _bare_u, _bans_u, _upd_b2mac)
                                                     _img_u, _, _ = _apply_panel_to_table_img(
-                                                        _img_u, re.sub(r"^\d{2}_", "", _fn_u), _bans_u,
+                                                        _img_u, _bare_u, _bans_u,
                                                         _upd_b2mac, _upd_b2diff,
-                                                        _show_mn_u or _is_sue_u or _fn_u.startswith("バラエティ"),
+                                                        _show_mn_u or _is_sue_u or _is_multi_u
+                                                        or _fn_u.startswith("バラエティ"),
                                                         _is_sue_u,
-                                                        crop_bar=False)  # 記事用は元画像をcropしない
+                                                        crop_bar=False,      # 記事用は元画像をcropしない
+                                                        is_multi=_is_multi_u)
                                                 for _b_u in _bans_u:
                                                     _it_u = _upd_by_uid.get(str(_b_u))
                                                     if _it_u is None or not _it_u.get("points"):
@@ -13227,11 +13441,8 @@ def show_auto_article_page() -> None:
             }
             _art_pick_suppress_e = _kojin_pick_suppressed_machines(uploaded, store, prefix="art_")
             _kojin_names |= _art_pick_suppress_e
-            _sue_tails_art: list[str] = []
-            if st.session_state.get("art_suebangai_enabled", False):
-                _art_t = st.session_state.get("art_suebangai_tail_input", "").strip()
-                if _art_t:
-                    _sue_tails_art = [_art_t]
+            # 他画像からの末尾台除外（通常ページと同じく末尾①②③＋ジャグラー末尾）
+            _sue_tails_art, _jug_sue_tails_art = _art_sue_exclude_tails()
             _art_vbans_ex = (ranges_to_bans(parse_ranges(art_variety_ranges_text.strip()))
                              if (art_variety_enabled and art_variety_ranges_text.strip()) else set())
             result = run_auto_pipeline(
@@ -13239,6 +13450,7 @@ def show_auto_article_page() -> None:
                 narabi_ranges=narabi_ranges if narabi_ok else None,
                 recommended_machines=_kojin_names,
                 suebangai_tails=_sue_tails_art,
+                jug_suebangai_tails=_jug_sue_tails_art,
                 variety_bans=_art_vbans_ex,
                 article_mode=True,
             )
@@ -13248,24 +13460,14 @@ def show_auto_article_page() -> None:
             if narabi_ok:
                 st.write("⏳ 並び画像スクリプトを実行中…")
                 os.makedirs(narabi_dir, exist_ok=True)
+                # 記事用は生成段階で青タイトルバーなし（NO_BAR=True）。
+                # 生成後に上部を crop する旧処理は廃止（表ヘッダー・先頭台番を守るため）。
                 ok_n, out_n, err_n = _patch_and_run_narabi(
-                    STORE_NARABI_SCRIPT[store], excel_path, narabi_dir, narabi_ranges
+                    STORE_NARABI_SCRIPT[store], excel_path, narabi_dir, narabi_ranges,
+                    no_bar=True,
                 )
                 narabi_result = {"ok": ok_n, "stdout": out_n, "stderr": err_n}
                 st.write(f"{'✅' if ok_n else '❌'} 並び画像{'完了' if ok_n else 'エラー'}")
-                # 記事用: 青タイトルバー＋赤ライン（6px）をトップから除去
-                if ok_n and os.path.isdir(narabi_dir):
-                    for _nf in os.listdir(narabi_dir):
-                        if not _nf.lower().endswith((".jpg", ".jpeg", ".png")):
-                            continue
-                        _np = os.path.join(narabi_dir, _nf)
-                        try:
-                            _nim = Image.open(_np)
-                            _narabi_bar_h = round(_nim.width * 73 / 950) + 6
-                            _nim = _nim.crop((0, _narabi_bar_h, _nim.width, _nim.height))
-                            _save_jpeg(_nim.convert("RGB"), _np)
-                        except Exception:
-                            pass
                 # ⑦プレビューでチェックを外した並び画像を narabi_dir から削除（完全一致）
                 # narabiスクリプトはmake_safeでASCIIコロン→全角コロンに変換するため両方試みる
                 _art_aprev_imgs_n = st.session_state.get(f"art_preview_imgs_{store}")
@@ -13470,6 +13672,55 @@ def show_auto_article_page() -> None:
                     except Exception:
                         _log(f"  ❌ バラエティ画像エラー: {traceback.format_exc()}")
 
+            # ── ④ 末尾・ジャグラー末尾画像（記事用）────────────────────────
+            # ⑦プレビューと同じ _build_sue_images / 同じ入力値（_art_sue_settings）で作る。
+            # pipeline へ渡す suebangai_tails（他画像からの末尾台除外）は変更していない。
+            _art_sue_ban_e:  dict[str, list[int]] = {}
+            _art_sue_src_e:  dict[str, dict]      = {}
+            _art_sue_stat_e: dict[str, list[int]] = {}
+            _a_st_e, _a_sm_e, _a_jt_e, _a_jm_e = _art_sue_settings()
+            if result["ok"] and uploaded is not None:
+                for _tails_e, _mode_e, _isjug_e in ((_a_st_e, _a_sm_e, False),
+                                                    (_a_jt_e, _a_jm_e, True)):
+                    if not _tails_e:
+                        continue
+                    for _sfn_e, _simg_e in _build_sue_images(
+                            uploaded, store, _tails_e, _mode_e, is_juggler=_isjug_e,
+                            ban_out=_art_sue_ban_e, stat_out=_art_sue_stat_e,
+                            src_out=_art_sue_src_e, article_mode=True):
+                        _sout_e = os.path.join(output_dir, _sfn_e)
+                        _save_jpeg(_simg_e, _sout_e)
+                        result["files"].append(_sout_e)
+                        _log(f"  ✅ {'ジャグラー末尾' if _isjug_e else '末尾'}画像「{_sfn_e}」"
+                             f"({len(_art_sue_ban_e.get(_sfn_e, []))}台)")
+                # 候補0台で作らなかった画像は、古い同名ファイルを残さない
+                for _sfn_e in _art_sue_src_e:
+                    if not _art_sue_ban_e.get(_sfn_e):
+                        _sdel_e = os.path.join(output_dir, _sfn_e)
+                        if os.path.exists(_sdel_e):
+                            os.remove(_sdel_e)
+                            _log(f"  🗑️ 掲載台0台のため削除: {_sfn_e}")
+
+            # 結果テキスト用: 実際に画像を作れた末尾だけを対象にする（通常/ジャグラー別）。
+            # tail・is_juggler は _build_sue_images の src_out に記録済み。
+            _art_sue_done_t:  list[str] = []   # 画像ができた通常末尾（入力順）
+            _art_sue_done_jt: list[str] = []   # 画像ができたジャグラー末尾（入力順）
+            _art_sue_ok_bans:  set[int] = set()   # 通常末尾画像に載った台番
+            _art_jsue_ok_bans: set[int] = set()   # ジャグラー末尾画像に載った台番
+            for _sfn_r, _src_r in _art_sue_src_e.items():
+                _bns_r = _art_sue_ban_e.get(_sfn_r) or []
+                if not _bns_r:
+                    continue          # 候補0台＝画像なし → 結果テキストにも出さない
+                if _src_r.get("is_juggler"):
+                    _art_sue_done_jt.append(str(_src_r.get("tail", "")))
+                    _art_jsue_ok_bans |= {int(_b) for _b in _bns_r}
+                else:
+                    _art_sue_done_t.append(str(_src_r.get("tail", "")))
+                    _art_sue_ok_bans |= {int(_b) for _b in _bns_r}
+            # 入力順（末尾①→②→③）を保ち、重複末尾は1つにまとめる
+            _art_sue_done_t  = [_t for _t in _a_st_e if _t in set(_art_sue_done_t)]
+            _art_sue_done_jt = [_t for _t in _a_jt_e if _t in set(_art_sue_done_jt)]
+
             # ── プレビューでチェックを外した画像を削除・再生成 ────────────
             _art_aprev_imgs = st.session_state.get(f"art_preview_imgs_{store}")
             if _art_aprev_imgs and result["ok"]:
@@ -13621,6 +13872,10 @@ def show_auto_article_page() -> None:
                     _art_bm_sl["その他の優秀台ピックアップ.jpg"] = _son_bns_sl
                 for _fn_nb_sl, _bns_nb_sl in st.session_state.get(f"art_preview_narabi_{store}", {}).items():
                     _art_bm_sl[_fn_nb_sl] = _bns_nb_sl
+                # ④末尾画像（生成できたものだけ・掲載台番）
+                for _fn_sue_sl, _bns_sue_sl in _art_sue_ban_e.items():
+                    if _bns_sue_sl and os.path.exists(os.path.join(output_dir, _fn_sue_sl)):
+                        _art_bm_sl[_fn_sue_sl] = _bns_sue_sl
                 # バラエティ画像（生成成功時のみ・掲載された最終台番）
                 if _art_var_fn_e and _art_var_bans_e:
                     _art_bm_sl[_art_var_fn_e] = _art_var_bans_e
@@ -13694,11 +13949,15 @@ def show_auto_article_page() -> None:
                                 # 記事用のパネル合成（高田馬場のみ）: 表→パネル→スランプ生成→結合 の順
                                 if store in _ARTICLE_PANEL_STORES:
                                     _is_sue_sl = ("末尾" in _fp_sl)
+                                    _bare_sl = re.sub(r"^\d{2}_", "", _fp_sl)
+                                    _is_multi_sl = _art_is_multi_machine(
+                                        _bare_sl, _bans_sl, _art_ban2mac_sl)
                                     _t_img_sl, _mn_sl, _pok_sl = _apply_panel_to_table_img(
-                                        _t_img_sl, re.sub(r"^\d{2}_", "", _fp_sl), _bans_sl,
+                                        _t_img_sl, _bare_sl, _bans_sl,
                                         _art_ban2mac_sl, _art_ban2diff_sl,
-                                        _show_mn_sl or _is_sue_sl, _is_sue_sl,
-                                        crop_bar=False)  # 記事用は元画像をcropしない
+                                        _show_mn_sl or _is_sue_sl or _is_multi_sl, _is_sue_sl,
+                                        crop_bar=False,      # 記事用は元画像をcropしない
+                                        is_multi=_is_multi_sl)
                                     if _mn_sl is not None and not _pok_sl:
                                         _art_missing_panels.add(_mn_sl)
                                 for _b_sl in _bans_sl:
@@ -13778,6 +14037,21 @@ def show_auto_article_page() -> None:
 
         if result["ok"]:
             st.markdown("---")
+            # ④末尾の結果テキスト（通常ページと同じ _compute_sue_stats_for / 同じ書式・同じ挿入位置）。
+            # 集計（台数・平均差枚）は元データ基準、+1,000枚以上の一覧だけ
+            # 実際に末尾画像へ載った台番へ絞る。画像を作れなかった末尾は渡さない。
+            _art_sue_stats: list[dict] = []
+            _art_jsue_stats: list[dict] = []
+            _df_rt = result.get("df")
+            if _df_rt is not None:
+                if _art_sue_done_t:
+                    _art_sue_stats = _compute_sue_stats_for(
+                        store, _art_sue_done_t, False, _df_rt,
+                        allowed_bans=_art_sue_ok_bans or None)
+                if _art_sue_done_jt:
+                    _art_jsue_stats = _compute_sue_stats_for(
+                        store, _art_sue_done_jt, True, _df_rt,
+                        allowed_bans=_art_jsue_ok_bans or None)
             report_text = generate_report_text(
                 store_name=store,
                 date=result.get("date"),
@@ -13787,6 +14061,8 @@ def show_auto_article_page() -> None:
                 excellent_list=result.get("excellent_list", []),
                 diff_raw=result.get("diff_raw"),
                 df=result.get("df"),
+                suebangai_data=_art_sue_stats or None,
+                jug_sue_data=_art_jsue_stats or None,
             )
             for _old, _new in STORE_RESULT_TRANSFORMS.get(store, []):
                 report_text = report_text.replace(_old, _new)
@@ -17329,13 +17605,20 @@ def _vstack_images(top: "Image.Image", bottom: "Image.Image") -> "Image.Image":
 
 
 def _build_variety_panel_grid(
-    bans: list, ban2mac: dict, ban2diff: dict, width: int
+    bans: list, ban2mac: dict, ban2diff: dict, width: int,
+    order_by_min_ban: bool = False,
 ) -> "Image.Image | None":
     """バラエティ画像用: 優秀台の中から差枚上位4機種のパネルを 2×2（台番昇順・上2下2）で結合。
     パネル未登録機種は飛ばして次点を繰り上げ、4機種未満・パネル不足時はある分だけ詰める。
-    パネルが1枚も取れなければ None。"""
-    # 機種ごとに最高差枚とその台番を集計
+    パネルが1枚も取れなければ None。
+
+    採用機種の選定は常に「機種ごとの最高差枚が大きい順」（変更しない）。
+    order_by_min_ban=True（記事用）のときだけ、**表示順**の代表台番に
+    その機種の掲載台の**最小台番**を使う（表・スランプの台番昇順と一致させる）。
+    False（既定・新宿かぶぱ）は従来どおり最高差枚の台の台番を代表にする。"""
+    # 機種ごとに最高差枚とその台番、および最小台番を集計
     best: dict[str, tuple[int, int]] = {}
+    min_ban: dict[str, int] = {}
     for _b in bans:
         _m = ban2mac.get(str(_b))
         if not _m:
@@ -17343,11 +17626,13 @@ def _build_variety_panel_grid(
         _d = int(ban2diff.get(str(_b), 0))
         if _m not in best or _d > best[_m][0]:
             best[_m] = (_d, int(_b))
+        if _m not in min_ban or int(_b) < min_ban[_m]:
+            min_ban[_m] = int(_b)
     if not best:
         return None
-    # 差枚降順に並べ、パネル登録ありの機種を最大4つ選ぶ
+    # 差枚降順に並べ、パネル登録ありの機種を最大4つ選ぶ（選定条件は不変）
     _ranked = sorted(best.items(), key=lambda kv: kv[1][0], reverse=True)
-    _chosen: list[tuple[int, "Image.Image"]] = []  # (代表台番, パネル画像)
+    _chosen: list[tuple[int, str, "Image.Image"]] = []  # (代表台番, 機種名, パネル画像)
     for _m, (_d, _ban) in _ranked:
         _info = get_machine_images(_m)
         _prel = _info.get("panel") if _info else None
@@ -17357,13 +17642,15 @@ def _build_variety_panel_grid(
             _pan = Image.open(os.path.join(BASE_DIR, _prel)).convert("RGB")
         except Exception:
             continue
-        _chosen.append((_ban, _pan))
+        _rep = min_ban.get(_m, _ban) if order_by_min_ban else _ban
+        _chosen.append((_rep, _m, _pan))
         if len(_chosen) >= 4:
             break
     if not _chosen:
         return None
-    # 台番昇順に並べ替え（上2下2）
-    _chosen.sort(key=lambda x: x[0])
+    # 台番昇順に並べ替え（上2下2）。同値は機種名で安定ソート
+    _chosen.sort(key=lambda x: (x[0], x[1]))
+    _chosen = [(_r, _p) for _r, _m, _p in _chosen]
     _cell_w = max(1, width // 2)
     _resized = [
         _p.resize((_cell_w, max(1, round(_p.height * _cell_w / _p.width))), Image.LANCZOS)
@@ -17444,10 +17731,28 @@ _PANEL_STORES = {"新宿歌舞伎町"}
 _ARTICLE_PANEL_STORES = {"高田馬場"}
 
 
+# 記事用で必ず「複数機種画像」として扱う画像（2×2パネル対象）
+_ART_MULTI_PANEL_FNS = ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
+
+
+def _art_is_multi_machine(bare_fn: str, bans: list, ban2mac: dict) -> bool:
+    """記事用: その画像が複数機種混在か（＝2×2パネルの対象か）を判定する。
+
+    既知のファイル名（ジャグラーシリーズ優秀台／その他の優秀台ピックアップ）か、
+    掲載台の機種が2種類以上なら True。タイトルを変更した「その他の優秀台」も
+    掲載台から判定できる。台並びは専用ルールがあるため常に False。"""
+    if "台並び" in bare_fn:
+        return False
+    if bare_fn in _ART_MULTI_PANEL_FNS:
+        return True
+    _macs = {ban2mac.get(str(_b)) for _b in (bans or []) if ban2mac.get(str(_b))}
+    return len(_macs) >= 2
+
+
 def _apply_panel_to_table_img(
     img: "Image.Image", bare_fn: str, bans: list,
     ban2mac: dict, ban2diff: dict, show_mn: bool, is_sue: bool,
-    crop_bar: bool = True,
+    crop_bar: bool = True, is_multi: bool = False,
 ) -> "tuple[Image.Image, str | None, bool]":
     """表画像の上部へパネル画像を合成して返す。
 
@@ -17475,9 +17780,11 @@ def _apply_panel_to_table_img(
         return img, _mn, _panel_ok
     if crop_bar:
         img = img.crop((0, _bar_h, img.width, img.height))      # 並び・バラエティ等→青バー除去
-    # バラエティ・末尾画像は上位4機種のパネルを2×2で表の上に結合
-    if bare_fn.startswith("バラエティ") or is_sue:
-        _pgrid = _build_variety_panel_grid(bans, ban2mac, ban2diff, img.width)
+    # バラエティ・末尾画像（＋is_multi＝複数機種画像）は上位4機種のパネルを2×2で表の上に結合
+    if bare_fn.startswith("バラエティ") or is_sue or is_multi:
+        # 記事用（crop_bar=False）はパネルの表示順も表・スランプと同じ台番昇順にする
+        _pgrid = _build_variety_panel_grid(bans, ban2mac, ban2diff, img.width,
+                                           order_by_min_ban=not crop_bar)
         if _pgrid is not None:
             img = _vstack_images(_pgrid, img)
     # 並び画像は 1機種→その機種／2機種→2枚横／3機種以上→差枚最大の機種 のパネルを上に

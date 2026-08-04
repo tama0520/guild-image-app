@@ -18,6 +18,10 @@ os.makedirs(SPLIT_DIR, exist_ok=True)
 # 台番範囲を直接指定（空リストなら自動検出）
 RANGES = []
 
+# 青タイトルバー＋赤ラインを描かない（記事用ページのみ True へ書き換えて実行する）。
+# 既定 False＝通常ページの並び画像は従来どおり青バー付き。
+NO_BAR = False
+
 # ── フォントパス（cwd = BASE_DIR で subprocess 実行される）──────────
 _BASE = os.getcwd()
 FONT_PATH = os.path.join(_BASE, "fonts", "MochiyPopOne-Regular.ttf")
@@ -316,12 +320,14 @@ for run_idx, run in enumerate(runs):
     ty = (bar_h - text_h) // 2 - bbox[1]
     bar_draw.text((tx, ty), title_text, fill=(255, 255, 255, 255), font=bar_font)
 
-    # 合成：青バー → 赤ライン → テーブル
-    total_h = bar_h + line_h + top_img.height
+    # 合成：青バー → 赤ライン → テーブル（NO_BAR=True の記事用はテーブルのみ）
+    _top_h  = 0 if NO_BAR else bar_h + line_h
+    total_h = _top_h + top_img.height
     canvas  = Image.new("RGBA", (w, total_h), (255, 255, 255, 255))
-    canvas.paste(blue_bar, (0, 0))
-    canvas.paste(red_line, (0, bar_h))
-    canvas.paste(top_img,  (0, bar_h + line_h))
+    if not NO_BAR:
+        canvas.paste(blue_bar, (0, 0))
+        canvas.paste(red_line, (0, bar_h))
+    canvas.paste(top_img,  (0, _top_h))
 
     # --- ピンクのサマリーバー ---
     total_diff  = int(round(diff_raw_s.sum()))
@@ -338,7 +344,7 @@ for run_idx, run in enumerate(runs):
     sum_part2 = f"（{win_count}/{total_count}台）"
     GAP_SUM   = -8
 
-    table_only_h = canvas.height - bar_h - line_h
+    table_only_h = canvas.height - _top_h   # ピンクバー高さの算出はテーブル部分のみ基準（従来と同値）
     row_h_sum    = int(max(30, table_only_h // (len(group) + 2)) * 1.2)
 
     SUMMARY_BG = "#FFB6C1"

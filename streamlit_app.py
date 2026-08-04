@@ -2444,6 +2444,34 @@ def _save_jpeg(img: Image.Image, path: str, target_kb: int = 250) -> None:
     img.save(path, format="JPEG", quality=best_q, subsampling=0)
 
 
+def _rm_stale_image(output_dir: str, base_fn: str, log=None) -> list[str]:
+    """🎯全台除外などで画像を作らないとき、前回実行の同名画像を消す（全経路共通）。
+
+    削除対象は連番プレフィックス(NN_)を外したファイル名が
+      {名前}.jpg / {名前}_side.jpg
+    に**完全一致**するものだけ（部分一致・曖昧一致はしない）。
+      例: 東京喰種（優秀台）.jpg / 東京喰種（優秀台）_side.jpg /
+          07_東京喰種（優秀台）.jpg / 07_東京喰種（優秀台）_side.jpg
+    output_dir はローカルで営業日ごとに再利用されるため、縦版・横版とも残さない。
+    戻り値: 実際に削除したファイル名リスト。"""
+    _stem = os.path.splitext(base_fn)[0]
+    _targets = {base_fn, f"{_stem}_side.jpg"}
+    _removed: list[str] = []
+    try:
+        for _f in os.listdir(output_dir):
+            if re.sub(r"^\d{2}_", "", _f) in _targets:
+                try:
+                    os.remove(os.path.join(output_dir, _f))
+                    _removed.append(_f)
+                    if log:
+                        log(f"  🗑️ 掲載台0台のため削除: {_f}")
+                except Exception:
+                    pass
+    except FileNotFoundError:
+        pass
+    return _removed
+
+
 def _make_zip_bytes(dir_path: str) -> bytes:
     """dir_path 以下のファイルをすべてZIP化してbytesで返す（サブフォルダ含む）。"""
     buf = io.BytesIO()
@@ -9652,6 +9680,18 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         try:
                                             _side_ufn = os.path.splitext(_ufn)[0] + "_side.jpg"
                                             _side_u2  = _attach_slump_to_table_side(_uimg, _g_imgs_u2, _upd_bbb, _gap_img_u2)
+                                            # 液晶を選び直したときに🔄前のグラフへ戻らないよう、
+                                            # 横版の再合成ベースも更新後の表・スランプで差し替える
+                                            if store in _GAP_FILL_STORES:
+                                                _gb_u2 = dict(st.session_state.get(f"_gap_base_{store}", {}) or {})
+                                                if _gap_fillable(len(_g_imgs_u2), 4):
+                                                    _gb_u2[_side_ufn] = {**(_gb_u2.get(_side_ufn) or {}),
+                                                                         "table": _uimg,
+                                                                         "graphs": list(_g_imgs_u2),
+                                                                         "side": True}
+                                                else:
+                                                    _gb_u2.pop(_side_ufn, None)
+                                                st.session_state[f"_gap_base_{store}"] = _gb_u2
                                             for _si2, (_spn2, _) in enumerate(_new_prev):
                                                 if _spn2 == _side_ufn:
                                                     _new_prev[_si2] = (_spn2, _side_u2)
@@ -9788,20 +9828,8 @@ def show_auto_page(with_slump: bool = False) -> None:
 
                     def _kabupa_rm_stale(base_fn: str) -> None:
                         """全台除外で画像を作らない場合に、前回実行の同名画像を消す。
-                        縦版・横版(_side)・連番プレフィックス付き(NN_)のすべてを対象にする
-                        （output_dir はローカルで営業日ごとに再利用されるため）。"""
-                        _stem_rm = os.path.splitext(base_fn)[0]
-                        _targets = {base_fn, f"{_stem_rm}_side.jpg"}
-                        try:
-                            for _f_rm in os.listdir(output_dir):
-                                if re.sub(r"^\d{2}_", "", _f_rm) in _targets:
-                                    try:
-                                        os.remove(os.path.join(output_dir, _f_rm))
-                                        _m_log(f"  🗑️ 掲載台0台のため削除: {_f_rm}")
-                                    except Exception:
-                                        pass
-                        except FileNotFoundError:
-                            pass
+                        実体はモジュールレベルの _rm_stale_image()（全経路で共用）。"""
+                        _rm_stale_image(output_dir, base_fn, log=_m_log)
 
                     # ② 個別画像 - 全台
                     if kojin_enabled:
@@ -10507,13 +10535,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _save_jpeg(_img, os.path.join(output_dir, _fn))
                     _log(f"  ✅ {'ジャグラー末尾' if is_juggler else '末尾'}画像保存: {_fn}")
                     _saved.append(_fn)
-                # 🎯掲載台を選ぶで全台除外された画像は、古い同名ファイルを残さない
+                # 🎯掲載台を選ぶで全台除外された画像は、古い同名ファイル
+                # （縦版・横版(_side)・連番付き）を残さない
                 for _fn in _src_r:
                     if _fn not in _ban_r:
-                        _p_del = os.path.join(output_dir, _fn)
-                        if os.path.exists(_p_del):
-                            os.remove(_p_del)
-                            _log(f"  🗑️ 掲載台0台のため削除: {_fn}")
+                        _rm_stale_image(output_dir, _fn, log=_log)
                 _sue_ban_run.update(_ban_r)
                 # 結果テキストの+1,000枚一覧用: 実際に画像へ載った台番
                 _sel_r: set[int] = set()
@@ -11019,9 +11045,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _kgrp_p, _ik_ky_e, _ball_ky_e = _unit_ex_pick(
                             _unit_ex_state(store, _excel_stem_run), "kojin_yushu", _km, _kgrp_p)
                         if _kgrp_p.empty:
-                            # 全台除外: 画像を作らず、古い同名画像が残らないよう削除する
-                            if os.path.exists(_kout):
-                                os.remove(_kout)
+                            # 全台除外: 画像を作らず、古い同名画像（縦版・横版・連番付き）を削除する
+                            _rm_stale_image(output_dir, os.path.basename(_kout), log=_log)
                             result["high_ratio_list"].append({
                                 "name":         _km,
                                 "count":        int((_kdr_all > 0).sum()),
@@ -11185,9 +11210,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _unit_ex_state(store, _excel_stem_run), "variety",
                                     _var_title_ex, _var_df_ex)
                                 if _var_df_ex.empty:
-                                    # 全台除外: 画像を作らず、古い同名画像が残らないよう削除する
-                                    if os.path.exists(_var_out_ex):
-                                        os.remove(_var_out_ex)
+                                    # 全台除外: 画像を作らず、古い同名画像（縦版・横版・連番付き）を削除する
+                                    _rm_stale_image(output_dir, os.path.basename(_var_out_ex), log=_log)
                                     _log("  バラエティ: 掲載台が0台のため画像なし")
                                 else:
                                     _var_img_ex = _build_machine_img(_var_df_ex, _var_title_ex, _var_stat_ex)
@@ -11206,6 +11230,22 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _log(f"  ✅ バラエティ「{_var_title_ex}」({len(_var_df_ex)}台)")
                     except Exception:
                         _log(f"  ❌ バラエティ画像エラー: {traceback.format_exc()}")
+
+            # ── 🎯全台OFFで作られなかった画像の古い同名ファイルを削除 ──
+            # pipeline は画像を書かないだけなので、営業日フォルダに前回の縦版・横版が残る。
+            if result["ok"]:
+                _stale_fns_run: list[str] = []
+                for _hu_d in result.get("high_ratio_list", []):
+                    if not _hu_d.get("has_image", True):
+                        _suffix_d = "（優秀台）.jpg" if _hu_d.get("is_yushu") else "_高配分.jpg"
+                        _stale_fns_run.append(f"{_make_safe_fn(_hu_d['name'])}{_suffix_d}")
+                _jp_d = result.get("jug_pool_df")
+                if (_jp_d is None or getattr(_jp_d, "empty", True)) and (result.get("jug_bans_all") or []):
+                    _stale_fns_run.append("ジャグラーシリーズ優秀台.jpg")
+                if not result.get("sonota_excellent_list") and (result.get("sonota_bans_all") or []):
+                    _stale_fns_run.append("その他の優秀台ピックアップ.jpg")
+                for _fn_d in _stale_fns_run:
+                    _rm_stale_image(output_dir, _fn_d, log=_log)
 
             # ── 全台系→高配分→並び→ジャグラー優秀台→その他 の順にリネーム ──
             if result["ok"]:

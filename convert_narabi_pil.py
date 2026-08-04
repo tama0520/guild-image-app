@@ -22,6 +22,12 @@ RANGES = []
 # 既定 False＝通常ページの並び画像は従来どおり青バー付き。
 NO_BAR = False
 
+# 高解像度描画の倍率（記事用ページのみ 2.0 へ書き換えて実行する）。
+# 掲載台が HQ_MIN_ROWS 台以上の並び画像だけ、最初からこの倍率で描画する。
+# 既定 1.0＝通常ページの並び画像は従来どおり。
+HQ_SCALE = 1.0
+HQ_MIN_ROWS = 10
+
 # ── フォントパス（cwd = BASE_DIR で subprocess 実行される）──────────
 _BASE = os.getcwd()
 FONT_PATH = os.path.join(_BASE, "fonts", "MochiyPopOne-Regular.ttf")
@@ -230,17 +236,23 @@ def _draw_cell(draw, x, y, cw, ch, text, bg, fg, font, align="center"):
     ty = y + (ch - th) // 2 - bb[1]
     draw.text((tx, ty), text, fill=fg, font=font)
 
-def build_table_pil(group, diff_raw_s):
-    """PIL ImageDraw でテーブル部分を描画して RGBA Image を返す"""
-    font = _load_font(FONT_SIZE_TBL)
+def build_table_pil(group, diff_raw_s, hq=1.0):
+    """PIL ImageDraw でテーブル部分を描画して RGBA Image を返す。
+    hq>1 なら文字・行高・列幅・パディングを hq 倍にして**最初から**高解像度で描く
+    （出来上がりを resize で拡大しない）。hq=1.0 は従来と完全に同一。"""
+    _hq       = hq if hq and hq > 0 else 1.0
+    _font_sz  = round(FONT_SIZE_TBL * _hq)
+    _pad_x    = round(PAD_X * _hq)
+    _row_h    = round(ROW_H_TBL * _hq)
+    font = _load_font(_font_sz)
     cols = list(group.columns)
     # セル外幅 = コンテンツ幅 + 2×PAD_X
-    cell_ow = [COL_CONTENT_W.get(c, round(70 * SCALE)) + 2 * PAD_X for c in cols]
+    cell_ow = [round(COL_CONTENT_W.get(c, round(70 * SCALE)) * _hq) + 2 * _pad_x for c in cols]
     n_rows  = len(group) + 1  # ヘッダー + データ行
 
     # border-collapse モデル: 全体を BORDER_C で塗り、セルを1px内側に描画
     img_w = 1 + sum(ow + 1 for ow in cell_ow)   # 左端1px + セル + 右境界
-    img_h = 1 + n_rows * (ROW_H_TBL + 1)        # 上端1px + 行 + 下境界
+    img_h = 1 + n_rows * (_row_h + 1)           # 上端1px + 行 + 下境界
 
     img  = Image.new("RGBA", (img_w, img_h), BORDER_C + (255,))
     draw = ImageDraw.Draw(img)
@@ -249,11 +261,11 @@ def build_table_pil(group, diff_raw_s):
         return 1 + sum(cell_ow[k] + 1 for k in range(ci))
 
     def row_y(ri):
-        return 1 + ri * (ROW_H_TBL + 1)
+        return 1 + ri * (_row_h + 1)
 
     # ヘッダー行
     for ci, col in enumerate(cols):
-        _draw_cell(draw, col_x(ci), row_y(0), cell_ow[ci], ROW_H_TBL,
+        _draw_cell(draw, col_x(ci), row_y(0), cell_ow[ci], _row_h,
                    col, HEADER_BG, HEADER_FG, font, "center")
 
     # データ行
@@ -270,7 +282,7 @@ def build_table_pil(group, diff_raw_s):
                 align = "right"
             else:
                 fg, align = ZERO_C, "center"
-            _draw_cell(draw, col_x(ci), y, cell_ow[ci], ROW_H_TBL,
+            _draw_cell(draw, col_x(ci), y, cell_ow[ci], _row_h,
                        val, CELL_BG, fg, font, align)
     return img
 
@@ -289,7 +301,9 @@ for run_idx, run in enumerate(runs):
     group       = group[disp_cols]
 
     # ── PIL テーブル描画 ──────────────────────────────────────────
-    top_img = build_table_pil(group, diff_raw_s)
+    # 掲載台が HQ_MIN_ROWS 台以上なら記事用の高解像度で描画（通常ページは HQ_SCALE=1.0）
+    _hq_run = HQ_SCALE if (HQ_SCALE > 1.0 and len(group) >= HQ_MIN_ROWS) else 1.0
+    top_img = build_table_pil(group, diff_raw_s, hq=_hq_run)
     w = top_img.width
 
     # --- タイトルバー（青バー＋赤ライン） ---
@@ -352,7 +366,7 @@ for run_idx, run in enumerate(runs):
     bar_pink   = Image.new("RGBA", (w, row_h_sum), pink_rgba)
     draw_pink  = ImageDraw.Draw(bar_pink)
 
-    font_sum = _load_font(round(14 * 150 / 96))  # ≈ 22px
+    font_sum = _load_font(round(14 * 150 / 96 * _hq_run))  # ≈ 22px（hq倍）
 
     bb1    = _textbbox(draw_pink, sum_part1, font_sum)
     y_text = (row_h_sum - (bb1[3] - bb1[1])) // 2 - bb1[1]
@@ -379,8 +393,8 @@ for run_idx, run in enumerate(runs):
     safe_title = make_safe(file_title)
     out_path   = os.path.join(SPLIT_DIR, f"{safe_title}.jpg")
 
-    # JPEG品質バイナリサーチで250KBに近づける
-    TARGET_BYTES = 250 * 1024
+    # JPEG品質バイナリサーチで目標サイズに近づける（高解像度時は1200KB）
+    TARGET_BYTES = (1200 if _hq_run > 1.0 else 250) * 1024
     lo, hi = 1, 95
     best_quality = 85
     best_diff_sz = float("inf")

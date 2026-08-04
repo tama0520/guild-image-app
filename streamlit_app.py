@@ -2629,6 +2629,7 @@ def _build_machine_img(
     title: str,
     summary_stat: dict | None = None,
     no_bar: bool = False,
+    hq_scale: float = 1.0,
 ) -> Image.Image:
     """パイプライン用機種別画像。旧スクリプトと同じ寸法で生成する。
     title が「（優秀台）」で終わる場合は2パーツ描画（gap=-22）。
@@ -2654,8 +2655,9 @@ def _build_machine_img(
         summary_stat=None,
         header_bg=C_MACH_HEADER_BG,
         header_fg=C_MACH_HEADER_FG,
-        scale=150/96,
+        scale=(150/96) * (hq_scale if hq_scale and hq_scale > 0 else 1.0),
     )
+    _hq = hq_scale if hq_scale and hq_scale > 0 else 1.0
     w = table_img.width
 
     # ── タイトルバー（横幅に比例してBAR_Hを自動計算・視覚的に統一）──────
@@ -2691,8 +2693,8 @@ def _build_machine_img(
 
     # ── ピンクサマリーバー（全機種固定高さ）─────────────────────────
     if summary_stat:
-        pink_h = int(round(ROW_H * 150 / 96) * 1.2)  # 44px × 1.2 = 52px 固定
-        font_sum   = load_font(24)
+        pink_h = round(int(round(ROW_H * 150 / 96) * 1.2) * _hq)  # 52px（hq倍）
+        font_sum   = load_font(round(24 * _hq))
 
         s        = summary_stat
         win_rate = s["win_count"] / s["total_count"] * 100 if s["total_count"] > 0 else 0.0
@@ -2705,8 +2707,9 @@ def _build_machine_img(
         pd_  = ImageDraw.Draw(pink)
         bb1  = pd_.textbbox((0, 0), part1, font=font_sum)
         ty_p = (pink_h - (bb1[3]-bb1[1])) // 2 - bb1[1]
-        pd_.text((8, ty_p), part1, fill=(0, 0, 0, 255), font=font_sum)
-        x2   = 8 + (bb1[2]-bb1[0]) + GAP_SUM
+        _pad_sum = round(8 * _hq)
+        pd_.text((_pad_sum, ty_p), part1, fill=(0, 0, 0, 255), font=font_sum)
+        x2   = _pad_sum + (bb1[2]-bb1[0]) + round(GAP_SUM * _hq)
         bb2  = pd_.textbbox((0, 0), part2, font=font_sum)
         pd_.text((x2 - bb2[0], ty_p), part2, fill=(0, 0, 0, 255), font=font_sum)
         pd_.rectangle([0, 0, w-1, pink_h-1], outline=(170, 170, 170, 255))
@@ -2735,8 +2738,41 @@ def _build_machine_img(
     return final.convert("RGB")
 
 
-def _build_machine_img_no_bar(df_m: pd.DataFrame) -> Image.Image:
-    """タイトルバー・ピンクバーなしの機種別テーブル画像（記事用）。"""
+# 記事用（高田馬場）で高解像度描画する画像と、その倍率・JPEG目標サイズ。
+# 対象2枚だけに適用し、他画像・他店舗・通常ページは従来どおり（hq_scale=1.0）。
+_ART_HQ_FNS = ("その他の優秀台ピックアップ.jpg", "ジャグラーシリーズ優秀台.jpg")
+_ART_HQ_SCALE = 2.0
+_ART_HQ_TARGET_KB = 1200
+_ART_HQ_MIN_ROWS = 10      # 掲載台がこの数以上なら画像種別を問わず高解像度
+
+
+def _art_hq_scale_for(bare_fn: str, store: str, n_rows: int = 0) -> float:
+    """記事用の高解像度倍率を返す（対象外は 1.0）。
+
+    高田馬場の記事用経路からのみ呼ぶ（他店舗・通常ページは 1.0）。
+      * 固定対象（その他の優秀台ピックアップ／ジャグラーシリーズ優秀台）→ 2.0
+      * 掲載台が _ART_HQ_MIN_ROWS 台以上 → 2.0（画像種別は問わない）
+    描画時は DataFrame の行数、合成時は ban_map の台数を n_rows へ渡す。
+    両者は一致する（表に載る台＝ban_map の台）ため⑦/🔄/⑧で同じ倍率になる。
+    スランプデータ欠損で実グラフが n_rows より少なくなっても倍率は変えない（安全側）。"""
+    if store not in _ARTICLE_PANEL_STORES:
+        return 1.0
+    if bare_fn in _ART_HQ_FNS:
+        return _ART_HQ_SCALE
+    return _ART_HQ_SCALE if int(n_rows or 0) >= _ART_HQ_MIN_ROWS else 1.0
+
+
+def _pipeline_hq(hq_scale: float, n_rows: int) -> float:
+    """pipeline 内で1画像ぶんの倍率を決める。hq_scale<=1（通常ページ）は常に 1.0。"""
+    if not hq_scale or hq_scale <= 1.0:
+        return 1.0
+    return hq_scale if int(n_rows or 0) >= _ART_HQ_MIN_ROWS else 1.0
+
+
+def _build_machine_img_no_bar(df_m: pd.DataFrame, hq_scale: float = 1.0) -> Image.Image:
+    """タイトルバー・ピンクバーなしの機種別テーブル画像（記事用）。
+    hq_scale>1 で **最初から** その倍率の解像度で描画する（文字・罫線・行高・列幅・
+    余白がすべて hq_scale 倍。出来上がりを resize で拡大するのではない）。"""
     df_d   = _add_prob_col(df_m)
     active = _active_sub_cols(df_d)
     disp   = ["台番", "機種名", "ゲーム数"] + active
@@ -2755,7 +2791,7 @@ def _build_machine_img_no_bar(df_m: pd.DataFrame) -> Image.Image:
         summary_stat=None,
         header_bg=C_MACH_HEADER_BG,
         header_fg=C_MACH_HEADER_FG,
-        scale=150 / 96,
+        scale=(150 / 96) * (hq_scale if hq_scale and hq_scale > 0 else 1.0),
     ).convert("RGB")
 
 
@@ -2763,6 +2799,7 @@ def _build_article_machine_img(
     df_m: pd.DataFrame,
     machine_name: str,
     summary_stat: dict | None = None,
+    hq_scale: float = 1.0,
 ) -> Image.Image:
     """記事用機種別画像。タイトルバー・ピンクバーなし。表＋白サマリーエリア（クラウン＋機種名＋統計）。"""
 
@@ -2786,8 +2823,9 @@ def _build_article_machine_img(
         header_bg=C_MACH_HEADER_BG,
         header_fg=C_MACH_HEADER_FG,
         diff_cell_bg=False,
-        scale=150 / 96,
+        scale=(150 / 96) * (hq_scale if hq_scale and hq_scale > 0 else 1.0),
     )
+    _hq = hq_scale if hq_scale and hq_scale > 0 else 1.0
     w = table_img.width
     ImageDraw.Draw(table_img).line(
         [(0, table_img.height - 1), (w - 1, table_img.height - 1)],
@@ -2795,11 +2833,11 @@ def _build_article_machine_img(
     )
 
     # ── 白サマリーエリア ─────────────────────────────────────────────
-    PAD      = 10
-    CROWN_H  = 72
-    FN_MACH  = load_font(34)
-    FN_STAT  = load_font(26)
-    LINE_GAP = 8
+    PAD      = round(10 * _hq)
+    CROWN_H  = round(72 * _hq)
+    FN_MACH  = load_font(round(34 * _hq))
+    FN_STAT  = load_font(round(26 * _hq))
+    LINE_GAP = round(8 * _hq)
 
     # クラウン画像（JPGなのでアルファなし）
     crown_path = os.path.join(BASE_DIR, "crown.jpg")
@@ -2903,6 +2941,7 @@ def run_step1_main(
     cfg: dict,
     log,
     article_mode: bool = False,
+    hq_scale: float = 1.0,
 ) -> tuple[list[str], list[dict]]:
     """Step 1: 全台系PNG + 全台プラス機種別JPG を生成する。
     戻り値: (generated, zen_dai_list)"""
@@ -2976,11 +3015,14 @@ def run_step1_main(
             continue  # 条件未達・1台以下 はStep3で処理
         title = machine.replace('\uff65', '\u30fb')
         if article_mode:
-            img = _build_article_machine_img(grp, title, _stat_from_diff(dr_m))
+            # 記事用: 掲載台10台以上なら最初から2倍解像度で描画
+            img = _build_article_machine_img(grp, title, _stat_from_diff(dr_m),
+                                             hq_scale=_pipeline_hq(hq_scale, len(grp)))
         else:
             img = _build_machine_img(grp, title, _stat_from_diff(dr_m))
         out   = os.path.join(output_dir, f"{_make_safe_fn(machine)}.jpg")
-        _save_jpeg(img, out)
+        _save_jpeg(img, out, **({"target_kb": _ART_HQ_TARGET_KB}
+                                if article_mode and _pipeline_hq(hq_scale, len(grp)) > 1.0 else {}))
         generated.append(out)
         log(f"  {machine}（{len(dr_m)}台）")
         zen_dai_list.append({
@@ -3010,6 +3052,7 @@ def run_step2_juggler(
     no_merge_image: bool = False,
     rec_ban_level: bool = False,
     exclude_units: dict | None = None,
+    hq_scale: float = 1.0,
 ) -> tuple[list[str], pd.DataFrame | None, pd.Series | None, list[dict], list[dict]]:
     """Step 2: ジャグラーシリーズ優秀台フィルター。
     少数機種は統合画像へ。5台以下なら overflow として Step 3 へ渡す。
@@ -3093,11 +3136,12 @@ def run_step2_juggler(
                 })
                 continue
             if article_mode:
-                img = _build_machine_img_no_bar(_img_j)
+                img = _build_machine_img_no_bar(_img_j, hq_scale=_pipeline_hq(hq_scale, len(_img_j)))
             else:
                 img = _build_machine_img(_img_j, machine.replace('･', '・') + "（優秀台）", None)
             out   = os.path.join(output_dir, f"{_make_safe_fn(machine)}_高配分.jpg")
-            _save_jpeg(img, out)
+            _save_jpeg(img, out, **({"target_kb": _ART_HQ_TARGET_KB}
+                                    if _pipeline_hq(hq_scale, len(_img_j)) > 1.0 else {}))
             generated.append(out)
             log(f"  {machine} 高配分: {len(_img_j)}台")
             high_ratio_list.append({
@@ -3193,12 +3237,13 @@ def run_step2_juggler(
     juggler_recommended = {m for m in recommended_machines if m in juggler_series_set}
     has_other_jug_img = bool(high_ratio_list) or bool(zen_dai_juggler_machines) or has_narabi_jug or bool(juggler_recommended)
     if article_mode:
-        img = _build_machine_img_no_bar(combined)
+        # hq_scale>1（記事用の高解像度対象）は最初から高解像度で描画する
+        img = _build_machine_img_no_bar(combined, hq_scale=hq_scale)
     else:
         title_jug = "その他のジャグラーシリーズの優秀台" if has_other_jug_img else "ジャグラーシリーズの優秀台"
         img = _build_machine_img(combined, title_jug, None)
     out = os.path.join(output_dir, "ジャグラーシリーズ優秀台.jpg")
-    _save_jpeg(img, out, target_kb=800)
+    _save_jpeg(img, out, target_kb=800 if hq_scale <= 1.0 else _ART_HQ_TARGET_KB)
     generated.append(out)
     log(f"  ジャグラーシリーズ優秀台: {len(combined)}台")
     return generated, None, None, high_ratio_list, jug_excellent_list, combined, jug_bans_all
@@ -3218,6 +3263,7 @@ def run_step3_other(
     article_mode: bool = False,
     sonota_exclude: set[str] = frozenset(),
     exclude_units: dict | None = None,
+    hq_scale: float = 1.0,
 ) -> tuple[list[str], list[dict], list[dict], list[int]]:
     """Step 3: 非ジャグラー機種の優秀台 + その他の優秀台ピックアップ統合画像。
     戻り値: (generated, high_ratio_list, excellent_list, sonota_bans_all)
@@ -3371,11 +3417,12 @@ def run_step3_other(
                     })
                     continue
                 if article_mode:
-                    img = _build_machine_img_no_bar(_img_o)
+                    img = _build_machine_img_no_bar(_img_o, hq_scale=_pipeline_hq(hq_scale, len(_img_o)))
                 else:
                     img = _build_machine_img(_img_o, machine.replace('･', '・') + "（優秀台）", None)
                 out   = os.path.join(output_dir, f"{_make_safe_fn(machine)}_高配分.jpg")
-                _save_jpeg(img, out)
+                _save_jpeg(img, out, **({"target_kb": _ART_HQ_TARGET_KB}
+                                        if _pipeline_hq(hq_scale, len(_img_o)) > 1.0 else {}))
                 generated.append(out)
                 log(f"  {machine}: {len(_img_o)}/{total}台")
                 high_ratio_list.append({
@@ -3444,9 +3491,11 @@ def run_step3_other(
         log("  その他の優秀台ピックアップ: 全台除外のため画像なし")
         return generated, high_ratio_list, excellent_list, sonota_bans_all
 
-    img = _build_machine_img_no_bar(combined) if article_mode else _build_machine_img(combined, "その他の優秀台ピックアップ", None)
+    # hq_scale>1（記事用の高解像度対象）は最初から高解像度で描画する
+    img = (_build_machine_img_no_bar(combined, hq_scale=hq_scale) if article_mode
+           else _build_machine_img(combined, "その他の優秀台ピックアップ", None))
     out = os.path.join(output_dir, "その他の優秀台ピックアップ.jpg")
-    _save_jpeg(img, out, target_kb=800)
+    _save_jpeg(img, out, target_kb=800 if hq_scale <= 1.0 else _ART_HQ_TARGET_KB)
     generated.append(out)
     log(f"  その他の優秀台ピックアップ: {len(combined)}台")
     return generated, high_ratio_list, excellent_list, sonota_bans_all
@@ -4336,6 +4385,7 @@ def run_auto_pipeline(
     jug_no_merge_image: bool = False,
     rec_ban_level: bool = False,
     exclude_units: dict | None = None,
+    hq_scale: float = 1.0,
 ) -> dict:
     """3ステップパイプラインを実行する。
     exclude_units: ⑦プレビューで台番単位に外した掲載台
@@ -4393,15 +4443,15 @@ def run_auto_pipeline(
         suebangai_bans |= variety_bans
 
         log("① 全台系PNG ＋ 全台プラス機種別JPG")
-        f1, zen_dai_list = run_step1_main(df, diff_raw, output_dir, stem, cfg, log, article_mode=article_mode)
+        f1, zen_dai_list = run_step1_main(df, diff_raw, output_dir, stem, cfg, log, article_mode=article_mode, hq_scale=hq_scale)
 
         log("② ジャグラーシリーズ優秀台")
         _jug_series = cfg["juggler_series"]
         _zen_dai_jug = {item["name"] for item in zen_dai_list if item["name"] in _jug_series}
-        f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df, jug_bans_all = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude, no_merge_image=jug_no_merge_image, rec_ban_level=rec_ban_level, exclude_units=exclude_units)
+        f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df, jug_bans_all = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude, no_merge_image=jug_no_merge_image, rec_ban_level=rec_ban_level, exclude_units=exclude_units, hq_scale=hq_scale)
 
         log("③ その他の優秀台ピックアップ")
-        f3, oth_hr, sonota_excellent, sonota_bans_all = run_step3_other(df, diff_raw, output_dir, cfg, narabi_bans, ov_df, ov_diff, log, recommended_machines, suebangai_bans, article_mode=article_mode, sonota_exclude=sonota_exclude, exclude_units=exclude_units)
+        f3, oth_hr, sonota_excellent, sonota_bans_all = run_step3_other(df, diff_raw, output_dir, cfg, narabi_bans, ov_df, ov_diff, log, recommended_machines, suebangai_bans, article_mode=article_mode, sonota_exclude=sonota_exclude, exclude_units=exclude_units, hq_scale=hq_scale)
         _ex_seen: set[tuple] = set()
         excellent_list = []
         for _ex_item in jug_excellent + sonota_excellent:
@@ -4609,15 +4659,20 @@ def ranges_to_bans(ranges: list[list[int]]) -> set[int]:
 
 def _patch_and_run_narabi(
     script_path: str, input_path: str, split_dir: str, ranges: list,
-    no_bar: bool = False,
+    no_bar: bool = False, hq_scale: float = 1.0,
 ) -> tuple[bool, str, str]:
     """並びスクリプト専用: INPUT/SPLIT_DIR/RANGES を書き換えて実行する。
     no_bar=True のときは NO_BAR も書き換え、青タイトルバーなしで生成させる
-    （記事用ページ専用。既定 False＝通常ページは従来どおり）。"""
+    （記事用ページ専用。既定 False＝通常ページは従来どおり）。
+    hq_scale>1 のときは HQ_SCALE も書き換え、掲載台10台以上の並び画像を
+    最初から高解像度で描画させる（既定 1.0＝通常ページは従来どおり）。"""
     with open(script_path, encoding="utf-8") as f:
         code = f.read()
     if no_bar:
         code = re.sub(r'^NO_BAR\s*=\s*(True|False)', 'NO_BAR = True', code, flags=re.MULTILINE)
+    if hq_scale and hq_scale > 1.0:
+        code = re.sub(r'^HQ_SCALE\s*=\s*[\d.]+', f'HQ_SCALE = {float(hq_scale)}',
+                      code, flags=re.MULTILINE)
 
     for var, val in [("INPUT", input_path), ("SPLIT_DIR", split_dir)]:
         code = re.sub(
@@ -6400,7 +6455,8 @@ def _compute_sue_stats_for(store: str, tails, is_juggler: bool, df_run,
 def _build_sue_images(uploaded, store: str, tails, mode: str, is_juggler: bool = False,
                       ban_out=None, stat_out=None, src_out=None,
                       exclude_state: "dict | None" = None,
-                      article_mode: bool = False):
+                      article_mode: bool = False,
+                      hq_scale: float = 1.0):
     """④末尾／ジャグラー末尾画像を作る共通関数（通常ページ・記事用ページ共通）。
 
     show_auto_page 内のネスト関数 _gen_sue_imgs_on_fly の本体をそのまま移したもの。
@@ -6527,8 +6583,10 @@ def _build_sue_images(uploaded, store: str, tails, mode: str, is_juggler: bool =
             if article_mode:
                 # 記事用は青タイトルバーなし。集計ありは白サマリー（クラウン＋タイトル＋統計）、
                 # 集計なしは表のみ＝記事用の他画像と同じ見た目にそろえる。
-                _img_of = (_build_article_machine_img(_filt, _title, _stat_of) if _stat_of
-                           else _build_machine_img_no_bar(_filt))
+                # 掲載台10台以上なら最初から2倍解像度で描画する。
+                _hq_of = _pipeline_hq(hq_scale, len(_filt))
+                _img_of = (_build_article_machine_img(_filt, _title, _stat_of, hq_scale=_hq_of)
+                           if _stat_of else _build_machine_img_no_bar(_filt, hq_scale=_hq_of))
             else:
                 _img_of = _build_machine_img(_filt, _title, _stat_of)
             _imgs.append((_fn_of, _img_of))
@@ -12593,6 +12651,8 @@ def show_auto_article_page() -> None:
                             jug_suebangai_tails=_art_jstails,
                             variety_bans=_art_vbans,
                             article_mode=True,
+                            # ジャグラーシリーズ優秀台／その他の優秀台ピックアップを高解像度で描画
+                            hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0),
                         )
                         _art_pil: list[tuple[str, "Image.Image"]] = []
                         _art_nb_map: dict[str, list[int]] = {}
@@ -12635,7 +12695,9 @@ def show_auto_article_page() -> None:
                                     if _fn in _art_fpm: _art_pil.append(_art_fpm[_fn])
                                 else:
                                     _km, _kg, _kd = _da
-                                    _art_pil.append((f"{_km}.jpg", _build_article_machine_img(_kg, _km, _stat_from_diff(_kd))))
+                                    _art_pil.append((f"{_km}.jpg", _build_article_machine_img(
+                                        _kg, _km, _stat_from_diff(_kd),
+                                        hq_scale=_art_hq_scale_for(f"{_km}.jpg", store, len(_kg)))))
                             # ② 高配分（avg_diff 降順・个別優秀台を含む）
                             def _ahrk(x):
                                 return x["all_avg_diff"] if "all_avg_diff" in x else (int(round(sum(x["diffs"])/len(x["diffs"]))) if x.get("diffs") else 0)
@@ -12673,7 +12735,9 @@ def show_auto_article_page() -> None:
                                 else:
                                     _km, _kgp = _da
                                     _kti = f"{_km}（優秀台）"
-                                    _art_pil.append((f"{_kti}.jpg", _build_machine_img(_kgp, _kti, None)))
+                                    _art_pil.append((f"{_kti}.jpg", _build_machine_img(
+                                        _kgp, _kti, None,
+                                        hq_scale=_art_hq_scale_for(f"{_kti}.jpg", store, len(_kgp)))))
                                     # ban_map（スランプ合成）用: 除外後の掲載台番
                                     _art_ky_bans[f"{_kti}.jpg"] = [
                                         int(b) for b in _kgp["台番"].dropna()
@@ -12706,7 +12770,9 @@ def show_auto_article_page() -> None:
                                             "win_count": int((_nds2 > 0).sum()), "total_count": len(_ng)}
                                     # 記事用の並び画像は青タイトルバーなし（⑧のNO_BAR出力と揃える）
                                     _art_pil.append((f"{_fnt}.jpg",
-                                                     _build_machine_img(_ng, _nt, _nst, no_bar=True)))
+                                                     _build_machine_img(
+                                                         _ng, _nt, _nst, no_bar=True,
+                                                         hq_scale=_art_hq_scale_for(f"{_fnt}.jpg", store, len(_ng)))))
                             if kojin_enabled and _apdf is not None and _apdi is not None:
                                 for _rt, _rts in [(kojin_narabi_ranges_text, kojin_narabi_title),
                                                    (kojin_narabi2_ranges_text, kojin_narabi2_title)]:
@@ -12718,7 +12784,9 @@ def show_auto_article_page() -> None:
                                             _rp = _rd.copy().reset_index(drop=True)
                                             if not _rp.empty:
                                                 _base = _rts.strip() or f"{_rt.strip()}の優秀台"
-                                                _art_pil.append((f"{_base}.jpg", _build_machine_img(_rp, _base, _stat_from_diff(_rdi))))
+                                                _art_pil.append((f"{_base}.jpg", _build_machine_img(
+                                                    _rp, _base, _stat_from_diff(_rdi),
+                                                    hq_scale=_art_hq_scale_for(f"{_base}.jpg", store, len(_rp)))))
                                         except Exception: pass
                             # ④ 末尾画像（通常末尾／ジャグラー末尾・並びの後・ジャグラーの前）
                             # 抽出・タイトル・ファイル名・集計は通常ページと同じ _build_sue_images。
@@ -12732,7 +12800,8 @@ def show_auto_article_page() -> None:
                                         uploaded, store, _sue_tails_pv, _sue_mode_pv,
                                         is_juggler=_is_jug_pv,
                                         ban_out=_art_sue_ban, stat_out=_art_sue_stat,
-                                        src_out=_art_sue_src, article_mode=True):
+                                        src_out=_art_sue_src, article_mode=True,
+                                        hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0)):
                                     _art_pil.append((_sfn_pv, _simg_pv))
                             # ④ ジャグラーシリーズ優秀台
                             if not _art_manual and "ジャグラーシリーズ優秀台.jpg" in _art_fpm:
@@ -12751,7 +12820,9 @@ def show_auto_article_page() -> None:
                                         if not _se_df_a.empty:
                                             _se_df_a = _se_df_a.iloc[_se_df_a["台番"].argsort()].reset_index(drop=True)
                                             _se_tit_a = art_sonota_extra_title.strip() or "その他の優秀台ピックアップ"
-                                            _art_pil.append((_art_son_fn, _build_machine_img(_se_df_a, _se_tit_a, None)))
+                                            _art_pil.append((_art_son_fn, _build_machine_img(
+                                                _se_df_a, _se_tit_a, None,
+                                                hq_scale=_art_hq_scale_for(_art_son_fn, store, len(_se_df_a)))))
                                             _art_son_bans = [int(b) for b in _se_df_a["台番"].tolist()]
                                             _art_son_added = True
                                 elif art_sonota_extra_auto in _SONOTA_AUTO_THR and _apdi is not None:
@@ -12769,7 +12840,9 @@ def show_auto_article_page() -> None:
                                         _apdf, _apdi, _SONOTA_AUTO_THR[art_sonota_extra_auto], _exc_mac_a, _exc_ban_a)
                                     if not _se_auto_a.empty:
                                         _se_tit_a = art_sonota_extra_title.strip() or "その他の優秀台ピックアップ"
-                                        _art_pil.append((_art_son_fn, _build_machine_img(_se_auto_a, _se_tit_a, None)))
+                                        _art_pil.append((_art_son_fn, _build_machine_img(
+                                            _se_auto_a, _se_tit_a, None,
+                                            hq_scale=_art_hq_scale_for(_art_son_fn, store, len(_se_auto_a)))))
                                         _art_son_bans = [int(b) for b in _se_auto_a["台番"].tolist()]
                                         _art_son_added = True
                             if not _art_son_added and not _art_manual and "その他の優秀台ピックアップ.jpg" in _art_fpm:
@@ -12811,7 +12884,9 @@ def show_auto_article_page() -> None:
                                                 _avdf = _avdf[_av_keep.values].copy().reset_index(drop=True)
                                         if not _avdf.empty:   # 全台除外 → 画像を作らない
                                             _art_pil.append((_art_var_fn,
-                                                             _build_machine_img(_avdf, _avtit, _avstat)))
+                                                             _build_machine_img(
+                                                                 _avdf, _avtit, _avstat,
+                                                                 hq_scale=_art_hq_scale_for(_art_var_fn, store, len(_avdf)))))
                                             # スランプ合成用: 表に掲載された最終台番（表示順・重複/NaN除去）
                                             _art_var_bans = list(dict.fromkeys(
                                                 int(b) for b in _avdf["台番"].dropna()))
@@ -12827,7 +12902,10 @@ def show_auto_article_page() -> None:
                                         continue
                                     _pk_df = _pk_df.iloc[_pk_df["台番"].argsort()].reset_index(drop=True)
                                     _art_pil.append((f"{_make_safe_fn(_pk_tit)}.jpg",
-                                                     _build_machine_img_no_bar(_pk_df)))
+                                                     _build_machine_img_no_bar(
+                                                         _pk_df,
+                                                         hq_scale=_art_hq_scale_for(
+                                                             f"{_make_safe_fn(_pk_tit)}.jpg", store, len(_pk_df)))))
 
                     # ── スランプグラフ合成（プレビュー）────────────────────────
                     _pv_api_key_sl = _get_pision_api_key()
@@ -12955,6 +13033,8 @@ def show_auto_article_page() -> None:
                                                 _is_sue_pv2,
                                                 crop_bar=False,      # 記事用は元画像をcropしない
                                                 is_multi=_is_multi_pv2)
+                                        # 高解像度対象（その他／ジャグラー統合）はスランプも2倍で描画
+                                        _hq_pv2 = _art_hq_scale_for(_bare_pv2, store, len(_bans_pv2))
                                         for _b_pv2 in _bans_pv2:
                                             _it_pv2 = _pv_by_uid.get(str(_b_pv2))
                                             if _it_pv2 is None or not _it_pv2.get("points"):
@@ -12968,7 +13048,7 @@ def show_auto_article_page() -> None:
                                                     _pv_tmpl_sl, str(_b_pv2), _dn_pv2,
                                                     _it_pv2["points"], diff=_it_pv2.get("diff"),
                                                     machine_name=_dn_pv2 if _show_mn_pv2 else None,
-                                                    show_diff=_sd_pv2,
+                                                    show_diff=_sd_pv2, out_scale=_hq_pv2,
                                                 ))
                                             except Exception:
                                                 pass
@@ -12984,10 +13064,13 @@ def show_auto_article_page() -> None:
                                                                              "fillable": _fillable_pv2, "bans": list(_bans_pv2)}
                                                 if _fillable_pv2:
                                                     _art_gap_base_pv[_fn_pv2] = {"table": _img_pv2,
-                                                                                 "graphs": list(_g_imgs_pv2), "side": False}
+                                                                                 "graphs": list(_g_imgs_pv2),
+                                                                                 "side": False, "hq": _hq_pv2}
                                             else:
                                                 _gap_img_pv2 = None
-                                            _merged_pil.append((_fn_pv2, _attach_slump_to_table(_img_pv2, _g_imgs_pv2, _pv_bgg_sl, _gap_img_pv2)))
+                                            _merged_pil.append((_fn_pv2, _attach_slump_to_table(
+                                                _img_pv2, _g_imgs_pv2, _pv_bgg_sl, _gap_img_pv2,
+                                                hq_scale=_hq_pv2)))
                                         else:
                                             _merged_pil.append((_fn_pv2, _img_pv2))
                                     _art_pil = _merged_pil
@@ -13208,7 +13291,10 @@ def show_auto_article_page() -> None:
                                 _asc = _asc[~_asc["台番"].apply(int).isin(_a_sue_bans_upd)].copy()
                             _asc = _asc.iloc[_asc["台番"].argsort()].reset_index(drop=True)
                             if not _asc.empty:
-                                _asi = _build_machine_img(_asc, "その他の優秀台ピックアップ", None)
+                                _asi = _build_machine_img(
+                                    _asc, "その他の優秀台ピックアップ", None,
+                                    hq_scale=_art_hq_scale_for("その他の優秀台ピックアップ.jpg",
+                                                               store, len(_asc)))
                                 _upd_bm["その他の優秀台ピックアップ.jpg"] = _bans_from_df(_asc)
                                 for _ci, (_pn2, _) in enumerate(_anp):
                                     if _pn2 == "その他の優秀台ピックアップ.jpg":
@@ -13236,7 +13322,10 @@ def show_auto_article_page() -> None:
                                 if _a_sue_bans_upd:   # 末尾画像の掲載台は重複させない
                                     _aov_son = _aov_son[~_aov_son["台番"].apply(int).isin(_a_sue_bans_upd)].copy()
                                 _aov_son = _aov_son.iloc[_aov_son["台番"].argsort()].reset_index(drop=True)
-                                _aov_img = _build_machine_img(_aov_son, "その他の優秀台ピックアップ", None)
+                                _aov_img = _build_machine_img(
+                                    _aov_son, "その他の優秀台ピックアップ", None,
+                                    hq_scale=_art_hq_scale_for("その他の優秀台ピックアップ.jpg",
+                                                               store, len(_aov_son)))
                                 _upd_bm["その他の優秀台ピックアップ.jpg"] = _bans_from_df(_aov_son)
                                 for _ci2, (_pn2, _) in enumerate(_anp):
                                     if _pn2 == "その他の優秀台ピックアップ.jpg":
@@ -13325,6 +13414,8 @@ def show_auto_article_page() -> None:
                                                         _is_sue_u,
                                                         crop_bar=False,      # 記事用は元画像をcropしない
                                                         is_multi=_is_multi_u)
+                                                # 高解像度対象（その他／ジャグラー統合）はスランプも2倍で描画
+                                                _hq_u = _art_hq_scale_for(_bare_u, store, len(_bans_u))
                                                 for _b_u in _bans_u:
                                                     _it_u = _upd_by_uid.get(str(_b_u))
                                                     if _it_u is None or not _it_u.get("points"):
@@ -13336,7 +13427,7 @@ def show_auto_article_page() -> None:
                                                             _upd_tmpl, str(_b_u), _dn_u,
                                                             _it_u["points"], diff=_it_u.get("diff"),
                                                             machine_name=_dn_u if _show_mn_u else None,
-                                                            show_diff=True,
+                                                            show_diff=True, out_scale=_hq_u,
                                                         ))
                                                     except Exception:
                                                         pass
@@ -13354,14 +13445,16 @@ def show_auto_article_page() -> None:
                                                                            "fillable": _fillable_u, "bans": list(_bans_u)}
                                                             if _fillable_u:
                                                                 _abu[_fn_u] = {"table": _img_u,
-                                                                               "graphs": list(_g_imgs_u), "side": False}
+                                                                               "graphs": list(_g_imgs_u),
+                                                                               "side": False, "hq": _hq_u}
                                                             else:
                                                                 _abu.pop(_fn_u, None)
                                                             st.session_state[f"_art_gap_meta_{store}"] = _amu
                                                             st.session_state[f"_art_gap_base_{store}"] = _abu
                                                     else:
                                                         _gap_img_u = None
-                                                    _merged_anp.append((_fn_u, _attach_slump_to_table(_img_u, _g_imgs_u, _upd_bgg, _gap_img_u)))
+                                                    _merged_anp.append((_fn_u, _attach_slump_to_table(_img_u, _g_imgs_u, _upd_bgg, _gap_img_u,
+                                                                                      hq_scale=_hq_u)))
                                                 else:
                                                     _merged_anp.append((_fn_u, _img_u))
                                             _anp = _merged_anp
@@ -13453,6 +13546,8 @@ def show_auto_article_page() -> None:
                 jug_suebangai_tails=_jug_sue_tails_art,
                 variety_bans=_art_vbans_ex,
                 article_mode=True,
+                # ジャグラーシリーズ優秀台／その他の優秀台ピックアップを高解像度で描画
+                hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0),
             )
 
             # ── 並び画像（subprocess）────────────────────────────────
@@ -13465,6 +13560,8 @@ def show_auto_article_page() -> None:
                 ok_n, out_n, err_n = _patch_and_run_narabi(
                     STORE_NARABI_SCRIPT[store], excel_path, narabi_dir, narabi_ranges,
                     no_bar=True,
+                    # 掲載台10台以上の並び画像は最初から2倍解像度で描画させる
+                    hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0),
                 )
                 narabi_result = {"ok": ok_n, "stdout": out_n, "stderr": err_n}
                 st.write(f"{'✅' if ok_n else '❌'} 並び画像{'完了' if ok_n else 'エラー'}")
@@ -13505,7 +13602,9 @@ def show_auto_article_page() -> None:
                             _log(f"  個別(全台)「{_km}」: 該当台なし")
                             continue
                         _kdr = diff_k.loc[df_k[df_k["機種名"] == _km].index].reset_index(drop=True)
-                        _kimg = _build_article_machine_img(_kgrp, _km, _stat_from_diff(_kdr))
+                        _kimg = _build_article_machine_img(
+                            _kgrp, _km, _stat_from_diff(_kdr),
+                            hq_scale=_art_hq_scale_for(f"{_make_safe_fn(_km)}.jpg", store, len(_kgrp)))
                         _kout = os.path.join(output_dir, f"{_make_safe_fn(_km)}.jpg")
                         _save_jpeg(_kimg, _kout)
                         result["files"].append(_kout)
@@ -13558,7 +13657,10 @@ def show_auto_article_page() -> None:
                             _log(f"  個別(優秀台)「{_km}」: 掲載台が0台のため画像なし")
                             continue
                         _ktitle = "優秀台ピックアップ"
-                        _kimg   = _build_machine_img(_kgrp_p, _ktitle, None)
+                        _kimg   = _build_machine_img(
+                            _kgrp_p, _ktitle, None,
+                            hq_scale=_art_hq_scale_for(f"{_make_safe_fn(_km)}（優秀台）.jpg",
+                                                       store, len(_kgrp_p)))
                         _save_jpeg(_kimg, _kout)
                         result["files"].append(_kout)
                         _art_ky_bans_e[f"{_make_safe_fn(_km)}（優秀台）.jpg"] = [
@@ -13577,7 +13679,10 @@ def show_auto_article_page() -> None:
                                 if not _rng_p.empty:
                                     _base = kojin_narabi_title.strip() if kojin_narabi_title.strip() else f"{kojin_narabi_ranges_text.strip()}の優秀台"
                                     _rng_stat  = _stat_from_diff(_rng_diff)
-                                    _rng_img   = _build_machine_img(_rng_p, _base, _rng_stat)
+                                    _rng_img   = _build_machine_img(
+                                        _rng_p, _base, _rng_stat,
+                                        hq_scale=_art_hq_scale_for(f"{_make_safe_fn(_base)}.jpg",
+                                                                   store, len(_rng_p)))
                                     _rng_out   = os.path.join(output_dir, f"{_make_safe_fn(_base)}.jpg")
                                     _save_jpeg(_rng_img, _rng_out)
                                     result["files"].append(_rng_out)
@@ -13597,7 +13702,10 @@ def show_auto_article_page() -> None:
                                 _rng2_p    = _rng2_df.copy().reset_index(drop=True)
                                 if not _rng2_p.empty:
                                     _base2 = kojin_narabi2_title.strip() if kojin_narabi2_title.strip() else f"{kojin_narabi2_ranges_text.strip()}の優秀台"
-                                    _rng2_img = _build_machine_img(_rng2_p, _base2, None)
+                                    _rng2_img = _build_machine_img(
+                                        _rng2_p, _base2, None,
+                                        hq_scale=_art_hq_scale_for(f"{_make_safe_fn(_base2)}.jpg",
+                                                                   store, len(_rng2_p)))
                                     _rng2_out = os.path.join(output_dir, f"{_make_safe_fn(_base2)}.jpg")
                                     _save_jpeg(_rng2_img, _rng2_out)
                                     result["files"].append(_rng2_out)
@@ -13614,7 +13722,10 @@ def show_auto_article_page() -> None:
                             continue
                         _pk_df_e = _pk_df_e.iloc[_pk_df_e["台番"].argsort()].reset_index(drop=True)
                         _pk_out_e = os.path.join(output_dir, f"{_make_safe_fn(_pk_tit_e)}.jpg")
-                        _save_jpeg(_build_machine_img_no_bar(_pk_df_e), _pk_out_e)
+                        _save_jpeg(_build_machine_img_no_bar(
+                            _pk_df_e,
+                            hq_scale=_art_hq_scale_for(f"{_make_safe_fn(_pk_tit_e)}.jpg",
+                                                       store, len(_pk_df_e))), _pk_out_e)
                         result["files"].append(_pk_out_e)
                         _log(f"  ✅ 個別機種の優秀台ピックアップ「{_pk_tit_e}」({len(_pk_df_e)}台)")
 
@@ -13663,7 +13774,9 @@ def show_auto_article_page() -> None:
                                     _log("  バラエティ: 掲載台が0台のため画像なし")
                                 else:
                                     _art_var_fn_e = _avfn_e
-                                    _save_jpeg(_build_machine_img(_avf, _avtit_e, _avstat_e), _avout_e)
+                                    _save_jpeg(_build_machine_img(
+                                        _avf, _avtit_e, _avstat_e,
+                                        hq_scale=_art_hq_scale_for(_avfn_e, store, len(_avf))), _avout_e)
                                     result["files"].append(_avout_e)
                                     # スランプ合成用: 表に掲載された最終台番（表示順・重複/NaN除去）
                                     _art_var_bans_e = list(dict.fromkeys(
@@ -13687,9 +13800,14 @@ def show_auto_article_page() -> None:
                     for _sfn_e, _simg_e in _build_sue_images(
                             uploaded, store, _tails_e, _mode_e, is_juggler=_isjug_e,
                             ban_out=_art_sue_ban_e, stat_out=_art_sue_stat_e,
-                            src_out=_art_sue_src_e, article_mode=True):
+                            src_out=_art_sue_src_e, article_mode=True,
+                            hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0)):
                         _sout_e = os.path.join(output_dir, _sfn_e)
-                        _save_jpeg(_simg_e, _sout_e)
+                        _save_jpeg(_simg_e, _sout_e,
+                                   **({"target_kb": _ART_HQ_TARGET_KB}
+                                      if _art_hq_scale_for(_sfn_e, store,
+                                                           len(_art_sue_ban_e.get(_sfn_e, []))) > 1.0
+                                      else {}))
                         result["files"].append(_sout_e)
                         _log(f"  ✅ {'ジャグラー末尾' if _isjug_e else '末尾'}画像「{_sfn_e}」"
                              f"({len(_art_sue_ban_e.get(_sfn_e, []))}台)")
@@ -13960,6 +14078,9 @@ def show_auto_article_page() -> None:
                                         is_multi=_is_multi_sl)
                                     if _mn_sl is not None and not _pok_sl:
                                         _art_missing_panels.add(_mn_sl)
+                                # 高解像度対象（その他／ジャグラー統合）はスランプも2倍で描画
+                                _hq_sl = _art_hq_scale_for(re.sub(r"^\d{2}_", "", _fp_sl), store,
+                                                           len(_bans_sl))
                                 for _b_sl in _bans_sl:
                                     _it_sl = _art_by_uid_sl.get(str(_b_sl))
                                     if _it_sl is None or not _it_sl.get("points"):
@@ -13973,7 +14094,7 @@ def show_auto_article_page() -> None:
                                             _art_tmpl_sl, str(_b_sl), _dn_sl,
                                             _it_sl["points"], diff=_it_sl.get("diff"),
                                             machine_name=_dn_sl if _show_mn_sl else None,
-                                            show_diff=_sd_sl,
+                                            show_diff=_sd_sl, out_scale=_hq_sl,
                                         ))
                                     except Exception:
                                         pass
@@ -13985,8 +14106,12 @@ def show_auto_article_page() -> None:
                                     _gap_img_sl = _resolve_gap_screen(_gp_sl, _gsel_sl)
                                 else:
                                     _gap_img_sl = None
-                                _combined_sl = _attach_slump_to_table(_t_img_sl, _g_imgs_sl, _art_bgg_sl, _gap_img_sl)
-                                _save_jpeg(_combined_sl, _fpath_sl)
+                                _combined_sl = _attach_slump_to_table(
+                                    _t_img_sl, _g_imgs_sl, _art_bgg_sl, _gap_img_sl,
+                                    hq_scale=_hq_sl)
+                                # 高解像度対象だけ JPEG 目標サイズを引き上げる（他画像は従来どおり）
+                                _save_jpeg(_combined_sl, _fpath_sl,
+                                           **({"target_kb": _ART_HQ_TARGET_KB} if _hq_sl > 1.0 else {}))
                                 _art_slump_cnt += 1
                         _log(f"✅ スランプ: {_art_slump_cnt}枚にスランプグラフを合成")
                         if _art_missing_panels:
@@ -17961,8 +18086,14 @@ def draw_slump_graph(
     diff: "int | None" = None,
     machine_name: "str | None" = None,
     show_diff: bool = True,
+    out_scale: float = 1.0,
 ) -> "Image.Image":
-    """スランプグラフを template に描画して PIL Image を返す。"""
+    """スランプグラフを template に描画して PIL Image を返す。
+
+    out_scale>1（記事用の高解像度画像のみ）では、内部の3倍キャンバスを 1x ではなく
+    out_scale 倍へ縮小して返し、文字も out_scale 倍のフォントで描く。
+    ＝出来上がりを後から拡大するのではなく、最初から高解像度で描画する。
+    既定 1.0 では従来と完全に同一の出力になる。"""
     SCALE     = 3
     X_START   = 24
     X_END     = 364
@@ -18021,13 +18152,15 @@ def draw_slump_graph(
                 if len(stroke) >= 2:
                     d.line(stroke, fill=LINE_RGB, width=LINE_W, joint="curve")
 
-    # 1x にスケールダウン（ライン AA）
-    result = big.resize((w, h), Image.LANCZOS).convert("RGB")
+    # 3x キャンバスから出力解像度へスケールダウン（ライン AA）
+    _os = float(out_scale) if out_scale and out_scale > 0 else 1.0
+    result = big.resize((round(w * _os), round(h * _os)), Image.LANCZOS).convert("RGB")
+    w, h   = result.size          # 以降のテキスト配置は出力解像度基準
     draw   = ImageDraw.Draw(result)
 
     # ヘッダーテキスト（純白・1回だけ描画）
-    font_name = load_font(24)
-    font_uid  = load_font(24)
+    font_name = load_font(round(24 * _os))
+    font_uid  = load_font(round(24 * _os))
 
     def _center_xy(text, font, box_y0, box_h):
         bb = font.getbbox(text)
@@ -18037,38 +18170,42 @@ def draw_slump_graph(
         y = box_y0 + (box_h - th) // 2 - bb[1]
         return x, y
 
-    name_x, name_y = _center_xy(display_name, font_name, 10, 41)
+    name_x, name_y = _center_xy(display_name, font_name, round(10 * _os), round(41 * _os))
     draw.text((name_x, name_y), display_name, fill=(255, 255, 255), font=font_name)
 
     uid_text = f"{unit_id}番台"
-    uid_x, uid_y = _center_xy(uid_text, font_uid, 57, 41)
+    uid_x, uid_y = _center_xy(uid_text, font_uid, round(57 * _os), round(41 * _os))
     draw.text((uid_x, uid_y), uid_text, fill=(255, 255, 255), font=font_uid)
 
     # 差枚テキスト（黄色・中央寄せ）
     if points and show_diff:
-        font_diff  = load_font(42)
+        font_diff  = load_font(round(42 * _os))
         _raw = diff if diff is not None else points[-1]["y"]
         diff_text  = _fmt_diff(_pipeline_calc_d(_raw))
         bb = font_diff.getbbox(diff_text)
         diff_x = (w - (bb[2] - bb[0])) // 2 - bb[0]
-        diff_y = (h - 18) - bb[3]
+        diff_y = (h - round(18 * _os)) - bb[3]
         draw.text((diff_x, diff_y), diff_text, fill=(255, 255, 0), font=font_diff)
 
         # 機種名テキスト（差枚数の直上・黄色・縁取り）
         if machine_name:
-            _mn_sz = 34
+            _mn_sz = round(34 * _os)
+            _mn_min = round(14 * _os)
+            _mn_step = max(1, round(2 * _os))
             _mn_font = load_font(_mn_sz)
             _mn_bb = _mn_font.getbbox(machine_name)
             _mn_w  = _mn_bb[2] - _mn_bb[0]
-            while _mn_w > w - 8 and _mn_sz > 14:
-                _mn_sz -= 2
+            while _mn_w > w - round(8 * _os) and _mn_sz > _mn_min:
+                _mn_sz -= _mn_step
                 _mn_font = load_font(_mn_sz)
                 _mn_bb = _mn_font.getbbox(machine_name)
                 _mn_w  = _mn_bb[2] - _mn_bb[0]
             _mn_h  = _mn_bb[3] - _mn_bb[1]
             _mn_x  = (w - _mn_w) // 2 - _mn_bb[0]
-            _mn_y  = diff_y - _mn_h - 4 - _mn_bb[1]
-            for _ox, _oy in ((-1,-1),(1,-1),(-1,1),(1,1),(0,-1),(0,1),(-1,0),(1,0)):
+            _mn_y  = diff_y - _mn_h - round(4 * _os) - _mn_bb[1]
+            _ow = max(1, round(1 * _os))
+            for _ox, _oy in ((-_ow,-_ow),(_ow,-_ow),(-_ow,_ow),(_ow,_ow),
+                             (0,-_ow),(0,_ow),(-_ow,0),(_ow,0)):
                 draw.text((_mn_x + _ox, _mn_y + _oy), machine_name, fill=(0, 0, 0), font=_mn_font)
             draw.text((_mn_x, _mn_y), machine_name, fill=(255, 255, 0), font=_mn_font)
 
@@ -18496,7 +18633,8 @@ def _on_gap_screen_change(radio_key: str, sel_key: str, screens: "list | None" =
         elif _base.get("side"):
             _newimg = _attach_slump_to_table_side(_base["table"], _base["graphs"], _bbb2, _new_gap)
         else:
-            _newimg = _attach_slump_to_table(_base["table"], _base["graphs"], _bbb2, _new_gap)
+            _newimg = _attach_slump_to_table(_base["table"], _base["graphs"], _bbb2, _new_gap,
+                                             hq_scale=_base.get("hq", 1.0))
         if _newimg is None:
             continue
         for _ai in range(len(_auto)):
@@ -18563,6 +18701,7 @@ def _attach_slump_to_table(
     graph_imgs: "list[Image.Image]",
     bg_path=None,
     gap_screen_img=None,
+    hq_scale: float = 1.0,
 ) -> "Image.Image":
     """表画像の下にスランプグラフを3列で並べて合成する（稲毛スランプ付き専用）。
 
@@ -18571,8 +18710,11 @@ def _attach_slump_to_table(
     * bg_path が指定されている場合、グラフエリアの背景に貼り付ける。
     """
     COLS = 3
-    PAD  = 12  # 外周余白 (px)
-    GAP  = 8   # グラフ間隙間 (px)
+    # hq_scale>1（記事用の高解像度画像）では余白も同じ倍率にしてレイアウト比率を保つ。
+    # 列数・行数・中央寄せ・液晶のはめ込み位置は変更しない。
+    _hq  = hq_scale if hq_scale and hq_scale > 0 else 1.0
+    PAD  = round(12 * _hq)  # 外周余白 (px)
+    GAP  = round(8 * _hq)   # グラフ間隙間 (px)
 
     tw, th = table_img.size
 

@@ -3066,9 +3066,14 @@ def run_step1_main(
     log,
     article_mode: bool = False,
     hq_scale: float = 1.0,
+    kojin_zentai_machines: set[str] = set(),
 ) -> tuple[list[str], list[dict]]:
     """Step 1: 全台系PNG + 全台プラス機種別JPG を生成する。
-    戻り値: (generated, zen_dai_list)"""
+    戻り値: (generated, zen_dai_list)
+
+    kojin_zentai_machines: ②個別画像（全台）へ入力された機種（記事用ページのみ渡す）。
+      同名画像が自動全台系と②個別の2経路で作られるのを防ぐため、候補段階で除外する。
+      recommended_machines は流用しない（⑤オススメ・②個別優秀台まで巻き込むため）。"""
     manual_exclude   = cfg["manual_exclude"]
     juggler_series   = cfg["juggler_series"]
     juggler_g_min    = cfg["juggler_g_min"]
@@ -3102,6 +3107,10 @@ def run_step1_main(
 
     # ── 機種別 JPG（全台プラスのみ）──────────────────────────────
     for machine, grp in df.groupby("機種名", sort=False):
+        if machine in kojin_zentai_machines:
+            # ②個別画像（全台）で生成するため、自動全台系では作らない
+            log(f"  {machine} →②個別画像(全台)指定のため自動全台系から除外")
+            continue
         if machine in manual_exclude:
             continue
         if machine in prob_jobs_map:
@@ -4516,6 +4525,7 @@ def run_auto_pipeline(
     rec_ban_level: bool = False,
     exclude_units: dict | None = None,
     hq_scale: float = 1.0,
+    kojin_zentai_machines: set[str] = set(),
 ) -> dict:
     """3ステップパイプラインを実行する。
     exclude_units: ⑦プレビューで台番単位に外した掲載台
@@ -4573,7 +4583,8 @@ def run_auto_pipeline(
         suebangai_bans |= variety_bans
 
         log("① 全台系PNG ＋ 全台プラス機種別JPG")
-        f1, zen_dai_list = run_step1_main(df, diff_raw, output_dir, stem, cfg, log, article_mode=article_mode, hq_scale=hq_scale)
+        f1, zen_dai_list = run_step1_main(df, diff_raw, output_dir, stem, cfg, log, article_mode=article_mode, hq_scale=hq_scale,
+                                          kojin_zentai_machines=kojin_zentai_machines)
 
         log("② ジャグラーシリーズ優秀台")
         _jug_series = cfg["juggler_series"]
@@ -12820,6 +12831,9 @@ def show_auto_article_page() -> None:
                             hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0),
                             # 🎯掲載台を選ぶ（高配分／ジャグラー統合／その他）: 記事用stateの投影
                             exclude_units=_art_pipeline_exclude(_art_unit_state),
+                            # ②個別画像(全台)の機種は自動全台系を作らない（同名画像の二重生成を防ぐ）
+                            kojin_zentai_machines=({m.strip() for m in kojin_zentai_machines if m.strip()}
+                                                   if kojin_enabled else set()),
                         )
                         _art_pil: list[tuple[str, "Image.Image"]] = []
                         _art_nb_map: dict[str, list[int]] = {}
@@ -12902,8 +12916,10 @@ def show_auto_article_page() -> None:
                                 else:
                                     _km, _kgp = _da
                                     _kti = f"{_km}（優秀台）"
-                                    _art_pil.append((f"{_kti}.jpg", _build_machine_img(
-                                        _kgp, _kti, None,
+                                    # 記事用は青タイトルバーなし（最初から描画しない・cropは禁止）。
+                                    # Step2/Step3のarticle_mode・その他の優秀台と同じ _build_machine_img_no_bar を使う
+                                    _art_pil.append((f"{_kti}.jpg", _build_machine_img_no_bar(
+                                        _kgp,
                                         hq_scale=_art_hq_scale_for(f"{_kti}.jpg", store, len(_kgp)))))
                                     # ban_map（スランプ合成）用: 除外後の掲載台番
                                     _art_ky_bans[f"{_kti}.jpg"] = [
@@ -13750,6 +13766,9 @@ def show_auto_article_page() -> None:
                 hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0),
                 # 🎯掲載台を選ぶ（高配分／ジャグラー統合／その他）: 記事用stateの投影
                 exclude_units=_art_pipeline_exclude(_art_unit_state_e),
+                # ②個別画像(全台)の機種は自動全台系を作らない（同名画像の二重生成を防ぐ）
+                kojin_zentai_machines=({m.strip() for m in kojin_zentai_machines if m.strip()}
+                                       if kojin_enabled else set()),
             )
 
             # ── 並び画像（subprocess）────────────────────────────────
@@ -13801,6 +13820,9 @@ def show_auto_article_page() -> None:
                             continue
                         _kgrp = df_k[df_k["機種名"] == _km].copy().reset_index(drop=True)
                         if _kgrp.empty:
+                            # 自動全台系も生成しないため、前回実行時の同名画像が残らないよう削除する
+                            # （②個別が生成する経路では削除しない＝continueする場合のみ）
+                            _rm_stale_image(output_dir, f"{_make_safe_fn(_km)}.jpg", _log)
                             _log(f"  個別(全台)「{_km}」: 該当台なし")
                             continue
                         _kdr = diff_k.loc[df_k[df_k["機種名"] == _km].index].reset_index(drop=True)
@@ -13858,9 +13880,10 @@ def show_auto_article_page() -> None:
                                 os.remove(_kout)
                             _log(f"  個別(優秀台)「{_km}」: 掲載台が0台のため画像なし")
                             continue
-                        _ktitle = "優秀台ピックアップ"
-                        _kimg   = _build_machine_img(
-                            _kgrp_p, _ktitle, None,
+                        # 記事用は青タイトルバーなし（最初から描画しない・cropは禁止）。
+                        # Step2/Step3のarticle_mode・その他の優秀台と同じ _build_machine_img_no_bar を使う
+                        _kimg   = _build_machine_img_no_bar(
+                            _kgrp_p,
                             hq_scale=_art_hq_scale_for(f"{_make_safe_fn(_km)}（優秀台）.jpg",
                                                        store, len(_kgrp_p)))
                         _save_jpeg(_kimg, _kout)

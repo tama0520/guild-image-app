@@ -2508,9 +2508,90 @@ def _check_github_token() -> tuple[bool, str]:
     return True, f"GITHUB_TOKEN 設定済み（先頭8文字: {str(token)[:8]}…）"
 
 
-def _github_push_file(content_str: str, repo_path: str = "weekly_items.json") -> tuple[bool, str]:
+# Cloud同期の対象ファイル（GitHub APIで読み書きするもの）
+_GH_SYNC_FILES: tuple[str, ...] = ("weekly_items.json", "rote_machines.json")
+
+
+def _gh_sha_key(repo_path: str) -> str:
+    """読み込み時SHAを保持する session_state キー。"""
+    return f"_gh_sha_{repo_path}"
+
+
+def _github_fetch_file(repo_path: str) -> tuple[str | None, str | None, str]:
+    """Cloud専用: GitHub上の最新内容とSHAを取得する。
+    戻り値: (内容文字列, SHA, メッセージ)。失敗時は (None, None, エラー)。
+    """
+    import urllib.request, base64 as _b64
+    token = get_secret_value("GITHUB_TOKEN", "")
+    if not token:
+        return None, None, "GITHUB_TOKEN未設定"
+    url = f"https://api.github.com/repos/tama0520/guild-image-app/contents/{repo_path}"
+    hdrs = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    try:
+        req = urllib.request.Request(url, headers=hdrs)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            _j = json.loads(r.read())
+        _content = _b64.b64decode(_j["content"]).decode("utf-8")
+        return _content, _j["sha"], "取得しました"
+    except Exception as e:
+        return None, None, f"取得失敗: {e}"
+
+
+def _github_pull_latest(repo_path: str) -> tuple[bool, str]:
+    """Cloud専用: GitHubの最新内容をコンテナ内のファイルへ書き戻し、SHAを記録する。
+    自動マージは行わない（リモートの内容をそのまま採用する）。
+    """
+    _content, _sha, _msg = _github_fetch_file(repo_path)
+    if _content is None:
+        return False, _msg
+    # JSONとして壊れている場合は書き戻さない（ローカルファイルを守る）
+    try:
+        json.loads(_content)
+    except Exception as e:
+        return False, f"JSON解析失敗: {e}"
+    try:
+        with open(os.path.join(BASE_DIR, repo_path), "w", encoding="utf-8") as _f:
+            _f.write(_content)
+    except Exception as e:
+        return False, f"書き込み失敗: {e}"
+    try:
+        st.session_state[_gh_sha_key(repo_path)] = _sha
+    except Exception:
+        pass
+    return True, "最新データを読み込みました"
+
+
+def _github_sync_on_start() -> None:
+    """案C: Cloud専用・セッション1回だけGitHubの最新を取り込む。
+    デプロイ時スナップショットのまま古いデータで動作するのを防ぐ。
+    """
+    if not _IS_CLOUD:
+        return
+    if st.session_state.get("_gh_synced_on_start"):
+        return
+    st.session_state["_gh_synced_on_start"] = True
+    _results = []
+    for _rp in _GH_SYNC_FILES:
+        _ok, _msg = _github_pull_latest(_rp)
+        _results.append(f"{'✅' if _ok else '⚠️'} {_rp}: {_msg}")
+        if not _ok:
+            try:
+                st.toast(f"⚠️ 起動時同期に失敗: {_rp} — {_msg}", icon="⚠️")
+            except Exception:
+                pass
+    st.session_state["_github_startup_sync_log"] = "\n".join(_results)
+
+
+def _github_push_file(content_str: str, repo_path: str = "weekly_items.json",
+                      base_sha: str | None = None) -> tuple[bool, str]:
     """Cloud専用: GitHub APIでファイルを直接更新する。
     st.secrets["GITHUB_TOKEN"] が必要。
+
+    案B: base_sha（読み込み時のSHA）と現在のSHAが一致しない場合は
+    絶対にPUTせず、最新を取り込んで中止する（自動マージはしない）。
     """
     import urllib.request, urllib.error, base64 as _b64
     token = get_secret_value("GITHUB_TOKEN", "")
@@ -2523,32 +2604,47 @@ def _github_push_file(content_str: str, repo_path: str = "weekly_items.json") ->
         "Accept": "application/vnd.github.v3+json",
         "Content-Type": "application/json",
     }
-    # SHAを取得してPUT（409 Conflict時は最大3回リトライ）
-    for _attempt in range(3):
+    _ABORT_MSG = "他の環境で更新されたため保存を中止しました。最新データを読み込みました。"
+
+    # 現在のSHAを取得
+    try:
+        req = urllib.request.Request(url, headers=hdrs)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            sha = json.loads(r.read())["sha"]
+    except Exception as e:
+        return False, f"SHA取得失敗: {e}"
+
+    # 案B: 読み込み時SHAと現在のSHAが違えば「絶対にPUTしない」
+    if base_sha and base_sha != sha:
+        _github_pull_latest(repo_path)
+        return False, _ABORT_MSG
+
+    body = json.dumps({
+        "message": "auto: Cloud上のチェック状態を保存",
+        "content": _b64.b64encode(content_str.encode("utf-8")).decode("ascii"),
+        "sha": sha,
+        "branch": "main",
+    }).encode("utf-8")
+    try:
+        req2 = urllib.request.Request(url, data=body, headers=hdrs, method="PUT")
+        with urllib.request.urlopen(req2, timeout=15) as r:
+            _res = json.loads(r.read())
+        # 成功したSHAを記録し、次回保存の基準にする
         try:
-            req = urllib.request.Request(url, headers=hdrs)
-            with urllib.request.urlopen(req, timeout=10) as r:
-                sha = json.loads(r.read())["sha"]
-        except Exception as e:
-            return False, f"SHA取得失敗: {e}"
-        body = json.dumps({
-            "message": "auto: Cloud上のチェック状態を保存",
-            "content": _b64.b64encode(content_str.encode("utf-8")).decode("ascii"),
-            "sha": sha,
-            "branch": "main",
-        }).encode("utf-8")
-        try:
-            req2 = urllib.request.Request(url, data=body, headers=hdrs, method="PUT")
-            with urllib.request.urlopen(req2, timeout=15) as r:
-                r.read()
-            return True, "GitHubに同期しました"
-        except urllib.error.HTTPError as e:
-            if e.code == 409:
-                continue  # SHA競合 → 最新SHAで再試行
-            return False, f"同期失敗: {e}"
-        except Exception as e:
-            return False, f"同期失敗: {e}"
-    return False, "同期失敗: SHA競合が解消されませんでした"
+            _new_sha = (_res.get("content") or {}).get("sha")
+            if _new_sha:
+                st.session_state[_gh_sha_key(repo_path)] = _new_sha
+        except Exception:
+            pass
+        return True, "GitHubに同期しました"
+    except urllib.error.HTTPError as e:
+        if e.code == 409:
+            # 409は競合。古い内容の再送は行わず、最新を取り込んで中止する
+            _github_pull_latest(repo_path)
+            return False, _ABORT_MSG
+        return False, f"同期失敗: {e}"
+    except Exception as e:
+        return False, f"同期失敗: {e}"
 
 
 def _git_auto_pull() -> tuple[bool, str]:
@@ -14680,7 +14776,10 @@ def _save_rote_machines(store: str, inputs1: list[str], inputs2: list[str],
     with open(_ROTE_SAVE_FILE, "w", encoding="utf-8") as _f:
         _f.write(_rote_json_str)
     if _IS_CLOUD:
-        _ok, _msg = _github_push_file(_rote_json_str, "rote_machines.json")
+        _ok, _msg = _github_push_file(
+            _rote_json_str, "rote_machines.json",
+            base_sha=st.session_state.get(_gh_sha_key("rote_machines.json")),
+        )
         _log = ("✅ " if _ok else "❌ ") + _msg
         st.session_state["_github_sync_log"] = _log
         try:
@@ -14874,7 +14973,10 @@ def _save_weekly_items(
     with open(_WEEKLY_SAVE_FILE, "w", encoding="utf-8") as _f:
         _f.write(_weekly_json_str)
     if _IS_CLOUD:
-        _ok, _msg = _github_push_file(_weekly_json_str)
+        _ok, _msg = _github_push_file(
+            _weekly_json_str, "weekly_items.json",
+            base_sha=st.session_state.get(_gh_sha_key("weekly_items.json")),
+        )
         _log = ("✅ " if _ok else "❌ ") + _msg
         st.session_state["_github_sync_log"] = _log
         try:
@@ -19523,6 +19625,10 @@ def main() -> None:
         _pull_ok, _pull_msg = _git_auto_pull()
         if not _pull_ok:
             st.toast(f"⚠️ git pull失敗: {_pull_msg}", icon="⚠️")
+
+    # Cloudのみ: 起動時に1回だけGitHubの最新を取り込む（案C）
+    # デプロイ時スナップショットのまま古いデータで上書きするのを防ぐ
+    _github_sync_on_start()
 
     # 不可視 components.html(height=0) を1つだけ注入し、以下2つを独立したIIFEで登録する。
     #   ①popstate（戻る/進むでリロード）②入力オートコンプリート無効化(MutationObserver)

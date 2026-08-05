@@ -8162,6 +8162,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                             jug_no_merge_image=(with_slump and store == "秋葉原"),
                             rec_ban_level=_rec_ban_level,
                             exclude_units=_unit_ex_state(store, _excel_stem),
+                            # ②個別画像(全台)の機種は自動全台系を作らない（同名画像の二重生成を防ぐ）
+                            kojin_zentai_machines=({m.strip() for m in kojin_zentai_machines if m.strip()}
+                                                   if kojin_enabled else set()),
                         )
                         # スランプ付き: その他の優秀台ピックアップ①②(③)生成（プレビュー用・秋葉原/上野新館）
                         if _sonota_split and _prev_result.get("ok"):
@@ -10503,6 +10506,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                 jug_no_merge_image=(with_slump and store == "秋葉原"),
                 rec_ban_level=_rec_ban_level,
                 exclude_units=_unit_ex_state(store, os.path.splitext(uploaded.name)[0]),
+                # ②個別画像(全台)の機種は自動全台系を作らない（同名画像の二重生成を防ぐ）
+                kojin_zentai_machines=({m.strip() for m in kojin_zentai_machines if m.strip()}
+                                       if kojin_enabled else set()),
             )
 
             # スランプ付き: その他の優秀台ピックアップ①②(③)生成（秋葉原/上野新館）

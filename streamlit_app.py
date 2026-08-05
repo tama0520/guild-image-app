@@ -4245,8 +4245,9 @@ def generate_report_text(
 
         def _checked_pins(table_num: int) -> list[str]:
             """同日の⑤表入力でチェック/選択が入った項目のみ返す。日付/start_date不明・未設定時は全件返す。
+            t2/t4/t5: 月間オススメ表＝日付キー方式のため date_checks[Excel日付] で判定
             t3: multiselect UIのためcell_machinesで活性判定（選択あり=活性）
-            t1/t2: checkbox UIのためchecksで活性判定
+            t1: checkbox UIのためchecksで活性判定
             """
             all_items = _load_weekly_items(store_name, table_num)
 
@@ -4255,6 +4256,26 @@ def generate_report_text(
 
             if date is None:
                 return _all_nonempty()
+
+            # ── t2/t4/t5（月間オススメ表）は日付キー方式 ───────────────────
+            # UI保存が _use_excel_date（t2/t4/t5）で date_checks へ切り替わっており、
+            # 列インデックス方式の checks では判定できない。
+            # 該当日付のキーが無い＝その日は未チェック → 0件（全件フォールバック禁止）。
+            if table_num in (2, 4, 5):
+                _dc = _load_weekly_date_checks(store_name, table_num)
+                if not _dc:
+                    # date_checks も checks からの変換も無い旧データのみ従来どおり全件
+                    return _all_nonempty()
+                try:
+                    _d_iso = (date.date() if hasattr(date, "date") else date).isoformat()
+                except Exception:
+                    return _all_nonempty()
+                _row = _dc.get(_d_iso)
+                if not _row:
+                    return []
+                return [it.strip() for _i, it in enumerate(all_items)
+                        if (it or "").strip() and _i < len(_row) and _row[_i]]
+
             start_str = _load_weekly_start_date(store_name, table_num)
             if not start_str:
                 return _all_nonempty()
@@ -4355,28 +4376,14 @@ def generate_report_text(
         L.append("")
 
         # ── ヴァルヴレイヴ2 ──
-        VALV = "ヴァルヴレイヴ2"
-        L.append(f"【{VALV}】")
-        L.append("📌リーゼロッテ(全台系!?)")
-        L.append("📌ショーコとサキ/二人(2台並び!?)")
-        L.append("📌VVV並び(3台並び!?)")
-        L.append("📌革命分岐(高配分◎!?)")
-        valv_2 = [x for x in nami_list if x.get("machine") == VALV and x["count"] == 2]
-        for item in valv_2:
-            br = item.get("ban_range", ""); n = item["count"]; avg = _fmt_diff(item["avg_diff"])
-            L.append(f"{br}番台({n}台並び)→平均{avg}" if br else f"({n}台並び)→平均{avg}")
-        valv_3 = [x for x in nami_list if x.get("machine") == VALV and x["count"] >= 3]
-        for item in valv_3:
-            br = item.get("ban_range", ""); n = item["count"]; avg = _fmt_diff(item["avg_diff"])
-            L.append(f"{br}番台({n}台並び)→平均{avg}" if br else f"({n}台並び)→平均{avg}")
-        L.append("")
+        # 2026-08-05: ブロックごと出力しない（見出し・📌4行・2台/3台並び詳細）。
+        # ヴァルヴレイヴ2の並びは通常の「👑並び仕掛け」(nami_section) に従来どおり掲載される。
 
         # ── 3F週間オススメポスター ──
         L.append("【3F週間オススメポスター】")
-        L.append("")
 
         # ── BT機 ──
-        L.append("【BT機】")
+        # 2026-08-05: 【BT機】見出しは出力しない
 
         return "\n".join(L)
 

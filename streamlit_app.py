@@ -5004,6 +5004,17 @@ def _save_persistent_inputs(store: str) -> None:
 
 _KOJIN_PICK_COUNT = 3
 
+# スランプ付き結果ポスト用の②個別画像で、次の2仕様が共通する店舗。
+#   ・「優秀台」を初期12枠から「ページを広げる」で最大48枠まで拡張できる（全台は12枠のまま）
+#   ・台番範囲UIと、台番範囲由来の処理（画像・ban_map・結果テキスト・ZIP・自動除外）を使わない
+# 店舗ごとにコードを複製せず、この集合へ追記して対応する。
+_KOJIN_Y_EXPAND_SLUMP_STORES = frozenset({
+    "秋葉原",
+    "上野新館",
+    "上野本館",
+    "新小岩",
+})
+
 def _collect_kojin_pick(store: str, prefix: str = "") -> list[tuple[str, set[int]]]:
     """個別機種の優秀台ピックアップの (タイトル, 台番set) を返す（台番非空のみ）。"""
     out: list[tuple[str, set[int]]] = []
@@ -7209,6 +7220,9 @@ def show_auto_page(with_slump: bool = False) -> None:
     kojin_narabi_title: str = ""
     kojin_narabi2_ranges_text: str = ""
     kojin_narabi2_title: str = ""
+    # スランプ付きの対象店舗は台番範囲を一切使わない（UI非表示＋下流も空文字扱い）。
+    # kojin_enabled=False でも参照されるため、必ずこのブロックの外で定義する。
+    _no_kojin_narabi = with_slump and store in _KOJIN_Y_EXPAND_SLUMP_STORES
     sonota_extra_title: str = ""
     sonota_extra_text: str = ""
     st.markdown(f"### {_sec_num()} 個別画像")
@@ -7232,10 +7246,9 @@ def show_auto_page(with_slump: bool = False) -> None:
         # 新宿歌舞伎町（かぶぱ）は 左=優秀台6個・右=全台3個。それ以外は 左=全台12・右=優秀台
         _is_kabupa = (store == "新宿歌舞伎町")
         _kz_count = 3 if _is_kabupa else 12
-        _akihab_slump = with_slump and store == "秋葉原"
-        # 上野新館のスランプ付き結果ポスト用も②優秀台を最大48枠にする（全台は12枠のまま）
-        _ueno_slump   = with_slump and store == "上野新館"
-        _ky_expandable = _akihab_slump or _ueno_slump
+        # 秋葉原・上野新館・上野本館・新小岩のスランプ付きは②優秀台を最大48枠にする
+        # （全台は12枠のまま）。台番範囲を使わない店舗と同一集合。
+        _ky_expandable = _no_kojin_narabi
         _ky_count = 6 if _is_kabupa else (48 if _ky_expandable else 12)
         _cols_k = st.columns(2, gap="large")
         if _is_kabupa:
@@ -7252,7 +7265,7 @@ def show_auto_page(with_slump: bool = False) -> None:
             kojin_zentai_machines = [st.session_state.get(f"kojin_z_{_i}_{store}", "") for _i in range(_kz_count)]
         with col_ky:
             st.markdown("**優秀台**")
-            # 秋葉原・上野新館のスランプ付きは基本12個表示。13個目以降に入力があるか
+            # 対象店舗のスランプ付きは基本12個表示。13個目以降に入力があるか
             # 「ページを広げる」ボタンを押すと最大48個まで表示する。
             if _ky_expandable:
                 _ky_expand_key = f"kojin_y_expand_{store}"
@@ -7275,8 +7288,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                           key=f"kojin_y_expand_btn_{store}",
                           on_click=_expand_ky, use_container_width=True)
             kojin_yushu_machines = [st.session_state.get(f"kojin_y_{_i}_{store}", "") for _i in range(_ky_count)]
-        # 上野新館のスランプ付きは台番範囲を使わない（UI非表示＋下流も空文字で無効化）
-        if not _akihab_slump and not _ueno_slump and store != "溝の口新館" and store != "新宿歌舞伎町":
+        # 対象店舗のスランプ付きは台番範囲を使わない（UI非表示＋下流も空文字で無効化）
+        if not _no_kojin_narabi and store != "溝の口新館" and store != "新宿歌舞伎町":
             st.markdown("**並び台番範囲 優秀台**")
             _col_nr, _col_nt = st.columns([2, 3])
             with _col_nr:
@@ -7308,8 +7321,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                     placeholder="例: 4・5列目の優秀台",
                     on_change=_save_auto_inputs, args=(store,),
                 )
-        if _ueno_slump:
-            # 上野新館スランプ付き: 保存済みの値が残っていても台番範囲を生成しない
+        if _no_kojin_narabi:
+            # 対象店舗のスランプ付き: 保存済みの値が残っていても台番範囲を生成しない
             kojin_narabi_ranges_text  = ""
             kojin_narabi_title        = ""
             kojin_narabi2_ranges_text = ""
@@ -8925,8 +8938,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _exc_mac_m, _exc_ban_m = _manual_sonota_auto_bans(
                                     _df_m, store, kojin_zentai_machines, kojin_yushu_machines,
                                     narabi_ranges if narabi_ok else [],
-                                    st.session_state.get(f"kojin_narabi_range_{store}", ""),
-                                    st.session_state.get(f"kojin_narabi2_range_{store}", ""),
+                                    "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi_range_{store}", ""),
+                                    "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi2_range_{store}", ""),
                                 )
                                 # バラエティ台をその他自動抽出から除外（画像重複防止）
                                 if _variety_ui and variety_enabled and variety_ranges_text.strip():
@@ -10042,8 +10055,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _exc_mac_e, _exc_ban_e = _manual_sonota_auto_bans(
                                 _df_exec_m, store, kojin_zentai_machines, kojin_yushu_machines,
                                 narabi_ranges if narabi_ok else [],
-                                st.session_state.get(f"kojin_narabi_range_{store}", ""),
-                                st.session_state.get(f"kojin_narabi2_range_{store}", ""),
+                                "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi_range_{store}", ""),
+                                "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi2_range_{store}", ""),
                             )
                             _se_auto_e = _manual_sonota_auto_extract(
                                 _df_exec_m, _diff_exec_m, _SONOTA_AUTO_THR[sonota_extra_auto], _exc_mac_e, _exc_ban_e)
@@ -10306,8 +10319,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _exc_mac_rt, _exc_ban_rt = _manual_sonota_auto_bans(
                                 _df_exec_m, store, kojin_zentai_machines, kojin_yushu_machines,
                                 narabi_ranges if narabi_ok else [],
-                                st.session_state.get(f"kojin_narabi_range_{store}", ""),
-                                st.session_state.get(f"kojin_narabi2_range_{store}", ""),
+                                "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi_range_{store}", ""),
+                                "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi2_range_{store}", ""),
                             )
                             _se_auto_rt = _manual_sonota_auto_extract(
                                 _df_exec_m, _diff_exec_m, _SONOTA_AUTO_THR[sonota_extra_auto], _exc_mac_rt, _exc_ban_rt)

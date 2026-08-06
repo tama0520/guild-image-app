@@ -7233,7 +7233,10 @@ def show_auto_page(with_slump: bool = False) -> None:
         _is_kabupa = (store == "新宿歌舞伎町")
         _kz_count = 3 if _is_kabupa else 12
         _akihab_slump = with_slump and store == "秋葉原"
-        _ky_count = 6 if _is_kabupa else (48 if _akihab_slump else 12)
+        # 上野新館のスランプ付き結果ポスト用も②優秀台を最大48枠にする（全台は12枠のまま）
+        _ueno_slump   = with_slump and store == "上野新館"
+        _ky_expandable = _akihab_slump or _ueno_slump
+        _ky_count = 6 if _is_kabupa else (48 if _ky_expandable else 12)
         _cols_k = st.columns(2, gap="large")
         if _is_kabupa:
             col_ky, col_kz = _cols_k
@@ -7249,9 +7252,9 @@ def show_auto_page(with_slump: bool = False) -> None:
             kojin_zentai_machines = [st.session_state.get(f"kojin_z_{_i}_{store}", "") for _i in range(_kz_count)]
         with col_ky:
             st.markdown("**優秀台**")
-            # 秋葉原スランプ付きは基本12個表示。13個目以降に入力があるか
+            # 秋葉原・上野新館のスランプ付きは基本12個表示。13個目以降に入力があるか
             # 「ページを広げる」ボタンを押すと最大48個まで表示する。
-            if _akihab_slump:
+            if _ky_expandable:
                 _ky_expand_key = f"kojin_y_expand_{store}"
                 _has_extra_ky = any(st.session_state.get(f"kojin_y_{_i}_{store}", "")
                                     for _i in range(12, _ky_count))
@@ -7265,14 +7268,15 @@ def show_auto_page(with_slump: bool = False) -> None:
                 with _col:
                     render_machine_autocomplete_input(str(_i + 1), f"kojin_y_{_i}_{store}", _kojin_candidates,
                                                       on_change=_save_auto_inputs, on_change_args=(store,))
-            if _akihab_slump and not _ky_expanded:
+            if _ky_expandable and not _ky_expanded:
                 def _expand_ky(_k=_ky_expand_key):
                     st.session_state[_k] = True
                 st.button("▼ ページを広げる（最大48個まで入力）",
                           key=f"kojin_y_expand_btn_{store}",
                           on_click=_expand_ky, use_container_width=True)
             kojin_yushu_machines = [st.session_state.get(f"kojin_y_{_i}_{store}", "") for _i in range(_ky_count)]
-        if not (with_slump and store == "秋葉原") and store != "溝の口新館" and store != "新宿歌舞伎町":
+        # 上野新館のスランプ付きは台番範囲を使わない（UI非表示＋下流も空文字で無効化）
+        if not _akihab_slump and not _ueno_slump and store != "溝の口新館" and store != "新宿歌舞伎町":
             st.markdown("**並び台番範囲 優秀台**")
             _col_nr, _col_nt = st.columns([2, 3])
             with _col_nr:
@@ -7304,10 +7308,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                     placeholder="例: 4・5列目の優秀台",
                     on_change=_save_auto_inputs, args=(store,),
                 )
-        kojin_narabi_ranges_text  = st.session_state.get(f"kojin_narabi_range_{store}", "")
-        kojin_narabi_title        = st.session_state.get(f"kojin_narabi_title_{store}", "")
-        kojin_narabi2_ranges_text = st.session_state.get(f"kojin_narabi2_range_{store}", "")
-        kojin_narabi2_title       = st.session_state.get(f"kojin_narabi2_title_{store}", "")
+        if _ueno_slump:
+            # 上野新館スランプ付き: 保存済みの値が残っていても台番範囲を生成しない
+            kojin_narabi_ranges_text  = ""
+            kojin_narabi_title        = ""
+            kojin_narabi2_ranges_text = ""
+            kojin_narabi2_title       = ""
+        else:
+            kojin_narabi_ranges_text  = st.session_state.get(f"kojin_narabi_range_{store}", "")
+            kojin_narabi_title        = st.session_state.get(f"kojin_narabi_title_{store}", "")
+            kojin_narabi2_ranges_text = st.session_state.get(f"kojin_narabi2_range_{store}", "")
+            kojin_narabi2_title       = st.session_state.get(f"kojin_narabi2_title_{store}", "")
         # 個別機種の優秀台ピックアップ（新宿歌舞伎町=かぶぱは非表示）
         if store != "新宿歌舞伎町":
             st.markdown("**個別機種の優秀台ピックアップ**")

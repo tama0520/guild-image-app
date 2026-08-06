@@ -395,14 +395,24 @@ store（店舗選択）→ image_type（画像種類選択）→ work（個別�
 2エントリが積まれ、**結果テキストの👑全台系濃厚機種が2行**になっていた。Step1 版は
 ジャグラーのみ G 数フィルターをかけるため、**プレビューと本番で表の行数が変わる**恐れもあった。
 
-## 上野新館 スランプ付き②個別画像の「ページを広げる」（2026-08-06 確定・`dc9f726`）
+## スランプ付き②個別画像の「ページを広げる」と台番範囲廃止（2026-08-06 確定・`dc9f726` → `6efdd2c`）
 
-**正式仕様。巻き戻し禁止。**対象は**【上野新館】スランプ付き結果ポスト用の②個別画像のみ**。
+**正式仕様。巻き戻し禁止。**対象は
+**【秋葉原・上野新館・上野本館・新小岩】スランプ付き結果ポスト用の②個別画像のみ**。
+
+対象店舗はモジュール定数 **`_KOJIN_Y_EXPAND_SLUMP_STORES`**（frozenset）で一元管理する。
+この集合は「②優秀台を最大48枠へ拡張できる」と「台番範囲UI・台番範囲由来の処理を使わない」の
+**2仕様がセットで成立する店舗**を表す。**店舗ごとにコードを複製しない**。店舗追加は集合への追記だけで行う。
+
+判定は `show_auto_page()` 内の共通フラグ
+**`_no_kojin_narabi = with_slump and store in _KOJIN_Y_EXPAND_SLUMP_STORES`**、
+拡張可否は **`_ky_expandable = _no_kojin_narabi`**。
+`_no_kojin_narabi` は **`kojin_enabled` の分岐より前**（ブロック外）で定義する
+— `kojin_enabled=False` でも `_manual_sonota_auto_bans()` 経路から参照されるため。
+店舗ごとの `_akihab_slump` / `_ueno_slump` を**復活させない**。
 
 - **全台（`kojin_z_*`）は従来どおり12枠**。拡張ボタンは付けない。
 - **優秀台（`kojin_y_*`）は初期12枠 →「▼ ページを広げる（最大48個まで入力）」で最大48枠**。
-  秋葉原の既存実装を流用し、`_ueno_slump` / `_ky_expandable = _akihab_slump or _ueno_slump`
-  でゲートする。**秋葉原用に別コードを複製しない**。
 - 拡張状態は既存キー **`kojin_y_expand_{store}`**（session_state のみ・JSON保存しない）、
   ボタンは **`kojin_y_expand_btn_{store}`**。`st.rerun()` 直呼び・独自JSは追加しない。
 - **13枠目以降に保存値があれば、ボタン未押下でも自動展開**する（`_has_extra_ky`）。
@@ -410,18 +420,32 @@ store（店舗選択）→ image_type（画像種類選択）→ work（個別�
 - **保存キーは既存の `kojin_y_0`〜`kojin_y_47` をそのまま使う。新規キーを作らない。**
   `_auto_input_keys()` / `_persistent_keys()` は元から全店舗48枠対応のため**変更しない**。
 - **値の収集は表示枠数と無関係**（`range(_ky_count)` で常に0〜47を読む）。折りたたみ中でも値は落ちない。
-- **上野新館スランプ付きでは「並び台番範囲 優秀台」のUIを表示しない。**
-  UIを隠すだけでなく `kojin_narabi_range` / `kojin_narabi_title` /
-  `kojin_narabi2_range` / `kojin_narabi2_title` の**下流読み取りも空文字固定**し、
-  保存済み値が残っていても**台番範囲画像・ban_map・結果テキスト・ZIPを生成しない**。
-- **上野新館の通常結果ポスト用（`with_slump=False`）は従来どおり優秀台12枠＋台番範囲UIを維持**。
-- **秋葉原は従来どおり**（全台12枠・優秀台最大48枠・台番範囲なし）。
+- **対象4店舗のスランプ付きでは「並び台番範囲 優秀台」のUIを表示しない。**
+  UIゲートは `not _no_kojin_narabi and store != "溝の口新館" and store != "新宿歌舞伎町"`
+  （溝の口新館・かぶぱの既存専用条件は維持）。
+  UIを隠すだけでなく `kojin_narabi_ranges_text` / `kojin_narabi_title` /
+  `kojin_narabi2_ranges_text` / `kojin_narabi2_title` の**下流も空文字固定**し、
+  保存済み値が残っていても**台番範囲画像・ban_map・結果テキスト・ZIP・
+  その他自動抽出の除外用台番集合を生成/登録しない**。
+- **`_manual_sonota_auto_bans()` の呼び出し3経路**（📝記入部分のみプレビュー・⑧本番2経路）は
+  **session_state を直読みしてはならない**。必ず
+  `"" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi_range_{store}", "")`
+  の形で `_no_kojin_narabi` を通す（ピンクバーなし側 `kojin_narabi2_range` も同様）。
+  ここを直読みに戻すと**UIを消しても保存済み台番範囲が生き残る**（`dc9f726` 時点の不備・
+  `6efdd2c` で是正）。ローカル変数への単純差し替えも禁止
+  （`kojin_enabled=False` のとき対象外店舗の挙動が変わる）。
+- **通常結果ポスト用（`with_slump=False`）は全店舗で従来どおり優秀台12枠＋台番範囲UIを維持**。
 - 追加した13〜48枠目は**専用ロジックを作らず**、既存の `kojin_yushu_machines` リスト経由で
-  ⑦プレビュー・🔄その他を更新・⑧本番・ZIP・結果テキスト・ban_map・パネル・スランプ・
-  液晶・🎯掲載台選択へ既存枠と同じように反映される（下流はすべて index 非依存）。
+  ⑦プレビュー・🔄その他を更新・📝記入部分のみ・⑧本番・ZIP・結果テキスト・ban_map・
+  パネル・スランプ・液晶・🎯掲載台選択・液晶再合成へ既存枠と同じように反映される
+  （下流はすべて index 非依存）。
 - 同一機種を複数枠へ入力したときの扱いは変更しない（`_dedup_previews()` で位置=先頭・
   内容=後勝ち、本番は同名ファイルへ上書き）。
-- **上野本館・新宿歌舞伎町かぶぱ・高田馬場の記事用（`art_*` は別キー体系）・他店舗は不変。**
+- **秋葉原の `force_1k`**（②優秀台を+1,000枚以上のみに絞る）は
+  `force_1k=(with_slump and store == "秋葉原")` のインライン判定のまま。
+  **`_KOJIN_Y_EXPAND_SLUMP_STORES` と混ぜない**（上野新館・上野本館・新小岩には適用しない）。
+- **新宿歌舞伎町かぶぱ（`_is_kabupa` 分岐が優先・3/6枠）・溝の口新館・
+  高田馬場の記事用（`art_*` は別キー体系）・他店舗は不変。**
   `_dedup_previews` / `_pv_ck_key` / `_unit_ex_img_key` / `_gap_sel_key` / 横版生成条件 /
   高解像度仕様 / パネル選定 / 液晶選択 / Cloud↔GitHub同期 / ブラウザ履歴も**無変更**。
 

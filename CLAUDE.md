@@ -449,6 +449,79 @@ store（店舗選択）→ image_type（画像種類選択）→ work（個別�
   `_dedup_previews` / `_pv_ck_key` / `_unit_ex_img_key` / `_gap_sel_key` / 横版生成条件 /
   高解像度仕様 / パネル選定 / 液晶選択 / Cloud↔GitHub同期 / ブラウザ履歴も**無変更**。
 
+## 秋葉原スランプ付き：📝経路の②個別優秀台🎯・force_1k統一・`_manual_regen`（2026-08-07 確定・`9faaee3`）
+
+**正式仕様。巻き戻し禁止。**対象は
+**【秋葉原】スランプ付き結果ポスト用 → ②個別画像 → 優秀台。**
+
+### ① 📝記入部分のみプレビューでも🎯を使える
+
+- ⑦フルプレビューだけでなく **📝記入部分のみプレビューでも「🎯 掲載台を選ぶ」を使用できる**。
+- 秋葉原の📝経路で🎯対象にするのは **②個別画像「優秀台」だけ**。
+  **④末尾・⑤バラエティには追加しない。**
+- **`_kabupa_unit` / `_kabupa_unit_e` 自体の意味は広げない**（広げると④末尾・⑤バラエティの
+  パネルまで秋葉原に付く）。専用判定
+  **`_manual_unit_ky` / `_manual_unit_ky_e`**（`= _kabupa_unit(_e) or (with_slump and store == "秋葉原")`）
+  で②個別優秀台だけを対象にする。
+- **新宿歌舞伎町かぶぱの既存📝🎯仕様は変更しない。**
+  **上野新館・上野本館・新小岩など他店舗の📝経路には今回の🎯を追加しない。**
+
+### ② force_1k を全経路で統一
+
+秋葉原の②個別優秀台は `_kojin_yushu_filter()` へ渡す `force_1k` を
+**⑦フルプレビュー／📝記入部分のみプレビュー／📝モードの⑧本番／通常の⑧本番**の
+**4経路すべてで `force_1k=(with_slump and store == "秋葉原")` に統一**する。
+
+揃えないと同じ機種でも候補台番集合が経路ごとに変わり、`_unit_ex_img_key()` が別キーになって
+🎯選択を共有できない。⑦・📝・⑧は既存の `_unit_ex_state()` / `_unit_ex_pick()` /
+`_unit_ex_img_key()` を共用し、**同じ機種・同じ候補台番集合なら同じ🎯選択状態を共有**する。
+独自キー・別state・別snapshotは作らない。
+
+### ③ `_manual_regen`（📝由来の🎯再生成）
+
+- 🎯変更による再生成のモード判定は **`_manual_regen`** を使う。
+  **`_kabupa_manual_regen` というかぶぱ限定名称へ戻さない。**
+- 意味は「**現在が📝プレビュー由来で、🎯変更による再生成なら、フルプレビューではなく
+  📝経路を再生成する**」。対象は **新宿歌舞伎町** と **秋葉原のスランプ付き結果ポスト用**。
+
+  ```python
+  _manual_regen = (
+      _unit_regen
+      and (store == "新宿歌舞伎町" or (with_slump and store == "秋葉原"))
+      and bool(st.session_state.get(f"_manual_preview_mode_{store}", False))
+  )
+  if _manual_regen:
+      _unit_regen = False   # フルプレビュー経路には入れない
+  ```
+
+- **`_manual_regen=True` のとき `run_auto_pipeline()` のフルプレビュー経路へ入れない。**
+  📝で記入していない自動抽出画像（全台系・高配分・ジャグラー・その他）を追加しない。
+  **Re:ゼロ2／いざ!番長／シンフォギア勇気／南国育ちSPECIAL 等が勝手に増える状態へ戻さない。**
+- **📝由来の🎯再生成では `_manual_preview_mode_{store}` を維持する**（pop しない）。
+  そのため 📝→🎯→🔄→⑧本番 と進んでも⑧は**記入部分のみモードのまま**処理される。
+  pop は「🔍 プレビュー生成」を押したフル経路（`if _full_prev_btn or _unit_regen:` の内側）だけ。
+- **⑦フルプレビュー由来は従来仕様を維持**する。⑦では `_manual_preview_mode_` が無いため
+  `_manual_regen=False` となり、`_unit_regen=True` のまま従来どおりフル再構築する。
+- session_state キーは既存の **`_manual_preview_mode_{store}`** をそのまま使う。新規キーを作らない。
+
+### ④ 全台OFF・枠index
+
+全台OFF時は既存仕様のまま — 画像を生成しない／孤児パネルから戻せる／⑧本番で古い
+縦版・横版・連番付き画像を `_rm_stale_image()` で削除／ZIP・ban_map・スランプ・パネル・
+液晶に残さない。**優秀台1〜48枠すべてで同じ🎯仕様**とし、**枠indexによる別処理は禁止**
+（`kojin_yushu_machines` の機種名ループのまま）。
+
+### 無変更
+
+優秀台最大48枠・UI1〜8枠のみ店舗単位永続・UI9〜48枠はExcel／日付単位・全台12枠・
+台番範囲なし・`_KOJIN_Y_EXPAND_SLUMP_STORES`・`_no_kojin_narabi`・`_unit_ex_state()`・
+`_unit_ex_pick()`・`_unit_ex_img_key()`・`_render_unit_ex_panel()`・`_unit_snap_key`・
+`_aprev_unit_key`・`_manual_unit_df/di`・`_dedup_previews()`・`_gap_sel_key()`・
+`recommended_machines`・横版条件・高解像度・パネル選定・液晶・**秋葉原の画像ドロップ処理**・
+Cloud↔GitHub同期・ブラウザ履歴。
+
+**別件（今回の正式仕様に含めない）**: 結果テキストの `diffs` が🎯OFFに連動していない件。
+
 ## 秋葉原②個別「優秀台」の永続化範囲は UI 1〜8枠目だけ（2026-08-07 確定・`611a452`）
 
 **正式仕様。巻き戻し禁止。**対象は

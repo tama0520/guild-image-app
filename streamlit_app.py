@@ -9126,9 +9126,15 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 st.session_state[_aprev_unit_key] = _manual_unit_src
                                 st.session_state[_unit_snap_key] = _unit_ex_snapshot(
                                     _unit_ex_state(store, _excel_stem))
-                                # パネル一覧（台番・機種名・差枚）の表示用。
-                                # _aprev_df_key は「🔄その他を更新」の再振り分け条件に使われるため
-                                # 流用せず、📝経路専用キーに保持する。
+                            # 🎯パネル一覧の表示元 兼「🔄その他を更新」の再振り分け元。
+                            # _aprev_df_key は⑦の再振り分け条件に使われるため流用せず、
+                            # 📝経路専用キーに保持する。
+                            # 保存は🎯フラグ（_manual_unit_ky）から切り離す。②個別優秀台の
+                            # チェック外しをその他へ回す店舗（_manual_son_upd と同じ集合＝
+                            # スランプ付きのかぶぱ以外）でも、フォールバック元として必要なため。
+                            # ※これは🎯パネルを増やす変更ではない（パネルは _aprev_unit_key
+                            #   に要素がある場合だけ描画されるので従来どおり）。
+                            if _manual_unit_ky or (with_slump and store != "新宿歌舞伎町"):
                                 st.session_state[f"_manual_unit_df_{store}"] = _df_m
                                 st.session_state[f"_manual_unit_di_{store}"] = _diff_m
                             # 新宿歌舞伎町（かぶぱポストの結果）：プレビュー時に結果テキストも生成して保持
@@ -9318,9 +9324,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                     # 📝は _aprev_df_key を持たないため、②個別優秀台のチェック外しが
                     # 「その他の優秀台」へ回らなかった。📝が保存済みの df/diff をフォールバックに使う。
                     # _pv_hr / _pv_zen / _pv_ex は復元しない（＝記入していない自動抽出画像は増えない）。
+                    # 対象はスランプ付き結果ポスト用の📝経路（稲毛・上野新館・上野本館・
+                    # 新小岩・秋葉原）。かぶぱは結果テキストが _build_kabupa_result_text()
+                    # の別系統のため除外する。通常ページ（with_slump=False）も対象外。
                     _manual_son_upd = (
                         bool(st.session_state.get(f"_manual_preview_mode_{store}", False))
-                        and with_slump and store == "秋葉原"
+                        and with_slump and store != "新宿歌舞伎町"
                     )
                     _pv_df     = st.session_state.get(_aprev_df_key)
                     _pv_diff   = st.session_state.get(_aprev_di_key)
@@ -10043,7 +10052,7 @@ def show_auto_page(with_slump: bool = False) -> None:
 
                     # 📝経路で②個別優秀台のチェック外しを「生成前」に処理する対象（秋葉原スランプ付き）。
                     # OFF機種からその他の優秀台へ回す台番（この⑧処理内だけのローカル集合）。
-                    _manual_son_upd_e = (with_slump and store == "秋葉原")
+                    _manual_son_upd_e = (with_slump and store != "新宿歌舞伎町")
                     _m_son_extra_bans: set[int] = set()
                     # 🎯掲載台を選ぶ（新宿歌舞伎町＝かぶぱポストの結果のみ）
                     _kabupa_unit_e = (store == "新宿歌舞伎町")
@@ -10106,9 +10115,20 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         int(str(b).split(".")[0])
                                         for b in _mgp_e[(_mgp_e["差枚"] >= 1000).values]["台番"].dropna()
                                         if str(b).split(".")[0].lstrip("-").isdigit()}
-                                    _m_son_extra_bans |= _off_bans_e
+                                    # ⑦(9558-9580)と同じ分岐: ジャグラーシリーズかつ
+                                    # ジャグラーシリーズ優秀台.jpg がある場合はジャグラー側の扱い。
+                                    # 📝経路はこの統合画像を作らないため実際は常にその他へ回る
+                                    # （台を捨てない）。判定式だけ⑦へ揃えておく。
+                                    _has_jug_img_off_e = any(
+                                        _fn_j == "ジャグラーシリーズ優秀台.jpg" for _fn_j in _exec_order)
+                                    _to_jug_off_e = (
+                                        _km_e in set(get_store_config(store)["juggler_series"])
+                                        and _has_jug_img_off_e
+                                        and not (with_slump and store == "秋葉原"))
+                                    if not _to_jug_off_e:
+                                        _m_son_extra_bans |= _off_bans_e
                                     _m_log(f"  🗑️ チェック外し対象: {_ky_fn_chk_e}"
-                                           f"（その他へ {len(_off_bans_e)}台）")
+                                           f"（その他へ {0 if _to_jug_off_e else len(_off_bans_e)}台）")
                                     continue
                             if _manual_unit_ky_e:
                                 # 🎯掲載台を選ぶ（②個別・優秀台）: 📝プレビューと同じ安定キーで間引く
@@ -11108,6 +11128,26 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _log(f"  ✅ その他の優秀台ピックアップ再生成: {len(_son_combined)}台")
                     _sonota_extra_bans = [int(str(b).split(".")[0]) for b in _son_combined["台番"].dropna()
                                           if str(b).split(".")[0].lstrip("-").isdigit()]
+                    # 結果テキスト用: チェック外しで「その他の優秀台」画像へ移した台。
+                    # 画像へ足したのと同じ _extra_dfs/_extra_diffs をそのまま使い、再抽出しない。
+                    # （_jug_ex_dfs はジャグラー側なのでここには含めない）
+                    _son_excel_add: list[dict] = []
+                    _son_add_seen: set[int] = set()
+                    for _xdf_rt, _xdiff_rt in zip(_extra_dfs, _extra_diffs):
+                        for _pos_rt, (_, _xrow_rt) in enumerate(_xdf_rt.iterrows()):
+                            _bs_rt = str(_xrow_rt.get("台番", "")).split(".")[0]
+                            if not _bs_rt.lstrip("-").isdigit():
+                                continue
+                            _bi_rt = int(_bs_rt)
+                            if _bi_rt in _son_add_seen:
+                                continue
+                            try:
+                                _dv_rt = int(_xdiff_rt.iloc[_pos_rt])
+                            except Exception:
+                                continue
+                            _son_add_seen.add(_bi_rt)
+                            _son_excel_add.append({"name": str(_xrow_rt.get("機種名", "")),
+                                                   "diff": _dv_rt, "ban": _bi_rt})
                     # スランプ付き分割店舗: ②.jpg（+2000枚以上）(③.jpg（+3000枚以上）)も更新
                     if _sonota_split:
                         _son_bans_set2 = set(_son_combined["台番"].dropna().astype(int))
@@ -11983,6 +12023,14 @@ def show_auto_page(with_slump: bool = False) -> None:
                         if frozenset(item.get("bans", [])) not in _unchecked_ban_sets
                     ]
             _excellent_all = result.get("excellent_list", [])
+            # ⑧でチェック外しにより「その他の優秀台」画像へ移した台を結果テキストへも反映する
+            # （画像と同じ _extra_dfs 由来。台番単位で重複除去し、既存 excellent_list は変更しない）。
+            # チェック外しが無ければ _son_excel_add は未定義＝従来の結果テキストと完全に同じ。
+            _son_add_rt = locals().get("_son_excel_add")
+            if _son_add_rt:
+                _have_bans_rt = {x.get("ban") for x in _excellent_all}
+                _excellent_all = _excellent_all + [
+                    x for x in _son_add_rt if x["ban"] not in _have_bans_rt]
             _memo_machines: set[str] = set()   # 素材メモの機種（台番ベースで絞る）
             _memo_bans:     set[int] = set()   # 素材メモに書かれた台番
             if store in EXTENDED_FEATURE_STORES:

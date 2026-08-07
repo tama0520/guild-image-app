@@ -7354,6 +7354,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                     )
         if store != "新宿歌舞伎町":  # その他の優秀台ピックアップ（かぶぱは非表示）
             st.markdown("**その他の優秀台ピックアップ**")
+            # 秋葉原スランプ付き: タイトル未設定/空文字なら既定文言を session_state へ入れて常時表示する。
+            # Streamlit は key が既存だと value= を無視するため、_restore_auto_inputs が入れた ""
+            # のままだと空欄で表示される（Excelをアップした店舗＝秋葉原は必ず restore を通る）。
+            # 非空の保存値は上書きしない。下流は元から同じ既定へフォールバックするため出力は不変。
+            _se_ttl_key = f"sonota_extra_title_{store}"
+            if with_slump and store == "秋葉原" and not st.session_state.get(_se_ttl_key, ""):
+                st.session_state[_se_ttl_key] = "その他の優秀台ピックアップ"
             _col_set, _col_seb = st.columns([2, 3])
             with _col_set:
                 st.text_input(

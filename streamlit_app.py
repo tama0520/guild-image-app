@@ -8117,16 +8117,20 @@ def show_auto_page(with_slump: bool = False) -> None:
         # プレビュー表示中は「🔍 プレビュー生成」が画面に無いため、既存の更新ボタンから
         # 同じ生成ブロック（run_auto_pipeline）へ入れるようにする。
         _unit_regen = bool(st.session_state.pop(f"_unit_regen_{store}", False))
-        # 新宿歌舞伎町（かぶぱポストの結果）は📝記入部分のみ経路しか持たない。
-        # 掲載台の再生成要求をフルプレビュー経路（run_auto_pipeline）へ流すと
-        # 「📝のはずがフル画像が出る」不一致になるため、📝経路へ振り分ける。
-        _kabupa_manual_regen = (
-            _unit_regen and store == "新宿歌舞伎町"
+        # 📝記入部分のみプレビュー由来の状態で🎯の再生成要求が出た場合の振り分け。
+        # フルプレビュー経路（run_auto_pipeline）へ流すと「📝のはずが自動抽出画像まで
+        # 増える」不一致になるため、📝経路を再実行する。
+        # 対象は📝で🎯を有効にしている店舗＝新宿歌舞伎町（かぶぱ・全対象）と
+        # 秋葉原スランプ付き（②個別優秀台のみ）。⑦由来では _manual_preview_mode_ が
+        # 立っていないので成立せず、従来どおりフル再構築へ入る。
+        _manual_regen = (
+            _unit_regen
+            and (store == "新宿歌舞伎町" or (with_slump and store == "秋葉原"))
             and bool(st.session_state.get(f"_manual_preview_mode_{store}", False))
         )
-        if _kabupa_manual_regen:
+        if _manual_regen:
             _unit_regen = False   # フルプレビュー経路には入れない
-        if _auto_previews is None or _unit_regen or _kabupa_manual_regen:
+        if _auto_previews is None or _unit_regen or _manual_regen:
             if store == "新宿歌舞伎町":
                 # 新宿歌舞伎町（かぶぱポストの結果）：記入したもののみ生成するため
                 # 「🔍 プレビュー生成」は非表示・「📝 記入部分のみ」のみ表示
@@ -8874,7 +8878,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     # 「未反映」判定用スナップショット（今回のプレビューへ反映済みの内容）
                     st.session_state[_unit_snap_key] = _unit_ex_snapshot(_unit_ex_state(store, _excel_stem))
                 st.rerun()
-            if _manual_prev_btn or _kabupa_manual_regen:
+            if _manual_prev_btn or _manual_regen:
                 _save_auto_inputs(store)
                 with st.spinner("記入部分のみプレビュー生成中…"):
                     try:
@@ -8892,6 +8896,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                         # 対象画像 → {kind, machine(画像キー), bans(除外前の掲載候補)}。
                         # 他店舗の📝経路ではパネルを出さないため空のままにする。
                         _kabupa_unit = (store == "新宿歌舞伎町")
+                        # 📝経路で②個別「優秀台」の🎯を有効にする判定。
+                        # _kabupa_unit 自体は広げない（④末尾・⑤バラエティのパネルまで
+                        # 秋葉原に付いてしまうため）。秋葉原は②個別優秀台だけを対象にする。
+                        _manual_unit_ky = _kabupa_unit or (with_slump and store == "秋葉原")
                         _manual_unit_src: dict[str, dict] = {}
 
                         # ② 個別画像 - 全台
@@ -8918,13 +8926,19 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 if _mga.empty:
                                     continue
                                 _mda = _diff_m.loc[_mga.index]
-                                # 正式な候補台を抽出（抽出条件・集計は変更しない）
-                                _mgp = _kojin_yushu_filter(_km_base, _mga, _mda, _m_cfg).reset_index(drop=True)
+                                # 正式な候補台を抽出（抽出条件・集計は変更しない）。
+                                # force_1k は⑦フルプレビュー・⑧本番と同じ判定を渡す。
+                                # 揃えないと秋葉原で候補台番集合が経路ごとに変わり、
+                                # _unit_ex_img_key() が別キーになって🎯選択を共有できない。
+                                _mgp = _kojin_yushu_filter(
+                                    _km_base, _mga, _mda, _m_cfg,
+                                    force_1k=(with_slump and store == "秋葉原"),
+                                ).reset_index(drop=True)
                                 if _mgp.empty:
                                     continue
                                 _mtit = f"{_km}（優秀台）"
                                 _mfn_ky = f"{_make_safe_fn(_mtit)}.jpg"
-                                if _kabupa_unit:
+                                if _manual_unit_ky:
                                     # 🎯掲載台を選ぶ（②個別・優秀台）: 抽出後・画像生成前に間引く。
                                     # kind/安定キーはフルプレビュー・⑧実行と同一。
                                     _mgp, _mik_ky, _mball_ky = _unit_ex_pick(
@@ -9105,9 +9119,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 )
                             st.session_state[_aprev_key] = _dedup_previews(_manual_imgs)
                             st.session_state[f"_manual_preview_mode_{store}"] = True
-                            # 🎯掲載台を選ぶ（かぶぱのみ）: パネル用の候補と未反映判定用スナップショット。
-                            # 他店舗は _manual_unit_src が空なのでパネルは出ない（従来どおり）。
-                            if _kabupa_unit:
+                            # 🎯掲載台を選ぶ（かぶぱ＝全対象／秋葉原スランプ付き＝②個別優秀台のみ）:
+                            # パネル用の候補と未反映判定用スナップショット。
+                            # 対象外の店舗は _manual_unit_src が空なのでパネルは出ない（従来どおり）。
+                            if _manual_unit_ky:
                                 st.session_state[_aprev_unit_key] = _manual_unit_src
                                 st.session_state[_unit_snap_key] = _unit_ex_snapshot(
                                     _unit_ex_state(store, _excel_stem))
@@ -9294,11 +9309,11 @@ def show_auto_page(with_slump: bool = False) -> None:
             with _btn_upd:
                 # 🎯掲載台の未反映変更があるときは on_click が再生成フラグを立て、
                 # 次の再実行で既存の生成ブロック（run_auto_pipeline）が走る。
-                # 新宿歌舞伎町（かぶぱ）は📝記入部分のみ経路が再生成される。
+                # 📝プレビュー由来（かぶぱ／秋葉原スランプ付き）は📝経路が再生成される。
                 # 未反映変更が無いときはフラグが立たず、従来どおりの再振り分けだけを行う。
                 if st.button("🔄 その他を更新", key="auto_preview_update_btn", use_container_width=True,
                              on_click=_on_unit_apply_click, args=(store, _excel_stem)) \
-                        and not _unit_regen and not _kabupa_manual_regen:
+                        and not _unit_regen and not _manual_regen:
                     _pv_df     = st.session_state.get(_aprev_df_key)
                     _pv_diff   = st.session_state.get(_aprev_di_key)
                     _pv_ex     = st.session_state.get(_aprev_ex_key, [])
@@ -9976,6 +9991,8 @@ def show_auto_page(with_slump: bool = False) -> None:
 
                     # 🎯掲載台を選ぶ（新宿歌舞伎町＝かぶぱポストの結果のみ）
                     _kabupa_unit_e = (store == "新宿歌舞伎町")
+                    # 📝経路の②個別「優秀台」🎯（📝プレビューと同じ判定・同じ安定キー）
+                    _manual_unit_ky_e = _kabupa_unit_e or (with_slump and store == "秋葉原")
 
                     def _kabupa_rm_stale(base_fn: str) -> None:
                         """全台除外で画像を作らない場合に、前回実行の同名画像を消す。
@@ -10011,12 +10028,16 @@ def show_auto_page(with_slump: bool = False) -> None:
                             if _mga_e.empty:
                                 continue
                             _mda_e = _diff_exec_m.loc[_mga_e.index]
-                            # 正式な候補台を抽出（抽出条件・集計は変更しない）
-                            _mgp_e = _kojin_yushu_filter(_km_base_e, _mga_e, _mda_e, _me_cfg).reset_index(drop=True)
+                            # 正式な候補台を抽出（抽出条件・集計は変更しない）。
+                            # force_1k は📝プレビュー・⑦・⑧本番と同じ判定を渡す（🎯キー共有のため）。
+                            _mgp_e = _kojin_yushu_filter(
+                                _km_base_e, _mga_e, _mda_e, _me_cfg,
+                                force_1k=(with_slump and store == "秋葉原"),
+                            ).reset_index(drop=True)
                             if _mgp_e.empty:
                                 continue
                             _metit = f"{_km_e}（優秀台）"
-                            if _kabupa_unit_e:
+                            if _manual_unit_ky_e:
                                 # 🎯掲載台を選ぶ（②個別・優秀台）: 📝プレビューと同じ安定キーで間引く
                                 _mgp_e, _mik_ky_e, _mball_ky_e = _unit_ex_pick(
                                     _unit_ex_state(store, _excel_stem_run), "kojin_yushu", _km_e, _mgp_e)

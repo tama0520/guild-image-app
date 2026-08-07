@@ -449,6 +449,75 @@ store（店舗選択）→ image_type（画像種類選択）→ work（個別�
   `_dedup_previews` / `_pv_ck_key` / `_unit_ex_img_key` / `_gap_sel_key` / 横版生成条件 /
   高解像度仕様 / パネル選定 / 液晶選択 / Cloud↔GitHub同期 / ブラウザ履歴も**無変更**。
 
+## with_slump店舗へ拡大：📝②個別優秀台OFFの再振り分けと⑦フルモードの結果テキスト整合（2026-08-07 確定・`ce2fafc`）
+
+**正式仕様。巻き戻し禁止。**下記「秋葉原📝：…（`fd42ccf`）」の仕組みを
+**スランプ付き結果ポスト用の5店舗＝稲毛・上野新館・上野本館・新小岩・秋葉原**へ広げ、
+あわせて**⑦フルモードの結果テキスト欠落**を直したもの。
+**新宿歌舞伎町（かぶぱ）は除外**（結果テキストが `_build_kabupa_result_text()` の別系統）。
+**通常ページ（`with_slump=False`）・高田馬場記事用も対象外。**
+
+### ① 📝経路の対象店舗
+
+- `_manual_son_upd`（🔄側）/ `_manual_son_upd_e`（⑧側）＝
+  **`with_slump and store != "新宿歌舞伎町"`**。
+- ②個別優秀台の「生成する」をOFF → 🔄その他を更新 → ⑧ の状態を、
+  **プレビュー＝⑧本番画像＝ban_map＝ZIP＝👑その他の優秀台**で一致させる。
+- OFFした機種の**差枚 +1,000枚以上**の台だけをその他へ回す（⑦と同じ既存条件）。
+- ⑧は**OFF画像を生成前にスキップ**し、`_save_jpeg`/`_exec_order`/ban_map/`_m_high` に載せない
+  → **`👑高配分機種` に載らない**。`_rm_stale_image()` で旧画像を削除。
+- 最終 **`_se_df_e`** を画像・ban_map・スランプ・パネル・液晶・ZIP・結果テキストの**唯一の正**とする
+  （結果テキストは `locals().get("_se_df_e")` で流用し再計算しない）。
+- **`_sonota_split=True` の店舗（上野新館・上野本館・新小岩）でも、📝経路は
+  `sonota_extra_title.strip() or "その他の優秀台ピックアップ"` の1枚へ統合**し、
+  `その他の優秀台+N,000枚以上.jpg` を新規生成しない。⑦の `_sonota_split` 仕様は無変更。
+
+### ② `_manual_unit_df/di` の保存は🎯フラグから切り離す
+
+**`_manual_unit_ky`（🎯パネル用）の内側で保存してはならない。**
+
+```python
+if _manual_unit_ky:                       # 🎯パネル用（従来どおり・広げない）
+    st.session_state[_aprev_unit_key] = _manual_unit_src
+    st.session_state[_unit_snap_key]  = _unit_ex_snapshot(...)
+if _manual_unit_ky or (with_slump and store != "新宿歌舞伎町"):   # 📝再振り分け用
+    st.session_state[f"_manual_unit_df_{store}"] = _df_m
+    st.session_state[f"_manual_unit_di_{store}"] = _diff_m
+```
+
+**`_aprev_unit_key` / `_unit_snap_key` / `_manual_unit_src` は従来どおり `_manual_unit_ky` 限定。
+上野新館・上野本館・新小岩・稲毛の📝に🎯パネルを追加しない**（パネルは `_aprev_unit_key` に
+要素があるときだけ描画されるため、df/di を保存しても増えない）。
+
+**なぜ**: `_manual_son_upd` の店舗条件だけ広げても、`_manual_unit_df/di` が
+`_manual_unit_ky`（＝かぶぱ＋秋葉原のみ）の内側でしか保存されていなかったため、
+上野新館等では🔄のフォールバックで **`_pv_df = None`** のままとなり、
+`if _pv_df is not None and _pv_diff is not None:` のガードで**再振り分けブロックごと
+スキップ**されていた（🔄を押しても何も起きない）。
+
+### ③ ⑦フルモードの結果テキスト整合
+
+**高配分OFF・全台系OFF・並びOFF・②個別優秀台OFF の4経路はいずれも `_extra_dfs` 経由で
+「その他の優秀台」画像へ再振り分けされる**が、結果テキストは pipeline の元
+`result["excellent_list"]` をそのまま使っていたため**反映されていなかった**。
+
+- **`_extra_dfs` / `_extra_diffs` から作った追加分だけ**を、既存 `excellent_list` へ
+  **台番単位で重複除去して追加**する。**既存 `excellent_list` の内容・順序・項目は変更しない**
+  （＝案A方式の全面置換は採用しない。`excellent_list` と `sonota_excellent_list` は別フィールド）。
+- 追加分は結果テキスト用に**再抽出しない**（画像へ足したのと同じ `_extra_dfs` を正とする）。
+- **`_jug_ex_dfs`（ジャグラー側）の台は `👑その他の優秀台` へ追加しない。**
+  既存分岐（`_extra_dfs` → その他 ／ `_jug_ex_dfs` → ジャグラー）を維持する。
+- 追加リストは `if _extra_dfs:` の内側でのみ定義し、`locals().get()` で参照する。
+  **チェックOFFが1件も無ければ従来の結果テキストと完全に同一。**
+- 表示順は既存 `generate_report_text()` の差枚降順のまま。
+
+### 無変更
+
+秋葉原 `fd42ccf` の📝正式仕様すべて（`_manual_regen` / `force_1k` 4経路統一 / `_m_son_extra_bans` /
+`_se_df_e` 基準 / 🎯パネル / B/C一致 / 分割画像なし）・`_manual_unit_ky` 自体・②個別優秀台の
+🎯OFFと `diffs` の連動（別件）・サマリー計算・④末尾・ジャグラー末尾・`_sonota_split` の⑦仕様・
+かぶぱ・通常ページ・高田馬場記事用・Cloud↔GitHub同期・ブラウザ履歴。
+
 ## 秋葉原📝：②個別優秀台のチェックOFFをプレビュー・⑧本番・その他画像・結果テキストで一致させる（2026-08-07 確定・`fd42ccf`）
 
 **正式仕様。巻き戻し禁止。**対象は

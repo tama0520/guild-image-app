@@ -9314,8 +9314,19 @@ def show_auto_page(with_slump: bool = False) -> None:
                 if st.button("🔄 その他を更新", key="auto_preview_update_btn", use_container_width=True,
                              on_click=_on_unit_apply_click, args=(store, _excel_stem)) \
                         and not _unit_regen and not _manual_regen:
+                    # 📝記入部分のみプレビュー由来（秋葉原スランプ付きのみ）の再振り分け。
+                    # 📝は _aprev_df_key を持たないため、②個別優秀台のチェック外しが
+                    # 「その他の優秀台」へ回らなかった。📝が保存済みの df/diff をフォールバックに使う。
+                    # _pv_hr / _pv_zen / _pv_ex は復元しない（＝記入していない自動抽出画像は増えない）。
+                    _manual_son_upd = (
+                        bool(st.session_state.get(f"_manual_preview_mode_{store}", False))
+                        and with_slump and store == "秋葉原"
+                    )
                     _pv_df     = st.session_state.get(_aprev_df_key)
                     _pv_diff   = st.session_state.get(_aprev_di_key)
+                    if (_pv_df is None or _pv_diff is None) and _manual_son_upd:
+                        _pv_df   = st.session_state.get(f"_manual_unit_df_{store}")
+                        _pv_diff = st.session_state.get(f"_manual_unit_di_{store}")
                     _pv_ex     = st.session_state.get(_aprev_ex_key, [])
                     _pv_jug_ex   = st.session_state.get(_aprev_jug_ex_key, [])
                     _pv_jug_pool = st.session_state.get(_aprev_jug_pool_key)
@@ -9323,6 +9334,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _pv_hr       = st.session_state.get(_aprev_hr_key, {})
                     _pv_zen    = st.session_state.get(_aprev_zen_key, {})
                     _pv_narabi = st.session_state.get(_aprev_narabi_key, {})
+                    if _manual_son_upd:
+                        # 📝経路では⑦由来の自動抽出情報を一切使わない。
+                        # （同一セッションで先に⑦を実行していると古い値が残るため明示的に空にする。
+                        #   これを残すと📝に無い自動抽出台がその他へ復活してしまう）
+                        _pv_ex, _pv_hr, _pv_zen, _pv_narabi = [], {}, {}, {}
+                        _pv_jug_ex, _pv_jug_pool, _pv_jug_ov = [], None, None
                     if _pv_df is not None and _pv_diff is not None:
                         _jug_series_set = set(get_store_config(store)["juggler_series"])
                         # kojin個別画像がある機種はチェック外し時に統合画像へ追加しない
@@ -9595,9 +9612,34 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _jug_ov_used_bans = {int(b) for b in _ov_pre["台番"].dropna()}
                         # その他の優秀台ピックアップ更新（非ジャグラーチェック外し or overflowジャグラー台を除去する場合）
                         _ex_bans_for_son = {item["ban"] for item in _pv_ex} - _jug_ov_used_bans
+                        # 📝経路の基礎台: _manual_ban_map は session に持たないため、
+                        # 📝と同じ入力・同じヘルパーで現在の「その他の優秀台」対象台を作り直す
+                        # （新しい抽出条件は作らない）。ここへチェック外し分が加算される。
+                        if _manual_son_upd and _pv_df is not None and _pv_diff is not None:
+                            if sonota_extra_text.strip():
+                                _ex_bans_for_son |= set(expand_machine_numbers(sonota_extra_text))
+                            elif sonota_extra_auto in _SONOTA_AUTO_THR:
+                                _exc_mac_u, _exc_ban_u = _manual_sonota_auto_bans(
+                                    _pv_df, store, kojin_zentai_machines, kojin_yushu_machines,
+                                    narabi_ranges if narabi_ok else [],
+                                    "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi_range_{store}", ""),
+                                    "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi2_range_{store}", ""),
+                                )
+                                if _variety_ui and variety_enabled and variety_ranges_text.strip():
+                                    try:
+                                        _exc_ban_u = set(_exc_ban_u) | ranges_to_bans(parse_ranges(variety_ranges_text.strip()))
+                                    except Exception:
+                                        pass
+                                _se_auto_u = _manual_sonota_auto_extract(
+                                    _pv_df, _pv_diff, _SONOTA_AUTO_THR[sonota_extra_auto],
+                                    _exc_mac_u, _exc_ban_u)
+                                if not _se_auto_u.empty:
+                                    _ex_bans_for_son |= {
+                                        int(str(b).split(".")[0]) for b in _se_auto_u["台番"].dropna()
+                                        if str(b).split(".")[0].lstrip("-").isdigit()}
                         # 秋葉原スランプ付き: jug_pool +1000枚台を基礎bansに追加
                         # （excellent_listはG数条件あり台のみのため、G数未達でもdiff>=1000の台が脱落しないよう補完）
-                        if with_slump and store == "秋葉原" and _pv_df is not None:
+                        if with_slump and store == "秋葉原" and not _manual_son_upd and _pv_df is not None:
                             _pv_jp_upd = st.session_state.get(_aprev_jug_pool_key)
                             if _pv_jp_upd is not None and not _pv_jp_upd.empty:
                                 _jp_bns_upd = {int(str(b).split(".")[0]) for b in _pv_jp_upd["台番"].dropna()
@@ -9630,9 +9672,16 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _son_comb  = _son_comb.drop_duplicates(subset=["台番"])
                             _son_order = _son_comb["台番"].argsort()
                             _son_comb  = _son_comb.iloc[_son_order].reset_index(drop=True)
-                            _son_img   = _build_machine_img(_son_comb, "その他の優秀台ピックアップ", None)
+                            # 📝経路は📝が作った1枚（タイトル欄の値）へ統合する。
+                            # ①②③分割名（その他の優秀台+N,000枚以上）を新規に作らない。
+                            _son_title = ("その他の優秀台ピックアップ" if not _manual_son_upd
+                                          else (sonota_extra_title.strip() or "その他の優秀台ピックアップ"))
+                            _son_img   = _build_machine_img(_son_comb, _son_title, None)
                             # 秋葉原スランプ付きは①.jpgキーで管理
-                            _son_pv_key = "その他の優秀台+1,000枚以上.jpg" if _sonota_split else "その他の優秀台ピックアップ.jpg"
+                            if _manual_son_upd:
+                                _son_pv_key = f"{_make_safe_fn(_son_title)}.jpg"
+                            else:
+                                _son_pv_key = "その他の優秀台+1,000枚以上.jpg" if _sonota_split else "その他の優秀台ピックアップ.jpg"
                             for _ci, (_pname, _) in enumerate(_new_prev):
                                 if _pname == _son_pv_key:
                                     _new_prev[_ci] = (_pname, _son_img)
@@ -9642,7 +9691,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 st.session_state[_pv_ck_key(store, uploaded.name, _new_prev[-1][0])] = True
                             # ②(③)も素の表を再生成して差し替える（後段のスランプ合成が
                             # 合成済み画像に二重合成して崩れるのを防ぐ）
-                            if _sonota_split and _pv_diff is not None and _pv_df is not None:
+                            if _sonota_split and not _manual_son_upd and _pv_diff is not None and _pv_df is not None:
                                 _son_bans_bt = [int(str(b).split(".")[0]) for b in _son_comb["台番"].dropna()
                                                 if str(b).split(".")[0].lstrip("-").isdigit()]
                                 for _thr_bt, _fn_bt in _sonota_extra_thrs:
@@ -9788,7 +9837,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _upd_dyn_ban_map["ジャグラーシリーズ優秀台.jpg"] = sorted(dict.fromkeys(_jug_bans_upd))
                                 if _all_dfs:
                                     _son_bans_upd = [int(str(b).split(".")[0]) for b in _son_comb["台番"].dropna() if str(b).split(".")[0].lstrip("-").isdigit()]
-                                    if _sonota_split:
+                                    if _manual_son_upd:
+                                        # 📝経路は📝側の1枚だけを更新（分割名は作らない）
+                                        _upd_dyn_ban_map[_son_pv_key] = _son_bans_upd
+                                    elif _sonota_split:
                                         _upd_dyn_ban_map["その他の優秀台+1,000枚以上.jpg"] = _son_bans_upd
                                         # ②(③)も更新（+2000枚以上 (/+3000枚以上)）
                                         if _pv_diff is not None and _pv_df is not None:
@@ -9989,6 +10041,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _used_fns_e.add(candidate)
                         return candidate
 
+                    # 📝経路で②個別優秀台のチェック外しを「生成前」に処理する対象（秋葉原スランプ付き）。
+                    # OFF機種からその他の優秀台へ回す台番（この⑧処理内だけのローカル集合）。
+                    _manual_son_upd_e = (with_slump and store == "秋葉原")
+                    _m_son_extra_bans: set[int] = set()
                     # 🎯掲載台を選ぶ（新宿歌舞伎町＝かぶぱポストの結果のみ）
                     _kabupa_unit_e = (store == "新宿歌舞伎町")
                     # 📝経路の②個別「優秀台」🎯（📝プレビューと同じ判定・同じ安定キー）
@@ -10037,6 +10093,23 @@ def show_auto_page(with_slump: bool = False) -> None:
                             if _mgp_e.empty:
                                 continue
                             _metit = f"{_km_e}（優秀台）"
+                            # 📝プレビューで「生成する」をOFFにした②個別優秀台は、生成してから
+                            # 削除する（後段の一括削除）方式に頼らず、ここで作らずに飛ばす。
+                            # OFF機種の候補台のうち +1,000枚以上は「その他の優秀台」へ回す
+                            # （⑦/🔄と同じ正式条件）。対象は秋葉原スランプ付きの📝経路だけ。
+                            if _manual_son_upd_e:
+                                _ky_fn_chk_e = f"{_make_safe_fn(_metit)}.jpg"
+                                if not st.session_state.get(
+                                        _pv_ck_key(store, uploaded.name, _ky_fn_chk_e), True):
+                                    _rm_stale_image(output_dir, _ky_fn_chk_e, log=_m_log)
+                                    _off_bans_e = {
+                                        int(str(b).split(".")[0])
+                                        for b in _mgp_e[(_mgp_e["差枚"] >= 1000).values]["台番"].dropna()
+                                        if str(b).split(".")[0].lstrip("-").isdigit()}
+                                    _m_son_extra_bans |= _off_bans_e
+                                    _m_log(f"  🗑️ チェック外し対象: {_ky_fn_chk_e}"
+                                           f"（その他へ {len(_off_bans_e)}台）")
+                                    continue
                             if _manual_unit_ky_e:
                                 # 🎯掲載台を選ぶ（②個別・優秀台）: 📝プレビューと同じ安定キーで間引く
                                 _mgp_e, _mik_ky_e, _mball_ky_e = _unit_ex_pick(
@@ -10071,18 +10144,14 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _m_log(f"  ✅ 個別機種の優秀台ピックアップ「{_pk_tit_e}」({len(_pk_df_e)}台)")
 
                         # ② その他の優秀台ピックアップ
+                        # 既存の対象台（台番テキスト or 自動抽出）を先に確定し、
+                        # 📝でOFFにした②個別優秀台からの台を合流してから1枚だけ保存する。
+                        _se_df_e = pd.DataFrame()
+                        _se_src_log_e = ""
                         if sonota_extra_text.strip():
                             _se_bans_e = set(expand_machine_numbers(sonota_extra_text))
                             if _se_bans_e:
                                 _se_df_e = _df_exec_m[_df_exec_m["台番"].apply(lambda b: int(b) in _se_bans_e)].copy().reset_index(drop=True)
-                                if not _se_df_e.empty:
-                                    _se_tit_e = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
-                                    _sefn_e = _unique_fn_e(f"{_make_safe_fn(_se_tit_e)}.jpg")
-                                    _se_out_e = os.path.join(output_dir, _sefn_e)
-                                    _save_jpeg(_build_machine_img(_se_df_e, _se_tit_e, None), _se_out_e, target_kb=800)
-                                    _exec_order.append(_sefn_e)
-                                    _m_exec_ban_map_e[_sefn_e] = [int(b) for b in _se_df_e["台番"].tolist()]
-                                    _m_log(f"  ✅ その他の優秀台ピックアップ「{_se_tit_e}」({len(_se_df_e)}台)")
                         elif sonota_extra_auto in _SONOTA_AUTO_THR:
                             _exc_mac_e, _exc_ban_e = _manual_sonota_auto_bans(
                                 _df_exec_m, store, kojin_zentai_machines, kojin_yushu_machines,
@@ -10090,16 +10159,30 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi_range_{store}", ""),
                                 "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi2_range_{store}", ""),
                             )
-                            _se_auto_e = _manual_sonota_auto_extract(
+                            _se_df_e = _manual_sonota_auto_extract(
                                 _df_exec_m, _diff_exec_m, _SONOTA_AUTO_THR[sonota_extra_auto], _exc_mac_e, _exc_ban_e)
-                            if not _se_auto_e.empty:
-                                _se_tit_e = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
-                                _sefn_e = _unique_fn_e(f"{_make_safe_fn(_se_tit_e)}.jpg")
-                                _se_out_e = os.path.join(output_dir, _sefn_e)
-                                _save_jpeg(_build_machine_img(_se_auto_e, _se_tit_e, None), _se_out_e, target_kb=800)
-                                _exec_order.append(_sefn_e)
-                                _m_exec_ban_map_e[_sefn_e] = [int(b) for b in _se_auto_e["台番"].tolist()]
-                                _m_log(f"  ✅ その他の優秀台ピックアップ（自動抽出 {sonota_extra_auto}）({len(_se_auto_e)}台)")
+                            _se_src_log_e = f"（自動抽出 {sonota_extra_auto}）"
+                        # チェック外しした②個別優秀台の +1,000枚以上台を合流（🔄プレビューと同じ内容にする）
+                        _se_merged_e = False
+                        if _m_son_extra_bans:
+                            _se_add_e = _df_exec_m[_df_exec_m["台番"].apply(
+                                lambda b: int(str(b).split(".")[0]) in _m_son_extra_bans)].copy()
+                            if not _se_add_e.empty:
+                                _se_df_e = (pd.concat([_se_df_e, _se_add_e], ignore_index=True)
+                                            if not _se_df_e.empty else _se_add_e.reset_index(drop=True))
+                                _se_merged_e = True
+                        if _se_merged_e and not _se_df_e.empty:
+                            # 合流したときだけ整列（合流が無いときは従来の並びをそのまま使う）
+                            _se_df_e = _se_df_e.drop_duplicates(subset=["台番"])
+                            _se_df_e = _se_df_e.iloc[_se_df_e["台番"].argsort()].reset_index(drop=True)
+                        if not _se_df_e.empty:
+                            _se_tit_e = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
+                            _sefn_e = _unique_fn_e(f"{_make_safe_fn(_se_tit_e)}.jpg")
+                            _se_out_e = os.path.join(output_dir, _sefn_e)
+                            _save_jpeg(_build_machine_img(_se_df_e, _se_tit_e, None), _se_out_e, target_kb=800)
+                            _exec_order.append(_sefn_e)
+                            _m_exec_ban_map_e[_sefn_e] = [int(b) for b in _se_df_e["台番"].tolist()]
+                            _m_log(f"  ✅ その他の優秀台ピックアップ「{_se_tit_e}」{_se_src_log_e}({len(_se_df_e)}台)")
 
                     # ③ 並び画像（重複タイトルは台番範囲サフィックスで区別）
                     if narabi_ok and narabi_ranges:
@@ -10341,7 +10424,21 @@ def show_auto_page(with_slump: bool = False) -> None:
                         if len(_m_dp) == 8 and _m_dp.isdigit():
                             _m_date = _dt_rt.date(int(_m_dp[:4]), int(_m_dp[4:6]), int(_m_dp[6:8]))
                         _m_excel: list[dict] = []
-                        if sonota_extra_text.strip():
+                        # 秋葉原スランプ付きの📝⑧は、⑧本番で「その他の優秀台」画像へ実際に
+                        # 使った最終DataFrame（_se_df_e）をそのまま正とする。ここで
+                        # _manual_sonota_auto_bans/_extract を再計算すると、②個別優秀台の
+                        # チェック外しから移した台が抜けて画像とテキストがズレるため。
+                        # kojin_enabled=False では _se_df_e が未定義になり得るので locals() で取る。
+                        _se_final_rt = locals().get("_se_df_e")
+                        if (_manual_son_upd_e and _se_final_rt is not None
+                                and not _se_final_rt.empty):
+                            for _, _row_rt in _se_final_rt.iterrows():
+                                _m_excel.append({
+                                    "name": str(_row_rt["機種名"]),
+                                    "diff": int(_row_rt["差枚"]),
+                                    "ban":  int(str(_row_rt["台番"]).split(".")[0]),
+                                })
+                        elif sonota_extra_text.strip():
                             _se_bns_rt = set(expand_machine_numbers(sonota_extra_text))
                             if _se_bns_rt:
                                 for _idx_rt, _row_rt in _df_exec_m.iterrows():

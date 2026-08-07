@@ -4964,9 +4964,13 @@ def _persistent_keys(store: str) -> set[str]:
     # 高田馬場は②個別画像の機種名を日付ごとに扱う（別日データ取得時は空欄・同日は保持）ため永続化しない
     if store == "高田馬場":
         return {f"variety_range_{store}"}
-    # 秋葉原は②個別画像の「全台」だけ日付ごとに扱う（別日データ取得時は空欄）。優秀台は永続化する
+    # 秋葉原は②個別画像の「全台」だけ日付ごとに扱う（別日データ取得時は空欄）。
+    # 優秀台は UI 1〜8枠目（index 0〜7）だけを店舗単位で永続化する正式仕様。
+    # UI 9枠目以降（index 8〜47）は Excel／日付単位（auto_page_inputs.json）で保存し、
+    # 別日データを取得したら空欄に戻す。range(48) へ広げない（2026-07-14 の 3e5ee1d /
+    # a9cf4e1 で意図せず 9枠目以降まで永続化され、別日でも値が復活していた）。
     if store == "秋葉原":
-        return ({f"kojin_y_{i}_{store}" for i in range(48)}
+        return ({f"kojin_y_{i}_{store}" for i in range(8)}
                 | {f"variety_range_{store}"})
     return ({f"kojin_y_{i}_{store}" for i in range(48)}
             | {f"kojin_z_{i}_{store}" for i in range(12)}

@@ -861,6 +861,93 @@ Streamlit は描画されなかったウィジェットのキーを session_stat
 
 B1=5 / B2=4 / B3=8 / B4=9 の**合計26機種**（`rec_enabled` の既定は `false`）。
 
+## ②個別画像の初期値受け渡しと保存タイミング（2026-08-10 確定・`0e7dc4c`）
+
+**正式仕様。巻き戻し禁止。**通常ページ②と記事用②の両方が対象。
+⑤で起きた事故（`39f1f1e`）と同型の問題が②にも構造的に存在していたものを塞いだ。
+
+### 共通の真因
+
+ウィジェットが**未描画の run を挟んだ後の初回描画**では、session_state に値があっても
+ブラウザ側は空でレンダリングされる。その空値がフロントから返り、保存へ回って
+既存の機種名を潰す。初期値は `default=` → `st.text_input(value=)` で
+**ブラウザまで届けなければならない**。
+
+### 通常ページ②
+
+- 事故経路：保存値あり → **②「個別画像も生成する」OFF**（未描画 run）→ **②ON**
+  → ブラウザDOMが全枠空 → その後の rerun で**毎レンダー保存（7138行）**が
+  `auto_page_inputs.json` を空化する。
+  永続JSONは `_save_persistent_inputs()` の非空ガードで守られるが、
+  **秋葉原の `kojin_z` 全12枠・`kojin_y` 9〜48枠、高田馬場、新宿歌舞伎町の `kojin_z`**
+  は永続対象外なので恒久的損失になり得た。
+- **`_kojin_default(excel_name, store, key) -> str`** を新設（読み取り専用）。
+  `auto_page_inputs.json` / `auto_page_persistent_inputs.json` / `_persistent_keys(store)` /
+  店舗別特例を **`_restore_auto_inputs()` とまったく同じルール**で解決する。
+  解決順は「新宿歌舞伎町の `kojin_y_*` は常に `""`」→「保存値あり（永続キーかつ空なら永続値）」
+  → 「永続キーかつ永続値あり」→ `""`。
+- `kojin_z_*` / `kojin_y_*` の描画へ **`default=_kojin_default(...)`** を渡す。
+- **9店舗 × 9データパターン × 全キー＝5724ケースで既存復元仕様との不一致0**を確認済み。
+  `_kojin_default()` を変更するときは同じ等価性検証をやり直すこと。
+
+### 記事用②
+
+- **`_art_kojin_default(excel_name, store, key) -> str`** を新設。
+  参照するのは **`article_page_inputs.json` の該当Excelエントリだけ**。
+  **通常②の `auto_page_persistent_inputs.json`（永続値）を記事用へ流用しない**
+  （記事用は Excel／日付単位で完結する別体系）。
+- `art_kojin_z_*` / `art_kojin_y_*` の描画へ `default=_art_kojin_default(...)` を渡す。
+- **`_save_article_inputs()` は全置換をやめてマージ方式**にする。
+  全置換だと②をOFFにしただけで未描画キーが entry から**丸ごと削除**され、
+  記事用には永続ファイルが無いため復旧できなかった。
+- **順序問題（記事用固有）**：`_restore_article_inputs()` は未保存キーへ `""` を
+  **plain な session_state 値**として入れる。これは widget 由来ではないので
+  Streamlit の未描画キー破棄の対象にならず、**②が未描画でも 24/24 キーが `""` で常駐**する。
+  ②ONクリックの `on_change` は**ウィジェット描画より前**に走るため、
+  通常の `_save_article_inputs()` では保存済み機種名を `""` で潰していた。
+- 対策として **`_save_article_inputs(store, skip_kojin: bool = False)`** と
+  **`_save_article_enabled(store)`**（②チェックボックス専用コールバック）を正式採用する。
+  チェックボックスの `on_change` は `_save_article_inputs` ではなく
+  **`_save_article_enabled`** を使う。
+
+### `art_kojin_z_*` / `art_kojin_y_*` の保存ルール
+
+**「値が空か」ではなく「その保存タイミングで保存してよい状態か」で判定する。**
+
+| 条件 | 挙動 |
+|---|---|
+| `skip_kojin=True` | 保存対象から除外 → 既存値を維持 |
+| `art_kojin_enabled` が False | 保存対象から除外 → 既存値を維持 |
+| `skip_kojin=False` かつ `enabled=True` | 現在値を保存（**`""` も意図的クリアとして保存**） |
+
+`art_kojin_*` 以外のキーは従来どおり「キーの存在」だけで判定する。
+**「空文字なら保存しない」実装へ倒さない**（意図的クリアが壊れる）。
+**新しい session_state フラグは作らない**（`_art_kojin_drawn` のような描画フラグ案は不採用）。
+
+### 実機・ダミー確認（全PASS）
+
+**記事用②**：OFFで既存値維持／OFF中に別ウィジェットを変更しても維持／OFF→ONで空上書きなし／
+初回描画から保存値がDOM表示／session_state 一致／rerun保持／⑧実行後も保持／
+1枠クリア可能／全枠クリア可能／F5保持／日付変更→戻すで保持／再取得保持／Streamlit警告なし。
+
+**通常②**：OFF→ON・rerun・F5・日付変更・再取得のすべてで保持（実アプリ・新小岩8/9で
+②24件と⑤26件が同時に正常表示）。
+
+### 店舗特例（すべて維持）
+
+- **秋葉原**：`kojin_z` 全12枠は日付単位（別日で空）／`kojin_y` は index 0〜7 のみ永続
+- **高田馬場**：通常②は日付単位・永続対象外
+- **新宿歌舞伎町**：`kojin_y` は毎回空欄
+- **記事用②**：`article_page_inputs.json` のみ・永続値の流用なし
+
+### 今回の対象外（同時に修正しないこと）
+
+- **「⓪日付取得後に②の入力欄が一時的に消える問題」は未修正。**
+  原因は `_restore_auto_inputs()` 5207行が「保存値に `kojin_enabled` が無い Excel」で
+  `False` へリセットすること（＝`kojin_enabled` の復元ロジックの別問題）。
+  データ損失ではない。**②の初期値・保存の修正と一緒に直さない。**
+- **⑤オススメ機種ピックアップは `39f1f1e` の正式仕様を維持**する。今回いっさい変更していない。
+
 ## 自動処理ページの入力値保存（auto_page_inputs.json）
 
 Excel ファイル名をキーに、店舗ごとの入力値を保存する。**全置換は禁止・マージ方式が正式仕様**（2026-07-16・`95c6d54`）。

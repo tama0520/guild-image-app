@@ -861,6 +861,71 @@ Streamlit は描画されなかったウィジェットのキーを session_stat
 
 B1=5 / B2=4 / B3=8 / B4=9 の**合計26機種**（`rec_enabled` の既定は `false`）。
 
+## store_settings の正データ源と Cloud 運用ルール（2026-08-10 確定・調査のみ／コード変更なし）
+
+**正式運用ルール。巻き戻し禁止。**⑤オススメ機種ピックアップと高田馬場の記事用⑤バラエティが
+保存される `store_settings/{store}.json` の扱いを定める。**今回は同期機能を実装していない。**
+
+### 現状の構造（コードで確認済みの事実）
+
+- **`store_settings` には Cloud → GitHub の同期経路が1本も無い。**
+  - `_GH_SYNC_FILES`（2512行）は **`weekly_items.json` / `rote_machines.json` のみ**。
+    `store_settings` は含まれない。
+  - `save_store_settings()`（4898行）は**ファイル書き込みだけ**で、
+    `_github_push_file()` も `_git_auto_push()` も呼ばない。
+  - `_git_auto_push()`（2672行）の `targets` には `"store_settings"` が入っているが、
+    呼び出し4か所（10793 / 12313 / 14851 / 17153行）はすべて **`if not _IS_CLOUD:`**。
+  - `_github_push_file()` の呼び出しは2か所だけ（15179＝ローテ／15376＝週間）。
+- **Cloud 上の編集値は Cloud コンテナ内のファイルにだけ存在する。**
+  再デプロイ／Reboot でコンテナが作り直されると消える。
+- **GitHub 側で `store_settings` が更新されても Cloud は自動で取り込まない。**
+  `_github_sync_on_start()`（2567行）は `_GH_SYNC_FILES` しか pull しないため、
+  反映は**再デプロイ時のみ**。
+- ローカルは `_git_auto_pull()` / `_git_auto_push()` で双方向に通っている
+  （ただし push は**画像生成時のみ**。⑤を編集しただけでは push されない）。
+
+### store_settings に入っているもの（全12店舗・実キー22種）
+
+| カテゴリ | キー |
+|---|---|
+| ⑤オススメ機種ピックアップ（19種） | `rec_enabled` / `recommended_machines_1〜6` / `recommended_title_1〜6` / `recommended_filter_1〜6` |
+| 高田馬場 記事用⑤バラエティ（3種） | `art_variety_range` / `art_variety_enabled` / `art_variety_mode` |
+
+画像・Excel・日付単位の入力は含まれない（それらは `auto_page_inputs.json` 側）。
+
+### 正式運用ルール
+
+1. **`store_settings` の正データ源は GitHub とする。**
+2. **⑤の設定変更はローカルで行う。** ローカルで変更 → GitHub へ反映 → Cloud は
+   GitHub 上の正式設定を使う。
+3. **Streamlit Cloud 上では⑤オススメ機種ピックアップの設定を編集しない。**
+   Cloud で編集してもコンテナ内にしか保存されず、GitHub／ローカルへは同期されない。
+   再デプロイ等で消えるため**正式設定として扱わない**。
+4. **高田馬場の記事用⑤バラエティ（`art_variety_*`）も同様に Cloud 上では編集しない。**
+5. **2026-08-10 に Cloud の新小岩⑤ブロック5に現れた
+   「虚構推理／BIRDIE WING／戦国乙女4／バイオRE:3／ULTRAMAN最終決戦」は正式設定ではない。**
+   リポジトリの全JSONにも git 全履歴（`git log -S --all`）にも存在せず、
+   **Cloud で入力された Cloud-only 値**である。
+   **GitHub HEAD の `store_settings/新小岩.json` を正とし、B5空欄が正式状態。**
+   新小岩⑤の正式値は **B1=5 / B2=4 / B3=8 / B4=9 の合計26機種、B5・B6は空**。
+6. **双方向同期は今回は実装しない。**将来必要になった場合の別案件とする。
+   実装する場合は **「起動時 GitHub→Cloud pull ＋ SHA確認付き Cloud→GitHub push」を必ずセット**で
+   設計する。**push だけを追加する実装は禁止**（Cloud の古いコンテナ値が GitHub の新しい設定を
+   上書きする事故が確実に起きる）。
+7. **将来実装する場合に必ず回帰確認する項目**：
+   日本語ファイル名のURLエンコード（現行 `_github_fetch_file` / `_github_push_file` は
+   `urllib.parse.quote` を通していない）／SHA競合／409／同一店舗の同時編集／
+   起動時の複数GET（12店舗＝12往復）／高田馬場 `art_variety_*` への影響／
+   ⑤の `39f1f1e` 正式仕様／②の `0e7dc4c` 正式仕様。
+
+### なぜ同期を実装しないか
+
+`store_settings` に入るのは⑤と記事用バラエティだけで変更頻度が低く、
+「ローカルで整えて push → Cloud は再デプロイで受け取る」で運用が成立する。
+12ファイル×双方向の同期を足すと、日本語パス・起動時の往復回数・同一店舗の同時編集など
+新しい事故クラスが増える。今回の Cloud-only 値は**同期の欠如ではなく
+「Cloud で編集した」ことが原因**なので、運用ルールで断つのが最小リスク。
+
 ## ②個別画像の初期値受け渡しと保存タイミング（2026-08-10 確定・`0e7dc4c`）
 
 **正式仕様。巻き戻し禁止。**通常ページ②と記事用②の両方が対象。

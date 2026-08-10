@@ -5284,10 +5284,14 @@ def _init_recommended_settings(store: str) -> dict:
 
     戻り値は保存済み機種名 {ブロック番号: 9枠のリスト}。
     ⑤描画時に render_machine_autocomplete_input(default=) へ渡すために使う。
-    Streamlit は描画されなかったウィジェットのキーを session_state から破棄するため、
-    default が "" のままだと ⑤OFF→ON などの再描画で空文字が seed され、
-    その空文字が on_change 保存で store_settings を潰す（2026-08-10 の新小岩の事故）。
-    seed はキー不在時のみなので、ユーザーが空へ変更した枠を復活させることはない。"""
+
+    ★rec_m*（機種名入力欄）は session_state へ seed しない。
+    seed してもブラウザ側へは初期値が届かないため、「そのセッションで⑤が一度も
+    描画されていない状態から初めてONにした」初回描画で全枠が空表示になり、
+    その空値がフロントから返って on_change 保存が store_settings を全消しする
+    （2026-08-10 の新小岩の事故）。初期値は
+    render_machine_autocomplete_input(default=) → st.text_input(value=) で渡す。
+    rec_enabled / rec_title_* / rec_f_* の seed は従来どおり行う。"""
     saved = load_store_settings(store)
     m1 = saved.get("recommended_machines_1", [""] * 5)
     m2 = saved.get("recommended_machines_2", [""] * 5)
@@ -5319,6 +5323,8 @@ def _init_recommended_settings(store: str) -> dict:
         defaults[f"rec_m5_{i}_{store}"] = m5[i] if i < len(m5) else ""
         defaults[f"rec_m6_{i}_{store}"] = m6[i] if i < len(m6) else ""
     for k, v in defaults.items():
+        if k.startswith("rec_m"):
+            continue                      # 機種名は value= で渡す（seed しない）
         if k not in st.session_state:
             st.session_state[k] = v
     return {n: [defaults[f"rec_m{n}_{i}_{store}"] for i in range(9)] for n in range(1, 7)}
@@ -5380,16 +5386,17 @@ def render_machine_autocomplete_input(
     ・1文字以上入力 かつ 完全一致でない場合のみ候補ボタンを表示する。
     ・on_click コールバックで session_state[key] を更新する
       （widget 描画後の直接代入は Streamlit が禁止するため）。"""
-    # ウィジェット生成"前"に初期値を session_state へ入れておく。
-    # こうすると st.text_input に value= を渡す必要がなくなり、
-    # 「default value なのに Session State API でも値を設定した」警告が消える。
-    if key not in st.session_state:
-        st.session_state[key] = default
+    # 初期値は必ず value= でブラウザへ渡す。
+    # session_state への事前 seed だけではフロントに初期値が届かず、
+    # 未描画 run を挟んだ後の初回描画で全枠が空表示になり、その空値が返って
+    # on_change 保存が保存済みデータを全消しする（2026-08-10 の新小岩の事故）。
+    # session_state に既存値がある場合は Streamlit 側で既存値が優先されるため、
+    # session_state を先に埋める他の利用箇所（②個別画像・記事用・ローテ・週間表）
+    # の挙動は変わらない。
     _kw: dict = {"on_change": on_change}
     if on_change_args:
         _kw["args"] = on_change_args
-    # value= は渡さない（key 経由で session_state[key] が初期値として使われる）
-    st.text_input(label, key=key, placeholder="機種名を入力", **_kw)
+    st.text_input(label, key=key, value=default, placeholder="機種名を入力", **_kw)
     query: str = st.session_state.get(key, "")
 
     # 未入力 or すでに候補と完全一致 → 候補を非表示

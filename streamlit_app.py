@@ -4917,12 +4917,26 @@ def _save_rec_titles(store: str) -> None:
 
 
 def _save_rec_machines(store: str) -> None:
-    """機種名変更時に即JSON保存。他の設定（タイトル等）は上書きしない。"""
+    """機種名変更時に即JSON保存。他の設定（タイトル等）は上書きしない。
+
+    ★ウィジェット未描画（session_stateにキーが無い）の枠は既存値を維持する。
+    Streamlit は描画されなかったウィジェットのキーを session_state から破棄し、
+    on_change コールバックは _init_recommended_settings() より前に走るため、
+    無条件に .get(key, "") で保存すると保存済みの機種名を全消しする
+    （2026-08-10 に新小岩の⑤が空になった事故）。
+    ユーザーが実際に欄を空へ変更した場合はキーが存在するので空文字が保存される。
+    _save_rec_titles / _save_rec_enabled / _save_persistent_inputs と同じ方針。"""
     prev = load_store_settings(store)
     for n in range(1, 7):
-        prev[f"recommended_machines_{n}"] = [
-            st.session_state.get(f"rec_m{n}_{_i}_{store}", "") for _i in range(9)
-        ]
+        _cur = prev.get(f"recommended_machines_{n}", [""] * 9)
+        _vals = []
+        for _i in range(9):
+            _k = f"rec_m{n}_{_i}_{store}"
+            if _k in st.session_state:
+                _vals.append(st.session_state[_k])          # 描画済み → 現在値（空欄も反映）
+            else:
+                _vals.append(_cur[_i] if _i < len(_cur) else "")  # 未描画 → 既存値を維持
+        prev[f"recommended_machines_{n}"] = _vals
     save_store_settings(store, prev)
 
 
@@ -5265,8 +5279,15 @@ def _restore_article_inputs(excel_name: str, store: str) -> None:
         st.session_state[k] = v
 
 
-def _init_recommended_settings(store: str) -> None:
-    """オススメ機種設定を session_state に初期化する（JSON → デフォルト値の順）。"""
+def _init_recommended_settings(store: str) -> dict:
+    """オススメ機種設定を session_state に初期化する（JSON → デフォルト値の順）。
+
+    戻り値は保存済み機種名 {ブロック番号: 9枠のリスト}。
+    ⑤描画時に render_machine_autocomplete_input(default=) へ渡すために使う。
+    Streamlit は描画されなかったウィジェットのキーを session_state から破棄するため、
+    default が "" のままだと ⑤OFF→ON などの再描画で空文字が seed され、
+    その空文字が on_change 保存で store_settings を潰す（2026-08-10 の新小岩の事故）。
+    seed はキー不在時のみなので、ユーザーが空へ変更した枠を復活させることはない。"""
     saved = load_store_settings(store)
     m1 = saved.get("recommended_machines_1", [""] * 5)
     m2 = saved.get("recommended_machines_2", [""] * 5)
@@ -5300,6 +5321,29 @@ def _init_recommended_settings(store: str) -> None:
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
+    return {n: [defaults[f"rec_m{n}_{i}_{store}"] for i in range(9)] for n in range(1, 7)}
+
+
+# ⑤オススメ機種ピックアップ 抽出条件の選択肢と既定値（ブロック1のみ +1,000枚以上）
+_REC_F_OPTS: list[str] = ["プラス台", "+1,000枚以上", "+2,000枚以上"]
+_REC_F_DEFAULT: dict = {1: "+1,000枚以上", 2: "プラス台", 3: "プラス台",
+                        4: "プラス台", 5: "プラス台", 6: "プラス台"}
+
+
+def _rec_f_index(store: str, n: int) -> int:
+    """⑤ブロック n の抽出条件ラジオの index を返す。
+
+    session_state → store_settings の保存値 → 正式な既定値 の順で解決する。
+    ウィジェットが未描画の run を挟むと Streamlit が rec_f_{n}_{store} を
+    session_state から破棄するため、index を渡さないと保存済み値（例: +2,000枚以上）が
+    ラジオ先頭の「プラス台」へ戻り、そのまま on_change 保存で JSON も潰れる。
+    key が session_state にある場合 Streamlit は index を無視するので副作用はない。"""
+    _val = st.session_state.get(f"rec_f_{n}_{store}")
+    if _val not in _REC_F_OPTS:
+        _val = load_store_settings(store).get(f"recommended_filter_{n}")
+    if _val not in _REC_F_OPTS:
+        _val = _REC_F_DEFAULT.get(n, "プラス台")
+    return _REC_F_OPTS.index(_val)
 
 
 def load_machine_candidates() -> list[str]:
@@ -7843,7 +7887,9 @@ def show_auto_page(with_slump: bool = False) -> None:
 
     recommended_blocks: list[dict] = []
     if store in EXTENDED_FEATURE_STORES and store != "新宿歌舞伎町":
-        _init_recommended_settings(store)
+        # 保存済み機種名を受け取り、ウィジェットのキー不在時の seed に使う
+        # （default="" のままだと ⑤OFF→ON の再描画で空文字が焼き付く）
+        _rec_saved_m = _init_recommended_settings(store)
         st.markdown(f"### {_sec_num()} オススメ機種ピックアップ")
         rec_enabled = st.checkbox("オススメ機種ピックアップを使用する", key=f"rec_enabled_{store}",
                                    on_change=_save_rec_enabled, args=(store,))
@@ -7873,13 +7919,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                     with _col:
                         render_machine_autocomplete_input(
                             str(_i + 1), f"rec_m1_{_i}_{store}", _machine_candidates,
+                            default=_rec_saved_m[1][_i],
                             on_change=_save_rec_machines, on_change_args=(store,),
                         )
                 machines_1 = [st.session_state.get(f"rec_m1_{_i}_{store}", "") for _i in range(9)]
-                _opts_f1 = ["プラス台", "+1,000枚以上", "+2,000枚以上"]
-                _f1_val = st.session_state.get(f"rec_f_1_{store}", "+1,000枚以上")
-                _f1_idx = _opts_f1.index(_f1_val) if _f1_val in _opts_f1 else 1
-                _sel1 = st.radio("抽出条件", _opts_f1, index=_f1_idx, key=f"rec_f_1_{store}", horizontal=True, on_change=_save_rec_titles, args=(store,))
+                _sel1 = st.radio("抽出条件", _REC_F_OPTS, index=_rec_f_index(store, 1), key=f"rec_f_1_{store}", horizontal=True, on_change=_save_rec_titles, args=(store,))
                 thresholds_1 = [{"プラス台": 1, "+1,000枚以上": 1000, "+2,000枚以上": 2000}.get(_sel1, 1)]
 
             with col_b2:
@@ -7899,10 +7943,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                     with _col:
                         render_machine_autocomplete_input(
                             str(_i + 1), f"rec_m2_{_i}_{store}", _machine_candidates,
+                            default=_rec_saved_m[2][_i],
                             on_change=_save_rec_machines, on_change_args=(store,),
                         )
                 machines_2 = [st.session_state.get(f"rec_m2_{_i}_{store}", "") for _i in range(9)]
-                _sel2 = st.radio("抽出条件", ["プラス台", "+1,000枚以上", "+2,000枚以上"], key=f"rec_f_2_{store}", horizontal=True, on_change=_save_rec_titles, args=(store,))
+                _sel2 = st.radio("抽出条件", _REC_F_OPTS, index=_rec_f_index(store, 2), key=f"rec_f_2_{store}", horizontal=True, on_change=_save_rec_titles, args=(store,))
                 thresholds_2 = [{"プラス台": 1, "+1,000枚以上": 1000, "+2,000枚以上": 2000}.get(_sel2, 1)]
 
             st.markdown("")
@@ -7926,10 +7971,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                     with _col:
                         render_machine_autocomplete_input(
                             str(_i + 1), f"rec_m3_{_i}_{store}", _machine_candidates,
+                            default=_rec_saved_m[3][_i],
                             on_change=_save_rec_machines, on_change_args=(store,),
                         )
                 machines_3 = [st.session_state.get(f"rec_m3_{_i}_{store}", "") for _i in range(9)]
-                _sel3 = st.radio("抽出条件", ["プラス台", "+1,000枚以上", "+2,000枚以上"], key=f"rec_f_3_{store}", horizontal=True, on_change=_save_rec_titles, args=(store,))
+                _sel3 = st.radio("抽出条件", _REC_F_OPTS, index=_rec_f_index(store, 3), key=f"rec_f_3_{store}", horizontal=True, on_change=_save_rec_titles, args=(store,))
                 thresholds_3 = [{"プラス台": 1, "+1,000枚以上": 1000, "+2,000枚以上": 2000}.get(_sel3, 1)]
 
             with col_b4:
@@ -7949,10 +7995,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                     with _col:
                         render_machine_autocomplete_input(
                             str(_i + 1), f"rec_m4_{_i}_{store}", _machine_candidates,
+                            default=_rec_saved_m[4][_i],
                             on_change=_save_rec_machines, on_change_args=(store,),
                         )
                 machines_4 = [st.session_state.get(f"rec_m4_{_i}_{store}", "") for _i in range(9)]
-                _sel4 = st.radio("抽出条件", ["プラス台", "+1,000枚以上", "+2,000枚以上"], key=f"rec_f_4_{store}", horizontal=True, on_change=_save_rec_titles, args=(store,))
+                _sel4 = st.radio("抽出条件", _REC_F_OPTS, index=_rec_f_index(store, 4), key=f"rec_f_4_{store}", horizontal=True, on_change=_save_rec_titles, args=(store,))
                 thresholds_4 = [{"プラス台": 1, "+1,000枚以上": 1000, "+2,000枚以上": 2000}.get(_sel4, 1)]
 
             st.markdown("")
@@ -7976,10 +8023,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                     with _col:
                         render_machine_autocomplete_input(
                             str(_i + 1), f"rec_m5_{_i}_{store}", _machine_candidates,
+                            default=_rec_saved_m[5][_i],
                             on_change=_save_rec_machines, on_change_args=(store,),
                         )
                 machines_5 = [st.session_state.get(f"rec_m5_{_i}_{store}", "") for _i in range(9)]
-                _sel5 = st.radio("抽出条件", ["プラス台", "+1,000枚以上", "+2,000枚以上"], key=f"rec_f_5_{store}", horizontal=True, on_change=_save_rec_titles, args=(store,))
+                _sel5 = st.radio("抽出条件", _REC_F_OPTS, index=_rec_f_index(store, 5), key=f"rec_f_5_{store}", horizontal=True, on_change=_save_rec_titles, args=(store,))
                 thresholds_5 = [{"プラス台": 1, "+1,000枚以上": 1000, "+2,000枚以上": 2000}.get(_sel5, 1)]
 
             with col_b6:
@@ -7999,10 +8047,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                     with _col:
                         render_machine_autocomplete_input(
                             str(_i + 1), f"rec_m6_{_i}_{store}", _machine_candidates,
+                            default=_rec_saved_m[6][_i],
                             on_change=_save_rec_machines, on_change_args=(store,),
                         )
                 machines_6 = [st.session_state.get(f"rec_m6_{_i}_{store}", "") for _i in range(9)]
-                _sel6 = st.radio("抽出条件", ["プラス台", "+1,000枚以上", "+2,000枚以上"], key=f"rec_f_6_{store}", horizontal=True, on_change=_save_rec_titles, args=(store,))
+                _sel6 = st.radio("抽出条件", _REC_F_OPTS, index=_rec_f_index(store, 6), key=f"rec_f_6_{store}", horizontal=True, on_change=_save_rec_titles, args=(store,))
                 thresholds_6 = [{"プラス台": 1, "+1,000枚以上": 1000, "+2,000枚以上": 2000}.get(_sel6, 1)]
 
             recommended_blocks = [
@@ -9984,7 +10033,15 @@ def show_auto_page(with_slump: bool = False) -> None:
             if recommended_blocks:
                 for _bi, _bk in enumerate(["1","2","3","4","5","6"]):
                     _s[f"recommended_title_{_bk}"]    = recommended_blocks[_bi]["title"]
-                    _s[f"recommended_machines_{_bk}"] = recommended_blocks[_bi]["machines"]
+                    # 機種名は _save_rec_machines() と同じ方針:
+                    # ウィジェットが描画済み（キーあり）→ 現在値（空欄も意図的クリアとして保存）
+                    # 未描画（キーなし）→ store_settings の既存値を維持し空で潰さない
+                    _cur_m = _s.get(f"recommended_machines_{_bk}", [""] * 9)
+                    _new_m = list(recommended_blocks[_bi]["machines"])
+                    for _mi in range(len(_new_m)):
+                        if f"rec_m{_bk}_{_mi}_{store}" not in st.session_state:
+                            _new_m[_mi] = _cur_m[_mi] if _mi < len(_cur_m) else ""
+                    _s[f"recommended_machines_{_bk}"] = _new_m
                     _fk = f"rec_f_{_bk}_{store}"
                     if _fk in st.session_state:
                         _s[f"recommended_filter_{_bk}"] = st.session_state[_fk]

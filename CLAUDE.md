@@ -34,6 +34,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Git履歴と資料を優先する。**
 - 不明点は**まず資料とGit履歴を確認**し、それでも分からない場合だけユーザーへ確認する。
 
+### 未コミット状態でアプリを動かしたまま検証しない（2026-08-10 確定・`55e7752`）
+
+**このリポジトリはアプリ自身が `git stash` / `--autostash` を実行する。**
+
+- `_git_auto_pull()`（streamlit_app.py 2650行・`main()` からセッション1回）＝
+  `git stash` → `git pull --rebase` → `git stash pop`
+- `_git_auto_push()`（2672行・保存/画像生成のたび）＝ `git pull --rebase --autostash`
+
+この数秒の窓では**作業ツリーが HEAD へ戻る**。**Streamlit は rerun のたびにスクリプトを
+読み直す**ため、窓に入った rerun は**HEAD版（＝修正前）のコードで実行される**。
+その結果、未コミットの修正は「ファイルには存在するのに効かない」状態になり、
+旧コードが設定JSONを壊し続ける（2026-08-10 に⑤の機種名が3回全消しされた事故の真因）。
+
+**運用ルール：**
+1. 保存系バグの修正を実機確認するときは、**未コミットのままアプリを動かし続けない**
+2. 手順は必ず **アプリ停止 → コードのみ先にコミット → 設定データ復元 → 再起動 → 実機確認**
+3. **「データ復元 → その後コミット」の順にしない**（復元した値が stash 窓の旧コードで再び壊れる）
+4. `_git_auto_push()` の対象には **`store_settings` が含まれる**。壊れた設定JSONが
+   そのまま commit / push され Cloud へ伝播し得るので、破壊を検知したら**まずアプリを停止**する
+5. reflog の `reset: moving to HEAD` は stash/autostash の痕跡。設定JSONが壊れた時刻と
+   突き合わせると、この経路かどうかを判別できる
+
 ### 大きな変更の手順（必須）
 
 以下の順序を必須とする。**ユーザー承認より前に実装しない。**
@@ -735,6 +757,51 @@ Cloud↔GitHub同期・ブラウザ履歴。
 `value=` の既定文言が効かず空欄になる。restore を通らない店舗（Excel はそのままで後から移動した
 店舗）だけ既定文言が表示されていた＝上野新館が「正しく実装されていた」わけではない。
 実データでも秋葉原は20件すべて `""`、上野新館は16件が既定文言／7件が `""` だった。
+
+## ⑤オススメ機種ピックアップの永続化（2026-08-10 確定・`55e7752`）
+
+**正式仕様。巻き戻し禁止。**⑤の機種名・タイトル・抽出条件は
+**`store_settings/{store}.json` に店舗単位で永続**する（日付・Excel単位ではない）。
+`auto_page_inputs.json` / `auto_page_persistent_inputs.json` は⑤を一切扱わない。
+
+- **保存キー**：`recommended_machines_1〜6`（各9枠）／`recommended_title_1〜6`／
+  `recommended_filter_1〜6`／`rec_enabled`。**新しいキー・新しいJSONを作らない。**
+- **widgetキー**：`rec_m{1-6}_{0-8}_{店舗}`／`rec_title_{n}_{店舗}`／`rec_f_{n}_{店舗}`
+
+### ① 保存は「キーの存在」で分岐する（`_save_rec_machines()`）
+
+- `rec_m*` が session_state に**ある** → 現在値を保存（**空欄はユーザーの意図的クリアとして空を保存**）
+- **ない** → `store_settings` の既存値を維持（**空で潰さない**）
+
+`_save_rec_titles` / `_save_rec_enabled` / `_save_persistent_inputs` と同じ方針。
+**`st.session_state.get(key, "")` で無条件に全枠を書き戻す実装へ戻さない。**
+
+### ② ウィジェットの seed は保存値（`default=`）
+
+B1〜B6の `render_machine_autocomplete_input()` へ **`default=_rec_saved_m[n][_i]`** を渡す。
+`_init_recommended_settings()` は読み込み済みの保存値 `{ブロック: 9枠}` を返し、
+追加のJSON読み込みをせずこれに流用する。**`default=""` のままにしない。**
+
+Streamlit は描画されなかったウィジェットのキーを session_state から破棄するため、
+`default=""` だと⑤OFF→ON・データ取得の rerun 後の再描画で**空文字が seed され**、
+それが on_change 保存で JSON へ焼き付く。seed は**キー不在時のみ**なので、
+**ユーザーが空へ変更した枠を復活させることはない**（意図的クリアは維持される）。
+
+### ③ 抽出条件は保存値から index 復元
+
+`_REC_F_OPTS` / `_REC_F_DEFAULT` / `_rec_f_index(store, n)` を使い、
+**B1〜B6すべての radio へ `index=_rec_f_index(store, n)`** を渡す。
+解決順は **session_state → 保存値 → 正式既定値（B1=+1,000枚以上／B2〜B6=プラス台）**。
+`index=` を付けない radio に戻すと、キー破棄後の再描画で先頭「プラス台」へ落ちる。
+
+### ④ ▶▶実行時の一括保存も同じガード
+
+`show_auto_page` の実行時一括保存も `_save_rec_machines()` と**同一思想**（キーあり→現在値／
+キーなし→既存値維持）に統一する。**別の保存ロジックを作らない。**
+
+### ⑤ 適用範囲
+
+⑤を使う**全店舗共通**。店舗特例・日付特例を作らない。
 
 ## 自動処理ページの入力値保存（auto_page_inputs.json）
 

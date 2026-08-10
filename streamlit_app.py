@@ -5220,6 +5220,38 @@ def _restore_auto_inputs(excel_name: str, store: str) -> None:
             st.session_state[f"kojin_y_{i}_{store}"] = ""
 
 
+def _kojin_default(excel_name: "str | None", store: str, key: str) -> str:
+    """②個別画像（通常ページ）の保存済み初期値を返す（読み取り専用）。
+
+    ★_restore_auto_inputs() とまったく同じ解決順にすること。
+    session_state への事前代入だけではブラウザへ初期値が渡らないため、
+    ウィジェット未描画の run を挟んだ後の初回描画で入力欄が空になり、
+    その空値が保存へ回って既存値を潰す（⑤で 2026-08-10 に起きた事故と同型）。
+    初期値は render_machine_autocomplete_input(default=) 経由で
+    st.text_input(value=) までブラウザへ届ける。
+
+    解決順（_restore_auto_inputs 5200-5220行と一致）:
+      1. 新宿歌舞伎町の kojin_y_* は常に ""（毎回空欄にする正式仕様）
+      2. 保存値にキーがある → その値。ただし永続キーかつ値が空で
+         永続値があれば永続値（空で潰さない）
+      3. 保存値にキーが無い → 永続キーかつ永続値があれば永続値
+      4. それ以外 → ""
+    """
+    if store == "新宿歌舞伎町" and key.startswith("kojin_y_"):
+        return ""
+    saved      = _load_auto_inputs_json().get(excel_name, {}) if excel_name else {}
+    persistent = _load_persistent_json().get(store, {})
+    pk         = _persistent_keys(store)
+    if key in saved:
+        _v = saved[key]
+        if key in pk and not _v and key in persistent:
+            return persistent[key]
+        return _v if isinstance(_v, str) else ""
+    if key in pk and key in persistent:
+        return persistent[key]
+    return ""
+
+
 # ── 記事用ページ入力値の永続化 ────────────────────────────────────────────────
 
 def _article_input_keys(store: str) -> list[str]:
@@ -5254,17 +5286,58 @@ def _load_article_inputs_json() -> dict:
     return {}
 
 
-def _save_article_inputs(store: str) -> None:
+def _save_article_inputs(store: str, skip_kojin: bool = False) -> None:
+    """記事用ページの入力値を Excelファイル名をキーにして JSON 保存（マージ方式）。
+
+    ★全置換にしない。session_state に「キーが存在しない」ものは既存値を残す。
+    全置換だと ②個別画像を OFF にしただけでウィジェットが未描画になり、
+    art_kojin_z_* / art_kojin_y_* がエントリから丸ごと削除される
+    （記事用には永続ファイルが無いため復旧できない）。
+    判定は _merge_auto_entry() と同じ「キーの存在」のみ。値が "" や False でも
+    そのまま保存する（ユーザーが意図的に空へ変更したケースを反映するため）。
+
+    ★②個別画像の機種名（art_kojin_z_* / art_kojin_y_*）だけは、
+    「その保存タイミングで保存してよい状態か」を追加で判定する。
+      A. skip_kojin=True                      → 除外（既存値を維持）
+      B. art_kojin_enabled が False           → 除外（既存値を維持）
+      C. skip_kojin=False かつ enabled=True   → 通常どおり保存（"" も保存）
+    「値が空なら保存しない」ではないので、②が表示された状態での
+    1枠クリア・全枠クリアは従来どおり保存される。
+
+    なぜ必要か: _restore_article_inputs() が Excel 切替時に
+    art_kojin_* 全キーへ "" を代入するため、これらは plain な session_state 値
+    として常駐し、②が未描画の run でも「キーが存在し値が ''」になる。
+    そのため②ONクリックの on_change（ウィジェット描画より前に走る）が
+    保存済みの機種名を "" で潰していた。
+    """
     excel_name = st.session_state.get("art_current_excel")
     if not excel_name:
         return
+    _skip_kojin = skip_kojin or not bool(st.session_state.get("art_kojin_enabled", False))
     data = _load_article_inputs_json()
-    data[excel_name] = {k: st.session_state[k] for k in _article_input_keys(store) if k in st.session_state}
+    _entry = dict(data.get(excel_name) or {})
+    for k in _article_input_keys(store):
+        if _skip_kojin and (k.startswith("art_kojin_z_") or k.startswith("art_kojin_y_")):
+            continue
+        if k in st.session_state:
+            _entry[k] = st.session_state[k]
+    data[excel_name] = _entry
     try:
         with open(_ARTICLE_INPUTS_JSON, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
+
+
+def _save_article_enabled(store: str) -> None:
+    """記事用②「個別画像も生成する」チェックボックス専用の保存。
+
+    このコールバックはウィジェット描画より前に走るため、ONへ切り替えた瞬間は
+    art_kojin_z_* / art_kojin_y_* がまだ未描画で、session_state には
+    _restore_article_inputs() が入れた "" しか無い。ここで保存すると
+    保存済みの機種名が "" で潰れるので、機種名キーは必ず除外する。
+    """
+    _save_article_inputs(store, skip_kojin=True)
 
 
 def _restore_article_inputs(excel_name: str, store: str) -> None:
@@ -5277,6 +5350,21 @@ def _restore_article_inputs(excel_name: str, store: str) -> None:
                 st.session_state[k] = False if k.endswith("_enabled") else ""
     for k, v in saved.items():
         st.session_state[k] = v
+
+
+def _art_kojin_default(excel_name: "str | None", store: str, key: str) -> str:
+    """②個別画像（記事用ページ）の保存済み初期値を返す（読み取り専用）。
+
+    ★参照するのは article_page_inputs.json の該当Excelエントリだけ。
+    通常ページの auto_page_persistent_inputs.json（永続値）は記事用へ流用しない
+    （記事用は Excel／日付単位で完結する別体系）。
+    用途は _kojin_default() と同じで、未描画 run を挟んだ後の初回描画で
+    ブラウザへ初期値を届けるため。
+    """
+    if not excel_name:
+        return ""
+    _v = _load_article_inputs_json().get(excel_name, {}).get(key, "")
+    return _v if isinstance(_v, str) else ""
 
 
 def _init_recommended_settings(store: str) -> dict:
@@ -7298,6 +7386,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _kc.append(_v)
             _kojin_candidates = _kc
         st.caption("指定した機種の個別画像を生成します。ここに入力した機種はその他の優秀台ピックアップから除外されます。")
+        # 未描画 run を挟んだ後の初回描画でブラウザへ初期値を届けるための保存値参照用
+        _kojin_excel = st.session_state.get("auto_current_excel")
         # 新宿歌舞伎町（かぶぱ）は 左=優秀台6個・右=全台3個。それ以外は 左=全台12・右=優秀台
         _is_kabupa = (store == "新宿歌舞伎町")
         _kz_count = 3 if _is_kabupa else 12
@@ -7315,7 +7405,9 @@ def show_auto_page(with_slump: bool = False) -> None:
             _kz_rows = [st.columns(3) for _ in range((_kz_count + 2) // 3)]
             for _i, _col in enumerate([c for row in _kz_rows for c in row][:_kz_count]):
                 with _col:
-                    render_machine_autocomplete_input(str(_i + 1), f"kojin_z_{_i}_{store}", _kojin_candidates,
+                    _kz_key = f"kojin_z_{_i}_{store}"
+                    render_machine_autocomplete_input(str(_i + 1), _kz_key, _kojin_candidates,
+                                                      default=_kojin_default(_kojin_excel, store, _kz_key),
                                                       on_change=_save_auto_inputs, on_change_args=(store,))
             kojin_zentai_machines = [st.session_state.get(f"kojin_z_{_i}_{store}", "") for _i in range(_kz_count)]
         with col_ky:
@@ -7334,7 +7426,9 @@ def show_auto_page(with_slump: bool = False) -> None:
             _ky_rows = [st.columns(3) for _ in range((_ky_shown + 2) // 3)]
             for _i, _col in enumerate([c for row in _ky_rows for c in row][:_ky_shown]):
                 with _col:
-                    render_machine_autocomplete_input(str(_i + 1), f"kojin_y_{_i}_{store}", _kojin_candidates,
+                    _ky_key = f"kojin_y_{_i}_{store}"
+                    render_machine_autocomplete_input(str(_i + 1), _ky_key, _kojin_candidates,
+                                                      default=_kojin_default(_kojin_excel, store, _ky_key),
                                                       on_change=_save_auto_inputs, on_change_args=(store,))
             if _ky_expandable and not _ky_expanded:
                 def _expand_ky(_k=_ky_expand_key):
@@ -12634,17 +12728,21 @@ def show_auto_article_page() -> None:
     art_sonota_extra_auto: str = "なし"
     st.markdown(f"### {_sec_num()} 個別画像")
     kojin_enabled = st.checkbox("個別画像も生成する", key="art_kojin_enabled",
-                                on_change=_save_article_inputs, args=(store,))
+                                on_change=_save_article_enabled, args=(store,))
     if kojin_enabled:
         _kojin_candidates = load_machine_candidates()
         st.caption("指定した機種の個別画像を生成します。ここに入力した機種はその他の優秀台ピックアップから除外されます。")
+        # 未描画 run を挟んだ後の初回描画でブラウザへ初期値を届けるための保存値参照用
+        _art_kojin_excel = st.session_state.get("art_current_excel")
         col_kz, col_ky = st.columns(2, gap="large")
         with col_kz:
             st.markdown("**全台**")
             _kz_rows = [st.columns(3) for _ in range(4)]
             for _i, _col in enumerate([c for row in _kz_rows for c in row]):
                 with _col:
-                    render_machine_autocomplete_input(str(_i + 1), f"art_kojin_z_{_i}_{store}", _kojin_candidates,
+                    _akz_key = f"art_kojin_z_{_i}_{store}"
+                    render_machine_autocomplete_input(str(_i + 1), _akz_key, _kojin_candidates,
+                                                      default=_art_kojin_default(_art_kojin_excel, store, _akz_key),
                                                       on_change=_save_article_inputs, on_change_args=(store,))
             kojin_zentai_machines = [st.session_state.get(f"art_kojin_z_{_i}_{store}", "") for _i in range(12)]
         with col_ky:
@@ -12652,7 +12750,9 @@ def show_auto_article_page() -> None:
             _ky_rows = [st.columns(3) for _ in range(4)]
             for _i, _col in enumerate([c for row in _ky_rows for c in row]):
                 with _col:
-                    render_machine_autocomplete_input(str(_i + 1), f"art_kojin_y_{_i}_{store}", _kojin_candidates,
+                    _aky_key = f"art_kojin_y_{_i}_{store}"
+                    render_machine_autocomplete_input(str(_i + 1), _aky_key, _kojin_candidates,
+                                                      default=_art_kojin_default(_art_kojin_excel, store, _aky_key),
                                                       on_change=_save_article_inputs, on_change_args=(store,))
             kojin_yushu_machines = [st.session_state.get(f"art_kojin_y_{_i}_{store}", "") for _i in range(12)]
         st.markdown("**並び台番範囲 優秀台**")

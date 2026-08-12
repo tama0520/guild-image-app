@@ -1186,6 +1186,55 @@ JSONのSHA256不変・HEAD不変（自動push未実行）・入力値保持／
 `render_machine_autocomplete_input()` / `_kojin_default()` / `_art_kojin_default()` /
 `_save_rec_machines()` はいっさい変更していない。
 
+## 新宿歌舞伎町ローテ：①〜⑥の機種名入力UI（2026-08-12 確定・`17efb21`）
+
+**正式仕様。巻き戻し禁止。**対象は**【新宿歌舞伎町】ローテ用の①〜⑥各1機種UIだけ**。
+**表示のみの仕様**で、保存・復元・画像生成・ランキング画像・結果テキスト・重複判定・
+ファイル名・⓪データ表フィルタは**いっさい変更しない**（`c59dd90` の正式仕様をそのまま維持）。
+
+### ① 見出し
+
+- **「機種名を入力①」〜「機種名を入力⑥」だけを表示する。**
+- **「（部分一致・1機種）」は表示しない。**
+- 他店舗の **「機種名を入力①（部分一致・最大6機種・入力順に表示）」は変更しない。**
+
+### ② 入力欄のラベル
+
+- 入力欄の上に出る **「機種名 1」ラベルを表示しない。**
+- 非表示には **`label_visibility="collapsed"`** を使う。
+  **`"hidden"` を使わない** — `"hidden"` はラベル文字だけ消して**縦の余白が残る**ため、
+  見出しと入力欄の間に隙間ができる。`"collapsed"` は余白ごと消えるので、
+  見出しの直下に入力欄が来る。
+- **ラベル文字列自体は空にしない。** 呼び出しは従来どおり
+  `f"機種名 1{' ' * (_n - 1)}"` を渡し、**表示だけ抑制する**
+  （空文字にすると Streamlit が `label got an empty value` 警告を出す）。
+
+### ③ 共通関数への追加（`render_machine_autocomplete_input`）
+
+```python
+def render_machine_autocomplete_input(
+    label: str, key: str, candidates: list[str], default: str = "",
+    on_change=None, on_change_args: tuple = (),
+    label_visibility: str = "visible",      # ← 追加
+) -> None:
+    ...
+    st.text_input(label, key=key, value=default, placeholder="機種名を入力",
+                  label_visibility=label_visibility, **_kw)
+```
+
+- **既定値は必ず `"visible"`。** 既定を変更してはならない。
+- **`"collapsed"` を渡すのは新宿歌舞伎町ローテの呼び出し1箇所だけ。**
+- **他16箇所は引数を渡さず `"visible"` のまま**（②個別画像・記事用②・⑤オススメ6ブロック・
+  週間表・ローテ他店舗①②・機種名変換）。ラベル表示は従来どおり。
+- **`st.text_input(..., value=default)` は削らない**（⑤ `39f1f1e` の正式仕様）。
+
+### ④ 維持するもの
+
+プレースホルダー **「機種名を入力」**／オートコンプリート候補ボタン／**2列×3段**レイアウト／
+`_ROTE_SINGLE_STORES`／`rote1_mname_0`〜`rote6_mname_0`／`_rote_init_*` の復元／
+`rote_machines.json` の保存形式・`set1`〜`set6`・`preserve_tail`／`on_change`／
+F5・店舗切替での保持／**⑤ `39f1f1e`・② `0e7dc4c` は無変更**。
+
 ## 機種名変換
 
 `機種名変換.xlsx`（2行目をヘッダーとして読み込む、B列=変換前, C列=変換後）を `load_name_map()` でキャッシュ。完全一致 → 正規化一致（スペース・全角除去）の順で変換。`@st.cache_data` でセッション中は再読み込みしない。

@@ -157,6 +157,10 @@ ROTE_BAN_COLOR_CONFIG: dict[str, str] = {
     "新宿歌舞伎町": "#FFF2CD",
 }
 
+# ローテ用「1カテゴリ＝1機種＝1枚」方式の店舗（①〜⑥の6カテゴリ・各1機種）
+# 未登録店舗は従来どおり①②の各最大6機種を1枚へまとめる方式
+_ROTE_SINGLE_STORES: frozenset[str] = frozenset({"新宿歌舞伎町"})
+
 # 拡張機能店舗のオススメブロック絵文字設定
 # section_emoji: 「{emoji}{title}の優秀台」ヘッダー絵文字
 # block_emojis:  各ブロック内の機種名文頭絵文字（4ブロック分）
@@ -15155,7 +15159,16 @@ def _load_rote_machines(store: str) -> dict:
 
 def _save_rote_machines(store: str, inputs1: list[str], inputs2: list[str],
                         inputs3: list[str] | None = None,
-                        monthly_start: str | None = None) -> None:
+                        monthly_start: str | None = None,
+                        inputs4: list[str] | None = None,
+                        inputs5: list[str] | None = None,
+                        inputs6: list[str] | None = None,
+                        preserve_tail: bool = False) -> None:
+    """ローテ機種名を rote_machines.json へ保存する。
+
+    preserve_tail=True（①〜⑥各1機種方式の店舗）では、各 set の index 0 だけを
+    更新し、既存の index 1 以降は破壊せずそのまま残す。
+    """
     data: dict = {}
     if os.path.exists(_ROTE_SAVE_FILE):
         try:
@@ -15164,9 +15177,26 @@ def _save_rote_machines(store: str, inputs1: list[str], inputs2: list[str],
         except Exception:
             pass
     _existing = data.get(store, {})
-    _entry: dict = {"set1": inputs1, "set2": inputs2}
-    if inputs3 is not None:
-        _entry["set3"] = inputs3
+
+    def _merge_set(_key: str, _new: list[str] | None) -> list[str] | None:
+        """index 0 のみ更新し、既存の index 1 以降を維持する。"""
+        if _new is None:
+            return _existing.get(_key)
+        _tail = list(_existing.get(_key, []) or [])[1:]
+        return [(_new[0] if _new else "")] + _tail
+
+    if preserve_tail:
+        _entry: dict = {"set1": _merge_set("set1", inputs1),
+                        "set2": _merge_set("set2", inputs2)}
+        for _sn, _sv in (("set3", inputs3), ("set4", inputs4),
+                         ("set5", inputs5), ("set6", inputs6)):
+            _mv = _merge_set(_sn, _sv)
+            if _mv is not None:
+                _entry[_sn] = _mv
+    else:
+        _entry = {"set1": inputs1, "set2": inputs2}
+        if inputs3 is not None:
+            _entry["set3"] = inputs3
     # monthly_start: 明示指定があれば更新、なければ既存値を保持
     _ms = monthly_start if monthly_start is not None else _existing.get("monthly_start")
     if _ms:
@@ -16307,9 +16337,9 @@ def show_rote_page() -> None:
     if not st.session_state.get(_rote_loaded_key):
         _saved = _load_rote_machines(store)
         for _i in range(6):
-            st.session_state[f"_rote_init_{store}_1_{_i}"] = _saved["set1"][_i] if _i < len(_saved.get("set1", [])) else ""
-            st.session_state[f"_rote_init_{store}_2_{_i}"] = _saved["set2"][_i] if _i < len(_saved.get("set2", [])) else ""
-            st.session_state[f"_rote_init_{store}_3_{_i}"] = _saved["set3"][_i] if _i < len(_saved.get("set3", [])) else ""
+            for _sn in range(1, 7):
+                _sv = _saved.get(f"set{_sn}", []) or []
+                st.session_state[f"_rote_init_{store}_{_sn}_{_i}"] = _sv[_i] if _i < len(_sv) else ""
         st.session_state[_rote_loaded_key] = True
 
     # 週間オススメ表の項目復元（渋谷新館・上野本館・非ウィジェットキーパターン）
@@ -16577,8 +16607,11 @@ def show_rote_page() -> None:
                         _rv_df = apply_name_conversion(_rv_df)
                         # 入力①②で指定された機種名をセッションから収集
                         _rv_filter: set[str] = set()
+                        # ①〜⑥各1機種方式の店舗は6カテゴリすべてを対象にする
+                        _rv_sets = (("1", "2", "3", "4", "5", "6")
+                                    if store in _ROTE_SINGLE_STORES else ("1", "2"))
                         for _rfi in range(6):
-                            for _rset in ("1", "2"):
+                            for _rset in _rv_sets:
                                 _rv_m = (
                                     st.session_state.get(f"rote{_rset}_mname_{_rfi}", "")
                                     or st.session_state.get(f"_rote_init_{store}_{_rset}_{_rfi}", "")
@@ -16676,8 +16709,21 @@ def show_rote_page() -> None:
     _ban_map_vals = list(st.session_state.get(f"ban_map_{store}", {}).values())
     _rote_candidates = sorted(set(_ban_map_vals)) if _ban_map_vals else load_machine_candidates()
 
+    # ①〜⑥各1機種＝1枚方式（新宿歌舞伎町）か
+    _rote_single = store in _ROTE_SINGLE_STORES
+    _ROTE_MARU = ["①", "②", "③", "④", "⑤", "⑥"]
+
     # 機種名変更時に即座にJSONへ保存するコールバック
     def _on_rote_name_change():
+        if _rote_single:
+            # ①〜⑥は各カテゴリ index 0 のみ。既存の index 1 以降は破壊しない
+            _ms = [[st.session_state.get(f"rote{_n}_mname_0", "")] for _n in range(1, 7)]
+            _save_rote_machines(store, _ms[0], _ms[1], inputs3=_ms[2],
+                                inputs4=_ms[3], inputs5=_ms[4], inputs6=_ms[5],
+                                preserve_tail=True)
+            for _n in range(1, 7):
+                st.session_state[f"_rote_init_{store}_{_n}_0"] = _ms[_n - 1][0]
+            return
         _m1 = [st.session_state.get(f"rote1_mname_{_i}", "") for _i in range(6)]
         _m2 = [st.session_state.get(f"rote2_mname_{_i}", "") for _i in range(6)]
         _save_rote_machines(store, _m1, _m2)
@@ -16686,8 +16732,27 @@ def show_rote_page() -> None:
             st.session_state[f"_rote_init_{store}_1_{_i}"] = _m1[_i]
             st.session_state[f"_rote_init_{store}_2_{_i}"] = _m2[_i]
 
+    # ── ①〜⑥ 各1機種セット（新宿歌舞伎町）──────────────────────────
+    if _rote_single:
+        machine_inputs_all: list[list[str]] = []
+        for _row_start in (0, 2, 4):
+            _rcols = st.columns(2)
+            for _off, _col in enumerate(_rcols):
+                _n = _row_start + _off + 1          # 1〜6
+                with _col:
+                    st.markdown(f"**機種名を入力{_ROTE_MARU[_n - 1]}（部分一致・1機種）**")
+                    render_machine_autocomplete_input(
+                        f"機種名 1{' ' * (_n - 1)}", f"rote{_n}_mname_0", _rote_candidates,
+                        default=st.session_state.get(f"_rote_init_{store}_{_n}_0", ""),
+                        on_change=_on_rote_name_change)
+        for _n in range(1, 7):
+            _v = st.session_state.get(f"rote{_n}_mname_0", "")
+            machine_inputs_all.append([_v] if (_v or "").strip() else [])
+        machine_inputs1, machine_inputs2, machine_inputs3 = machine_inputs_all[:3]
+        machine_inputs4, machine_inputs5, machine_inputs6 = machine_inputs_all[3:]
+
     # ── ① セット ────────────────────────────────────────────────────
-    if store == "上野本館":
+    elif store == "上野本館":
         # 上野本館：ローテ①の機種名は月間オススメ表①の機種名欄から取得
         _uo_m1 = st.session_state.get(f"weekly_machine_{store}_t2", "").strip()
         machine_inputs1: list[str] = [_uo_m1] if _uo_m1 else []
@@ -16702,10 +16767,13 @@ def show_rote_page() -> None:
                                                   on_change=_on_rote_name_change)
         machine_inputs1 = [st.session_state.get(f"rote1_mname_{_i}", "") for _i in range(6)]
 
-    st.markdown("---")
+    if not _rote_single:
+        st.markdown("---")
 
     # ── ② セット ────────────────────────────────────────────────────
-    if store == "渋谷新館":
+    if _rote_single:
+        pass                      # ①〜⑥は上でまとめて描画・収集済み
+    elif store == "渋谷新館":
         # 渋谷新館：ローテ②の機種名は週間オススメ表①の① 機種名欄から取得
         _mw1 = st.session_state.get(f"weekly_machine_{store}_t1", "").strip()
         machine_inputs2: list[str] = [_mw1] if _mw1 else []
@@ -16742,14 +16810,19 @@ def show_rote_page() -> None:
             with st.expander("📅 月間オススメ表③", expanded=False):
                 show_weekly_table_section(store, table_num=5, excel_date=_rd_early)
 
-    if store == "渋谷新館":
+    if _rote_single:
+        pass                      # machine_inputs3〜6 は上で確定済み
+    elif store == "渋谷新館":
         _m3 = st.session_state.get(f"weekly_machine_{store}_t2", "").strip()
         machine_inputs3: list[str] = [_m3] if _m3 else []
+        machine_inputs4 = machine_inputs5 = machine_inputs6 = []
     elif store == "上野本館":
         _uo_m5_v = st.session_state.get(f"weekly_machine_{store}_t5", "").strip()
         machine_inputs3 = [_uo_m5_v] if _uo_m5_v else []
+        machine_inputs4 = machine_inputs5 = machine_inputs6 = []
     else:
         machine_inputs3 = []
+        machine_inputs4 = machine_inputs5 = machine_inputs6 = []
 
     st.markdown("---")
     # ファイル名（例: 20260427_店名_20S.xlsx）から日付・フォルダ情報を生成
@@ -16783,14 +16856,38 @@ def show_rote_page() -> None:
         names1 = [n for n in machine_inputs1 if n.strip()]
         names2 = [n for n in machine_inputs2 if n.strip()]
         names3 = [n for n in machine_inputs3 if n.strip()]
+        names4 = [n for n in machine_inputs4 if n.strip()]
+        names5 = [n for n in machine_inputs5 if n.strip()]
+        names6 = [n for n in machine_inputs6 if n.strip()]
+        _cat_inputs = [machine_inputs1, machine_inputs2, machine_inputs3,
+                       machine_inputs4, machine_inputs5, machine_inputs6]
+        _cat_names  = [names1, names2, names3, names4, names5, names6]
         _uo_m2 = st.session_state.get(f"weekly_machine_{store}_t2", "").strip()
         _uo_m4 = st.session_state.get(f"weekly_machine_{store}_t4", "").strip()
         _uo_m5 = st.session_state.get(f"weekly_machine_{store}_t5", "").strip()
-        _has_any = bool(names1 or names2 or names3 or (store == "上野本館" and (_uo_m2 or _uo_m4 or _uo_m5)))
+        _has_any = bool(names1 or names2 or names3 or names4 or names5 or names6
+                        or (store == "上野本館" and (_uo_m2 or _uo_m4 or _uo_m5)))
+        # ①〜⑥各1機種方式のみ：同一機種を複数カテゴリへ入力した場合は生成しない
+        # （同じファイル名になり後勝ちで上書きされるため。入力値・JSONは変更しない）
+        _dup_macs: list[str] = []
+        if _rote_single:
+            _seen_macs: set[str] = set()
+            for _dn in [_ci[0].strip() for _ci in _cat_inputs if _ci and _ci[0].strip()]:
+                if _dn in _seen_macs and _dn not in _dup_macs:
+                    _dup_macs.append(_dn)
+                _seen_macs.add(_dn)
+
         if uploaded is None or _rote_out_dir is None:
             st.warning("Excelをアップロードしてください。")
         elif not _has_any:
-            st.warning("①か②いずれかに機種名を1つ以上入力してください。")
+            st.warning("①〜⑥のいずれかに機種名を1つ以上入力してください。"
+                       if _rote_single else "①か②いずれかに機種名を1つ以上入力してください。")
+        elif _dup_macs:
+            st.error("⚠️ 同じ機種が複数カテゴリに入力されています。"
+                     "①〜⑥にはそれぞれ異なる機種を入力してください。\n\n"
+                     f"重複機種：{'、'.join(_dup_macs)}")
+            st.info("入力欄は変更していません。画面上で機種名を修正してから"
+                    "もう一度「🎰 画像を生成する」を押してください。")
         else:
             st.session_state[f"rote_gen_saved_{store}"] = _rote_out_dir
             if not _IS_CLOUD:
@@ -16812,9 +16909,16 @@ def show_rote_page() -> None:
                         pass
                 if _uo_monthly_start is None:
                     _uo_monthly_start = _rd
-            _save_rote_machines(store, machine_inputs1, machine_inputs2,
-                                inputs3=machine_inputs3 if machine_inputs3 else None,
-                                monthly_start=_uo_monthly_start.isoformat() if _uo_monthly_start else None)
+            if _rote_single:
+                # ①〜⑥各1機種。既存の index 1 以降は破壊しない
+                _save_rote_machines(store, machine_inputs1, machine_inputs2,
+                                    inputs3=machine_inputs3, inputs4=machine_inputs4,
+                                    inputs5=machine_inputs5, inputs6=machine_inputs6,
+                                    preserve_tail=True)
+            else:
+                _save_rote_machines(store, machine_inputs1, machine_inputs2,
+                                    inputs3=machine_inputs3 if machine_inputs3 else None,
+                                    monthly_start=_uo_monthly_start.isoformat() if _uo_monthly_start else None)
             os.makedirs(_rote_out_dir, exist_ok=True)
 
             with st.spinner("データ読み込み中…"):
@@ -16828,40 +16932,49 @@ def show_rote_page() -> None:
 
             # ── 画像生成 ─────────────────────────────────────────────
             with st.spinner("画像生成中…"):
-                img1 = _add_margin(generate_rote_image(df, machine_inputs1, date_label=_rote_date_label, store=store)) if names1 else None
-                img2 = _add_margin(generate_rote_image(df, machine_inputs2, date_label=_rote_date_label, store=store)) if names2 else None
-                img3 = _add_margin(generate_rote_image(df, machine_inputs3, date_label=_rote_date_label, store=store)) if names3 else None
-                # ランキング画像は新宿歌舞伎町のみ・①②それぞれ1枚
-                if store == "新宿歌舞伎町":
-                    ranking_img1 = generate_ranking_image(df, machine_inputs1, date_label=_rote_date_label, store=store) if names1 else None
-                    ranking_img2 = generate_ranking_image(df, machine_inputs2, date_label=_rote_date_label, store=store) if names2 else None
+                if _rote_single:
+                    # ①〜⑥ 各カテゴリ1機種だけを渡して独立した1枚を作る
+                    _rote_imgs = [
+                        _add_margin(generate_rote_image(df, _ci, date_label=_rote_date_label, store=store))
+                        if _cn else None
+                        for _ci, _cn in zip(_cat_inputs, _cat_names)
+                    ]
+                    # ランキング画像もカテゴリごとにその1機種だけを対象にする
+                    _rank_imgs = [
+                        generate_ranking_image(df, _ci, date_label=_rote_date_label, store=store)
+                        if _cn else None
+                        for _ci, _cn in zip(_cat_inputs, _cat_names)
+                    ]
                 else:
-                    ranking_img1 = None
-                    ranking_img2 = None
+                    _rote_imgs = [
+                        _add_margin(generate_rote_image(df, _ci, date_label=_rote_date_label, store=store))
+                        if _cn else None
+                        for _ci, _cn in zip(_cat_inputs[:3], _cat_names[:3])
+                    ] + [None, None, None]
+                    _rank_imgs = [None] * 6
+                img1, img2, img3 = _rote_imgs[:3]
 
             # ── フォルダへ保存 ────────────────────────────────────────
-            if store == "新宿歌舞伎町":
-                _r1_mac = next((m.strip() for m in machine_inputs1 if m.strip()), "")
-                _r2_mac = next((m.strip() for m in machine_inputs2 if m.strip()), "")
-                _r3_mac = next((m.strip() for m in machine_inputs3 if m.strip()), "")
+            if _rote_single:
+                _r_macs = [(_ci[0].strip() if _ci else "") for _ci in _cat_inputs]
             elif store in ("上野本館", "渋谷新館"):
-                _r1_mac = next((m.strip() for m in machine_inputs1 if m.strip()), "")
-                _r2_mac = machine_inputs2[0].strip() if machine_inputs2 else ""
-                _r3_mac = machine_inputs3[0].strip() if machine_inputs3 else ""
+                _r_macs = [next((m.strip() for m in machine_inputs1 if m.strip()), ""),
+                           machine_inputs2[0].strip() if machine_inputs2 else "",
+                           machine_inputs3[0].strip() if machine_inputs3 else "",
+                           "", "", ""]
             else:
-                _r1_mac = ""
-                _r2_mac = ""
-                _r3_mac = ""
-            if img1:
-                img1.save(os.path.join(_rote_out_dir, f"{_r1_mac}ローテ.png" if _r1_mac else "ローテ①.png"), format="PNG", dpi=(300, 300))
-            if img2:
-                img2.save(os.path.join(_rote_out_dir, f"{_r2_mac}ローテ.png" if _r2_mac else "ローテ②.png"), format="PNG", dpi=(300, 300))
-            if img3:
-                img3.save(os.path.join(_rote_out_dir, f"{_r3_mac}ローテ.png" if _r3_mac else "ローテ③.png"), format="PNG", dpi=(300, 300))
-            if ranking_img1:
-                ranking_img1.save(os.path.join(_rote_out_dir, f"ranking_{_r1_mac}ローテ.png" if _r1_mac else "ranking_ローテ①.png"), format="PNG", dpi=(300, 300))
-            if ranking_img2:
-                ranking_img2.save(os.path.join(_rote_out_dir, f"ranking_{_r2_mac}ローテ.png" if _r2_mac else "ranking_ローテ②.png"), format="PNG", dpi=(300, 300))
+                _r_macs = [""] * 6
+            _r1_mac, _r2_mac, _r3_mac = _r_macs[:3]
+
+            for _ci_i, (_cimg, _crank) in enumerate(zip(_rote_imgs, _rank_imgs)):
+                _mac = _r_macs[_ci_i]
+                _maru = _ROTE_MARU[_ci_i]
+                if _cimg:
+                    _fn = f"{_mac}ローテ.png" if _mac else f"ローテ{_maru}.png"
+                    _cimg.save(os.path.join(_rote_out_dir, _fn), format="PNG", dpi=(300, 300))
+                if _crank:
+                    _rfn = f"ranking_{_mac}ローテ.png" if _mac else f"ranking_ローテ{_maru}.png"
+                    _crank.save(os.path.join(_rote_out_dir, _rfn), format="PNG", dpi=(300, 300))
 
             # ── 週間/月間オススメ表の保存（渋谷新館・上野本館）──────────────
             if store in ("渋谷新館", "上野本館"):
@@ -17069,15 +17182,37 @@ def show_rote_page() -> None:
                         with open(os.path.join(_rote_out_dir, _uo_t5_fn), "w", encoding="utf-8") as _f:
                             _f.write(_uo_monthly_text(_uo_m5_txt, _uo_items5, re_emoji="👊"))
                 else:
-                    all_inputs   = machine_inputs1 + machine_inputs2
+                    # ①〜⑥各1機種方式では入力済みカテゴリを入力順にすべて対象にする
+                    all_inputs = ([m for _ci in _cat_inputs for m in _ci] if _rote_single
+                                  else machine_inputs1 + machine_inputs2)
                     _rote_result = _generate_rote_result_text(df, all_inputs, _rd, _rote_store_full, store=store)
                     _txt_path    = os.path.join(_rote_out_dir, "結果テキスト.txt")
                     with open(_txt_path, "w", encoding="utf-8") as _f:
                         _f.write(_rote_result)
 
             # ── 横並びプレビュー ─────────────────────────────────────
-            _col1, _col2 = st.columns(2)
-            if img1:
+            if _rote_single:
+                # ①② / ③④ / ⑤⑥ の2列×最大3段。生成されたカテゴリのみ表示
+                _pv_items = [(_i, _im) for _i, _im in enumerate(_rote_imgs) if _im]
+                for _pv_row in range(0, len(_pv_items), 2):
+                    _pv_cols = st.columns(2)
+                    for _pv_col, (_pv_i, _pv_img) in zip(_pv_cols, _pv_items[_pv_row:_pv_row + 2]):
+                        with _pv_col:
+                            st.markdown(f"#### {_ROTE_MARU[_pv_i]}")
+                            st.image(_pv_img, use_container_width=True)
+                            _pv_buf = _io.BytesIO()
+                            _pv_img.save(_pv_buf, format="PNG", dpi=(300, 300))
+                            _pv_buf.seek(0)
+                            st.download_button(
+                                label=f"⬇️ {_ROTE_MARU[_pv_i]}PNG をダウンロード",
+                                data=_pv_buf,
+                                file_name=f"ローテ{_ROTE_MARU[_pv_i]}.png",
+                                mime="image/png",
+                                key=f"rote_dl_btn{_pv_i + 1}",
+                            )
+            if not _rote_single:
+                _col1, _col2 = st.columns(2)
+            if img1 and not _rote_single:
                 with _col1:
                     st.markdown("#### ①")
                     st.image(img1, use_container_width=True)
@@ -17091,7 +17226,7 @@ def show_rote_page() -> None:
                         mime="image/png",
                         key="rote_dl_btn1",
                     )
-            if img2:
+            if img2 and not _rote_single:
                 with _col2:
                     st.markdown("#### ②")
                     st.image(img2, use_container_width=True)
@@ -17105,7 +17240,7 @@ def show_rote_page() -> None:
                         mime="image/png",
                         key="rote_dl_btn2",
                     )
-            if img3:
+            if img3 and not _rote_single:
                 _col3, _ = st.columns(2)
                 with _col3:
                     st.markdown("#### ③")

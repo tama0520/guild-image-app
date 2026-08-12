@@ -5473,6 +5473,7 @@ def suggest_machine_candidates(
 def render_machine_autocomplete_input(
     label: str, key: str, candidates: list[str], default: str = "",
     on_change=None, on_change_args: tuple = (),
+    label_visibility: str = "visible",
 ) -> None:
     """テキスト入力 + 候補ボタンによるオートコンプリートUI。
     ・1文字以上入力 かつ 完全一致でない場合のみ候補ボタンを表示する。
@@ -5488,7 +5489,10 @@ def render_machine_autocomplete_input(
     _kw: dict = {"on_change": on_change}
     if on_change_args:
         _kw["args"] = on_change_args
-    st.text_input(label, key=key, value=default, placeholder="機種名を入力", **_kw)
+    # label_visibility は既定 "visible"。"collapsed" を渡した呼び出しだけ
+    # ラベル文字とその分の縦余白を消す（ラベル文字列自体は空にしない＝警告回避）。
+    st.text_input(label, key=key, value=default, placeholder="機種名を入力",
+                  label_visibility=label_visibility, **_kw)
     query: str = st.session_state.get(key, "")
 
     # 未入力 or すでに候補と完全一致 → 候補を非表示
@@ -16740,11 +16744,12 @@ def show_rote_page() -> None:
             for _off, _col in enumerate(_rcols):
                 _n = _row_start + _off + 1          # 1〜6
                 with _col:
-                    st.markdown(f"**機種名を入力{_ROTE_MARU[_n - 1]}（部分一致・1機種）**")
+                    st.markdown(f"**機種名を入力{_ROTE_MARU[_n - 1]}**")
                     render_machine_autocomplete_input(
                         f"機種名 1{' ' * (_n - 1)}", f"rote{_n}_mname_0", _rote_candidates,
                         default=st.session_state.get(f"_rote_init_{store}_{_n}_0", ""),
-                        on_change=_on_rote_name_change)
+                        on_change=_on_rote_name_change,
+                        label_visibility="collapsed")
         for _n in range(1, 7):
             _v = st.session_state.get(f"rote{_n}_mname_0", "")
             machine_inputs_all.append([_v] if (_v or "").strip() else [])

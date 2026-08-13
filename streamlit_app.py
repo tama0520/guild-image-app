@@ -5181,6 +5181,15 @@ def _kojin_scope_key(store: str) -> str:
     return f"_kojin_scope_excel_{store}"
 
 
+def _kojin_keys(store: str) -> list[str]:
+    """②個別画像の全キー（kojin_z_0〜11 + kojin_y_0〜47 の60キー）。
+
+    _auto_input_keys() が生成するものと同じ並び・同じ範囲を1か所で使い回す
+    （枠数を変えるときは _auto_input_keys() と一緒に直す）。"""
+    return ([f"kojin_z_{i}_{store}" for i in range(12)]
+            + [f"kojin_y_{i}_{store}" for i in range(48)])
+
+
 def _merge_auto_entry(existing: "dict | None", store: str,
                       excel_name: "str | None" = None) -> dict:
     """既存エントリへ store のキーのうち session_state にあるものだけを上書きして返す。
@@ -5191,18 +5200,35 @@ def _merge_auto_entry(existing: "dict | None", store: str,
     - session_state に「キーが存在する」→ 値が "" や False でもそのまま保存する
       （ユーザーが意図的に空へ変更したケースを正しく反映するため）
 
-    ★第二防御（_KOJIN_DATE_SCOPED_STORES の店舗のみ）:
-    ②の session_state が別Excelのものだと分かっているとき
-    （_kojin_scope_excel_{store} != excel_name）は kojin_z_* / kojin_y_* を
-    保存対象から外し、既存値を維持する。主対策は呼び出し側の restore 保証
-    （show_auto_page のスコープ整合チェック）で、これはその取りこぼし用。
+    ★②の保存可否（_KOJIN_DATE_SCOPED_STORES の店舗のみ）:
+    kojin_z_* / kojin_y_* を書き込んでよいのは次の2条件を**両方**満たすときだけ。
+    1つでも欠ければ②60キー全体を保存対象から外し、既存値をそのまま維持する。
+    判定はこの1か所へ集約する（呼び出し側へ if を散らさない）。
+
+      ① scope 整合 : _kojin_scope_excel_{store} == excel_name
+         ②の session_state が「その保存先Excelについて _restore_auto_inputs()
+         済み」だと確認できるときだけ書く。**scope 未設定（None/空）も保存禁止**
+         とする（restore を通った証拠が無いため。旧日付の値が session_state に
+         残ったまま scope だけ失われた状態で新日付へ流入するのを防ぐ）。
+      ② 完全性     : ②60キーが**すべて** session_state に存在する
+         Streamlit は「前の run で描画され、今の run で描画されなかった」
+         widget のキーを session_state から削除する（widget GC）。
+         ②を48枠展開した状態で日付を切り替えると、日付切替 run では②が
+         未描画になるため可視枠（z_0〜11 / y_0〜47）が消え、折りたたみ中で
+         plain値だった枠（y_12〜47 等）だけが残る欠損状態になる。
+         この状態は scope が旧Excelと一致したままなので①だけでは防げず、
+         「②合計非空=0」を旧日付へ書いて実入力を全消しする
+         （8/6 の14件消失の直接原因）。残っている枠だけの部分保存も禁止。
+
     excel_name=None のときは従来どおり全キーを保存する。
-    ②以外のキー（variety_range_* を含む）はこのガードの対象外。"""
+    ②以外のキー（variety_range_* / kojin_enabled / 末尾 等）はこのガードの対象外。"""
     entry = dict(existing or {})
     _skip_kojin = False
     if store in _KOJIN_DATE_SCOPED_STORES and excel_name:
         _scope = st.session_state.get(_kojin_scope_key(store))
-        _skip_kojin = bool(_scope) and _scope != excel_name
+        _scope_ng = _scope != excel_name        # scope 未設定（None）も不一致として扱う
+        _incomplete = not all(k in st.session_state for k in _kojin_keys(store))
+        _skip_kojin = _scope_ng or _incomplete
     for k in _auto_input_keys(store):
         if _skip_kojin and k.startswith(("kojin_z_", "kojin_y_")):
             continue

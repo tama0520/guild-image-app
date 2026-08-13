@@ -4974,6 +4974,11 @@ _AUTO_PERSISTENT_JSON = os.path.join(BASE_DIR, "auto_page_persistent_inputs.json
 _ARTICLE_INPUTS_JSON = os.path.join(BASE_DIR, "article_page_inputs.json")
 
 
+# ②個別画像の機種名を店舗単位で永続化せず、日付（Excel）単位だけで保存する店舗。
+# 店舗ごとにコードを複製せず、この集合へ追記して対応する。
+_KOJIN_DATE_SCOPED_STORES: frozenset[str] = frozenset({"新小岩"})
+
+
 def _persistent_keys(store: str) -> set[str]:
     """Excel切り替えをまたいで保持するキー（機種名・台番範囲など）。"""
     # 新宿歌舞伎町（かぶぱポストの結果）は②優秀台を毎回空欄にしたいので永続化しない
@@ -4990,6 +4995,12 @@ def _persistent_keys(store: str) -> set[str]:
     if store == "秋葉原":
         return ({f"kojin_y_{i}_{store}" for i in range(8)}
                 | {f"variety_range_{store}"})
+    # ②個別画像の機種名（kojin_z_* / kojin_y_*）を日付（Excel）単位で扱う店舗。
+    # 別日を初めて取得したら空欄で始まり、同じ日付を再取得したときだけ
+    # auto_page_inputs.json の保存値から復元する（永続ファイルは参照しない）。
+    # variety_range_* は従来どおり店舗単位で永続する。
+    if store in _KOJIN_DATE_SCOPED_STORES:
+        return {f"variety_range_{store}"}
     return ({f"kojin_y_{i}_{store}" for i in range(48)}
             | {f"kojin_z_{i}_{store}" for i in range(12)}
             | {f"variety_range_{store}"})

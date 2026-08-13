@@ -4976,7 +4976,10 @@ _ARTICLE_INPUTS_JSON = os.path.join(BASE_DIR, "article_page_inputs.json")
 
 # ②個別画像の機種名を店舗単位で永続化せず、日付（Excel）単位だけで保存する店舗。
 # 店舗ごとにコードを複製せず、この集合へ追記して対応する。
-_KOJIN_DATE_SCOPED_STORES: frozenset[str] = frozenset({"新小岩"})
+_KOJIN_DATE_SCOPED_STORES: frozenset[str] = frozenset({
+    "新小岩",
+    "上野新館",
+})
 
 
 def _persistent_keys(store: str) -> set[str]:

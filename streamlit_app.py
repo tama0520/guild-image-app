@@ -5173,7 +5173,16 @@ def _load_auto_inputs_json() -> dict:
     return {}
 
 
-def _merge_auto_entry(existing: "dict | None", store: str) -> dict:
+def _kojin_scope_key(store: str) -> str:
+    """②個別画像の session_state が「どのExcelの値なのか」を記録する内部キー。
+
+    _KOJIN_DATE_SCOPED_STORES の店舗でのみ使う。保存対象ではない
+    （_auto_input_keys() に含めないので JSON へは出ない）。"""
+    return f"_kojin_scope_excel_{store}"
+
+
+def _merge_auto_entry(existing: "dict | None", store: str,
+                      excel_name: "str | None" = None) -> dict:
     """既存エントリへ store のキーのうち session_state にあるものだけを上書きして返す。
 
     全置換にすると、別店舗のキーセットで保存されたとき（店舗をまたぐExcel切り替え）に
@@ -5181,9 +5190,22 @@ def _merge_auto_entry(existing: "dict | None", store: str) -> dict:
     - session_state に「キーが存在しない」→ 既存値を残す（消さない）
     - session_state に「キーが存在する」→ 値が "" や False でもそのまま保存する
       （ユーザーが意図的に空へ変更したケースを正しく反映するため）
-    """
+
+    ★第二防御（_KOJIN_DATE_SCOPED_STORES の店舗のみ）:
+    ②の session_state が別Excelのものだと分かっているとき
+    （_kojin_scope_excel_{store} != excel_name）は kojin_z_* / kojin_y_* を
+    保存対象から外し、既存値を維持する。主対策は呼び出し側の restore 保証
+    （show_auto_page のスコープ整合チェック）で、これはその取りこぼし用。
+    excel_name=None のときは従来どおり全キーを保存する。
+    ②以外のキー（variety_range_* を含む）はこのガードの対象外。"""
     entry = dict(existing or {})
+    _skip_kojin = False
+    if store in _KOJIN_DATE_SCOPED_STORES and excel_name:
+        _scope = st.session_state.get(_kojin_scope_key(store))
+        _skip_kojin = bool(_scope) and _scope != excel_name
     for k in _auto_input_keys(store):
+        if _skip_kojin and k.startswith(("kojin_z_", "kojin_y_")):
+            continue
         if k in st.session_state:
             entry[k] = st.session_state[k]
     return entry
@@ -5195,7 +5217,7 @@ def _save_auto_inputs(store: str) -> None:
     if not excel_name:
         return
     data = _load_auto_inputs_json()
-    data[excel_name] = _merge_auto_entry(data.get(excel_name), store)
+    data[excel_name] = _merge_auto_entry(data.get(excel_name), store, excel_name)
     try:
         with open(_AUTO_INPUTS_JSON, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -5233,6 +5255,11 @@ def _restore_auto_inputs(excel_name: str, store: str) -> None:
     if store == "新宿歌舞伎町":
         for i in range(48):
             st.session_state[f"kojin_y_{i}_{store}"] = ""
+    # ②を日付単位で扱う店舗は「②session_stateがどのExcelの値か」を記録する。
+    # 上のループで kojin_z_0〜11 / kojin_y_0〜47 が全て excel_name の状態
+    # （saved値 or ""）へ揃った直後にだけ更新する。折りたたみ中の13枠目以降も含む。
+    if store in _KOJIN_DATE_SCOPED_STORES:
+        st.session_state[_kojin_scope_key(store)] = excel_name
 
 
 def _kojin_default(excel_name: "str | None", store: str, key: str) -> str:
@@ -7223,7 +7250,14 @@ def show_auto_page(with_slump: bool = False) -> None:
     # 同じExcelが再アップロードされたら前回の入力値を復元（rerunなし・同レンダリング内で反映）
     if uploaded is not None:
         st.session_state["auto_current_excel"] = uploaded.name
-        if st.session_state.get("_auto_prev_excel") != uploaded.name:
+        # ②を日付単位で扱う店舗（新小岩）は、②の session_state が現在Excelの値で
+        # あることを保存・描画より前に必ず保証する。_auto_prev_excel だけを見ると、
+        # 何らかの経路で restore を通らずに現在Excel名だけ変わった run で、
+        # 毎レンダー保存（下の _save_auto_inputs）が旧日付の②を新日付へ書き込み、
+        # UIにも旧日付の機種名が出たままになる（8/2・8/11・8/12 の汚染の原因）。
+        _kojin_scope_ng = (store in _KOJIN_DATE_SCOPED_STORES
+                           and st.session_state.get(_kojin_scope_key(store)) != uploaded.name)
+        if st.session_state.get("_auto_prev_excel") != uploaded.name or _kojin_scope_ng:
             # 切り替え前の入力値を旧ファイル名で先に保存（再フェッチ時の値消え防止）
             _prev_excel = st.session_state.get("_auto_prev_excel")
             # 旧Excelは「切り替え前の店舗」のキーセットで保存する。
@@ -7232,7 +7266,8 @@ def show_auto_page(with_slump: bool = False) -> None:
             _prev_store = st.session_state.get("_auto_prev_store", store)
             if _prev_excel:
                 _cur_save = _load_auto_inputs_json()
-                _cur_save[_prev_excel] = _merge_auto_entry(_cur_save.get(_prev_excel), _prev_store)
+                _cur_save[_prev_excel] = _merge_auto_entry(_cur_save.get(_prev_excel), _prev_store,
+                                                           _prev_excel)
                 try:
                     with open(_AUTO_INPUTS_JSON, "w", encoding="utf-8") as _sf:
                         json.dump(_cur_save, _sf, ensure_ascii=False, indent=2)

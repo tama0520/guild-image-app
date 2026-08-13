@@ -4979,6 +4979,7 @@ _ARTICLE_INPUTS_JSON = os.path.join(BASE_DIR, "article_page_inputs.json")
 _KOJIN_DATE_SCOPED_STORES: frozenset[str] = frozenset({
     "新小岩",
     "上野新館",
+    "上野本館",
 })
 
 

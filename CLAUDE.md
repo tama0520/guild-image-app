@@ -1236,6 +1236,43 @@ def render_machine_autocomplete_input(
 `rote_machines.json` の保存形式・`set1`〜`set6`・`preserve_tail`／`on_change`／
 F5・店舗切替での保持／**⑤ `39f1f1e`・② `0e7dc4c` は無変更**。
 
+## 新小岩②個別画像は日付（Excel）単位で保存する（2026-08-13 確定・`cf1e27a` / `ed62a6b`）
+
+**正式仕様。巻き戻し禁止。**対象は**【新小岩】の②個別画像 `kojin_z_* / kojin_y_*` だけ**。
+コード修正 `cf1e27a`、データ修正 `ed62a6b`。
+
+- **新小岩の②個別画像は店舗単位 persistent の対象外**とする。
+  新しい日付を**初めて取得したときは空欄**で始まり、**同じ日付を再取得したときだけ**
+  `auto_page_inputs.json` の Excel 単位 saved 値から復元する。
+  **別日に入力した②の機種名を引き継がない。**
+- 実装は `_persistent_keys()` に定数
+  **`_KOJIN_DATE_SCOPED_STORES: frozenset[str] = frozenset({"新小岩"})`** の分岐を追加し、
+  該当店舗は `{f"variety_range_{store}"}` だけを返す（高田馬場と同じ扱い）。
+  **店舗ごとにコードを複製しない。店舗追加は集合への追記だけで行う。**
+- **`variety_range_新小岩` は従来どおり店舗単位 persistent。**
+- **`auto_page_persistent_inputs.json` に残る新小岩の旧②値24件は削除せず残置する。**
+  現行コードでは参照されない（⑤の `kojin_y_8_秋葉原` と同じ扱い）。
+- **`_restore_auto_inputs()` / `_kojin_default()` / `render_machine_autocomplete_input()` /
+  `st.text_input(..., value=default)` は変更していない。**
+  両者が同じ `_persistent_keys()` を参照する構造を維持する（`0e7dc4c` の正式仕様）。
+- **⑤オススメ機種 `rec_m*` の `store_settings` 永続化（`39f1f1e`）とは完全に別仕様。**
+  ②へ⑤の永続化・初期値引き継ぎを適用しない。
+- **他店舗の②保存仕様は今回変更していない**（既定は `kojin_y` 48枠＋`kojin_z` 12枠の店舗単位
+  persistent のまま。新宿歌舞伎町・高田馬場・秋葉原の既存特例も不変）。
+
+**なぜ**: 2026/8/12 の新小岩を初めて取得したのに②へ機種名が入っていた。原因は
+`_restore_auto_inputs()` の永続キー優先パスで、`auto_page_persistent_inputs.json["新小岩"]` の
+24件がそのまま流入していた。新小岩は `_persistent_keys()` の既定 return に落ちるため、
+②が店舗単位で永続していたのが実態（バグではなく当時の設計どおりの挙動）。
+`ed62a6b` で `20260812_新小岩_20S.xlsx` の `kojin_z_0〜4` / `kojin_y_0〜18` の24キーを
+空へ戻した（エントリ削除はしない）。
+
+**実機確認（2026-08-13・全PASS）**: 8/12初回取得で②24枠すべて空欄／8/12で優秀台1枠へ入力→
+F5→同じ8/12を再取得で復元／②保存値の無い8/11を取得しても8/12の値・永続値を引き継がない／
+⑤オススメ機種は B1=5 / B2=4 / B3=8 / B4=9 の26機種と `rec_enabled` が従来どおりで回帰なし。
+コードレベルでも `_restore_auto_inputs()` と `_kojin_default()` の解決結果が
+**9店舗×10Excel×60キー＝5400ケースで不一致0**。
+
 ## 機種名変換
 
 `機種名変換.xlsx`（2行目をヘッダーとして読み込む、B列=変換前, C列=変換後）を `load_name_map()` でキャッシュ。完全一致 → 正規化一致（スペース・全角除去）の順で変換。`@st.cache_data` でセッション中は再読み込みしない。

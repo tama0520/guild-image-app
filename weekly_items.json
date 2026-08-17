@@ -290,13 +290,7 @@
       ],
       "title": "週間オススメ ジャグラーシリーズ",
       "machine_name": "ジャグラー系",
-      "cell_machines": {
-        "4,0": [
-          "マイジャグV",
-          "ネオアイム",
-          "ファンキー2"
-        ]
-      },
+      "cell_machines": {},
       "start_date": "2026-08-17",
       "blank_days": [
         false,

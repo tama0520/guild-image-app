@@ -4980,6 +4980,7 @@ _KOJIN_DATE_SCOPED_STORES: frozenset[str] = frozenset({
     "新小岩",
     "上野新館",
     "上野本館",
+    "稲毛",
 })
 
 

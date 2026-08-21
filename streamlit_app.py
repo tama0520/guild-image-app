@@ -2870,7 +2870,9 @@ def _build_machine_img(
 # 対象2枚だけに適用し、他画像・他店舗・通常ページは従来どおり（hq_scale=1.0）。
 _ART_HQ_FNS = ("その他の優秀台ピックアップ.jpg", "ジャグラーシリーズ優秀台.jpg")
 _ART_HQ_SCALE = 2.0
-_ART_HQ_TARGET_KB = 1200
+_ART_HQ_TARGET_KB = 5500   # 2倍描画で画素数が20倍以上になるため、通常画像と同じ
+                           # 画素あたり品質(約0.21B/画素)を保つには1200KBでは足りない。
+                           # 1200KBだとレインボー階調が15〜40段まで潰れる（実測）。
 _ART_HQ_MIN_ROWS = 10      # 掲載台がこの数以上なら画像種別を問わず高解像度
 
 
@@ -14937,6 +14939,20 @@ def show_auto_article_page() -> None:
                 except Exception as _ze:
                     st.warning(f"ZIP生成に失敗: {_ze}")
 
+            # ── WordPress下書き用のpayloadをセッションへ保存（高田馬場の記事用のみ）──
+            # result は読むだけ（既存ロジックは一切変更しない）。
+            # _git_auto_push() の stash 窓に入れないため、push より前に実行する。
+            if store == "高田馬場":
+                try:
+                    import wp_client as _wpc0
+                    st.session_state[f"_art_wp_payload_{store}"] = _wpc0.build_payload(
+                        store=store, output_dir=output_dir, dir_stem=dir_stem,
+                        result=result,
+                        juggler_series=get_store_config(store)["juggler_series"],
+                    )
+                except Exception as _wpe0:
+                    st.warning(f"WordPress用データの準備に失敗: {_wpe0}")
+
             # ── ローカルのみ: 設定ファイルを自動push ──
             if not _IS_CLOUD:
                 _push_ok, _push_msg = _git_auto_push("画像生成")
@@ -14968,6 +14984,75 @@ def show_auto_article_page() -> None:
                      border:1px solid #ccc;padding:8px;box-sizing:border-box;resize:vertical;"
             >{_safe}</textarea>
             """, height=_h)
+
+    # ── 📝 WordPress下書きを作成（⑧画像生成とは独立した別ボタン・高田馬場のみ）──
+    if store == "高田馬場":
+        _wp_pl = st.session_state.get(f"_art_wp_payload_{store}")
+        if _wp_pl:
+            import wp_client as _wpc
+            st.markdown("---")
+            st.markdown("### 📝 WordPress下書きを作成")
+            _wp_ok, _wp_msg = _wpc.config_ready()
+            if not _wp_ok:
+                st.warning(f"⚠️ WordPress接続情報が未設定です（{_wp_msg}）。.env を確認してください。")
+            else:
+                _wp_plan = _wpc.plan_blocks(_wp_pl)
+                _wp_found, _wp_miss, _wp_opt = _wpc.collect_files(_wp_plan, _wp_pl["output_dir"])
+                _wp_mb = sum(_f["bytes"] for _f in _wp_found) / 1024 / 1024
+                st.caption(
+                    f"送信対象 {len(_wp_found)}枚 / 合計 {_wp_mb:.2f} MB　"
+                    f"タイトル: {_wpc.build_title(_wp_pl.get('date'), store)}　"
+                    f"（status=draft / category={_wpc.WP_CATEGORY_ID} / author={_wpc.WP_AUTHOR_ID}）"
+                )
+                if _wp_miss:
+                    st.error(f"❌ 必須画像が {len(_wp_miss)} 件不足しています。"
+                             "⑧を再実行してください（画像は1枚も送信しません）。")
+                    for _m in _wp_miss:
+                        st.write(f"　- {_m['file']}（{_m['label']}）")
+                if _wp_opt:
+                    st.info("ℹ️ 次の画像は見つからないため本文へ入れません: "
+                            + " / ".join(_m["file"] for _m in _wp_opt))
+                _wp_done_key = f"_art_wp_post_{store}_{_wp_pl['dir_stem']}"
+                _wp_done = st.session_state.get(_wp_done_key)
+                if _wp_done:
+                    st.success(f"✅ 作成済み: 投稿ID {_wp_done['id']}"
+                               f"（status={_wp_done['post_status']}）")
+                    st.markdown(f"[編集画面を開く]({_wp_done['edit_url']})")
+                    _wp_again = st.checkbox("もう一度作成する（新しい下書きが増えます）",
+                                            key=f"_art_wp_again_{store}")
+                else:
+                    _wp_again = True
+                _wp_busy = bool(st.session_state.get(f"_art_wp_busy_{store}", False))
+                if st.button("📝 WordPress下書きを作成", key="art_wp_draft",
+                             use_container_width=True,
+                             disabled=bool(_wp_miss) or (not _wp_again) or _wp_busy):
+                    st.session_state[f"_art_wp_busy_{store}"] = True
+                    try:
+                        with st.status("WordPressへ送信中…", expanded=True) as _wp_stat:
+                            def _wp_prog(_i, _tot, _fn):
+                                _wp_stat.update(label=f"画像アップロード中… {_i}/{_tot}　{_fn}")
+                                st.write(f"　{_i}/{_tot}　{_fn}")
+                            _wp_res = _wpc.create_takadanobaba_draft(_wp_pl, progress=_wp_prog)
+                            _wp_stat.update(
+                                label=("✅ 下書きを作成しました" if _wp_res["ok"]
+                                       else "❌ 送信に失敗しました"),
+                                state=("complete" if _wp_res["ok"] else "error"))
+                        if _wp_res["ok"]:
+                            st.session_state[_wp_done_key] = _wp_res
+                            st.success(
+                                f"✅ 下書きを作成しました（投稿ID {_wp_res['id']} / "
+                                f"status={_wp_res['post_status']} / 画像{_wp_res['image_count']}枚）")
+                            st.markdown(f"[編集画面を開く]({_wp_res['edit_url']})")
+                        else:
+                            st.error(f"❌ {_wp_res.get('error')}")
+                            _wp_up = _wp_res.get("uploaded") or []
+                            if _wp_up:
+                                st.warning("以下のメディアはアップロード済みです"
+                                           "（自動削除しません。不要ならWordPress管理画面で削除してください）")
+                                for _u in _wp_up:
+                                    st.write(f"　media ID {_u['id']}　{_u['file']}")
+                    finally:
+                        st.session_state[f"_art_wp_busy_{store}"] = False
 
     # ── ボタン直下スロットにZIPダウンロードボタンを表示（Cloud のみ）──
     if _IS_CLOUD and _art_zip_slot is not None and st.session_state.get(f"_art_zip_data_{store}"):

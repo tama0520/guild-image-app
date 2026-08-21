@@ -1,0 +1,840 @@
+"""WordPress連携（Phase 2）: エスパス高田馬場の記事用下書きを作成する。
+
+【設計方針】
+- streamlit_app.py の既存ロジック（画像生成・抽出・機種名変換・記事用処理）には
+  一切触れない。本モジュールは `result` の値を **読むだけ** で本文を組み立てる。
+- 画像は ⑧実行後の output_dir にある **最終確定済み実ファイル** をそのまま送る。
+  WordPress用に再生成・再圧縮はしない。
+  例外は「縦長すぎてWordPress側で幅が潰れる画像」だけで、その場合も
+  **原本には触れず、送信専用の一時コピーを分割する**（修正4・C案）。
+- ネットワークに触れない純粋関数（`build_payload` / `plan_blocks` / `build_content`
+  / `build_title` / `collect_files`）と、送信を行う関数（`upload_media` /
+  `create_draft` / `create_takadanobaba_draft`）を明確に分ける。
+
+【正式仕様（2026-08-20 確定）】
+- 対象店舗は **高田馬場のみ**。
+- status=draft 固定 / categories=[24] / author=14 / tags は送らない /
+  featured_media・excerpt・template・meta は設定しない。**publish は絶対にしない。**
+- 高配分・ジャグラーの **装飾テキスト一覧（赤文字・青文字）は出力しない**（修正1・3）。
+  代わりに記事用ページが生成済みの画像を順番配置する。
+- 高配分画像の統合はしない（機種ごとに順番配置）。
+- 並びは全て【N台並び】。「列」の自動判定はしない。
+- 機種名はアプリが保持している名前をそのまま使う（逆変換しない）。
+- All-or-Nothing: 必須ファイルが1つでも欠けたら1枚もアップロードしない。
+- 逐次アップロードのみ（並列禁止）。自動リトライはしない。
+"""
+
+from __future__ import annotations
+
+import math
+import os
+import re
+import tempfile
+import time
+from collections import Counter
+from urllib.parse import quote
+
+# ── 投稿設定（正式仕様・変更禁止）──────────────────────────────────
+WP_STORE          = "高田馬場"
+WP_CATEGORY_ID    = 24                      # エスパス高田馬場
+WP_AUTHOR_ID      = 14                      # 58109 と同じ投稿者
+WP_STATUS         = "draft"                 # publish は絶対にしない
+WP_CATEGORY_SLUG  = "espace-takadanobaba"
+WP_UPLOAD_TIMEOUT = 180                     # 実測0.6秒/枚に対し十分な余裕
+WP_POST_TIMEOUT   = 60
+
+# ── サイト側の画像縮小仕様（2026-08-20 実測）────────────────────────
+# slotterguild3.com は **長辺が 2560px を超える画像を 2560px へ縮小**する。
+# 縦横比は保たれるため、保存後の幅 = 2560 * w / h となり、縦長画像ほど幅が潰れる。
+#   実測: 6800x6800 → 2560x2560 ／ 1876x5120 → 938x2560
+#         1986x11228 → 453x2560 ／ 2160x12091 → 457x2560
+# 一方 990x1133 のような通常画像は長辺 < 2560 のため無変換。
+# → 各分割片の高さを 2560px 以下に収めれば **縮小されず元の幅が保たれる**。
+WP_MAX_SIDE = 2560
+
+# 分割時に1片あたりの高さの上限。WP_MAX_SIDE と同値にすることで縮小を回避する。
+WP_SPLIT_MAX_H = WP_MAX_SIDE
+
+# 分割位置を表の行境界へ寄せるときの探索幅（px）と、行境界とみなす色ばらつきの閾値。
+_CUT_SEARCH = 200
+_UNIFORM_STD = 12
+
+# 分割片のJPEG保存設定（2026-08-20 実測により確定・正式仕様）。
+#
+# アプリ本体の `_save_jpeg()`（streamlit_app.py）は **subsampling=0（4:4:4）**
+# で保存しており、元画像も 4:4:4 である。分割保存で subsampling を省略すると
+# PIL 既定の 4:2:0 が適用され、色差信号が縦横1/2に間引かれる。
+# これが「台番帯の色が変わる」「画質が荒くなる」の原因だった（実測）。
+#
+#   現行(4:2:0)        : 平均差 1.449 / 彩度域の平均色差 12.40
+#   q95 + subsampling=0: 平均差 0.241 / 彩度域の平均色差  1.66   ← 採用
+#   q100 + subsampling=0: 平均差 0.031 / 彩度域の平均色差 0.45（容量が約1.5倍）
+#
+# リサイズは一切しない（crop のみ）。
+_SPLIT_QUALITY = 95
+_SPLIT_SUBSAMPLING = 0          # 4:4:4。元画像・_save_jpeg と揃える
+
+# JPEG の DCT ブロックは 8px。切れ目を8の倍数へ合わせると原本と格子が一致し、
+# 再エンコード誤差がさらに小さくなる（実測: 平均差 4.556 → 0.540）。
+_MCU = 8
+
+# ── 58109 から実測した固定文言・記号（コードポイント確認済み）────────────
+H2_ZENDAI   = "全台系濃厚機種が複数"
+H2_HIGH     = "1/2系以上の高配分機種が大量"
+H2_JUGGLER  = "ジャグからも高配分機種多数！"
+H2_NARABI   = "並び・列仕掛けも！"
+H2_SONOTA   = "その他単品優秀台も多数"
+H2_SHIMAZU  = "シマズをチェック！"
+BUTTON_TEXT = "店舗情報・過去の結果はコチラ"
+
+# 58963 実データで確認した「画像を隙間なく縦連結する」SWELLユーティリティクラス。
+# 連続画像群のうち **最後の1枚を除く全て** に付与する。
+SPLIT_JOIN_CLASS = "u-mb-ctrl u-mb-0"
+
+_ARROW_R    = "&#x27a1;"   # ➡ U+27A1（raw ではHTML実体で保存されている）
+_ARROW_TRI  = "&#x25b6;"   # ▶ U+25B6（同上）
+_SEP_TITLE  = "│"     # │ BOX DRAWINGS LIGHT VERTICAL（U+2502）
+_WAVE_BAN   = "〜"     # 〜 WAVE DASH（台番範囲の連結）
+_TILDE_FW   = "～"     # ～ FULLWIDTH TILDE（並び画像の重複サフィックス）
+_PAREN_L    = "（"     # （
+_PAREN_R    = "）"     # ）
+
+_WEEKDAY_JP = ("月", "火", "水", "木", "金", "土", "日")
+
+# 固定ファイル名（記事用⑧が書き出す名前）
+FN_JUGGLER = "ジャグラーシリーズ優秀台.jpg"
+FN_SONOTA  = "その他の優秀台ピックアップ.jpg"
+
+_CIRCLE_TO_ASCII = {
+    "⓪": "0", "①": "1", "②": "2", "③": "3", "④": "4", "⑤": "5",
+    "⑥": "6", "⑦": "7", "⑧": "8", "⑨": "9", "⑩": "10", "⑪": "11",
+    "⑫": "12", "⑬": "13", "⑭": "14", "⑮": "15", "⑯": "16", "⑰": "17",
+    "⑱": "18", "⑲": "19", "⑳": "20",
+}
+
+
+# ══════════════════════════════════════════════════════════════════
+# ファイル名規則（既存コードと完全一致させること）
+# ══════════════════════════════════════════════════════════════════
+
+def app_safe_fn(name: str) -> str:
+    """streamlit_app.py の `_make_safe_fn()` と同一。
+
+    全台系 `{機種名}.jpg` / 自動高配分 `{機種名}_高配分.jpg` /
+    ②個別優秀台 `{機種名}（優秀台）.jpg` に使う。禁止文字はアンダースコアへ置換。
+    """
+    s = str(name)
+    for _c, _d in _CIRCLE_TO_ASCII.items():
+        s = s.replace(_c, _d)
+    return re.sub(r'[\\/:*?"<>|]', "_", s)
+
+
+def narabi_safe_fn(name: str) -> str:
+    """convert_narabi_pil.py の `make_safe()` と同一。
+
+    並び画像だけ規則が異なり、禁止文字を **全角へ置換** する。
+    app_safe_fn（アンダースコア置換）と混同しないこと。
+    """
+    return (str(name).replace("/", "／").replace("\\", "＼").replace(":", "：")
+            .replace("*", "＊").replace("?", "？").replace('"', "”")
+            .replace("<", "＜").replace(">", "＞").replace("|", "｜"))
+
+
+def narabi_file_name(item: dict, dup_titles: set[str]) -> str:
+    """nami_list の1件から並び画像のファイル名を再現する。
+
+    convert_narabi_pil.py:393 と streamlit_app.py:13405-13410 の規則:
+      同じタイトルが複数ある場合のみ `（{先頭台番}～{末尾台番}）` を付ける。
+    """
+    title = item["title"]
+    if title in dup_titles:
+        bans = item.get("bans") or []
+        if bans:
+            title = f"{title}{_PAREN_L}{bans[0]}{_TILDE_FW}{bans[-1]}{_PAREN_R}"
+    return narabi_safe_fn(title) + ".jpg"
+
+
+def high_file_name(item: dict) -> "str | None":
+    """高配分エントリ → 画像ファイル名。**生成経路で判別する**（修正2）。
+
+    high_ratio_list へは2つの経路から積まれ、ファイル名が異なる:
+
+      - 自動高配分（run_step3_other:3546/3565）
+          `has_image` キーを **持つ**（True/False）。
+          画像名は `{機種名}_高配分.jpg`。has_image=False は画像なし。
+      - 手動高配分＝②個別「優秀台」（show_auto_article_page:14321）
+          `has_image` キーを **持たない**。
+          画像名は `{機種名}（優秀台）.jpg`。
+
+    ファイルの存在だけで推測せず、この経路差で判別する。
+    戻り値 None は「画像を出さない」。
+    """
+    name = item.get("name", "")
+    if not name:
+        return None
+    if "has_image" in item:                      # 自動高配分
+        if not item.get("has_image"):
+            return None                          # 全台除外などで画像なし
+        return f"{app_safe_fn(name)}_高配分.jpg"
+    return f"{app_safe_fn(name)}{_PAREN_L}優秀台{_PAREN_R}.jpg"   # 手動高配分
+
+
+def is_manual_high(item: dict) -> bool:
+    """②個別「優秀台」由来（手動高配分）なら True。"""
+    return "has_image" not in item
+
+
+# ══════════════════════════════════════════════════════════════════
+# 数値・文字列フォーマット（58109 の書式を実測どおり再現）
+# ══════════════════════════════════════════════════════════════════
+
+def fmt_signed(n) -> str:
+    """+5,317 / -820 形式。"""
+    n = int(n)
+    return f"{'+' if n >= 0 else '-'}{abs(n):,}"
+
+
+def ban_range_str(bans) -> str:
+    """台番リスト → `2078番台〜2080番台・2187番台`。
+
+    連続する区間は `〜` でまとめ、飛び地は `・` で連結する（58109の実表記）。
+    """
+    bs = sorted(int(b) for b in bans)
+    if not bs:
+        return ""
+    runs, cur = [], [bs[0]]
+    for b in bs[1:]:
+        if b == cur[-1] + 1:
+            cur.append(b)
+        else:
+            runs.append(cur)
+            cur = [b]
+    runs.append(cur)
+    parts = []
+    for r in runs:
+        if len(r) >= 2:
+            parts.append(f"{r[0]}番台{_WAVE_BAN}{r[-1]}番台")
+        else:
+            parts.append(f"{r[0]}番台")
+    return "・".join(parts)
+
+
+def h3_zendai(item: dict) -> str:
+    """`戦国乙女4 (3/3台+） ➡平均 +5,317枚`（空白位置まで実測どおり）。
+
+    **全台系・高配分・ジャグラーで共通に使う**。zen_dai_list と high_ratio_list は
+    name / count / total / all_avg_diff を同じ意味で持つため、そのまま渡せる
+    （自動 Step1:3165・手動②全台:14297・自動 Step3:3565・手動②優秀台:14322 で確認済み）。
+    高配分用に別書式を作らないこと。
+    """
+    return (f"{item['name']} ({item['count']}/{item['total']}台+{_PAREN_R} "
+            f"{_ARROW_R}平均 {fmt_signed(item['all_avg_diff'])}枚")
+
+
+def line_high(item: dict) -> str:
+    """`Lモンハンライズ(4/6台+）➡平均+1,850枚`。
+
+    ※ 修正1・3 により本文へは出力しない（装飾テキスト一覧を作らない）。
+       書式は将来の参照用に残す。
+    """
+    return (f"{item['name']}({item['count']}/{item['total']}台+{_PAREN_R}"
+            f"{_ARROW_R}平均{fmt_signed(item['all_avg_diff'])}枚")
+
+
+def h3_narabi(item: dict) -> str:
+    """`【3台並び】2025番台〜2027番台 かぐや様▶平均+7,533枚`。
+
+    「列」の自動判定はしない（正式仕様）。常に【N台並び】。
+    機種名はアプリ保持のものをそのまま使う（逆変換しない）。
+    """
+    return (f"【{item['count']}台並び】{ban_range_str(item.get('bans') or [])} "
+            f"{item['machine']}{_ARROW_TRI}平均{fmt_signed(item['avg_diff'])}枚")
+
+
+def build_title(date_obj, store: str = WP_STORE) -> str:
+    """`8月8日(土)│エスパス高田馬場│`。後半は人間が編集画面で追記する。"""
+    if date_obj is None:
+        return f"エスパス{store}{_SEP_TITLE}"
+    wd = _WEEKDAY_JP[date_obj.weekday()]
+    return (f"{date_obj.month}月{date_obj.day}日({wd}){_SEP_TITLE}"
+            f"エスパス{store}{_SEP_TITLE}")
+
+
+# ══════════════════════════════════════════════════════════════════
+# 縦長画像の分割（修正4・C案）— 原本には触れない
+# ══════════════════════════════════════════════════════════════════
+
+def needs_split(w: int, h: int, max_h: int = WP_SPLIT_MAX_H) -> bool:
+    """WordPress側の長辺縮小で幅が潰れるか。高さが上限超なら分割対象。"""
+    return h > max_h
+
+
+def split_count(h: int, max_h: int = WP_SPLIT_MAX_H) -> int:
+    """必要な分割枚数。各片が max_h 以下に収まる最小枚数。"""
+    return max(1, math.ceil(h / max_h))
+
+
+def _row_boundaries(img) -> list[int]:
+    """表の行境界（横方向に色が一様な帯）の中心yを返す。
+
+    行の途中で切らないための候補点。numpy が使えない場合は空を返し、
+    呼び出し側は等分割へフォールバックする。
+    """
+    try:
+        import numpy as np
+    except Exception:
+        return []
+    a = np.asarray(img.convert("RGB"))
+    std = a.std(axis=(1, 2))
+    uni = np.where(std < _UNIFORM_STD)[0]
+    if len(uni) == 0:
+        return []
+    centers, start, prev = [], int(uni[0]), int(uni[0])
+    for y in uni[1:]:
+        y = int(y)
+        if y != prev + 1:
+            centers.append((start + prev) // 2)
+            start = y
+        prev = y
+    centers.append((start + prev) // 2)
+    return centers
+
+
+def _snap_cut(target: int, boundaries: list[int], lo: int, hi: int) -> int:
+    """切れ目を決める。行境界を最優先し、そのうえで可能なら8px境界へ合わせる。
+
+    優先順位（正式仕様）:
+      1. target 付近の行境界（表の行を途中で切らないことが最優先）
+      2. その行境界の許容幅内で 8 の倍数（JPEGのDCT格子と一致させ誤差を減らす）
+      3. どちらも取れなければ target を8の倍数へ丸める
+    """
+    cands = [b for b in boundaries if lo < b < hi and abs(b - target) <= _CUT_SEARCH]
+    if cands:
+        base = min(cands, key=lambda b: abs(b - target))
+        # 行境界は「一様な帯」の中心なので、帯の中で8の倍数へずらしても
+        # 行を切らない。帯の厚み相当（±_MCU*3）だけ許容して探す。
+        for d in range(0, _MCU * 3 + 1):
+            for cand in (base - d, base + d):
+                if cand % _MCU == 0 and lo < cand < hi:
+                    return cand
+        return base
+    aligned = (target // _MCU) * _MCU
+    return aligned if lo < aligned < hi else target
+
+
+def split_image_for_wp(path: str, out_dir: str,
+                       max_h: int = WP_SPLIT_MAX_H) -> list[dict]:
+    """縦長画像を送信用に分割する。**原本は読み取るだけで変更しない。**
+
+    戻り値: [{"path","file","w","h","bytes"}, …]（上から順）
+    分割不要なら空リストを返す（呼び出し側は原本をそのまま使う）。
+    """
+    from PIL import Image
+    with Image.open(path) as im:
+        im.load()
+        w, h = im.size
+        if not needs_split(w, h, max_h):
+            return []
+        n = split_count(h, max_h)
+        bounds = _row_boundaries(im)
+        # 等分割の目標位置を、行境界へ寄せて確定する
+        cuts = [0]
+        for i in range(1, n):
+            target = round(h * i / n)
+            prev = cuts[-1]
+            y = _snap_cut(target, bounds, prev + 1, h - 1)
+            # 単調増加を保証（寄せ先が前の切れ目を追い越さないように）
+            cuts.append(max(y, prev + 1))
+        cuts.append(h)
+
+        stem = os.path.splitext(os.path.basename(path))[0]
+        os.makedirs(out_dir, exist_ok=True)
+        parts: list[dict] = []
+        for i in range(n):
+            top, bot = cuts[i], cuts[i + 1]
+            if bot <= top:
+                continue
+            piece = im.crop((0, top, w, bot))
+            fn = f"{stem}_wp_{i + 1:02d}.jpg"
+            fp = os.path.join(out_dir, fn)
+            # リサイズせず crop のみ。4:4:4 を維持して色を保つ。
+            piece.save(fp, "JPEG", quality=_SPLIT_QUALITY,
+                       subsampling=_SPLIT_SUBSAMPLING)
+            parts.append({"path": fp, "file": fn, "w": w, "h": bot - top,
+                          "bytes": os.path.getsize(fp), "top": top, "bottom": bot})
+        return parts
+
+
+def wp_stored_width(w: int, h: int, max_side: int = WP_MAX_SIDE) -> int:
+    """WordPress保存後の推定幅（長辺 max_side への縮小を再現）。"""
+    longest = max(w, h)
+    if longest <= max_side:
+        return w
+    return int(round(w * max_side / longest))
+
+
+# ══════════════════════════════════════════════════════════════════
+# Gutenberg ブロック生成
+# ══════════════════════════════════════════════════════════════════
+
+def blk_h2(text: str) -> str:
+    return ('<!-- wp:heading -->\n'
+            f'<h2 class="wp-block-heading">{text}</h2>\n'
+            '<!-- /wp:heading -->')
+
+
+def blk_h3(text: str) -> str:
+    return ('<!-- wp:heading {"level":3} -->\n'
+            f'<h3 class="wp-block-heading">{text}</h3>\n'
+            '<!-- /wp:heading -->')
+
+
+def blk_image(media_id: int, src: str, join: bool = False) -> str:
+    """58109 の画像ブロックと同一属性。
+
+    join=True で 58963 と同じ連結クラスを付ける（分割片の最後以外）。
+    """
+    if join:
+        return (f'<!-- wp:image {{"id":{media_id},"sizeSlug":"full",'
+                f'"linkDestination":"none","className":"{SPLIT_JOIN_CLASS}"}} -->\n'
+                f'<figure class="wp-block-image size-full {SPLIT_JOIN_CLASS}">'
+                f'<img src="{src}" alt="" class="wp-image-{media_id}"/></figure>\n'
+                '<!-- /wp:image -->')
+    return (f'<!-- wp:image {{"id":{media_id},"sizeSlug":"full","linkDestination":"none"}} -->\n'
+            f'<figure class="wp-block-image size-full">'
+            f'<img src="{src}" alt="" class="wp-image-{media_id}"/></figure>\n'
+            '<!-- /wp:image -->')
+
+
+def blk_para_high(lines: list[str]) -> str:
+    """高配分の装飾段落。**修正1により本文へは出力しない**（定義のみ残置）。"""
+    body = "<br>".join(lines)
+    return ('<!-- wp:paragraph -->\n'
+            '<p><strong><span class="swl-fz u-fz-l">'
+            '<span class="swl-inline-color has-swl-deep-01-color">'
+            f'{body}</span></span></strong></p>\n'
+            '<!-- /wp:paragraph -->')
+
+
+def blk_para_juggler(lines: list[str]) -> str:
+    """ジャグラーの装飾段落。**修正3により本文へは出力しない**（定義のみ残置）。"""
+    body = "<br>".join(lines)
+    return ('<!-- wp:paragraph -->\n'
+            '<p><strong><span class="swl-inline-color has-swl-deep-02-color">'
+            '<span class="swl-fz u-fz-l">'
+            f'{body}</span></span></strong></p>\n'
+            '<!-- /wp:paragraph -->')
+
+
+def blk_button(slug: str = WP_CATEGORY_SLUG, site: str = "") -> str:
+    url = f"{site.rstrip('/')}/category/{slug}" if site else f"/category/{slug}"
+    return (f'<!-- wp:loos/button {{"hrefUrl":"{url}","className":"is-style-btn_normal"}} -->\n'
+            f'<div class="swell-block-button is-style-btn_normal">'
+            f'<a href="{url}" class="swell-block-button__link">'
+            f'<span>{BUTTON_TEXT}</span></a></div>\n'
+            '<!-- /wp:loos/button -->')
+
+
+# ══════════════════════════════════════════════════════════════════
+# payload / plan
+# ══════════════════════════════════════════════════════════════════
+
+def build_payload(*, store: str, output_dir: str, dir_stem: str, result: dict,
+                  juggler_series) -> dict:
+    """⑧の `result` から WordPress 用の投影 dict を作る（読み取り専用）。
+
+    `result` は書き換えない。必要な値だけを浅くコピーする。
+    """
+    js = set(juggler_series or ())
+    hr = list(result.get("high_ratio_list") or [])
+    return {
+        "store":      store,
+        "output_dir": output_dir,
+        "dir_stem":   dir_stem,
+        "date":       result.get("date"),
+        "zen_dai":    [dict(x) for x in (result.get("zen_dai_list") or [])],
+        "high":       [dict(x) for x in hr if x.get("name") not in js],
+        "juggler":    [dict(x) for x in hr if x.get("name") in js],
+        "nami":       [dict(x) for x in (result.get("nami_list") or [])],
+    }
+
+
+def _resolve_high_images(entries: list[dict], output_dir: str) -> list[dict]:
+    """高配分エントリ列 → 実在する画像の並び（機種単位で重複除去）。
+
+    同一機種に自動と手動の両方が存在した場合:
+      位置＝最初の出現位置 / 内容＝後勝ち（②個別「優秀台」を優先）。
+      これは既存 `_dedup_previews()` の正式仕様と同じ考え方。
+    """
+    order: list[str] = []
+    chosen: dict[str, dict] = {}
+    for it in entries:
+        name = it.get("name", "")
+        fn = high_file_name(it)
+        if not name or not fn:
+            continue
+        if not os.path.isfile(os.path.join(output_dir, fn)):
+            continue
+        if name not in chosen:
+            order.append(name)
+            chosen[name] = {"file": fn, "manual": is_manual_high(it),
+                            "name": name, "entry": it}
+        else:
+            # 後勝ち。ただし自動が手動を上書きしないようにする
+            if is_manual_high(it):
+                chosen[name] = {"file": fn, "manual": True,
+                                "name": name, "entry": it}
+    return [chosen[n] for n in order]
+
+
+def plan_blocks(payload: dict) -> list[dict]:
+    """本文の構成計画（見出し・画像の並び）を作る。
+
+    画像項目は {"type":"image","file":…,"label":…} を持ち、
+    実ファイルの解決とアップロードは呼び出し側が行う。
+    """
+    out_dir = payload.get("output_dir", "")
+    plan: list[dict] = []
+
+    # ── 全台系: H2 →（H3 + 画像）× 機種数 ──
+    zen = sorted(payload["zen_dai"], key=lambda x: -int(x.get("all_avg_diff", 0)))
+    if zen:
+        plan.append({"type": "h2", "text": H2_ZENDAI})
+        for it in zen:
+            plan.append({"type": "h3", "text": h3_zendai(it)})
+            plan.append({"type": "image",
+                         "file": f"{app_safe_fn(it['name'])}.jpg",
+                         "label": f"全台系 {it['name']}"})
+
+    # ── 高配分: H2 → 画像を機種ごとに順番配置 ──
+    #    修正1: 赤文字テキスト一覧は出力しない。
+    #    修正2: 自動 `_高配分.jpg` と 手動 `（優秀台）.jpg` を生成経路で判別。
+    high_imgs = _resolve_high_images(payload["high"], out_dir)
+    if high_imgs:
+        plan.append({"type": "h2", "text": H2_HIGH})
+        for h in high_imgs:
+            # 全台系とまったく同じ h3_zendai() を流用する（新書式は作らない）。
+            # 自動・手動どちらも high_ratio_list の name/count/total/all_avg_diff を使う。
+            plan.append({"type": "h3", "text": h3_zendai(h["entry"])})
+            plan.append({"type": "image", "file": h["file"],
+                         "label": ("手動高配分 " if h["manual"] else "自動高配分 ") + h["name"]})
+
+    # ── ジャグラー: H2 → 個別高配分画像（あれば）→ 統合画像 ──
+    #    修正3: 青文字テキスト一覧は出力しない。
+    jug_imgs = _resolve_high_images(payload["juggler"], out_dir)
+    jug_comb = os.path.isfile(os.path.join(out_dir, FN_JUGGLER)) if out_dir else False
+    if jug_imgs or jug_comb or payload["juggler"]:
+        plan.append({"type": "h2", "text": H2_JUGGLER})
+        for h in jug_imgs:
+            plan.append({"type": "h3", "text": h3_zendai(h["entry"])})
+            plan.append({"type": "image", "file": h["file"],
+                         "label": ("手動高配分(ジャグ) " if h["manual"]
+                                   else "自動高配分(ジャグ) ") + h["name"]})
+        plan.append({"type": "image", "file": FN_JUGGLER,
+                     "label": "ジャグラーシリーズ優秀台", "optional": True})
+
+    # ── 並び: H2 →（H3 + 画像）× 並び数 ──
+    nami = payload["nami"]
+    if nami:
+        dup = {t for t, c in Counter(x["title"] for x in nami).items() if c > 1}
+        plan.append({"type": "h2", "text": H2_NARABI})
+        for it in nami:
+            plan.append({"type": "h3", "text": h3_narabi(it)})
+            plan.append({"type": "image",
+                         "file": narabi_file_name(it, dup),
+                         "label": f"並び {it['title']}"})
+
+    # ── その他単品: H2 → 画像1枚 ──
+    plan.append({"type": "h2", "text": H2_SONOTA})
+    plan.append({"type": "image", "file": FN_SONOTA,
+                 "label": "その他の優秀台ピックアップ", "optional": True})
+
+    # ── シマズ: 見出しのみ（画像は人間が挿入）──
+    plan.append({"type": "h2", "text": H2_SHIMAZU})
+
+    # ── 店舗情報ボタン ──
+    plan.append({"type": "button"})
+    return plan
+
+
+def collect_files(plan: list[dict], output_dir: str) -> tuple[list[dict], list[dict], list[dict]]:
+    """画像項目の実ファイルを解決する。
+
+    戻り値: (found, missing_required, missing_optional)
+      found            … {"file","path","label","bytes"} のリスト（本文の登場順）
+      missing_required … 欠けている必須ファイル → 1つでもあれば送信を中止する
+      missing_optional … 欠けていてよいファイル（ジャグラー統合・その他）
+    """
+    found, miss_req, miss_opt = [], [], []
+    seen: set[str] = set()
+    for item in plan:
+        if item.get("type") != "image":
+            continue
+        fn = item["file"]
+        path = os.path.join(output_dir, fn)
+        if os.path.isfile(path):
+            if fn in seen:          # 同名は1回だけ送る
+                continue
+            seen.add(fn)
+            found.append({"file": fn, "path": path, "label": item.get("label", ""),
+                          "bytes": os.path.getsize(path)})
+        elif item.get("optional"):
+            miss_opt.append({"file": fn, "label": item.get("label", "")})
+        else:
+            miss_req.append({"file": fn, "label": item.get("label", "")})
+    return found, miss_req, miss_opt
+
+
+def plan_split(found: list[dict], tmp_dir: str) -> dict:
+    """送信対象のうち縦長すぎる画像を、送信用の一時コピーへ分割する。
+
+    戻り値: {元ファイル名: [{"path","file","w","h","bytes"}, …]}
+    分割対象でなければキーを作らない。**原本は読み取るだけ。**
+    """
+    from PIL import Image
+    result: dict[str, list[dict]] = {}
+    for f in found:
+        try:
+            with Image.open(f["path"]) as im:
+                w, h = im.size
+        except Exception:
+            continue
+        if not needs_split(w, h):
+            continue
+        parts = split_image_for_wp(f["path"], tmp_dir)
+        if parts:
+            result[f["file"]] = parts
+    return result
+
+
+def build_content(plan: list[dict], media_map: dict, site: str = "",
+                  split_map: "dict | None" = None) -> str:
+    """plan と {ファイル名: {"id":…, "src":…}} から content.raw を組み立てる。
+
+    split_map があるファイルは、その分割片を順に並べ、
+    **最後の1枚以外へ連結クラスを付ける**（58963 と同じ構造）。
+    media_map に無い画像はブロックごと出力しない（見出しは残す）。
+    """
+    split_map = split_map or {}
+    out: list[str] = []
+    for item in plan:
+        t = item["type"]
+        if t == "h2":
+            out.append(blk_h2(item["text"]))
+        elif t == "h3":
+            out.append(blk_h3(item["text"]))
+        elif t == "para_high":
+            out.append(blk_para_high(item["lines"]))
+        elif t == "para_juggler":
+            out.append(blk_para_juggler(item["lines"]))
+        elif t == "image":
+            fn = item["file"]
+            parts = split_map.get(fn)
+            if parts:
+                blocks = []
+                for p in parts:
+                    m = media_map.get(p["file"])
+                    if m:
+                        blocks.append(m)
+                for i, m in enumerate(blocks):
+                    out.append(blk_image(m["id"], m["src"],
+                                         join=(i < len(blocks) - 1)))
+            else:
+                m = media_map.get(fn)
+                if m:
+                    out.append(blk_image(m["id"], m["src"]))
+        elif t == "button":
+            out.append(blk_button(site=site))
+    return "\n\n".join(out)
+
+
+# ══════════════════════════════════════════════════════════════════
+# WordPress 送信（ここから先だけがネットワークに触れる）
+# ══════════════════════════════════════════════════════════════════
+
+def _secret(name: str) -> str:
+    """st.secrets → os.getenv の優先順で1件取得する。値はログへ出さない。
+
+    Cloud には .env が無いため st.secrets を先に見る。streamlit は関数内で
+    try import し、Streamlit 外の通常 Python 実行でも壊れないようにする
+    （requests / PIL と同じ流儀）。
+    """
+    try:
+        import streamlit as st
+        if name in st.secrets:
+            return str(st.secrets[name] or "")
+    except Exception:
+        pass
+    return os.getenv(name, "") or ""
+
+
+def _conf() -> tuple[str, tuple[str, str]]:
+    """st.secrets（Cloud）/ .env・環境変数（ローカル）から接続情報を取得する。
+    値はログへ出さない。"""
+    site = _secret("WP_SITE_URL").rstrip("/")
+    return site, (_secret("WP_USER"), _secret("WP_APP_PASSWORD"))
+
+
+def config_ready() -> tuple[bool, str]:
+    site, (user, pw) = _conf()
+    missing = [k for k, v in (("WP_SITE_URL", site), ("WP_USER", user),
+                              ("WP_APP_PASSWORD", pw)) if not v]
+    if missing:
+        return False, "未設定: " + ", ".join(missing)
+    return True, site
+
+
+def _err_text(resp) -> str:
+    """秘密情報を含まない範囲のエラー文字列。"""
+    try:
+        j = resp.json()
+        return f"code={j.get('code')} message={j.get('message')}"
+    except Exception:
+        return f"(非JSON応答 {len(resp.content)}バイト)"
+
+
+def upload_media(path: str, *, timeout: int = WP_UPLOAD_TIMEOUT) -> dict:
+    """POST /wp/v2/media を1件。日本語ファイル名は Phase 1 で実証した方式で送る。
+
+    WordPress は Content-Disposition の `filename=` しか読まない（RFC 5987 の
+    `filename*` は解釈しない）ため、`filename=` に UTF-8 の生バイトを載せる。
+    """
+    import requests
+    site, auth = _conf()
+    fn = os.path.basename(path)
+    disp = ('attachment; filename="' + fn + '"; filename*=UTF-8\'\'' + quote(fn, safe=""))
+    headers = {"Content-Disposition": disp.encode("utf-8"), "Content-Type": "image/jpeg"}
+    with open(path, "rb") as f:
+        data = f.read()
+    t0 = time.perf_counter()
+    try:
+        r = requests.post(f"{site}/wp-json/wp/v2/media", headers=headers, data=data,
+                          auth=auth, timeout=timeout)
+    except Exception as e:
+        return {"ok": False, "status": "EXC", "error": f"{type(e).__name__}: {e}",
+                "sec": time.perf_counter() - t0, "file": fn}
+    sec = time.perf_counter() - t0
+    if r.status_code in (200, 201):
+        j = r.json()
+        return {"ok": True, "status": r.status_code, "id": j.get("id"),
+                "src": j.get("source_url"), "sec": sec, "file": fn,
+                "wp_file": (j.get("media_details") or {}).get("file")}
+    # 429 は検知するが自動リトライはしない（正式仕様）
+    return {"ok": False, "status": r.status_code, "error": _err_text(r),
+            "retry_after": r.headers.get("Retry-After"), "sec": sec, "file": fn}
+
+
+def create_draft(title: str, content: str) -> dict:
+    """POST /wp/v2/posts。status=draft 固定・publish しない。
+
+    既存投稿の更新（PUT/PATCH）は実装しない。常に新規 draft のみ。
+    """
+    import requests
+    site, auth = _conf()
+    payload = {
+        "title":      title,
+        "content":    content,
+        "status":     WP_STATUS,       # "draft" 固定
+        "categories": [WP_CATEGORY_ID],
+        "author":     WP_AUTHOR_ID,
+        # tags / featured_media / excerpt / template / meta は送らない
+    }
+    try:
+        r = requests.post(f"{site}/wp-json/wp/v2/posts", json=payload,
+                          auth=auth, timeout=WP_POST_TIMEOUT)
+    except Exception as e:
+        return {"ok": False, "status": "EXC", "error": f"{type(e).__name__}: {e}"}
+    if r.status_code in (200, 201):
+        j = r.json()
+        pid = j.get("id")
+        return {"ok": True, "status": r.status_code, "id": pid,
+                "post_status": j.get("status"),
+                "edit_url": f"{site}/wp-admin/post.php?post={pid}&action=edit"}
+    return {"ok": False, "status": r.status_code, "error": _err_text(r)}
+
+
+def create_takadanobaba_draft(payload: dict, progress=None) -> dict:
+    """画像を逐次アップロードし、成功したら下書きを1件作成する。
+
+    All-or-Nothing:
+      - 送信前に必須ファイルを検証し、欠けていれば1枚も送らずに中止
+      - 途中で失敗したらその場で中断し、**投稿は作成しない**
+      - アップロード済みメディアの自動削除はしない
+
+    縦長画像は送信用の一時コピーへ分割する（原本は変更しない）。
+    一時ファイルは **成功・失敗とも自動削除しない**（失敗時の再調査のため）。
+    """
+    ok, site_or_msg = config_ready()
+    if not ok:
+        return {"ok": False, "stage": "config", "error": site_or_msg}
+    site = site_or_msg
+
+    plan = plan_blocks(payload)
+    found, miss_req, miss_opt = collect_files(plan, payload["output_dir"])
+
+    if not os.path.isdir(payload["output_dir"]):
+        return {"ok": False, "stage": "precheck",
+                "error": f"出力フォルダが見つかりません: {payload['output_dir']}",
+                "missing": [], "uploaded": []}
+    if miss_req:
+        return {"ok": False, "stage": "precheck",
+                "error": f"必須画像が {len(miss_req)} 件不足しているため中止しました"
+                         "（1枚もアップロードしていません）",
+                "missing": miss_req, "missing_optional": miss_opt, "uploaded": []}
+    if not found:
+        return {"ok": False, "stage": "precheck",
+                "error": "送信対象の画像が1枚もありません", "missing": [], "uploaded": []}
+
+    # ── 縦長画像を送信用に分割（原本は読み取るだけ）──
+    tmp_dir = tempfile.mkdtemp(prefix="wp_split_")
+    try:
+        split_map = plan_split(found, tmp_dir)
+    except Exception as e:
+        return {"ok": False, "stage": "split", "tmp_dir": tmp_dir,
+                "error": f"送信用画像の分割に失敗: {type(e).__name__}: {e}",
+                "uploaded": []}
+
+    # 実際に送るファイルの並び（分割対象は片に置き換える）
+    send: list[dict] = []
+    for f in found:
+        parts = split_map.get(f["file"])
+        if parts:
+            for p in parts:
+                send.append({"file": p["file"], "path": p["path"],
+                             "bytes": p["bytes"],
+                             "label": f["label"] + f"（分割 {p['file']}）"})
+        else:
+            send.append(f)
+
+    media_map: dict[str, dict] = {}
+    uploaded: list[dict] = []
+    total = len(send)
+    for i, f in enumerate(send, 1):
+        if progress:
+            progress(i, total, f["file"])
+        r = upload_media(f["path"])
+        if not r["ok"]:
+            return {"ok": False, "stage": "upload", "failed": r,
+                    "uploaded": uploaded, "missing_optional": miss_opt,
+                    "tmp_dir": tmp_dir,
+                    "error": f"{f['file']} のアップロードに失敗（status={r['status']}）"
+                             f" / {r.get('error', '')}"
+                             + (f" / Retry-After={r['retry_after']}"
+                                if r.get("retry_after") else "")}
+        media_map[f["file"]] = {"id": r["id"], "src": r["src"]}
+        uploaded.append({"file": f["file"], "id": r["id"], "src": r["src"],
+                         "sec": r["sec"], "bytes": f["bytes"]})
+
+    title   = build_title(payload.get("date"), payload.get("store", WP_STORE))
+    content = build_content(plan, media_map, site=site, split_map=split_map)
+    res = create_draft(title, content)
+    if not res["ok"]:
+        return {"ok": False, "stage": "post", "uploaded": uploaded,
+                "missing_optional": miss_opt, "tmp_dir": tmp_dir,
+                "error": f"下書き作成に失敗（status={res['status']}）/ {res.get('error', '')}"}
+
+    return {"ok": True, "id": res["id"], "post_status": res["post_status"],
+            "edit_url": res["edit_url"], "title": title,
+            "uploaded": uploaded, "missing_optional": miss_opt,
+            "image_count": total, "split_map": split_map, "tmp_dir": tmp_dir,
+            "total_bytes": sum(u["bytes"] for u in uploaded)}

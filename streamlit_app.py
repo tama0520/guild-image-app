@@ -5414,6 +5414,45 @@ def _save_article_inputs(store: str, skip_kojin: bool = False) -> None:
         pass
 
 
+# ── 記事用ポスター（高田馬場）: 日付別に元画像を保持する ────────────────
+# ★ウィジェットキーではない通常の session_state 値として持つ。
+#   file_uploader のキーは stale widget GC で消えるため、日付を往復すると
+#   アップロード済みファイルが失われる（Streamlit 1.56.0 の
+#   session_state._remove_stale_widgets で確認済み）。ここで退避しておく。
+# ★キーに 店舗 と Excel名（日付）を含めるので、別日のポスターは構造上混ざらない。
+# ★画像は session_state のみに置く。JSON へは保存しない（正式仕様）。
+
+def _art_poster_key(store: str, excel: str) -> str:
+    """保存済みポスター（元画像リスト）のキー。"""
+    return f"_art_poster_imgs_{store}_{excel or ''}"
+
+
+def _art_poster_seen_key(store: str, excel: str) -> str:
+    """取り込み済み file_id の集合キー（同じアップロードの二重追加を防ぐ）。"""
+    return f"_art_poster_seen_{store}_{excel or ''}"
+
+
+def _art_poster_list(store: str, excel: str) -> list:
+    """その日付の保存済みポスター [{"name","fid","data"}, …] を返す。"""
+    return st.session_state.get(_art_poster_key(store, excel)) or []
+
+
+def _art_poster_delete(store: str, excel: str, fid: str) -> None:
+    """保存済みポスターを1枚だけ削除する（on_click コールバック）。
+
+    ★消費済み file_id の集合からは外さない。外すと、file_uploader に残っている
+      同じ UploadedFile が次の rerun で再取り込みされ、削除した画像が復活する。
+    """
+    k = _art_poster_key(store, excel)
+    st.session_state[k] = [x for x in (st.session_state.get(k) or [])
+                           if x.get("fid") != fid]
+
+
+def _art_poster_clear(store: str, excel: str) -> None:
+    """その日付の保存済みポスターをすべて削除する（on_click コールバック）。"""
+    st.session_state[_art_poster_key(store, excel)] = []
+
+
 def _save_article_enabled(store: str) -> None:
     """記事用②「個別画像も生成する」チェックボックス専用の保存。
 
@@ -12814,24 +12853,58 @@ def show_auto_article_page() -> None:
     st.caption("処理内容：① 全台系PNG ＋ 全台プラス機種別JPG　② ジャグラーシリーズ優秀台JPG　③ その他の優秀台ピックアップJPG")
 
     # ── ポスター画像＋記事上部テキスト（WordPress記事の先頭に入る）────────
-    # 画像は **file_uploader の key に Excel 名を含める**ことで日付スコープにする。
-    # 別日へ切り替えると key が変わって別ウィジェットになるため、
-    # 前日のポスターが残らない（session_state / JSON へバイナリを保存しない）。
+    # file_uploader の key に Excel 名を含めて日付スコープにしたうえで、
+    # 取り込んだ元画像は **日付別の通常 session_state キー**へ退避する
+    # （ウィジェットキーは stale widget GC で消えるため、日付を往復すると
+    #   アップロード済みファイルが失われる）。
+    # 画像は session_state のみ。JSON・Git へは保存しない（正式仕様）。
     st.markdown(f"### {_sec_num()} ポスター画像")
     _art_excel_now = st.session_state.get("art_current_excel") or ""
+    _poster_store_key = _art_poster_key(store, _art_excel_now)
+    _poster_seen_key  = _art_poster_seen_key(store, _art_excel_now)
+    st.session_state.setdefault(_poster_store_key, [])
+    st.session_state.setdefault(_poster_seen_key, [])
+
+    # 新しくアップロードされた分だけを取り込む（file_id で重複判定）
     _poster_key = f"art_poster_{store}_{_art_excel_now}"
-    _poster_files = st.file_uploader(
-        "その日のポスター画像（複数可・2枚以上は横に結合して1枚にします）",
+    _poster_new = st.file_uploader(
+        "新しいポスターを追加（複数可・2枚以上は横に結合して1枚にします）",
         type=["jpg", "jpeg", "png"], accept_multiple_files=True,
         key=_poster_key,
         disabled=(uploaded is None),
         help="WordPress記事の一番上（見出しの下）に入ります。未アップロードでも下書きは作成できます。",
     )
+    if _poster_new:
+        _seen = list(st.session_state.get(_poster_seen_key) or [])
+        _cur  = list(st.session_state.get(_poster_store_key) or [])
+        for _pf in _poster_new:
+            _fid = getattr(_pf, "file_id", None) or f"{_pf.name}:{_pf.size}"
+            if _fid in _seen:          # 既に取り込み済み → 二重追加しない
+                continue               # （削除済みでも復活させない）
+            _cur.append({"name": _pf.name, "fid": _fid, "data": _pf.getvalue()})
+            _seen.append(_fid)
+        st.session_state[_poster_store_key] = _cur
+        st.session_state[_poster_seen_key]  = _seen
+
+    _poster_saved = _art_poster_list(store, _art_excel_now)
+
     if uploaded is None:
         st.caption("⬆️ 先に①でExcelをアップロードすると使用できます。")
-    elif _poster_files:
-        st.caption(f"🖼️ {len(_poster_files)}枚を選択中"
-                   + ("（横結合して1枚として送信します）" if len(_poster_files) > 1 else ""))
+    elif _poster_saved:
+        st.caption(f"🖼️ 保存済みポスター：**{len(_poster_saved)}枚**"
+                   + ("（左から順に横結合して1枚として送信します）"
+                      if len(_poster_saved) > 1 else ""))
+        _pv_cols = st.columns(min(4, len(_poster_saved)))
+        for _pi, _pimg in enumerate(_poster_saved):
+            with _pv_cols[_pi % len(_pv_cols)]:
+                st.image(_pimg["data"], width=130,
+                         caption=f"{_pi + 1}. {_pimg['name'][:18]}")
+                st.button("🗑️ 削除", key=f"art_poster_del_{_art_excel_now}_{_pimg['fid']}",
+                          on_click=_art_poster_delete,
+                          args=(store, _art_excel_now, _pimg["fid"]),
+                          use_container_width=True)
+        st.button("すべて削除", key=f"art_poster_clear_{_art_excel_now}",
+                  on_click=_art_poster_clear, args=(store, _art_excel_now))
     else:
         st.info("ℹ️ ポスター未アップロードのため、ポスターなしで作成します")
 
@@ -14965,16 +15038,18 @@ def show_auto_article_page() -> None:
             # ── その日のポスターを output_dir へ1枚だけ書き出す ──────────
             # 複数枚は横結合して1枚にする。元画像は個別に保存・送信しない。
             # 日付スコープは file_uploader の key（Excel名入り）で担保済み。
+            # 正は「その日付の保存済み元画像」。file_uploader の現在値は見ない。
+            _art_poster_src = _art_poster_list(store, _art_excel_now)
             _art_poster_info = None
-            if _poster_files:
+            if _art_poster_src:
                 _pf_tmp = tempfile.mkdtemp(prefix="wp_poster_src_")
                 try:
                     _pf_paths = []
-                    for _i, _pf in enumerate(_poster_files):
-                        _pf_ext = os.path.splitext(_pf.name)[1].lower() or ".jpg"
+                    for _i, _pf in enumerate(_art_poster_src):
+                        _pf_ext = os.path.splitext(_pf["name"])[1].lower() or ".jpg"
                         _pf_p = os.path.join(_pf_tmp, f"{_i:02d}{_pf_ext}")
                         with open(_pf_p, "wb") as _fh:
-                            _fh.write(_pf.getbuffer())
+                            _fh.write(_pf["data"])
                         _pf_paths.append(_pf_p)
                     import wp_client as _wpc_p
                     _art_poster_info = _wpc_p.build_poster(_pf_paths, output_dir)
@@ -14985,6 +15060,13 @@ def show_auto_article_page() -> None:
                             f"{_art_poster_info['bytes'] / 1024:.0f} KB）")
                 except Exception as _pe:
                     st.warning(f"ポスター画像の作成に失敗: {_pe}")
+            else:
+                # ポスター0枚。前回実行の _wp_poster.jpg が同じ output_dir に
+                # 残っていると plan_blocks() が存在判定で拾い、**古いポスターが
+                # 本文へ混入する**。既存の共通ヘルパーで同名画像だけを消す
+                # （完全一致のみ・他の画像には触れない）。
+                import wp_client as _wpc_p0
+                _rm_stale_image(output_dir, _wpc_p0.POSTER_FN)
 
             # ── ZIPデータをセッションに保存（ボタン直下スロットへ後で表示）──
             if os.path.isdir(output_dir):

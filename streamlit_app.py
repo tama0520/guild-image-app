@@ -5351,6 +5351,10 @@ def _article_input_keys(store: str) -> list[str]:
         f"art_kojin_narabi2_range_{store}", f"art_kojin_narabi2_title_{store}",
         f"art_sonota_extra_title_{store}", f"art_sonota_extra_text_{store}",
         f"art_sonota_extra_auto_{store}",
+        # 記事上部（WordPress）: 見出し／ポスター下文章／Xリンク下文章。
+        # いずれも文字列のみ。**画像バイナリはここへ入れない**（正式仕様）。
+        f"art_wp_top_heading_{store}", f"art_wp_top_text_poster_{store}",
+        f"art_wp_top_text_x_{store}",
     ]
     for i in range(_KOJIN_PICK_COUNT):
         keys += [f"art_kojin_pick_title_{i}_{store}", f"art_kojin_pick_bans_{i}_{store}"]
@@ -12809,6 +12813,44 @@ def show_auto_article_page() -> None:
 
     st.caption("処理内容：① 全台系PNG ＋ 全台プラス機種別JPG　② ジャグラーシリーズ優秀台JPG　③ その他の優秀台ピックアップJPG")
 
+    # ── ポスター画像＋記事上部テキスト（WordPress記事の先頭に入る）────────
+    # 画像は **file_uploader の key に Excel 名を含める**ことで日付スコープにする。
+    # 別日へ切り替えると key が変わって別ウィジェットになるため、
+    # 前日のポスターが残らない（session_state / JSON へバイナリを保存しない）。
+    st.markdown(f"### {_sec_num()} ポスター画像")
+    _art_excel_now = st.session_state.get("art_current_excel") or ""
+    _poster_key = f"art_poster_{store}_{_art_excel_now}"
+    _poster_files = st.file_uploader(
+        "その日のポスター画像（複数可・2枚以上は横に結合して1枚にします）",
+        type=["jpg", "jpeg", "png"], accept_multiple_files=True,
+        key=_poster_key,
+        disabled=(uploaded is None),
+        help="WordPress記事の一番上（見出しの下）に入ります。未アップロードでも下書きは作成できます。",
+    )
+    if uploaded is None:
+        st.caption("⬆️ 先に①でExcelをアップロードすると使用できます。")
+    elif _poster_files:
+        st.caption(f"🖼️ {len(_poster_files)}枚を選択中"
+                   + ("（横結合して1枚として送信します）" if len(_poster_files) > 1 else ""))
+    else:
+        st.info("ℹ️ ポスター未アップロードのため、ポスターなしで作成します")
+
+    st.text_input("その日の見出し（空欄なら出力しません）",
+                  key=f"art_wp_top_heading_{store}",
+                  on_change=_save_article_inputs, args=(store, True),
+                  placeholder="記事の一番上に入る見出し")
+    _tp_c1, _tp_c2 = st.columns(2, gap="large")
+    with _tp_c1:
+        st.text_area("ポスター下の文章（改行で段落／空欄なら出力しません）",
+                     key=f"art_wp_top_text_poster_{store}", height=120,
+                     on_change=_save_article_inputs, args=(store, True))
+    with _tp_c2:
+        st.text_area("Xリンク下の文章（改行で段落／空欄なら出力しません）",
+                     key=f"art_wp_top_text_x_{store}", height=120,
+                     on_change=_save_article_inputs, args=(store, True))
+    st.caption("Xの投稿URLは自動挿入しません。WordPress編集画面で、ポスター下文章と"
+               "Xリンク下文章の間にできる**空段落3行**へ手で貼り付けてください。")
+
     # ── ② 個別画像 ──────────────────────────────────────────────────
     kojin_zentai_machines: list[str] = []
     kojin_yushu_machines:  list[str] = []
@@ -14920,6 +14962,30 @@ def show_auto_article_page() -> None:
             except Exception as _e:
                 st.warning(f"結果.txt の保存に失敗: {_e}")
 
+            # ── その日のポスターを output_dir へ1枚だけ書き出す ──────────
+            # 複数枚は横結合して1枚にする。元画像は個別に保存・送信しない。
+            # 日付スコープは file_uploader の key（Excel名入り）で担保済み。
+            _art_poster_info = None
+            if _poster_files:
+                _pf_tmp = tempfile.mkdtemp(prefix="wp_poster_src_")
+                try:
+                    _pf_paths = []
+                    for _i, _pf in enumerate(_poster_files):
+                        _pf_ext = os.path.splitext(_pf.name)[1].lower() or ".jpg"
+                        _pf_p = os.path.join(_pf_tmp, f"{_i:02d}{_pf_ext}")
+                        with open(_pf_p, "wb") as _fh:
+                            _fh.write(_pf.getbuffer())
+                        _pf_paths.append(_pf_p)
+                    import wp_client as _wpc_p
+                    _art_poster_info = _wpc_p.build_poster(_pf_paths, output_dir)
+                    if _art_poster_info:
+                        st.caption(
+                            f"🖼️ ポスターを作成しました（元{_art_poster_info['count']}枚 → "
+                            f"{_art_poster_info['w']}x{_art_poster_info['h']} / "
+                            f"{_art_poster_info['bytes'] / 1024:.0f} KB）")
+                except Exception as _pe:
+                    st.warning(f"ポスター画像の作成に失敗: {_pe}")
+
             # ── ZIPデータをセッションに保存（ボタン直下スロットへ後で表示）──
             if os.path.isdir(output_dir):
                 try:
@@ -14945,11 +15011,20 @@ def show_auto_article_page() -> None:
             if store == "高田馬場":
                 try:
                     import wp_client as _wpc0
-                    st.session_state[f"_art_wp_payload_{store}"] = _wpc0.build_payload(
+                    _art_wp_pl = _wpc0.build_payload(
                         store=store, output_dir=output_dir, dir_stem=dir_stem,
                         result=result,
                         juggler_series=get_store_config(store)["juggler_series"],
                     )
+                    # 記事上部（見出し／ポスター下文章／Xリンク下文章）。
+                    # 空欄ならブロックごと出力されない（wp_client 側で判定）。
+                    _art_wp_pl["top_heading"] = st.session_state.get(
+                        f"art_wp_top_heading_{store}", "")
+                    _art_wp_pl["top_text_poster"] = st.session_state.get(
+                        f"art_wp_top_text_poster_{store}", "")
+                    _art_wp_pl["top_text_x"] = st.session_state.get(
+                        f"art_wp_top_text_x_{store}", "")
+                    st.session_state[f"_art_wp_payload_{store}"] = _art_wp_pl
                 except Exception as _wpe0:
                     st.warning(f"WordPress用データの準備に失敗: {_wpe0}")
 

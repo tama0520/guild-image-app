@@ -105,6 +105,18 @@ _WEEKDAY_JP = ("月", "火", "水", "木", "金", "土", "日")
 FN_JUGGLER = "ジャグラーシリーズ優秀台.jpg"
 FN_SONOTA  = "その他の優秀台ピックアップ.jpg"
 
+# ── その日のポスター（記事上部）────────────────────────────────────
+# ⑧実行時に output_dir へ書き出す結合済みポスター1枚のファイル名。
+# 複数枚アップロードされても **横結合して常に1枚** にする。
+# 本文では optional 扱いで、無ければブロックごと出さない（送信は中止しない）。
+POSTER_FN = "_wp_poster.jpg"
+# 保存設定は分割片と同じ q95 / 4:4:4。**_SPLIT_QUALITY 等とは別定数**（用途が違う）。
+POSTER_QUALITY = 95
+POSTER_SUBSAMPLING = 0
+
+# X (旧Twitter) の URL を後から手で貼るための空段落の数。
+X_EMPTY_PARAS = 3
+
 _CIRCLE_TO_ASCII = {
     "⓪": "0", "①": "1", "②": "2", "③": "3", "④": "4", "⑤": "5",
     "⑥": "6", "⑦": "7", "⑧": "8", "⑨": "9", "⑩": "10", "⑪": "11",
@@ -365,6 +377,83 @@ def split_image_for_wp(path: str, out_dir: str,
         return parts
 
 
+def build_poster(paths: "list[str]", out_dir: str,
+                 max_side: int = WP_MAX_SIDE) -> "dict | None":
+    """その日のポスターを **常に1枚** の JPEG (`POSTER_FN`) として書き出す。
+
+    - 1枚 … リサイズせずそのまま JPEG 化する。
+    - 2枚以上 … **最も小さい高さへ全画像を縮小**（アスペクト比維持・クロップなし・
+      余白なし・`Image.LANCZOS`）して **横一列に結合**する。
+    - 結合後の幅が `max_side` を超えるときだけ、全体をアスペクト比維持で縮める。
+      **`WP_MAX_SIDE` の値そのものは変更しない**（参照するだけ）。
+    - PNG などの透過は **白背景へ合成**してから JPEG 化する。
+    - 保存は `POSTER_QUALITY`(95) / `POSTER_SUBSAMPLING`(0 = 4:4:4)。
+
+    既存の長尺画像分割（`split_image_for_wp`）とは**別用途で、互いに無関係**。
+    戻り値: {"path","file","w","h","bytes","count"} ／ 入力が空なら None。
+    """
+    from PIL import Image
+
+    paths = [p for p in (paths or []) if p and os.path.isfile(p)]
+    if not paths:
+        return None
+
+    def _flat(im):
+        """透過を白背景へ合成して RGB にする。"""
+        if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
+            base = Image.new("RGB", im.size, (255, 255, 255))
+            rgba = im.convert("RGBA")
+            base.paste(rgba, mask=rgba.split()[-1])
+            return base
+        return im.convert("RGB")
+
+    imgs = []
+    try:
+        for fp in paths:
+            with Image.open(fp) as im:
+                im.load()
+                imgs.append(_flat(im))
+
+        if len(imgs) == 1:
+            canvas = imgs[0]
+        else:
+            # 最も小さい高さへ統一（拡大はしない＝画質劣化を避ける）
+            th = min(im.height for im in imgs)
+            resized = []
+            for im in imgs:
+                if im.height == th:
+                    resized.append(im)
+                else:
+                    nw = max(1, int(round(im.width * th / im.height)))
+                    resized.append(im.resize((nw, th), Image.LANCZOS))
+            total_w = sum(im.width for im in resized)
+            canvas = Image.new("RGB", (total_w, th), (255, 255, 255))
+            x = 0
+            for im in resized:      # 余白なしで横一列に連結
+                canvas.paste(im, (x, 0))
+                x += im.width
+
+        # サイト側の縮小（長辺 > max_side）を避けるため、自前で高品質に縮める
+        if max(canvas.size) > max_side:
+            sc = max_side / float(max(canvas.size))
+            canvas = canvas.resize((max(1, int(canvas.width * sc)),
+                                    max(1, int(canvas.height * sc))), Image.LANCZOS)
+
+        os.makedirs(out_dir, exist_ok=True)
+        out = os.path.join(out_dir, POSTER_FN)
+        canvas.save(out, "JPEG", quality=POSTER_QUALITY,
+                    subsampling=POSTER_SUBSAMPLING)
+        return {"path": out, "file": POSTER_FN, "w": canvas.width,
+                "h": canvas.height, "bytes": os.path.getsize(out),
+                "count": len(paths)}
+    finally:
+        for im in imgs:
+            try:
+                im.close()
+            except Exception:
+                pass
+
+
 def wp_stored_width(w: int, h: int, max_side: int = WP_MAX_SIDE) -> int:
     """WordPress保存後の推定幅（長辺 max_side への縮小を再現）。"""
     longest = max(w, h)
@@ -404,6 +493,38 @@ def blk_image(media_id: int, src: str, join: bool = False) -> str:
             f'<figure class="wp-block-image size-full">'
             f'<img src="{src}" alt="" class="wp-image-{media_id}"/></figure>\n'
             '<!-- /wp:image -->')
+
+
+def _split_para(text) -> "list[str]":
+    """記事上部の入力テキストを段落リストへ分解する。
+
+    空行は段落の区切りとして捨て、各行を1段落にする。
+    未入力・空白のみなら空リスト（＝ブロックを出力しない）。
+    """
+    if not text:
+        return []
+    return [ln.strip() for ln in str(text).replace("\r\n", "\n").split("\n")
+            if ln.strip()]
+
+
+def blk_para(text: str) -> str:
+    """通常の段落ブロック（記事上部の文章用）。装飾は付けない。"""
+    return ('<!-- wp:paragraph -->\n'
+            f'<p class="wp-block-paragraph">{text}</p>\n'
+            '<!-- /wp:paragraph -->')
+
+
+def blk_empty_para() -> str:
+    """空の段落ブロック。
+
+    Gutenberg 上で **クリックしてカーソルを置ける空行** になる。
+    ここへ X (旧Twitter) の URL を手で貼ると自動で埋め込みへ変換される。
+    `<br>` 連続・スペーサーブロック・`&nbsp;` は
+    「後から URL を貼る」用途に向かないため使わない（正式仕様）。
+    """
+    return ('<!-- wp:paragraph -->\n'
+            '<p class="wp-block-paragraph"></p>\n'
+            '<!-- /wp:paragraph -->')
 
 
 def blk_para_high(lines: list[str]) -> str:
@@ -495,6 +616,31 @@ def plan_blocks(payload: dict) -> list[dict]:
     """
     out_dir = payload.get("output_dir", "")
     plan: list[dict] = []
+
+    # ── 記事上部（2026-08-22 追加）──────────────────────────────────
+    # ①その日の見出し ②ポスター ③ポスター下文章 ④X貼付用の空段落×3 ⑤Xリンク下文章
+    # **すべて任意**。空欄・ポスター未アップロードならブロックごと出力しない。
+    # ★4項目（見出し／ポスター／ポスター下文章／Xリンク下文章）が **すべて空なら、
+    #   空段落×3 も含めて上部を1ブロックも出力しない**。この場合の本文は
+    #   記事上部の追加前とバイト単位で完全一致する（正式仕様）。
+    # ここより下（全台系以降）の構成は一切変更しない。
+    _top_h = str(payload.get("top_heading") or "").strip()
+    _top_p = _split_para(payload.get("top_text_poster"))
+    _top_x = _split_para(payload.get("top_text_x"))
+    _has_poster = bool(out_dir) and os.path.isfile(os.path.join(out_dir, POSTER_FN))
+    if _top_h or _has_poster or _top_p or _top_x:
+        if _top_h:
+            plan.append({"type": "h2", "text": _top_h})
+        if _has_poster:
+            plan.append({"type": "image", "file": POSTER_FN,
+                         "label": "その日のポスター", "optional": True})
+        for _ln in _top_p:
+            plan.append({"type": "para", "text": _ln})
+        # X (旧Twitter) の URL を後から手で貼るための空段落
+        for _ in range(X_EMPTY_PARAS):
+            plan.append({"type": "empty_para"})
+        for _ln in _top_x:
+            plan.append({"type": "para", "text": _ln})
 
     # ── 全台系: H2 →（H3 + 画像）× 機種数 ──
     zen = sorted(payload["zen_dai"], key=lambda x: -int(x.get("all_avg_diff", 0)))
@@ -623,6 +769,10 @@ def build_content(plan: list[dict], media_map: dict, site: str = "",
             out.append(blk_h2(item["text"]))
         elif t == "h3":
             out.append(blk_h3(item["text"]))
+        elif t == "para":
+            out.append(blk_para(item["text"]))
+        elif t == "empty_para":
+            out.append(blk_empty_para())
         elif t == "para_high":
             out.append(blk_para_high(item["lines"]))
         elif t == "para_juggler":

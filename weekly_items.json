@@ -19,7 +19,7 @@
           false,
           false,
           false,
-          false,
+          true,
           false
         ],
         [
@@ -46,7 +46,7 @@
           false,
           true,
           true,
-          false,
+          true,
           false
         ],
         [
@@ -187,16 +187,6 @@
       ],
       "machine_name": "東京喰種",
       "date_checks": {
-        "2026-08-15": [
-          false,
-          true,
-          true,
-          false,
-          false,
-          false,
-          false,
-          false
-        ],
         "2026-08-16": [
           false,
           false,
@@ -256,6 +246,16 @@
           true,
           false,
           false
+        ],
+        "2026-08-22": [
+          false,
+          false,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false
         ]
       },
       "blank_days": [
@@ -268,13 +268,13 @@
         false
       ],
       "blank_date_checks": {
-        "2026-08-15": false,
         "2026-08-16": false,
         "2026-08-17": false,
         "2026-08-18": false,
         "2026-08-19": false,
         "2026-08-20": false,
-        "2026-08-21": false
+        "2026-08-21": false,
+        "2026-08-22": false
       }
     },
     "t3": {
@@ -291,6 +291,9 @@
       "title": "週間オススメ ジャグラーシリーズ",
       "machine_name": "ジャグラー系",
       "cell_machines": {
+        "0,5": [
+          "マイジャグV"
+        ],
         "2,3": [
           "ミスジャグ"
         ],
@@ -323,6 +326,10 @@
         ],
         "4,4": [
           "マイジャグV"
+        ],
+        "4,5": [
+          "マイジャグV",
+          "ネオアイム"
         ],
         "5,4": [
           "対象台が2/2でプラス差枚"

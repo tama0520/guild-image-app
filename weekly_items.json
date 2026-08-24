@@ -14,7 +14,7 @@
       "title": "週間オススメ スマスロ北斗の拳",
       "checks": [
         [
-          true,
+          false,
           false,
           false,
           false,
@@ -23,7 +23,7 @@
           false
         ],
         [
-          false,
+          true,
           false,
           false,
           false,
@@ -291,6 +291,9 @@
       "title": "週間オススメ ジャグラーシリーズ",
       "machine_name": "ジャグラー系",
       "cell_machines": {
+        "2,0": [
+          "マイジャグV"
+        ],
         "4,0": [
           "マイジャグV",
           "ネオアイム"

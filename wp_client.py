@@ -92,6 +92,7 @@ BUTTON_TEXT = "店舗情報・過去の結果はコチラ"
 SPLIT_JOIN_CLASS = "u-mb-ctrl u-mb-0"
 
 _ARROW_R    = "&#x27a1;"   # ➡ U+27A1（raw ではHTML実体で保存されている）
+_ARROW_R2   = "&#x2192;"   # → U+2192（機種名H3専用。_ARROW_R は他関数で使用中のため別定数）
 _ARROW_TRI  = "&#x25b6;"   # ▶ U+25B6（同上）
 _SEP_TITLE  = "│"     # │ BOX DRAWINGS LIGHT VERTICAL（U+2502）
 _WAVE_BAN   = "〜"     # 〜 WAVE DASH（台番範囲の連結）
@@ -232,15 +233,19 @@ def ban_range_str(bans) -> str:
 
 
 def h3_zendai(item: dict) -> str:
-    """`戦国乙女4 (3/3台+） ➡平均 +5,317枚`（空白位置まで実測どおり）。
+    """`戦国乙女4(3/3台+)→平均+5,317枚`。
 
     **全台系・高配分・ジャグラーで共通に使う**。zen_dai_list と high_ratio_list は
     name / count / total / all_avg_diff を同じ意味で持つため、そのまま渡せる
     （自動 Step1:3165・手動②全台:14297・自動 Step3:3565・手動②優秀台:14322 で確認済み）。
     高配分用に別書式を作らないこと。
+
+    書式は 2026-08-24 に旧`戦国乙女4 (3/3台+） ➡平均 +5,317枚`から変更した（正式仕様）。
+    記事内で書式を混在させないため、**ジャグラーの個別高配分H3も同じ新表記**とする。
+    括弧は左右とも半角・スペースなし・矢印は `_ARROW_R2`（→ U+2192）。
     """
-    return (f"{item['name']} ({item['count']}/{item['total']}台+{_PAREN_R} "
-            f"{_ARROW_R}平均 {fmt_signed(item['all_avg_diff'])}枚")
+    return (f"{item['name']}({item['count']}/{item['total']}台+)"
+            f"{_ARROW_R2}平均{fmt_signed(item['all_avg_diff'])}枚")
 
 
 def line_high(item: dict) -> str:
@@ -656,6 +661,14 @@ def plan_blocks(payload: dict) -> list[dict]:
     #    修正1: 赤文字テキスト一覧は出力しない。
     #    修正2: 自動 `_高配分.jpg` と 手動 `（優秀台）.jpg` を生成経路で判別。
     high_imgs = _resolve_high_images(payload["high"], out_dir)
+    #    修正4(2026-08-24): 画像セット確定後に平均差枚の降順へ並べ替える。
+    #    H3と画像は同じ dict（entry/file）なので **セット単位**で動き、ズレは起きない。
+    #    手動/自動による優先順位は付けない（純粋に all_avg_diff のみ）。
+    #    Python の sorted() は安定ソートなので同値は現在の相対順を維持する。
+    #    キーの取り方は全台系（zen）と同じ .get("all_avg_diff", 0)。
+    #    _resolve_high_images() の解決ロジック・手動/自動判定には触れない。
+    high_imgs = sorted(high_imgs,
+                       key=lambda h: -int(h["entry"].get("all_avg_diff", 0)))
     if high_imgs:
         plan.append({"type": "h2", "text": H2_HIGH})
         for h in high_imgs:

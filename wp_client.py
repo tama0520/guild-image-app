@@ -92,8 +92,8 @@ BUTTON_TEXT = "店舗情報・過去の結果はコチラ"
 SPLIT_JOIN_CLASS = "u-mb-ctrl u-mb-0"
 
 _ARROW_R    = "&#x27a1;"   # ➡ U+27A1（raw ではHTML実体で保存されている）
-_ARROW_R2   = "&#x2192;"   # → U+2192（機種名H3専用。_ARROW_R は他関数で使用中のため別定数）
-_ARROW_TRI  = "&#x25b6;"   # ▶ U+25B6（同上）
+_ARROW_R2   = "&#x2192;"   # → U+2192（機種H3・並びH3で共用。_ARROW_R とは別定数）
+_ARROW_TRI  = "&#x25b6;"   # ▶ U+25B6（旧・並びH3用。2026-08-24 で未使用。定数は残す）
 _SEP_TITLE  = "│"     # │ BOX DRAWINGS LIGHT VERTICAL（U+2502）
 _WAVE_BAN   = "〜"     # 〜 WAVE DASH（台番範囲の連結）
 _TILDE_FW   = "～"     # ～ FULLWIDTH TILDE（並び画像の重複サフィックス）
@@ -208,9 +208,13 @@ def fmt_signed(n) -> str:
 
 
 def ban_range_str(bans) -> str:
-    """台番リスト → `2078番台〜2080番台・2187番台`。
+    """台番リスト → `2078〜2080+2187番台`（2026-08-24 正式仕様）。
 
-    連続する区間は `〜` でまとめ、飛び地は `・` で連結する（58109の実表記）。
+    連続する区間は `_WAVE_BAN`（〜 U+301C）でまとめ、**飛び地は半角 `+` で連結**する。
+    **「番台」は各区間へ付けず、括弧内の最後に1回だけ付ける**。
+    単独1台のみのときは `2187番台`。
+    旧表記 `2078番台〜2080番台・2187番台` へは戻さない（`・` を使わない）。
+    呼び出しは `h3_narabi()` の1箇所のみ。
     """
     bs = sorted(int(b) for b in bans)
     if not bs:
@@ -226,10 +230,10 @@ def ban_range_str(bans) -> str:
     parts = []
     for r in runs:
         if len(r) >= 2:
-            parts.append(f"{r[0]}番台{_WAVE_BAN}{r[-1]}番台")
+            parts.append(f"{r[0]}{_WAVE_BAN}{r[-1]}")
         else:
-            parts.append(f"{r[0]}番台")
-    return "・".join(parts)
+            parts.append(f"{r[0]}")
+    return "+".join(parts) + "番台"
 
 
 def h3_zendai(item: dict) -> str:
@@ -268,13 +272,23 @@ def line_high(item: dict) -> str:
 
 
 def h3_narabi(item: dict) -> str:
-    """`【3台並び】2025番台〜2027番台 かぐや様▶平均+7,533枚`。
+    """`【3台並び】かぐや様(2025〜2027番台)→平均+7,533枚`（2026-08-24 正式仕様）。
 
     「列」の自動判定はしない（正式仕様）。常に【N台並び】。
     機種名はアプリ保持のものをそのまま使う（逆変換しない）。
+    複数機種にまたがる並びの `machine`（`A+B` / `A～Z`）も**そのまま**置く。
+
+    書式は旧`【3台並び】2025番台〜2027番台 かぐや様▶平均+7,533枚`から変更した。
+    機種名を台番より前へ出し、台番は半角括弧で囲む。機種名と `(` の間・
+    `)` の直後・`→平均` の前後にスペースを入れない。矢印は `_ARROW_R2`（→ U+2192）。
+    **`_ARROW_TRI`（▶）はこの関数でのみ使っていたが未使用になった。定数は残す。**
+
+    **平均差枚がマイナスでも `→平均-○枚` を表示する。**
+    `h3_zendai()` のマイナス非表示仕様（`9c83eef`）は**並びへ適用しない**。
     """
-    return (f"【{item['count']}台並び】{ban_range_str(item.get('bans') or [])} "
-            f"{item['machine']}{_ARROW_TRI}平均{fmt_signed(item['avg_diff'])}枚")
+    return (f"【{item['count']}台並び】{item['machine']}"
+            f"({ban_range_str(item.get('bans') or [])})"
+            f"{_ARROW_R2}平均{fmt_signed(item['avg_diff'])}枚")
 
 
 def build_title(date_obj, store: str = WP_STORE) -> str:

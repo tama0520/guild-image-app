@@ -4,8 +4,8 @@
       "items": [
         "チェリーが半分(高配分◎？)",
         "スイカが3等分(高配分○？)",
-        "キャラシルエット(いずれかのキャラに？)",
         "共闘バトル(並び？)",
+        "",
         "",
         "",
         "",
@@ -14,19 +14,10 @@
       "title": "週間オススメ スマスロ北斗の拳",
       "checks": [
         [
-          false,
-          false,
-          false,
-          false,
-          false,
-          true,
-          true
-        ],
-        [
           true,
           false,
           false,
-          true,
+          false,
           false,
           false,
           false
@@ -41,13 +32,22 @@
           false
         ],
         [
-          false,
           true,
           false,
-          true,
-          true,
-          true,
-          true
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
         ],
         [
           false,
@@ -86,12 +86,12 @@
           false
         ]
       ],
-      "start_date": "2026-08-17",
+      "start_date": "2026-08-24",
       "machine_name": "スマスロ北斗の拳",
       "blank_days": [
         false,
         false,
-        true,
+        false,
         false,
         false,
         false,
@@ -187,16 +187,6 @@
       ],
       "machine_name": "東京喰種",
       "date_checks": {
-        "2026-08-17": [
-          false,
-          true,
-          true,
-          true,
-          false,
-          true,
-          false,
-          false
-        ],
         "2026-08-18": [
           false,
           false,
@@ -256,6 +246,16 @@
           true,
           false,
           false
+        ],
+        "2026-08-24": [
+          false,
+          false,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false
         ]
       },
       "blank_days": [
@@ -268,13 +268,13 @@
         false
       ],
       "blank_date_checks": {
-        "2026-08-17": false,
         "2026-08-18": false,
         "2026-08-19": false,
         "2026-08-20": false,
         "2026-08-21": false,
         "2026-08-22": false,
-        "2026-08-23": false
+        "2026-08-23": false,
+        "2026-08-24": false
       }
     },
     "t3": {
@@ -285,68 +285,18 @@
         "キャラ全員集合(全台系!?)",
         "ジャグビー、ツノっち、コンたろ(並び!?)",
         "バーベルとらっぴ(前日より上げ!?)",
-        "トラッぴの背中(ちどり・1台ごとに仕掛け!?)",
+        "",
         ""
       ],
       "title": "週間オススメ ジャグラーシリーズ",
       "machine_name": "ジャグラー系",
       "cell_machines": {
-        "0,5": [
-          "マイジャグV"
-        ],
-        "1,6": [
-          "対象台が3/4でプラス差枚"
-        ],
-        "2,3": [
-          "ミスジャグ"
-        ],
-        "2,6": [
-          "ハピジャグV",
-          "ジャグラーガールズ"
-        ],
-        "3,3": [
-          "ジャグラーガールズ"
-        ],
         "4,0": [
           "マイジャグV",
-          "ネオアイム",
-          "ファンキー2",
-          "ゴージャグ3"
-        ],
-        "4,1": [
-          "マイジャグV",
-          "ネオアイム",
-          "ファンキー2",
-          "ゴージャグ3"
-        ],
-        "4,2": [
-          "マイジャグV",
-          "ネオアイム",
-          "ファンキー2",
-          "ゴージャグ3"
-        ],
-        "4,3": [
-          "マイジャグV",
-          "ネオアイム",
-          "ファンキー2",
-          "ゴージャグ3"
-        ],
-        "4,4": [
-          "マイジャグV"
-        ],
-        "4,5": [
-          "マイジャグV",
           "ネオアイム"
-        ],
-        "4,6": [
-          "マイジャグV",
-          "ネオアイム"
-        ],
-        "5,4": [
-          "対象台が2/2でプラス差枚"
         ]
       },
-      "start_date": "2026-08-17",
+      "start_date": "2026-08-24",
       "blank_days": [
         false,
         false,

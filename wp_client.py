@@ -243,9 +243,18 @@ def h3_zendai(item: dict) -> str:
     書式は 2026-08-24 に旧`戦国乙女4 (3/3台+） ➡平均 +5,317枚`から変更した（正式仕様）。
     記事内で書式を混在させないため、**ジャグラーの個別高配分H3も同じ新表記**とする。
     括弧は左右とも半角・スペースなし・矢印は `_ARROW_R2`（→ U+2192）。
+
+    **平均差枚がマイナスのときは `→平均…枚` を丸ごと出さない**（2026-08-24 正式仕様）。
+    0 は `→平均+0枚` と表示する（0以上は従来どおり）。これは**表示だけ**の仕様で、
+    plan_blocks() の降順ソートは実際の all_avg_diff を使い続ける
+    （マイナス機種を除外したり 0 として扱ったりしない）。
+    `int()` は fmt_signed() と同じ丸めにして、表示と分岐の判定をずらさないために掛ける。
     """
-    return (f"{item['name']}({item['count']}/{item['total']}台+)"
-            f"{_ARROW_R2}平均{fmt_signed(item['all_avg_diff'])}枚")
+    avg = int(item['all_avg_diff'])
+    base = f"{item['name']}({item['count']}/{item['total']}台+)"
+    if avg < 0:
+        return base
+    return f"{base}{_ARROW_R2}平均{fmt_signed(avg)}枚"
 
 
 def line_high(item: dict) -> str:

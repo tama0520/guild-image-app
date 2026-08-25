@@ -18249,7 +18249,7 @@
     "kojin_pick_bans_2_稲毛": ""
   },
   "20260824_渋谷新館_20S.xlsx": {
-    "kojin_enabled": false,
+    "kojin_enabled": true,
     "narabi_enabled": true,
     "narabi_ranges_input": "2001-2002,2225-2227,2183-2186,2209-2212,2113-2115,2102-2105,2094-2095,2030-2033,3118-3121,3171-3174",
     "suebangai_enabled": false,
@@ -18274,8 +18274,8 @@
     "kojin_z_9_渋谷新館": "",
     "kojin_z_10_渋谷新館": "",
     "kojin_z_11_渋谷新館": "",
-    "kojin_y_0_渋谷新館": "",
-    "kojin_y_1_渋谷新館": "",
+    "kojin_y_0_渋谷新館": "ヴァルヴレイヴ2",
+    "kojin_y_1_渋谷新館": "からくりサーカス2",
     "kojin_y_2_渋谷新館": "",
     "kojin_y_3_渋谷新館": "",
     "kojin_y_4_渋谷新館": "",
@@ -18326,7 +18326,7 @@
     "kojin_narabi_title_渋谷新館": "",
     "kojin_narabi2_range_渋谷新館": "",
     "kojin_narabi2_title_渋谷新館": "",
-    "sonota_extra_title_渋谷新館": "",
+    "sonota_extra_title_渋谷新館": "その他の優秀台ピックアップ",
     "sonota_extra_text_渋谷新館": "",
     "sonota_extra_auto_渋谷新館": "なし",
     "variety_enabled": false,

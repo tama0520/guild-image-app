@@ -6789,6 +6789,23 @@ def _render_unit_ex_panel(store: str, excel_stem: str, kind: str, machine: "str 
         st.caption(f"ℹ️ チェック変更後は「{apply_label}」を押すと反映されます")
 
 
+# 記事用④末尾のモード表示ラベル（【高田馬場】記事用のみ）。
+# 内部値・article_page_inputs.json の保存値は従来の「ピンクバー付き／なし」を維持し、
+# st.radio の format_func で表示だけを新名称にする（既存保存値との互換性を完全維持）。
+# 通常ページ（show_auto_page）の表記は変更しない。
+_ART_SUE_MODE_LABELS = {
+    "プラス台（ピンクバー付き）": "プラス台（平均差枚付き）",
+    "優秀台（ピンクバー付き）":   "優秀台（平均差枚付き）",
+    "プラス台（ピンクバーなし）": "プラス台（平均差枚なし）",
+    "優秀台（ピンクバーなし）":   "優秀台（平均差枚なし）",
+}
+
+
+def _art_sue_mode_label(v: str) -> str:
+    """記事用モードの表示名（内部値→表示名。未知の値はそのまま返す）。"""
+    return _ART_SUE_MODE_LABELS.get(v, v)
+
+
 def _art_sue_settings() -> "tuple[list[str], str, list[str], str]":
     """記事用④末尾の入力値を返す（⑦プレビュー・🔄更新・⑧本番で同じ値を使う）。
     戻り値: (通常末尾リスト, 通常モード, ジャグラー末尾リスト, ジャグラーモード)。
@@ -13175,87 +13192,9 @@ def show_auto_article_page() -> None:
                 if st.session_state.get("art_suebangai_mode") not in _a_sue_mode_opts:
                     st.session_state.pop("art_suebangai_mode", None)
                 st.radio("モード", _a_sue_mode_opts, key="art_suebangai_mode",
-                         horizontal=True, on_change=_save_article_inputs, args=(store,))
+                         horizontal=True, format_func=_art_sue_mode_label,
+                         on_change=_save_article_inputs, args=(store,))
 
-            # 既存の単発保存ボタン（末尾①を対象・従来どおりその場で保存/DL）
-            if _a_ti1.strip():
-                _sc1, _sc2 = st.columns(2)
-                with _sc1:
-                    sue_zentai = st.button("全台", key="art_sue_zentai_btn",
-                                           use_container_width=True, type="primary",
-                                           disabled=(uploaded is None))
-                with _sc2:
-                    sue_yushu = st.button("優秀台", key="art_sue_yushu_btn",
-                                          use_container_width=True, type="primary",
-                                          disabled=(uploaded is None))
-
-                if (sue_zentai or sue_yushu) and uploaded is not None:
-                    _tail = _a_ti1.strip()
-                    try:
-                        _raw = pd.read_excel(uploaded)
-                        uploaded.seek(0)
-                        _df_s, _ = normalize_df(_raw)
-                        nm_s, nm_norm_s = load_name_map()
-                        if nm_s:
-                            _df_s, _ = _apply_map(_df_s, nm_s, nm_norm_s)
-
-                        if _tail == "ゾロ目":
-                            _filtered = _df_s[_df_s["台番"].apply(
-                                lambda b: (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]
-                            )].copy()
-                            _base_label = "末尾ゾロ目の台"
-                        elif _tail.isdigit() and len(_tail) in (1, 2):
-                            _filtered = _df_s[_df_s["台番"].astype(str).str[-len(_tail):] == _tail].copy()
-                            _base_label = f"末尾{_tail}番台"
-                        else:
-                            st.error("❌ 末尾を正しく入力してください（例: 5、ゾロ目）。")
-                            _filtered = None
-                            _base_label = ""
-
-                        if _filtered is not None:
-                            if _filtered.empty:
-                                st.error(f"❌ {_base_label} の台が見つかりません。")
-                            else:
-                                if sue_yushu:
-                                    _filtered = _filtered[_filtered["差枚"] > 0].copy()
-                                    if _filtered.empty:
-                                        st.error(f"❌ {_base_label}でプラスの台がありません。")
-                                    else:
-                                        _img_title = f"{_base_label}の優秀台"
-                                        _stat = None
-                                else:
-                                    _img_title = _base_label
-                                    _stat = {
-                                        "total_diff":  int(_filtered["差枚"].sum()),
-                                        "avg_diff":    int(round(_filtered["差枚"].mean())),
-                                        "win_count":   int((_filtered["差枚"] > 0).sum()),
-                                        "total_count": len(_filtered),
-                                    }
-                                if not _filtered.empty:
-                                    with st.spinner("末尾画像を生成中..."):
-                                        _img_s = _build_machine_img(_filtered, _img_title, _stat)
-                                        st.image(_img_s, caption=_img_title, use_container_width=True)
-                                        if _IS_CLOUD:
-                                            _sue_buf = io.BytesIO()
-                                            _img_s.convert("RGB").save(_sue_buf, format="JPEG", quality=85)
-                                            st.download_button(
-                                                "📥 ダウンロード",
-                                                _sue_buf.getvalue(),
-                                                f"{_make_safe_fn(_img_title)}.jpg",
-                                                "image/jpeg",
-                                                key=f"sue_dl_{_img_title[:10]}",
-                                            )
-                                        else:
-                                            _stem_s   = os.path.splitext(uploaded.name)[0].replace("_20S", "")
-                                            _out_dir  = os.path.join(_DESKTOP, _stem_s)
-                                            os.makedirs(_out_dir, exist_ok=True)
-                                            _save_path = os.path.join(_out_dir, f"{_make_safe_fn(_img_title)}.jpg")
-                                            _save_jpeg(_img_s, _save_path)
-                                            st.success(f"✅ `{_save_path}` に保存しました")
-                    except Exception as _e:
-                        st.error(f"❌ エラー: {_e}")
-                        with st.expander("詳細"):
-                            st.code(traceback.format_exc())
             if not _a_sue_tails_ui:
                 st.info("末尾を入力してください。")
 
@@ -13285,7 +13224,8 @@ def show_auto_article_page() -> None:
                 if st.session_state.get("art_jug_sue_mode") not in _a_jug_mode_opts:
                     st.session_state.pop("art_jug_sue_mode", None)
                 st.radio("モード（ジャグラー）", _a_jug_mode_opts, key="art_jug_sue_mode",
-                         horizontal=True, on_change=_save_article_inputs, args=(store,))
+                         horizontal=True, format_func=_art_sue_mode_label,
+                         on_change=_save_article_inputs, args=(store,))
             else:
                 st.info("末尾を入力してください。")
 
@@ -13649,7 +13589,7 @@ def show_auto_article_page() -> None:
                                         if not _avdf.empty:   # 全台除外 → 画像を作らない
                                             _art_pil.append((_art_var_fn,
                                                              _build_machine_img(
-                                                                 _avdf, _avtit, _avstat,
+                                                                 _avdf, _avtit, _avstat, no_bar=True,
                                                                  hq_scale=_art_hq_scale_for(_art_var_fn, store, len(_avdf)))))
                                             # スランプ合成用: 表に掲載された最終台番（表示順・重複/NaN除去）
                                             _art_var_bans = list(dict.fromkeys(
@@ -14579,7 +14519,7 @@ def show_auto_article_page() -> None:
                                 else:
                                     _art_var_fn_e = _avfn_e
                                     _save_jpeg(_build_machine_img(
-                                        _avf, _avtit_e, _avstat_e,
+                                        _avf, _avtit_e, _avstat_e, no_bar=True,
                                         hq_scale=_art_hq_scale_for(_avfn_e, store, len(_avf))), _avout_e)
                                     result["files"].append(_avout_e)
                                     # スランプ合成用: 表に掲載された最終台番（表示順・重複/NaN除去）

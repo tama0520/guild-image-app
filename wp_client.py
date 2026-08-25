@@ -89,6 +89,13 @@ H2_SONOTA   = "その他単品優秀台も多数"
 H2_SHIMAZU  = "シマズをチェック！"
 BUTTON_TEXT = "店舗情報・過去の結果はコチラ"
 
+# 機種H3の接頭辞（2026-08-25 追加）。**全台系と高配分だけ**に付ける。
+# `h3_zendai()` は全台系・高配分・ジャグラー個別高配分の3箇所で共用しているため、
+# **関数本体へ足さず呼び出し側で連結する**（ジャグラーへ波及させないため）。
+# 括弧は全角隅付き（U+3010 / U+3011）。**機種名との間にスペースを入れない。**
+H3_PREFIX_ZENDAI = "【全台系濃厚】"
+H3_PREFIX_HIGH   = "【高配分】"
+
 # 58963 実データで確認した「画像を隙間なく縦連結する」SWELLユーティリティクラス。
 # 連続画像群のうち **最後の1枚を除く全て** に付与する。
 SPLIT_JOIN_CLASS = "u-mb-ctrl u-mb-0"
@@ -697,7 +704,9 @@ def plan_blocks(payload: dict) -> list[dict]:
     if zen:
         plan.append({"type": "h2", "text": H2_ZENDAI})
         for it in zen:
-            plan.append({"type": "h3", "text": h3_zendai(it)})
+            # 接頭辞のみ付ける。h3_zendai() 本体は変更しない
+            # （マイナス平均の非表示・0の +0枚・_ARROW_R2・fmt_signed をそのまま維持）。
+            plan.append({"type": "h3", "text": H3_PREFIX_ZENDAI + h3_zendai(it)})
             plan.append({"type": "image",
                          "file": f"{app_safe_fn(it['name'])}.jpg",
                          "label": f"全台系 {it['name']}"})
@@ -719,7 +728,8 @@ def plan_blocks(payload: dict) -> list[dict]:
         for h in high_imgs:
             # 全台系とまったく同じ h3_zendai() を流用する（新書式は作らない）。
             # 自動・手動どちらも high_ratio_list の name/count/total/all_avg_diff を使う。
-            plan.append({"type": "h3", "text": h3_zendai(h["entry"])})
+            # 接頭辞のみ付ける（ジャグラー個別高配分には付けない）。
+            plan.append({"type": "h3", "text": H3_PREFIX_HIGH + h3_zendai(h["entry"])})
             plan.append({"type": "image", "file": h["file"],
                          "label": ("手動高配分 " if h["manual"] else "自動高配分 ") + h["name"]})
 

@@ -15109,6 +15109,17 @@ def show_auto_article_page() -> None:
                         f"art_wp_top_text_poster_{store}", "")
                     _art_wp_pl["top_text_x"] = st.session_state.get(
                         f"art_wp_top_text_x_{store}", "")
+                    # ④末尾・⑥バラエティ（2026-08-25 追加）。
+                    # **⑧が実際に保存した正式画像のファイル名をそのまま渡す**
+                    # （wp_client 側でファイル名を再生成・再推測しない）。
+                    # 順序は _art_sue_ban_e の挿入順＝生成順
+                    # （通常末尾①②③ → ジャグラー末尾①②③）。新しいソートは掛けない。
+                    # 掲載台0台で画像を作らなかった末尾は除く。実ファイルの有無は
+                    # wp_client._existing_files() が最終判定する（H2ごと省略される）。
+                    _art_wp_pl["suebangai"] = [
+                        _fn for _fn, _bns in _art_sue_ban_e.items() if _bns]
+                    _art_wp_pl["variety"] = (
+                        [_art_var_fn_e] if _art_var_fn_e else [])
                     st.session_state[f"_art_wp_payload_{store}"] = _art_wp_pl
                 except Exception as _wpe0:
                     st.warning(f"WordPress用データの準備に失敗: {_wpe0}")

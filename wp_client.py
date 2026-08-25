@@ -82,7 +82,9 @@ _MCU = 8
 H2_ZENDAI   = "全台系濃厚機種が複数"
 H2_HIGH     = "1/2系以上の高配分機種が大量"
 H2_JUGGLER  = "ジャグからも高配分機種多数！"
+H2_SUEBANGAI = "末尾"
 H2_NARABI   = "並び・列仕掛けも！"
+H2_VARIETY  = "バラエティ"
 H2_SONOTA   = "その他単品優秀台も多数"
 H2_SHIMAZU  = "シマズをチェック！"
 BUTTON_TEXT = "店舗情報・過去の結果はコチラ"
@@ -608,6 +610,26 @@ def build_payload(*, store: str, output_dir: str, dir_stem: str, result: dict,
     }
 
 
+def _existing_files(files, output_dir: str) -> list[str]:
+    """ファイル名リストのうち **output_dir に実在するものだけ** を順序を保って返す。
+
+    末尾・バラエティのセクション判定に使う（2026-08-25 追加）。
+    payload が無い / None / 空でも例外を出さず [] を返す（旧 payload 互換）。
+    実ファイルが1枚も無ければ呼び出し側が H2 ごと出さないため、
+    「見出しだけ残る」状態にならない。**新しいソートは掛けない**（生成順を維持）。
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for fn in (files or []):
+        fn = str(fn or "").strip()
+        if not fn or fn in seen:
+            continue
+        if output_dir and os.path.isfile(os.path.join(output_dir, fn)):
+            seen.add(fn)
+            out.append(fn)
+    return out
+
+
 def _resolve_high_images(entries: list[dict], output_dir: str) -> list[dict]:
     """高配分エントリ列 → 実在する画像の並び（機種単位で重複除去）。
 
@@ -701,6 +723,38 @@ def plan_blocks(payload: dict) -> list[dict]:
             plan.append({"type": "image", "file": h["file"],
                          "label": ("手動高配分 " if h["manual"] else "自動高配分 ") + h["name"]})
 
+    # ── 末尾: H2 → 画像 × 枚数（2026-08-25 追加）──
+    #    掲載順は **⑧の生成順そのまま**（通常末尾①②③ → ジャグラー末尾①②③）。
+    #    payload["suebangai"] は ⑧が実際に保存したファイル名のリストで、
+    #    ここで**新しいソートを掛けない**。ジャグラー末尾も同じ「末尾」へまとめる。
+    #    ★実ファイルが1枚も無ければ **H2ごと出さない**（見出しだけ残る状態を作らない）。
+    #      そのため optional は使わず、先に実在確認してから H2＋画像を足す。
+    sue_files = _existing_files(payload.get("suebangai"), out_dir)
+    if sue_files:
+        plan.append({"type": "h2", "text": H2_SUEBANGAI})
+        for fn in sue_files:
+            plan.append({"type": "image", "file": fn, "label": f"末尾 {fn}"})
+
+    # ── 並び: H2 →（H3 + 画像）× 並び数 ──
+    nami = payload["nami"]
+    if nami:
+        dup = {t for t, c in Counter(x["title"] for x in nami).items() if c > 1}
+        plan.append({"type": "h2", "text": H2_NARABI})
+        for it in nami:
+            plan.append({"type": "h3", "text": h3_narabi(it)})
+            plan.append({"type": "image",
+                         "file": narabi_file_name(it, dup),
+                         "label": f"並び {it['title']}"})
+
+    # ── バラエティ: H2 → 画像（2026-08-25 追加）──
+    #    ⑧は最大1枚（`バラエティ.jpg` / `バラエティの優秀台.jpg`）。
+    #    末尾と同じく **実ファイルが無ければ H2ごと出さない**。
+    var_files = _existing_files(payload.get("variety"), out_dir)
+    if var_files:
+        plan.append({"type": "h2", "text": H2_VARIETY})
+        for fn in var_files:
+            plan.append({"type": "image", "file": fn, "label": f"バラエティ {fn}"})
+
     # ── ジャグラー: H2 → 個別高配分画像（あれば）→ 統合画像 ──
     #    修正3: 青文字テキスト一覧は出力しない。
     jug_imgs = _resolve_high_images(payload["juggler"], out_dir)
@@ -714,17 +768,6 @@ def plan_blocks(payload: dict) -> list[dict]:
                                    else "自動高配分(ジャグ) ") + h["name"]})
         plan.append({"type": "image", "file": FN_JUGGLER,
                      "label": "ジャグラーシリーズ優秀台", "optional": True})
-
-    # ── 並び: H2 →（H3 + 画像）× 並び数 ──
-    nami = payload["nami"]
-    if nami:
-        dup = {t for t, c in Counter(x["title"] for x in nami).items() if c > 1}
-        plan.append({"type": "h2", "text": H2_NARABI})
-        for it in nami:
-            plan.append({"type": "h3", "text": h3_narabi(it)})
-            plan.append({"type": "image",
-                         "file": narabi_file_name(it, dup),
-                         "label": f"並び {it['title']}"})
 
     # ── その他単品: H2 → 画像1枚 ──
     plan.append({"type": "h2", "text": H2_SONOTA})

@@ -2925,6 +2925,59 @@ def _build_machine_img_no_bar(df_m: pd.DataFrame, hq_scale: float = 1.0) -> Imag
     ).convert("RGB")
 
 
+# 記事用（高田馬場）の高配分機種画像へ載せる細い青タイトルバー。
+# 対象は **自動高配分（{機種名}_高配分.jpg）と手動高配分（{機種名}（優秀台）.jpg）だけ**。
+# バラエティ・末尾・ジャグラー統合・その他優秀台統合・個別ピックアップ・全台系・並び・
+# 通常結果ポスト・他店舗へは適用しない（呼び出し側で4か所に限定する）。
+# 色・高さは完成イメージ（aaa.jpg）の実測値に合わせた:
+#   背景 #0080FF 単色（既存の濃紺 #264CA1 とは別色。グラデーションにしない）
+#   高さ = 表のデータ行と同じ ROW_H × (150/96) × hq → 等倍44px / 2倍88px
+#   （既存 _build_machine_img の BAR_H = w×73/950 のような太いバーにはしない）
+_ART_HIGH_BAR_TEXT   = "優秀台ピックアップ"
+_ART_HIGH_BAR_BG     = (0, 128, 255)     # #0080FF
+_ART_HIGH_BAR_FG     = (255, 255, 255)   # 白
+_ART_HIGH_BAR_FONT_R = 0.72              # フォントサイズ / バー高（aaa.jpg の文字高比 0.742 相当）
+
+
+def _art_high_title_bar(table_img: "Image.Image", hq_scale: float = 1.0) -> "Image.Image":
+    """表画像の**上端**へ細い青タイトルバー「優秀台ピックアップ」を足して返す（記事用高配分専用）。
+
+    * 幅は table_img と同じ（画像幅いっぱい）。**表本体は1px も変更しない。**
+    * 高さは表のデータ行と同じ round(ROW_H * 150/96 * hq)。バー分だけ画像が高くなる。
+    * 文字は白・水平中央・垂直中央。バーからはみ出す場合はフォントを縮めて収める。
+    * パネル合成は後段の `_apply_panel_to_table_img(crop_bar=False)` が
+      `_vstack_images(パネル, この画像)` で**上に積むだけ**なので、
+      パネルあり → [パネル][青バー][表]／パネルなし → [青バー][表] になる。
+      そのため**追加の分岐は不要**で、上下に余計な空白も入らない。
+    """
+    _hq   = hq_scale if hq_scale and hq_scale > 0 else 1.0
+    w     = table_img.width
+    bar_h = max(1, round(ROW_H * (150 / 96) * _hq))
+
+    bar = Image.new("RGB", (w, bar_h), _ART_HIGH_BAR_BG)
+    bd  = ImageDraw.Draw(bar)
+
+    _sz = max(1, round(bar_h * _ART_HIGH_BAR_FONT_R))
+    for _ in range(40):                       # バー内へ収まるまで縮める（通常は1回で確定）
+        font = load_font(_sz)
+        bb   = bd.textbbox((0, 0), _ART_HIGH_BAR_TEXT, font=font)
+        if (bb[2] - bb[0]) <= w - 8 and (bb[3] - bb[1]) <= bar_h - 2:
+            break
+        _sz -= 1
+        if _sz <= 1:
+            font = load_font(1)
+            bb   = bd.textbbox((0, 0), _ART_HIGH_BAR_TEXT, font=font)
+            break
+    tx = (w - (bb[2] - bb[0])) // 2 - bb[0]
+    ty = (bar_h - (bb[3] - bb[1])) // 2 - bb[1]
+    bd.text((tx, ty), _ART_HIGH_BAR_TEXT, fill=_ART_HIGH_BAR_FG, font=font)
+
+    out = Image.new("RGB", (w, bar_h + table_img.height), (255, 255, 255))
+    out.paste(bar, (0, 0))
+    out.paste(table_img.convert("RGB"), (0, bar_h))
+    return out
+
+
 def _build_article_machine_img(
     df_m: pd.DataFrame,
     machine_name: str,
@@ -3275,7 +3328,10 @@ def run_step2_juggler(
                 })
                 continue
             if article_mode:
-                img = _build_machine_img_no_bar(_img_j, hq_scale=_pipeline_hq(hq_scale, len(_img_j)))
+                # 記事用の高配分は表の上へ細い青タイトルバー「優秀台ピックアップ」を載せる
+                img = _art_high_title_bar(
+                    _build_machine_img_no_bar(_img_j, hq_scale=_pipeline_hq(hq_scale, len(_img_j))),
+                    hq_scale=_pipeline_hq(hq_scale, len(_img_j)))
             else:
                 img = _build_machine_img(_img_j, machine.replace('･', '・') + "（優秀台）", None)
             out   = os.path.join(output_dir, f"{_make_safe_fn(machine)}_高配分.jpg")
@@ -3556,7 +3612,10 @@ def run_step3_other(
                     })
                     continue
                 if article_mode:
-                    img = _build_machine_img_no_bar(_img_o, hq_scale=_pipeline_hq(hq_scale, len(_img_o)))
+                    # 記事用の高配分は表の上へ細い青タイトルバー「優秀台ピックアップ」を載せる
+                    img = _art_high_title_bar(
+                        _build_machine_img_no_bar(_img_o, hq_scale=_pipeline_hq(hq_scale, len(_img_o))),
+                        hq_scale=_pipeline_hq(hq_scale, len(_img_o)))
                 else:
                     img = _build_machine_img(_img_o, machine.replace('･', '・') + "（優秀台）", None)
                 out   = os.path.join(output_dir, f"{_make_safe_fn(machine)}_高配分.jpg")
@@ -13435,11 +13494,13 @@ def show_auto_article_page() -> None:
                                 else:
                                     _km, _kgp = _da
                                     _kti = f"{_km}（優秀台）"
-                                    # 記事用は青タイトルバーなし（最初から描画しない・cropは禁止）。
-                                    # Step2/Step3のarticle_mode・その他の優秀台と同じ _build_machine_img_no_bar を使う
-                                    _art_pil.append((f"{_kti}.jpg", _build_machine_img_no_bar(
-                                        _kgp,
-                                        hq_scale=_art_hq_scale_for(f"{_kti}.jpg", store, len(_kgp)))))
+                                    # 記事用では従来の太い青タイトルバーは描画しない（cropは禁止）。
+                                    # _build_machine_img_no_bar() で表を生成後、
+                                    # 細い「優秀台ピックアップ」バーを _art_high_title_bar() で後付けする。
+                                    _kyhq = _art_hq_scale_for(f"{_kti}.jpg", store, len(_kgp))
+                                    _art_pil.append((f"{_kti}.jpg", _art_high_title_bar(
+                                        _build_machine_img_no_bar(_kgp, hq_scale=_kyhq),
+                                        hq_scale=_kyhq)))
                                     # ban_map（スランプ合成）用: 除外後の掲載台番
                                     _art_ky_bans[f"{_kti}.jpg"] = [
                                         int(b) for b in _kgp["台番"].dropna()
@@ -14399,12 +14460,14 @@ def show_auto_article_page() -> None:
                                 os.remove(_kout)
                             _log(f"  個別(優秀台)「{_km}」: 掲載台が0台のため画像なし")
                             continue
-                        # 記事用は青タイトルバーなし（最初から描画しない・cropは禁止）。
-                        # Step2/Step3のarticle_mode・その他の優秀台と同じ _build_machine_img_no_bar を使う
-                        _kimg   = _build_machine_img_no_bar(
-                            _kgrp_p,
-                            hq_scale=_art_hq_scale_for(f"{_make_safe_fn(_km)}（優秀台）.jpg",
-                                                       store, len(_kgrp_p)))
+                        # 記事用では従来の太い青タイトルバーは描画しない（cropは禁止）。
+                        # _build_machine_img_no_bar() で表を生成後、
+                        # 細い「優秀台ピックアップ」バーを _art_high_title_bar() で後付けする。
+                        _kyhq_e = _art_hq_scale_for(f"{_make_safe_fn(_km)}（優秀台）.jpg",
+                                                    store, len(_kgrp_p))
+                        _kimg   = _art_high_title_bar(
+                            _build_machine_img_no_bar(_kgrp_p, hq_scale=_kyhq_e),
+                            hq_scale=_kyhq_e)
                         _save_jpeg(_kimg, _kout)
                         result["files"].append(_kout)
                         _art_ky_bans_e[f"{_make_safe_fn(_km)}（優秀台）.jpg"] = [

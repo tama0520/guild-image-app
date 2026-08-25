@@ -90,7 +90,7 @@
       "machine_name": "スマスロ北斗の拳",
       "blank_days": [
         false,
-        false,
+        true,
         false,
         false,
         false,
@@ -187,16 +187,6 @@
       ],
       "machine_name": "東京喰種",
       "date_checks": {
-        "2026-08-18": [
-          false,
-          false,
-          false,
-          false,
-          false,
-          true,
-          false,
-          false
-        ],
         "2026-08-19": [
           false,
           false,
@@ -256,6 +246,16 @@
           true,
           false,
           false
+        ],
+        "2026-08-25": [
+          false,
+          false,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false
         ]
       },
       "blank_days": [
@@ -268,13 +268,13 @@
         false
       ],
       "blank_date_checks": {
-        "2026-08-18": false,
         "2026-08-19": false,
         "2026-08-20": false,
         "2026-08-21": false,
         "2026-08-22": false,
         "2026-08-23": false,
-        "2026-08-24": false
+        "2026-08-24": false,
+        "2026-08-25": false
       }
     },
     "t3": {
@@ -294,9 +294,21 @@
         "2,0": [
           "マイジャグV"
         ],
+        "2,1": [
+          "ネオアイム"
+        ],
+        "3,1": [
+          "ハピジャグV"
+        ],
         "4,0": [
           "マイジャグV",
           "ネオアイム"
+        ],
+        "4,1": [
+          "マイジャグV",
+          "ネオアイム",
+          "ファンキー2",
+          "ゴージャグ3"
         ]
       },
       "start_date": "2026-08-24",

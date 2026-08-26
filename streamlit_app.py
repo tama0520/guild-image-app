@@ -17385,9 +17385,21 @@ def show_rote_page() -> None:
                                 [st.session_state.get(f"weekly_ck_{store}_t{_wtn}_{_wi}_{_wj}", False) for _wj in range(_wt_n_cols)]
                                 for _wi in range(_WEEKLY_N_ITEMS)
                             ]
-                            if store == "上野本館" and _wtn in (2, 4, 5):
-                                _wt_blank_dc = _load_weekly_blank_date_checks(store, _wtn)
-                                _wt_blank = [_wt_blank_dc.get((_wt_start + datetime.timedelta(days=_wj)).isoformat(), False) for _wj in range(_wt_n_cols)]
+                            if _wtn in (2, 4, 5):
+                                # 月間表は日付キー方式（blank_date_checks）を優先して読む。
+                                # 位置配列 blank_days は、UI が位置配列モードで保存した
+                                # 旧経路（Excel日付なし・上野本館以外）のフォールバックのみに使う
+                                # （上野本館は常に日付キーモードのため従来と完全に同一）。
+                                _wt_blank_dc  = _load_weekly_blank_date_checks(store, _wtn)
+                                _wt_blank_pos = (_load_weekly_blank_days(store, _wtn)
+                                                 if (_rd is None and store != "上野本館") else [])
+                                _wt_blank = [
+                                    _wt_blank_dc.get(
+                                        (_wt_start + datetime.timedelta(days=_wj)).isoformat(),
+                                        _wt_blank_pos[_wj] if _wj < len(_wt_blank_pos) else False,
+                                    )
+                                    for _wj in range(_wt_n_cols)
+                                ]
                             else:
                                 _wt_blank = _load_weekly_blank_days(store, _wtn)
                             _wt_checks = [

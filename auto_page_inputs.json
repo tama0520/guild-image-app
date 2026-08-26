@@ -18523,8 +18523,8 @@
   },
   "20260825_高田馬場_20S.xlsx": {
     "kojin_enabled": true,
-    "narabi_enabled": false,
-    "narabi_ranges_input": "",
+    "narabi_enabled": true,
+    "narabi_ranges_input": "ﾏｲｼﾞｬｸﾞﾗｰV　　　 3002-3009\nﾈｵｱｲﾑｼﾞｬｸﾞﾗｰEX   3040-3042\nｺﾞｰｺﾞｰｼﾞｬｸﾞﾗｰ3   3065-3067",
     "suebangai_enabled": false,
     "suebangai_tail_input_1": "",
     "suebangai_tail_input_2": "",

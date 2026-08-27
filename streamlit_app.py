@@ -7921,6 +7921,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     nm_s, nm_norm_s = load_name_map()
                                     if nm_s:
                                         _df_s, _ = _apply_map(_df_s, nm_s, nm_norm_s)
+                                    # 差枚補正。_build_sue_images と同じ形で1回だけ適用する
+                                    # （④プレビュー画像は⑧本番でそのまま保存されるため、
+                                    #   ここで補正しないと結果テキストと平均差枚がずれる）。
+                                    if "差枚" in _df_s.columns:
+                                        _df_s["差枚"] = _df_s["差枚"].apply(_pipeline_calc_d)
                                     _sue_circle_map = {"0":"⓪","1":"①","2":"②","3":"③","4":"④",
                                                        "5":"⑤","6":"⑥","7":"⑦","8":"⑧","9":"⑨"}
                                     _sprev_list = []
@@ -8085,6 +8090,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _nm_j, _nm_norm_j = load_name_map()
                                     if _nm_j:
                                         _df_j, _ = _apply_map(_df_j, _nm_j, _nm_norm_j)
+                                    # 差枚補正。_build_sue_images と同じ形で1回だけ適用する
+                                    # （ゲーム数_rounded / 合算確率_num の計算より前。差枚以外は触らない）。
+                                    if "差枚" in _df_j.columns:
+                                        _df_j["差枚"] = _df_j["差枚"].apply(_pipeline_calc_d)
                                     _df_j["ゲーム数_rounded"] = _df_j["ゲーム数"].apply(round_games)
                                     _df_j["合算確率_num"] = _df_j.apply(
                                         lambda r: (r["ゲーム数_rounded"] / (r["BB"] + r["RB"])

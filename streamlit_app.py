@@ -6998,6 +6998,11 @@ def _build_sue_images(uploaded, store: str, tails, mode: str, is_juggler: bool =
         _nm_of, _nm_norm_of = load_name_map()
         if _nm_of:
             _df_of, _ = _apply_map(_df_of, _nm_of, _nm_norm_of)
+        # 差枚補正。run_auto_pipeline / ②個別プレビュー / ②個別⑧本番 / バラエティと
+        # まったく同じ形で適用し、末尾画像（表本体・ピンクバー・優秀台判定）を
+        # 結果テキスト（_compute_sue_stats_for が使う result["df"]）と同じ補正後差枚へそろえる。
+        if "差枚" in _df_of.columns:
+            _df_of["差枚"] = _df_of["差枚"].apply(_pipeline_calc_d)
         _circle_of = {"0":"⓪","1":"①","2":"②","3":"③","4":"④",
                       "5":"⑤","6":"⑥","7":"⑦","8":"⑧","9":"⑨"}
         if is_juggler:

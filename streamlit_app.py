@@ -5435,14 +5435,17 @@ def _kojin_default(excel_name: "str | None", store: str, key: str) -> str:
 # 今回は見出し・表示可否だけを変える骨格で、抽出・生成・保存処理はいっさい変更しない。
 _ART_STRUCT_V2_STORES = frozenset({"渋谷新館"})
 
-# 記事用⑥「オススメ機種の優秀台」を記入式で使う店舗。
-# 入力した機種のうち **②全台系・③高配分で画像化されなかった機種だけ**を
+# 記事用⑤「オススメ機種の優秀台」を記入式で使う店舗。
+# 入力した機種のうち **全台系・高配分で画像化されなかった機種だけ**を
 # _kojin_yushu_filter() で優秀台抽出し、機種ごとに1枚生成する。
 # 対象機種の決定に weekly_items.json（ローテ用の月間/週間オススメ表）は使わない。
 _ART_OSUSUME_STORES = frozenset({"渋谷新館"})
-# ⑥の入力枠数（3列×3段）。widget key は art_osusume_m_{i}_{store}。
-_ART_OSUSUME_COUNT = 9
-# ⑥のタイトルバー文言（③高配分の「優秀台ピックアップ」とは別文言にする）
+# ⑤は 6ブロック × 各6機種（3列×2段）。新小岩⑤（6ブロック×9枠）とは枠数が異なる。
+# widget key: art_osusume_title_{n}_{store} / art_osusume_m_{n}_{i}_{store}
+_ART_OSUSUME_BLOCKS    = 6
+_ART_OSUSUME_PER_BLOCK = 6
+# ⑤の画像タイトルバー文言（③高配分の「優秀台ピックアップ」とは別文言にする）。
+# ★ブロックタイトルは画像へ描かない。画像バーは常にこの固定文言。
 _ART_OSUSUME_BAR_TEXT = "オススメ機種の優秀台"
 
 _ART_SHARED_KEYS = (
@@ -5488,10 +5491,13 @@ def _article_input_keys(store: str) -> list[str]:
     ]
     for i in range(_KOJIN_PICK_COUNT):
         keys += [f"art_kojin_pick_title_{i}_{store}", f"art_kojin_pick_bans_{i}_{store}"]
-    # ⑥オススメ機種の優秀台（記入式・9枠）。店舗suffix付きなので
-    # _ART_SHARED_KEYS へは足さない（店舗間で混ざらない）。
-    for i in range(_ART_OSUSUME_COUNT):
-        keys += [f"art_osusume_m_{i}_{store}"]
+    # ⑤オススメ機種の優秀台（記入式・6ブロック×6機種＝タイトル6＋機種36）。
+    # 店舗suffix付きなので _ART_SHARED_KEYS へは足さない（店舗間で混ざらない）。
+    # 旧9枠キー art_osusume_m_{i}_{store} は正式対象から外した（JSONに残っていても無視）。
+    for _n in range(_ART_OSUSUME_BLOCKS):
+        keys += [f"art_osusume_title_{_n}_{store}"]
+        keys += [f"art_osusume_m_{_n}_{_i}_{store}"
+                 for _i in range(_ART_OSUSUME_PER_BLOCK)]
     return keys
 
 
@@ -6945,6 +6951,57 @@ _ART_SUE_MODE_LABELS = {
 def _art_sue_mode_label(v: str) -> str:
     """記事用モードの表示名（内部値→表示名。未知の値はそのまま返す）。"""
     return _ART_SUE_MODE_LABELS.get(v, v)
+
+
+def _art_osusume_collect(store: str) -> list[dict]:
+    """⑤オススメの入力を [{"title": str, "machines": [str×6]}, …×6] で返す。
+
+    session_state を読むだけ（保存はしない）。表示枠数と無関係に
+    常に 6ブロック × 6機種を読むので、折りたたみ等があっても値は落ちない。
+    ★ブロックタイトルは画像描画関数へ渡さない。将来のWordPress小見出し用。
+    """
+    _blocks: list[dict] = []
+    for _n in range(_ART_OSUSUME_BLOCKS):
+        _blocks.append({
+            "title": (st.session_state.get(f"art_osusume_title_{_n}_{store}", "") or "").strip(),
+            "machines": [(st.session_state.get(f"art_osusume_m_{_n}_{_i}_{store}", "") or "").strip()
+                         for _i in range(_ART_OSUSUME_PER_BLOCK)],
+        })
+    return _blocks
+
+
+def _art_osusume_flat(blocks: list[dict]) -> list[str]:
+    """ブロック → 機種名のフラットリスト（ブロック1→6、各ブロック機種1→6の順）。
+
+    重複除去・②③掲載済みの除外は filter_recommended_machines() が行うので
+    ここではしない（順序だけを確定させる）。"""
+    return [_m for _b in blocks for _m in _b.get("machines", []) if (_m or "").strip()]
+
+
+def _art_osusume_plan(blocks: list[dict], gen_fns: list[str]) -> list[dict]:
+    """生成された⑤画像を入力ブロックへ引き当てる（将来のWordPress payload用）。
+
+    gen_fns : 実際に生成できた画像のファイル名（_art_osusume_images の戻り値）
+    戻り値  : [{"title": str, "images": [ファイル名, …]}, …]
+      ・画像が1枚も無いブロックは含めない（全空欄ブロック＝完全無視）
+      ・タイトル空欄で機種ありのブロックは title="" のまま残す（H3なしで画像だけ）
+      ・同一機種が複数ブロックにあるときは最初のブロックにだけ入る
+    ※ここではファイル名を保持するだけで、送信・本文生成は行わない。
+    """
+    _left = list(gen_fns)
+    _plan: list[dict] = []
+    for _b in blocks:
+        _imgs: list[str] = []
+        for _m in _b.get("machines", []):
+            if not (_m or "").strip():
+                continue
+            _fn = f"{_make_safe_fn(_m.strip())}_オススメ優秀台.jpg"
+            if _fn in _left:                 # 後続ブロックの重複は引き当てない
+                _left.remove(_fn)
+                _imgs.append(_fn)
+        if _imgs:
+            _plan.append({"title": _b.get("title", ""), "images": _imgs})
+    return _plan
 
 
 def _art_osusume_images(machines, df, diff_raw, store: str,
@@ -13158,9 +13215,9 @@ def show_auto_article_page() -> None:
 
     # ── ② 全台系（表示のみ。抽出・生成は run_step1_main が自動で行う）──────
     # 設定UIは持たない（ON/OFFも無い）。記事の構成番号を1つ使うためだけの見出し。
-    if _art_v2:
-        st.markdown(f"### {_sec_num()} 全台系")
-        st.caption("条件に該当した機種を自動生成します。")
+    # ★渋谷新館（_art_v2）は「全台系」の独立見出しを表示しない。
+    #   自動全台系画像（run_step1_main / zen_dai_list）は従来どおり生成する。
+    #   記事へ載せたい全台機種は「高配分」内の②個別画像「全台」へ手動入力する。
 
     # ── ② 個別画像 ──────────────────────────────────────────────────
     kojin_zentai_machines: list[str] = []
@@ -13501,27 +13558,47 @@ def show_auto_article_page() -> None:
     # 入力値は article_page_inputs.json の日付単位保存（_article_input_keys へ登録済み）。
     # ②全台系・③高配分で画像化された機種は filter_recommended_machines() が
     # 機種単位で除外する（判定は⑦プレビュー・⑧本番で pipeline の結果を見て行う）。
+    art_osusume_blocks: list[dict] = []
     art_osusume_machines: list[str] = []
     if _art_v2 and store in _ART_OSUSUME_STORES:
         st.markdown(f"### {_sec_num()} オススメ機種の優秀台")
-        st.caption("②全台系・③高配分で掲載された機種は自動で除外します。")
+        st.caption("高配分で掲載された機種は自動で除外します。"
+                   "　ブロックタイトルは画像には描かれません（記事の小見出し用）。")
         _osu_cands = load_machine_candidates()
         _osu_excel = st.session_state.get("art_current_excel")
-        _osu_rows = [st.columns(3) for _ in range(3)]
-        for _i, _col in enumerate([c for row in _osu_rows for c in row]):
-            with _col:
-                _aos_key = f"art_osusume_m_{_i}_{store}"
-                render_machine_autocomplete_input(
-                    str(_i + 1), _aos_key, _osu_cands,
-                    default=_art_kojin_default(_osu_excel, store, _aos_key),
-                    on_change=_save_article_inputs, on_change_args=(store,))
-        art_osusume_machines = [st.session_state.get(f"art_osusume_m_{_i}_{store}", "")
-                                for _i in range(_ART_OSUSUME_COUNT)]
+        # 2列 × 3段でブロックを並べる（ブロック1・2／3・4／5・6）
+        for _row_top in range(0, _ART_OSUSUME_BLOCKS, 2):
+            _bcols = st.columns(2, gap="large")
+            for _bi, _bcol in enumerate(_bcols):
+                _n = _row_top + _bi
+                if _n >= _ART_OSUSUME_BLOCKS:
+                    continue
+                with _bcol:
+                    st.markdown(f"**ブロック{_n + 1}**")
+                    _ttl_key = f"art_osusume_title_{_n}_{store}"
+                    st.text_input(
+                        "タイトル（記事の小見出し用・画像には描かれません）",
+                        key=_ttl_key,
+                        value=_art_kojin_default(_osu_excel, store, _ttl_key),
+                        placeholder="例: 月間オススメ機種",
+                        on_change=_save_article_inputs, args=(store,))
+                    # 機種欄は 3列×2段
+                    _mrows = [st.columns(3) for _ in range(2)]
+                    for _i, _mcol in enumerate([c for r in _mrows for c in r]):
+                        with _mcol:
+                            _aos_key = f"art_osusume_m_{_n}_{_i}_{store}"
+                            render_machine_autocomplete_input(
+                                str(_i + 1), _aos_key, _osu_cands,
+                                default=_art_kojin_default(_osu_excel, store, _aos_key),
+                                on_change=_save_article_inputs, on_change_args=(store,))
+        art_osusume_blocks = _art_osusume_collect(store)
+        art_osusume_machines = _art_osusume_flat(art_osusume_blocks)
 
-    # ── ⑦⑧ プレースホルダー（表示のみ・機能は今後のStepで実装）──────
+    # ── ⑥ 差枚数ランキング＆島図（表示のみ・機能は今後のStepで実装）──
+    # ★「その他の優秀台」は独立見出しを表示しない。
+    #   その他の優秀台ピックアップ.jpg は run_step3_other() が自動生成する
+    #   （設定UI・ON/OFFなし。該当0台なら画像なし）。
     if _art_v2:
-        st.markdown(f"### {_sec_num()} その他の優秀台")
-        st.caption("現在は③内の既存機能を使用しています")
         st.markdown(f"### {_sec_num()} 差枚数ランキング＆島図")
         st.caption("今後実装予定")
 
@@ -13765,8 +13842,9 @@ def show_auto_article_page() -> None:
                                         exclude_state=_art_unit_state,
                                         exclude_kind="art_suebangai"):
                                     _art_pil.append((_sfn_pv, _simg_pv))
-                            # ⑥ オススメ機種の優秀台（渋谷新館・記入式）。末尾の後・その他の前。
-                            # ②③で画像化された機種は filter_recommended_machines が機種単位で外す。
+                            # ⑤ オススメ機種の優秀台（渋谷新館・記入式）。末尾の後・その他の前。
+                            # 全台系・高配分で画像化された機種は
+                            # filter_recommended_machines が機種単位で外す。
                             _art_osu_bans: dict[str, list[int]] = {}
                             if art_osusume_machines and any(m.strip() for m in art_osusume_machines):
                                 _osu_zen  = {it["name"] for it in _art_pr.get("zen_dai_list", [])}
@@ -13780,8 +13858,12 @@ def show_auto_article_page() -> None:
                                     hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0))
                                 for _ofn, _oimg in _osu_imgs:
                                     _art_pil.append((_ofn, _oimg))
+                                # ブロック→画像の対応（将来のWordPress H3用・送信はしない）
+                                _art_osu_plan = _art_osusume_plan(
+                                    art_osusume_blocks, [_f for _f, _ in _osu_imgs])
+                                st.session_state[f"_art_osu_plan_{store}"] = _art_osu_plan
                                 for _olog in _osu_logs:
-                                    st.caption(f"⑥ {_olog}")
+                                    st.caption(f"⑤ {_olog}")
                             # ④ ジャグラーシリーズ優秀台
                             if not _art_manual and "ジャグラーシリーズ優秀台.jpg" in _art_fpm:
                                 _art_pil.append(_art_fpm["ジャグラーシリーズ優秀台.jpg"])
@@ -14885,7 +14967,7 @@ def show_auto_article_page() -> None:
             _art_sue_done_t  = [_t for _t in _a_st_e if _t in set(_art_sue_done_t)]
             _art_sue_done_jt = [_t for _t in _a_jt_e if _t in set(_art_sue_done_jt)]
 
-            # ── ⑥ オススメ機種の優秀台（記事用・記入式）────────────────────
+            # ── ⑤ オススメ機種の優秀台（記事用・記入式）────────────────────
             # ⑦プレビューと同じ _art_osusume_images() を使う（判定・順序・画像仕様を共通化）。
             # ⑦その他の優秀台・ジャグラー統合の既存生成は変更しない（Step 10で扱う）。
             _art_osu_bans_e: dict[str, list[int]] = {}
@@ -14905,9 +14987,12 @@ def show_auto_article_page() -> None:
                     _oout_e = os.path.join(output_dir, _ofn_e)
                     _save_jpeg(_oimg_e, _oout_e)
                     result["files"].append(_oout_e)
-                    _log(f"  ⑥ {_ofn_e}（{len(_art_osu_bans_e.get(_ofn_e) or [])}台）")
+                    _log(f"  ⑤ {_ofn_e}（{len(_art_osu_bans_e.get(_ofn_e) or [])}台）")
+                # ブロック→画像の対応（将来のWordPress H3用・送信はしない）
+                st.session_state[f"_art_osu_plan_{store}"] = _art_osusume_plan(
+                    art_osusume_blocks, [_f for _f, _ in _osu_imgs_e])
                 for _olog_e in _osu_logs_e:
-                    _log(f"  ⑥ {_olog_e}")
+                    _log(f"  ⑤ {_olog_e}")
 
             # ── プレビューでチェックを外した画像を削除・再生成 ────────────
             _art_aprev_imgs = st.session_state.get(f"art_preview_imgs_{store}")

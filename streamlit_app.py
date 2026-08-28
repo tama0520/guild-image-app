@@ -2018,6 +2018,30 @@ def show_image_type_page() -> None:
                     use_container_width=True,
                 ):
                     _navigate("rote")
+            if store == "渋谷新館":
+                # 渋谷新館のみ記事用の入口を追加する（同じブランチの他4店舗には出さない）。
+                # 開くのは既存の show_auto_article_page()。記事の構成・抽出・WordPress は
+                # **店舗別仕様**なので、ここでは入口を通すだけで本体には手を入れない。
+                st.markdown(
+                    """<style>
+                    .st-key-auto_article_btn button {
+                        background-color: #7B1FA2 !important;
+                        border-color: #6A1B9A !important;
+                        color: white !important;
+                    }
+                    .st-key-auto_article_btn button:hover {
+                        background-color: #6A1B9A !important;
+                        border-color: #6A1B9A !important;
+                    }
+                    </style>""",
+                    unsafe_allow_html=True,
+                )
+                if st.button(
+                    "📰 記事用",
+                    key="auto_article_btn",
+                    use_container_width=True,
+                ):
+                    _navigate("auto_article")
         elif store in ("稲毛", "上野新館", "新小岩"):
             # 稲毛・上野新館・新小岩：結果ポスト用 ＋ スランプ付き結果ポスト
             st.markdown(

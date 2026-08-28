@@ -5425,6 +5425,12 @@ def _kojin_default(excel_name: "str | None", store: str, key: str) -> str:
 # _article_input_keys() へは足さない（保存仕様を変えないため）。
 # art_variety_mode は _article_input_keys() に無く store_settings 側の
 # seed が「キーが無いときだけ」効くので、ここに含めて店舗変更時に消す。
+# 記事用ページのセクション構成を「記事の並び（①〜⑧）」で採番する店舗。
+# 高田馬場・秋葉原は従来どおり（Excel・ポスター・…・プレビュー・実行を通し番号）。
+# 記事構成は店舗ごとに違うので、共通仕様にはせず**この集合に入れた店舗だけ**へ適用する。
+# 今回は見出し・表示可否だけを変える骨格で、抽出・生成・保存処理はいっさい変更しない。
+_ART_STRUCT_V2_STORES = frozenset({"渋谷新館"})
+
 _ART_SHARED_KEYS = (
     "art_kojin_enabled",
     "art_narabi_enabled",
@@ -12660,6 +12666,9 @@ def show_auto_article_page() -> None:
         st.session_state.pop("art_current_excel", None)
         st.session_state.pop("_art_prev_excel", None)
         st.session_state["_art_prev_store"] = store
+    # 記事の並び（①〜⑧）で採番する店舗か。True の店舗だけ Excel・プレビュー・実行が
+    # 番号を消費せず、①冒頭〜⑧ランキングが記事の構成番号になる。
+    _art_v2 = store in _ART_STRUCT_V2_STORES
     # セクション番号を動的採番（表示されたセクションだけ丸数字を消費・番号飛び防止）
     _CIRCLED_SEC = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫"
     _sec_state = {"n": 0}
@@ -12904,7 +12913,9 @@ def show_auto_article_page() -> None:
     st.markdown("---")
 
     # ── ① Excel アップロード ─────────────────────────────────────────
-    st.markdown(f"### {_sec_num()} Excelファイルをアップロード")
+    # 記事構成で採番する店舗では ⓪データ取得の補助入力なので番号を消費しない。
+    st.markdown("### 📄 Excelファイルをアップロード" if _art_v2
+                else f"### {_sec_num()} Excelファイルをアップロード")
     st.caption("ファイル名は `YYYYMMDD_店舗名_20S.xlsx` の形式を想定しています。")
     uploaded = st.file_uploader("xlsx を選択", type=["xlsx", "xls"], key="art_upload")
 
@@ -13020,7 +13031,7 @@ def show_auto_article_page() -> None:
     # （ウィジェットキーは stale widget GC で消えるため、日付を往復すると
     #   アップロード済みファイルが失われる）。
     # 画像は session_state のみ。JSON・Git へは保存しない（正式仕様）。
-    st.markdown(f"### {_sec_num()} ポスター画像")
+    st.markdown(f"### {_sec_num()} {'冒頭部分' if _art_v2 else 'ポスター画像'}")
     _art_excel_now = st.session_state.get("art_current_excel") or ""
     _poster_store_key = _art_poster_key(store, _art_excel_now)
     _poster_seen_key  = _art_poster_seen_key(store, _art_excel_now)
@@ -13086,6 +13097,12 @@ def show_auto_article_page() -> None:
     st.caption("Xの投稿URLは自動挿入しません。WordPress編集画面で、ポスター下文章と"
                "Xリンク下文章の間にできる**空段落3行**へ手で貼り付けてください。")
 
+    # ── ② 全台系（表示のみ。抽出・生成は run_step1_main が自動で行う）──────
+    # 設定UIは持たない（ON/OFFも無い）。記事の構成番号を1つ使うためだけの見出し。
+    if _art_v2:
+        st.markdown(f"### {_sec_num()} 全台系")
+        st.caption("条件に該当した機種を自動生成します。")
+
     # ── ② 個別画像 ──────────────────────────────────────────────────
     kojin_zentai_machines: list[str] = []
     kojin_yushu_machines:  list[str] = []
@@ -13096,7 +13113,7 @@ def show_auto_article_page() -> None:
     art_sonota_extra_title: str = ""
     art_sonota_extra_text: str = ""
     art_sonota_extra_auto: str = "なし"
-    st.markdown(f"### {_sec_num()} 個別画像")
+    st.markdown(f"### {_sec_num()} {'高配分' if _art_v2 else '個別画像'}")
     kojin_enabled = st.checkbox("個別画像も生成する", key="art_kojin_enabled",
                                 on_change=_save_article_enabled, args=(store,))
     if kojin_enabled:
@@ -13213,7 +13230,7 @@ def show_auto_article_page() -> None:
     narabi_ok     = False
     narabi_ranges: list[list[int]] = []
     if store in STORE_NARABI_SCRIPT:
-        st.markdown(f"### {_sec_num()} 並び画像")
+        st.markdown(f"### {_sec_num()} {'並び' if _art_v2 else '並び画像'}")
         narabi_enabled = st.checkbox("並び画像も生成する", key="art_narabi_enabled",
                                      on_change=_save_article_inputs, args=(store,))
         if narabi_enabled:
@@ -13310,7 +13327,7 @@ def show_auto_article_page() -> None:
 
     # ── ④ 末尾画像オプション ─────────────────────────────────────────
     if "末尾画像" in STORES.get(store, []):
-        st.markdown(f"### {_sec_num()} 末尾画像")
+        st.markdown(f"### {_sec_num()} {'末尾' if _art_v2 else '末尾画像'}")
         suebangai_enabled = st.checkbox("末尾画像も生成する", key="art_suebangai_enabled",
                                         on_change=_save_article_inputs, args=(store,))
         if suebangai_enabled:
@@ -13378,46 +13395,62 @@ def show_auto_article_page() -> None:
     art_variety_enabled: bool = False
     art_variety_ranges_text: str = ""
     art_variety_mode: str = "全台"
-    st.markdown(f"### {_sec_num()} バラエティ画像")
-    # 台番範囲・モードは店舗単位で store_settings から復元（日付をまたいで保持）。
-    _av_saved = load_store_settings(store)
-    _avr_key = f"art_variety_range_{store}"
-    if _avr_key not in st.session_state:
-        st.session_state[_avr_key] = _av_saved.get("art_variety_range", "")
-    if "art_variety_mode" not in st.session_state:
-        st.session_state["art_variety_mode"] = _av_saved.get("art_variety_mode", "全台")
-    # 使用有無（enabled）は店舗＋日付単位＝article_page_inputs.json の per-Excel 方式。
-    # 日付未確定の初期画面は False。日付ロード時は _restore_article_inputs が
-    # 現在Excel(日付)の保存値（未保存＝新規日付は False）を設定する。旧 store_settings の
-    # art_variety_enabled は参照しない。
-    if "art_variety_enabled" not in st.session_state:
-        st.session_state["art_variety_enabled"] = False
-    art_variety_enabled = st.checkbox("個別画像も生成する", key="art_variety_enabled",
-                                      on_change=_save_article_inputs, args=(store,))
-    # 台番欄・モードは checkbox の状態に関係なく毎run必ず生成（常時mount）する。
-    # checkbox で unmount すると remount 時にフロントエンドの空値が session/JSON を
-    # 上書きしてしまうため。OFF時は st-key-art_variety_box に display:none を当てて
-    # 「見た目だけ非表示」にする（DOMからは削除されないので値は保持される）。
-    if not art_variety_enabled:
-        st.markdown("<style>.st-key-art_variety_box{display:none !important;}</style>",
-                    unsafe_allow_html=True)
-    with st.container(key="art_variety_box"):
-        st.markdown("**バラエティの台番範囲**")
-        art_variety_ranges_text = st.text_input(
-            "台番範囲（例: 1-50）",
-            key=_avr_key,
-            placeholder="例: 1-50",
-            on_change=_save_art_variety, args=(store,),
-        )
-        art_variety_mode = st.radio(
-            "モード", ["全台", "+1,000枚以上の優秀台", "プラス台"],
-            key="art_variety_mode",
-            horizontal=True,
-            on_change=_save_art_variety, args=(store,),
-        )
+    # ★渋谷新館の記事構成にバラエティは含まれないため、この店舗では描画しない。
+    #   直前で初期化した art_variety_enabled=False / ranges=""/ mode="全台" が
+    #   そのまま下流（_art_vbans・variety_bans・⑦⑧）へ渡るので処理は無効のまま。
+    #   共通機能は削除しない（高田馬場・秋葉原は従来どおり表示する）。
+    if not _art_v2:
+        st.markdown(f"### {_sec_num()} バラエティ画像")
+        # 台番範囲・モードは店舗単位で store_settings から復元（日付をまたいで保持）。
+        _av_saved = load_store_settings(store)
+        _avr_key = f"art_variety_range_{store}"
+        if _avr_key not in st.session_state:
+            st.session_state[_avr_key] = _av_saved.get("art_variety_range", "")
+        if "art_variety_mode" not in st.session_state:
+            st.session_state["art_variety_mode"] = _av_saved.get("art_variety_mode", "全台")
+        # 使用有無（enabled）は店舗＋日付単位＝article_page_inputs.json の per-Excel 方式。
+        # 日付未確定の初期画面は False。日付ロード時は _restore_article_inputs が
+        # 現在Excel(日付)の保存値（未保存＝新規日付は False）を設定する。旧 store_settings の
+        # art_variety_enabled は参照しない。
+        if "art_variety_enabled" not in st.session_state:
+            st.session_state["art_variety_enabled"] = False
+        art_variety_enabled = st.checkbox("個別画像も生成する", key="art_variety_enabled",
+                                          on_change=_save_article_inputs, args=(store,))
+        # 台番欄・モードは checkbox の状態に関係なく毎run必ず生成（常時mount）する。
+        # checkbox で unmount すると remount 時にフロントエンドの空値が session/JSON を
+        # 上書きしてしまうため。OFF時は st-key-art_variety_box に display:none を当てて
+        # 「見た目だけ非表示」にする（DOMからは削除されないので値は保持される）。
+        if not art_variety_enabled:
+            st.markdown("<style>.st-key-art_variety_box{display:none !important;}</style>",
+                        unsafe_allow_html=True)
+        with st.container(key="art_variety_box"):
+            st.markdown("**バラエティの台番範囲**")
+            art_variety_ranges_text = st.text_input(
+                "台番範囲（例: 1-50）",
+                key=_avr_key,
+                placeholder="例: 1-50",
+                on_change=_save_art_variety, args=(store,),
+            )
+            art_variety_mode = st.radio(
+                "モード", ["全台", "+1,000枚以上の優秀台", "プラス台"],
+                key="art_variety_mode",
+                horizontal=True,
+                on_change=_save_art_variety, args=(store,),
+            )
+
+    # ── ⑥⑦⑧ プレースホルダー（表示のみ・機能は今後のStepで実装）──────
+    if _art_v2:
+        st.markdown(f"### {_sec_num()} オススメ機種の優秀台")
+        st.caption("今後実装予定")
+        st.markdown(f"### {_sec_num()} その他の優秀台")
+        st.caption("現在は③内の既存機能を使用しています")
+        st.markdown(f"### {_sec_num()} 差枚数ランキング＆島図")
+        st.caption("今後実装予定")
 
     # ── ⑤ プレビュー ────────────────────────────────────────────────
-    st.markdown(f"### {_sec_num()} プレビュー")
+    # 記事構成で採番する店舗では、プレビュー・実行は記事の内容ではないので番号外。
+    st.markdown("### 🔍 プレビュー" if _art_v2
+                else f"### {_sec_num()} プレビュー")
     if uploaded is not None:
         _art_aprev_key       = f"art_preview_imgs_{store}"
         _art_aprev_fname_key = f"art_preview_fname_{store}"
@@ -14355,7 +14388,8 @@ def show_auto_article_page() -> None:
                     st.rerun()
 
     # ── ⑥ 実行ボタン ─────────────────────────────────────────────────
-    st.markdown(f"### {_sec_num()} 実行")
+    st.markdown("### ▶▶ 自動処理を開始" if _art_v2
+                else f"### {_sec_num()} 実行")
     run_clicked = st.button(
         "▶▶ 自動処理を開始",
         type="primary",

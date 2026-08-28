@@ -5394,6 +5394,33 @@ def _kojin_default(excel_name: "str | None", store: str, key: str) -> str:
 
 # ── 記事用ページ入力値の永続化 ────────────────────────────────────────────────
 
+# 記事用ページで **店舗suffixを持たない** 共有データキー。
+# 店舗を切り替えたときにここへ前店舗の値が残ると、Excelをロードするまで
+# （＝_restore_article_inputs が走るまで）新しい店舗の画面へ前店舗の
+# チェック状態・末尾番号・モードがそのまま表示される。
+# _article_input_keys() へは足さない（保存仕様を変えないため）。
+# art_variety_mode は _article_input_keys() に無く store_settings 側の
+# seed が「キーが無いときだけ」効くので、ここに含めて店舗変更時に消す。
+_ART_SHARED_KEYS = (
+    "art_kojin_enabled",
+    "art_narabi_enabled",
+    "art_narabi_ranges_input",
+    "art_suebangai_enabled",
+    "art_suebangai_tail_input",
+    "art_suebangai_tail_input_1",
+    "art_suebangai_tail_input_2",
+    "art_suebangai_tail_input_3",
+    "art_suebangai_mode",
+    "art_jug_sue_enabled",
+    "art_jug_sue_mode",
+    "art_jug_sue_tail_input_1",
+    "art_jug_sue_tail_input_2",
+    "art_jug_sue_tail_input_3",
+    "art_variety_enabled",
+    "art_variety_mode",
+)
+
+
 def _article_input_keys(store: str) -> list[str]:
     keys = ["art_kojin_enabled", "art_narabi_enabled", "art_narabi_ranges_input",
             "art_suebangai_enabled", "art_suebangai_tail_input",
@@ -5453,7 +5480,14 @@ def _save_article_inputs(store: str, skip_kojin: bool = False) -> None:
     として常駐し、②が未描画の run でも「キーが存在し値が ''」になる。
     そのため②ONクリックの on_change（ウィジェット描画より前に走る）が
     保存済みの機種名を "" で潰していた。
+    ★店舗スコープのガード: 現在の記事用ページの店舗（_art_prev_store）と保存対象の
+    store が食い違うときは何も保存しない。店舗を切り替えた直後は art_current_excel が
+    まだ前店舗の Excel 名なので、そのまま保存すると **前店舗の日付エントリ** へ
+    別店舗のキーごと書き込んでしまう。
     """
+    _scope_store = st.session_state.get("_art_prev_store")
+    if _scope_store is not None and _scope_store != store:
+        return
     excel_name = st.session_state.get("art_current_excel")
     if not excel_name:
         return
@@ -12588,6 +12622,20 @@ def show_auto_page(with_slump: bool = False) -> None:
 def show_auto_article_page() -> None:
     """記事用 自動処理ページ（高田馬場専用）: ①～④ + 実行ボタン + 結果"""
     store = st.session_state.selected_store
+    # ── 店舗が変わったら店舗suffixの無い共有キーを捨てる ────────────────
+    # _restore_article_inputs() は「Excelがあり、かつExcel名が変わったとき」しか
+    # 走らないので、店舗を切り替えた直後（Excel未選択）は前店舗の値が残る。
+    # art_current_excel も残るため、そのまま保存すると前店舗のエントリを汚す。
+    # _art_prev_excel も消して、新しい店舗でExcelがロードされたときに
+    # restore が必ず走るようにする（別店舗で同名Excelを使った場合の保険）。
+    # ★art_upload は pop しない（ページ離脱時に stale widget GC が破棄することを
+    #   2026-08-28 に実機確認済み）。★ウィジェット描画より前に実行する。
+    if st.session_state.get("_art_prev_store") != store:
+        for _ask in _ART_SHARED_KEYS:
+            st.session_state.pop(_ask, None)
+        st.session_state.pop("art_current_excel", None)
+        st.session_state.pop("_art_prev_excel", None)
+        st.session_state["_art_prev_store"] = store
     # セクション番号を動的採番（表示されたセクションだけ丸数字を消費・番号飛び防止）
     _CIRCLED_SEC = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫"
     _sec_state = {"n": 0}

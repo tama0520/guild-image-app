@@ -2963,8 +2963,12 @@ _ART_HIGH_BAR_FG     = (255, 255, 255)   # 白
 _ART_HIGH_BAR_FONT_R = 0.72              # フォントサイズ / バー高（aaa.jpg の文字高比 0.742 相当）
 
 
-def _art_high_title_bar(table_img: "Image.Image", hq_scale: float = 1.0) -> "Image.Image":
-    """表画像の**上端**へ細い青タイトルバー「優秀台ピックアップ」を足して返す（記事用高配分専用）。
+def _art_high_title_bar(table_img: "Image.Image", hq_scale: float = 1.0,
+                        text: str = _ART_HIGH_BAR_TEXT) -> "Image.Image":
+    """表画像の**上端**へ細い青タイトルバーを足して返す（記事用の高配分・オススメ専用）。
+
+    * text 既定は「優秀台ピックアップ」（記事用高配分の正式文言・d5ba1bb）。
+      **既定値は変更しない。** 渋谷新館の⑥だけ "オススメ機種の優秀台" を渡す。
 
     * 幅は table_img と同じ（画像幅いっぱい）。**表本体は1px も変更しない。**
     * 高さは表のデータ行と同じ round(ROW_H * 150/96 * hq)。バー分だけ画像が高くなる。
@@ -2984,17 +2988,17 @@ def _art_high_title_bar(table_img: "Image.Image", hq_scale: float = 1.0) -> "Ima
     _sz = max(1, round(bar_h * _ART_HIGH_BAR_FONT_R))
     for _ in range(40):                       # バー内へ収まるまで縮める（通常は1回で確定）
         font = load_font(_sz)
-        bb   = bd.textbbox((0, 0), _ART_HIGH_BAR_TEXT, font=font)
+        bb   = bd.textbbox((0, 0), text, font=font)
         if (bb[2] - bb[0]) <= w - 8 and (bb[3] - bb[1]) <= bar_h - 2:
             break
         _sz -= 1
         if _sz <= 1:
             font = load_font(1)
-            bb   = bd.textbbox((0, 0), _ART_HIGH_BAR_TEXT, font=font)
+            bb   = bd.textbbox((0, 0), text, font=font)
             break
     tx = (w - (bb[2] - bb[0])) // 2 - bb[0]
     ty = (bar_h - (bb[3] - bb[1])) // 2 - bb[1]
-    bd.text((tx, ty), _ART_HIGH_BAR_TEXT, fill=_ART_HIGH_BAR_FG, font=font)
+    bd.text((tx, ty), text, fill=_ART_HIGH_BAR_FG, font=font)
 
     out = Image.new("RGB", (w, bar_h + table_img.height), (255, 255, 255))
     out.paste(bar, (0, 0))
@@ -5431,6 +5435,16 @@ def _kojin_default(excel_name: "str | None", store: str, key: str) -> str:
 # 今回は見出し・表示可否だけを変える骨格で、抽出・生成・保存処理はいっさい変更しない。
 _ART_STRUCT_V2_STORES = frozenset({"渋谷新館"})
 
+# 記事用⑥「オススメ機種の優秀台」を記入式で使う店舗。
+# 入力した機種のうち **②全台系・③高配分で画像化されなかった機種だけ**を
+# _kojin_yushu_filter() で優秀台抽出し、機種ごとに1枚生成する。
+# 対象機種の決定に weekly_items.json（ローテ用の月間/週間オススメ表）は使わない。
+_ART_OSUSUME_STORES = frozenset({"渋谷新館"})
+# ⑥の入力枠数（3列×3段）。widget key は art_osusume_m_{i}_{store}。
+_ART_OSUSUME_COUNT = 9
+# ⑥のタイトルバー文言（③高配分の「優秀台ピックアップ」とは別文言にする）
+_ART_OSUSUME_BAR_TEXT = "オススメ機種の優秀台"
+
 _ART_SHARED_KEYS = (
     "art_kojin_enabled",
     "art_narabi_enabled",
@@ -5474,6 +5488,10 @@ def _article_input_keys(store: str) -> list[str]:
     ]
     for i in range(_KOJIN_PICK_COUNT):
         keys += [f"art_kojin_pick_title_{i}_{store}", f"art_kojin_pick_bans_{i}_{store}"]
+    # ⑥オススメ機種の優秀台（記入式・9枠）。店舗suffix付きなので
+    # _ART_SHARED_KEYS へは足さない（店舗間で混ざらない）。
+    for i in range(_ART_OSUSUME_COUNT):
+        keys += [f"art_osusume_m_{i}_{store}"]
     return keys
 
 
@@ -6927,6 +6945,47 @@ _ART_SUE_MODE_LABELS = {
 def _art_sue_mode_label(v: str) -> str:
     """記事用モードの表示名（内部値→表示名。未知の値はそのまま返す）。"""
     return _ART_SUE_MODE_LABELS.get(v, v)
+
+
+def _art_osusume_images(machines, df, diff_raw, store: str,
+                        zen_names: set[str], high_names: set[str],
+                        hq_scale: float = 1.0):
+    """記事用⑥「オススメ機種の優秀台」の画像を作る（⑦プレビュー・⑧本番で共用）。
+
+    machines   : ⑥へ入力された機種名（入力順・空欄や重複を含んでよい）
+    zen_names  : ②全台系で画像化された機種名（zen_dai_list[].name ＋ ②個別「全台」）
+    high_names : ③高配分で画像化された機種名
+                 （high_ratio_list の **has_image=True のみ** ＋ ②個別「優秀台」）
+
+    ★機種単位のスキップは既存の filter_recommended_machines(ban_level=False) に任せる
+      （空欄・重複・Excel未存在・②③掲載済みをまとめて除外し、入力順を保つ）。
+    ★優秀台の抽出は既存の _kojin_yushu_filter()。新しい条件は作らない。
+    ★優秀台0台の機種は画像を作らない。
+    戻り値: ([(ファイル名, PIL画像)], {ファイル名: 掲載台番}, 除外ログ)
+    """
+    _imgs: list[tuple[str, "Image.Image"]] = []
+    _bans: dict[str, list[int]] = {}
+    if df is None or diff_raw is None:
+        return _imgs, _bans, []
+    _valid, _logs = filter_recommended_machines(
+        list(machines), df, zen_names, high_names, ban_level=False)
+    _cfg = get_store_config(store)
+    for _m in _valid:                      # filter_recommended_machines が入力順を維持する
+        _grp = df[df["機種名"] == _m].copy()
+        if _grp.empty:
+            continue
+        _dr = diff_raw.loc[_grp.index]
+        _sel = _kojin_yushu_filter(_m, _grp, _dr, _cfg).reset_index(drop=True)
+        if _sel.empty:
+            continue                       # 優秀台0台 → 画像を作らない
+        _hq = _pipeline_hq(hq_scale, len(_sel))
+        _fn = f"{_make_safe_fn(_m)}_オススメ優秀台.jpg"
+        _imgs.append((_fn, _art_high_title_bar(
+            _build_machine_img_no_bar(_sel, hq_scale=_hq),
+            hq_scale=_hq, text=_ART_OSUSUME_BAR_TEXT)))
+        _bans[_fn] = [int(b) for b in _sel["台番"].dropna()
+                      if str(b).split(".")[0].lstrip("-").isdigit()]
+    return _imgs, _bans, _logs
 
 
 def _art_sue_settings() -> "tuple[list[str], str, list[str], str]":
@@ -13438,10 +13497,29 @@ def show_auto_article_page() -> None:
                 on_change=_save_art_variety, args=(store,),
             )
 
-    # ── ⑥⑦⑧ プレースホルダー（表示のみ・機能は今後のStepで実装）──────
-    if _art_v2:
+    # ── ⑥ オススメ機種の優秀台（記入式・9枠）────────────────────────
+    # 入力値は article_page_inputs.json の日付単位保存（_article_input_keys へ登録済み）。
+    # ②全台系・③高配分で画像化された機種は filter_recommended_machines() が
+    # 機種単位で除外する（判定は⑦プレビュー・⑧本番で pipeline の結果を見て行う）。
+    art_osusume_machines: list[str] = []
+    if _art_v2 and store in _ART_OSUSUME_STORES:
         st.markdown(f"### {_sec_num()} オススメ機種の優秀台")
-        st.caption("今後実装予定")
+        st.caption("②全台系・③高配分で掲載された機種は自動で除外します。")
+        _osu_cands = load_machine_candidates()
+        _osu_excel = st.session_state.get("art_current_excel")
+        _osu_rows = [st.columns(3) for _ in range(3)]
+        for _i, _col in enumerate([c for row in _osu_rows for c in row]):
+            with _col:
+                _aos_key = f"art_osusume_m_{_i}_{store}"
+                render_machine_autocomplete_input(
+                    str(_i + 1), _aos_key, _osu_cands,
+                    default=_art_kojin_default(_osu_excel, store, _aos_key),
+                    on_change=_save_article_inputs, on_change_args=(store,))
+        art_osusume_machines = [st.session_state.get(f"art_osusume_m_{_i}_{store}", "")
+                                for _i in range(_ART_OSUSUME_COUNT)]
+
+    # ── ⑦⑧ プレースホルダー（表示のみ・機能は今後のStepで実装）──────
+    if _art_v2:
         st.markdown(f"### {_sec_num()} その他の優秀台")
         st.caption("現在は③内の既存機能を使用しています")
         st.markdown(f"### {_sec_num()} 差枚数ランキング＆島図")
@@ -13687,6 +13765,23 @@ def show_auto_article_page() -> None:
                                         exclude_state=_art_unit_state,
                                         exclude_kind="art_suebangai"):
                                     _art_pil.append((_sfn_pv, _simg_pv))
+                            # ⑥ オススメ機種の優秀台（渋谷新館・記入式）。末尾の後・その他の前。
+                            # ②③で画像化された機種は filter_recommended_machines が機種単位で外す。
+                            _art_osu_bans: dict[str, list[int]] = {}
+                            if art_osusume_machines and any(m.strip() for m in art_osusume_machines):
+                                _osu_zen  = {it["name"] for it in _art_pr.get("zen_dai_list", [])}
+                                _osu_high = {it["name"] for it in _art_pr.get("high_ratio_list", [])
+                                             if it.get("has_image", True)}
+                                if kojin_enabled:
+                                    _osu_zen  |= {m.strip() for m in kojin_zentai_machines if m.strip()}
+                                    _osu_high |= {m.strip() for m in kojin_yushu_machines if m.strip()}
+                                _osu_imgs, _art_osu_bans, _osu_logs = _art_osusume_images(
+                                    art_osusume_machines, _apdf, _apdi, store, _osu_zen, _osu_high,
+                                    hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0))
+                                for _ofn, _oimg in _osu_imgs:
+                                    _art_pil.append((_ofn, _oimg))
+                                for _olog in _osu_logs:
+                                    st.caption(f"⑥ {_olog}")
                             # ④ ジャグラーシリーズ優秀台
                             if not _art_manual and "ジャグラーシリーズ優秀台.jpg" in _art_fpm:
                                 _art_pil.append(_art_fpm["ジャグラーシリーズ優秀台.jpg"])
@@ -14790,6 +14885,30 @@ def show_auto_article_page() -> None:
             _art_sue_done_t  = [_t for _t in _a_st_e if _t in set(_art_sue_done_t)]
             _art_sue_done_jt = [_t for _t in _a_jt_e if _t in set(_art_sue_done_jt)]
 
+            # ── ⑥ オススメ機種の優秀台（記事用・記入式）────────────────────
+            # ⑦プレビューと同じ _art_osusume_images() を使う（判定・順序・画像仕様を共通化）。
+            # ⑦その他の優秀台・ジャグラー統合の既存生成は変更しない（Step 10で扱う）。
+            _art_osu_bans_e: dict[str, list[int]] = {}
+            if (result["ok"] and art_osusume_machines
+                    and any(m.strip() for m in art_osusume_machines)):
+                _osu_zen_e  = {it["name"] for it in result.get("zen_dai_list", [])}
+                _osu_high_e = {it["name"] for it in result.get("high_ratio_list", [])
+                               if it.get("has_image", True)}
+                if kojin_enabled:
+                    _osu_zen_e  |= {m.strip() for m in kojin_zentai_machines if m.strip()}
+                    _osu_high_e |= {m.strip() for m in kojin_yushu_machines if m.strip()}
+                _osu_imgs_e, _art_osu_bans_e, _osu_logs_e = _art_osusume_images(
+                    art_osusume_machines, result.get("df"), result.get("diff_raw"),
+                    store, _osu_zen_e, _osu_high_e,
+                    hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0))
+                for _ofn_e, _oimg_e in _osu_imgs_e:
+                    _oout_e = os.path.join(output_dir, _ofn_e)
+                    _save_jpeg(_oimg_e, _oout_e)
+                    result["files"].append(_oout_e)
+                    _log(f"  ⑥ {_ofn_e}（{len(_art_osu_bans_e.get(_ofn_e) or [])}台）")
+                for _olog_e in _osu_logs_e:
+                    _log(f"  ⑥ {_olog_e}")
+
             # ── プレビューでチェックを外した画像を削除・再生成 ────────────
             _art_aprev_imgs = st.session_state.get(f"art_preview_imgs_{store}")
             if _art_aprev_imgs and result["ok"]:
@@ -14930,6 +15049,11 @@ def show_auto_article_page() -> None:
                 for _fn_ky_sl, _bns_ky_sl in _art_ky_bans_e.items():
                     if _bns_ky_sl and os.path.exists(os.path.join(output_dir, _fn_ky_sl)):
                         _art_bm_sl[_fn_ky_sl] = _bns_ky_sl
+                # ⑥オススメ機種の優秀台 → {machine}_オススメ優秀台.jpg
+                # 画像生成時に確定した掲載台番をそのまま使う（再計算しない）。
+                for _fn_os_sl, _bns_os_sl in _art_osu_bans_e.items():
+                    if _bns_os_sl and os.path.exists(os.path.join(output_dir, _fn_os_sl)):
+                        _art_bm_sl[_fn_os_sl] = _bns_os_sl
                 _jpool_sl = result.get("jug_pool_df")
                 if _jpool_sl is not None and not _jpool_sl.empty:
                     _art_bm_sl["ジャグラーシリーズ優秀台.jpg"] = [

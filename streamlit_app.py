@@ -5888,6 +5888,65 @@ def _collect_kojin_bans(df, diff_raw, zentai: list[str], yushu: list[str],
     return bans
 
 
+def _rec_off_machines(fn: str, blocks: list[dict]) -> list[str]:
+    """⑤オススメ画像のファイル名から、そのブロックの掲載対象機種名を返す。
+    ファイル名は `オススメ_{safe(タイトル)}_{閾値サフィックス}.jpg`（⑦⑧共通）。
+    該当しなければ空リスト（＝何も戻さない）。"""
+    _sfx_map = {1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
+    for _b in blocks:
+        _t = _b["title"].strip()
+        if not _t and not any(m.strip() for m in _b["machines"]):
+            continue
+        if not _t:
+            _t = "オススメ機種"
+        for _thr in _b.get("thresholds", [1]):
+            if fn == f"オススメ_{_make_safe_fn(_t)}_{_sfx_map.get(_thr, str(_thr))}.jpg":
+                return [m.strip() for m in _b["machines"] if m.strip()]
+    return []
+
+
+def _rec_checked_bans(rec_ban_map: dict, store: str, excel_name: str) -> set[int]:
+    """チェックが入ったままの⑤オススメ画像へ実際に掲載されている台番を集める。
+    OFF画像の解除で、他のON画像の掲載台まで「その他」へ重複させないため。"""
+    bans: set[int] = set()
+    for _fn, _bs in (rec_ban_map or {}).items():
+        if st.session_state.get(_pv_ck_key(store, excel_name, _fn), True):
+            bans |= {int(_b) for _b in (_bs or [])}
+    return bans
+
+
+def _narabi_checked_bans(previews, narabi_map: dict, store: str, excel_name: str) -> set[int]:
+    """チェックが入ったままの並び画像へ掲載されている台番を集める。"""
+    bans: set[int] = set()
+    for _fn, _ in (previews or []):
+        if st.session_state.get(_pv_ck_key(store, excel_name, _fn), True):
+            bans |= {int(_b) for _b in ((narabi_map or {}).get(_fn) or [])}
+    return bans
+
+
+def _rec_off_bans(machines: list[str], df: pd.DataFrame,
+                  pub_bans: set[int] = frozenset(),
+                  rec_on_bans: set[int] = frozenset(),
+                  narabi_bans: set[int] = frozenset(),
+                  sue_bans: set[int] = frozenset(),
+                  jug_pool_df=None) -> set[int]:
+    """⑤オススメ画像をチェックOFFにしたとき、⑤による「その他の優秀台」からの
+    除外を解除する台番集合を返す（新小岩スランプ付き専用）。
+    他カテゴリへ実際に掲載済みの台は除く＝重複掲載しない。
+    差枚条件（+1,000枚以上など）は呼び出し側の既存条件で判定する（ここでは掛けない）。"""
+    if not machines or df is None or df.empty:
+        return set()
+    _grp = df[df["機種名"].isin(machines)]
+    if _grp.empty:
+        return set()
+    bans = {int(_b) for _b in _grp["台番"].dropna()}
+    bans -= set(pub_bans) | set(rec_on_bans) | set(narabi_bans) | set(sue_bans)
+    if jug_pool_df is not None and not jug_pool_df.empty and "台番" in jug_pool_df.columns:
+        bans -= {int(str(_b).split(".")[0]) for _b in jug_pool_df["台番"].dropna()
+                 if str(_b).split(".")[0].lstrip("-").isdigit()}
+    return bans
+
+
 def generate_recommended_block_image(
     title: str,
     machines: list[str],
@@ -8650,13 +8709,16 @@ def show_auto_page(with_slump: bool = False) -> None:
         _aprev_hr_img_key   = f"auto_preview_hr_img_{store}"
         # ⑤台番単位除外用: 自動生成画像へ掲載された台番（🔄その他を更新でも使う）
         _aprev_pub_bans_key = f"auto_preview_pub_bans_{store}"
+        # ⑤オススメ画像 → 実掲載台番（チェックOFF時に「その他の優秀台」へ戻すため）
+        # ②個別優秀台の _kojin_y_ban_pv・④末尾の _sue_ban_all_pv と同じ流儀。
+        _aprev_rec_bans_key = f"auto_preview_rec_bans_{store}"
         # ⑦掲載台を選ぶ（台番単位除外）: 対象画像 → 除外前の掲載候補台番
         _excel_stem       = os.path.splitext(uploaded.name)[0]
         _aprev_unit_key   = f"auto_preview_unit_src_{store}"
         _unit_snap_key    = f"_unit_excl_snap_{store}_{_excel_stem}"
         # Excel が変わったらプレビューをクリア
         if st.session_state.get(_aprev_fname) != uploaded.name:
-            for _k in (_aprev_key, _aprev_df_key, _aprev_di_key, _aprev_ex_key, _aprev_hr_key, _aprev_zen_key, _aprev_jug_ex_key, _aprev_jug_pool_key, _aprev_jug_ov_key, _aprev_narabi_key, _aprev_pub_bans_key, _aprev_unit_key):
+            for _k in (_aprev_key, _aprev_df_key, _aprev_di_key, _aprev_ex_key, _aprev_hr_key, _aprev_zen_key, _aprev_jug_ex_key, _aprev_jug_pool_key, _aprev_jug_ov_key, _aprev_narabi_key, _aprev_pub_bans_key, _aprev_rec_bans_key, _aprev_unit_key):
                 st.session_state.pop(_k, None)
             st.session_state.pop(f"sue_preview_{store}", None)
             st.session_state.pop(f"sue_prev_tails_{store}", None)
@@ -9096,6 +9158,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             _rec_bans.extend([int(b) for b in _rgrp[_rmask]["台番"].dropna()])
                                         if _rec_bans:
                                             _rec_ban_map[_rec_fn] = sorted(_rec_bans)
+                                # ⑤画像のチェックOFF → その他の優秀台へ戻すため、実掲載台番を控える。
+                                # ②個別優秀台・④末尾と同じく「画像生成時に確定した掲載台番」を使う。
+                                st.session_state[_aprev_rec_bans_key] = dict(_rec_ban_map)
 
                     # ── with_slump=True の場合: pisionデータ取得 → スランプグラフ合成 ──
                     if with_slump and _prev_result.get("ok"):
@@ -10165,6 +10230,34 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         if _j1k_u.any():
                                             _upd_extra_dfs.append(_jbase_u[_j1k_u.values].copy().reset_index(drop=True))
                                             _upd_extra_diffs.append(_jdiff_u[_j1k_u].reset_index(drop=True))
+                                # ⑤オススメ画像をチェック外し → その画像に実際に掲載されていた台を
+                                # 既存の「その他の優秀台」再振り分け経路へ戻す（他カテゴリと同じ扱い）。
+                                # 機種全台ではなく実掲載台番のみ。条件は既存どおり diff >= 1000。
+                                # +2,000側は後段の _sonota_split 再生成が _son_comb から振り分ける。
+                                if _pname.startswith("オススメ_") and _rec_ban_level:
+                                    _rc_mac_u = _rec_off_machines(_pname, recommended_blocks)
+                                    _rc_set_u = _rec_off_bans(
+                                        _rc_mac_u, _pv_df,
+                                        pub_bans=set(st.session_state.get(_aprev_pub_bans_key, set())),
+                                        rec_on_bans=_rec_checked_bans(
+                                            st.session_state.get(_aprev_rec_bans_key) or {},
+                                            store, uploaded.name),
+                                        narabi_bans=_narabi_checked_bans(_auto_previews, _pv_narabi,
+                                                                         store, uploaded.name),
+                                        sue_bans=_sue_bans_upd,
+                                        jug_pool_df=(_pv_jug_pool if st.session_state.get(
+                                            _pv_ck_key(store, uploaded.name,
+                                                       "ジャグラーシリーズ優秀台.jpg"), True) else None),
+                                    )
+                                    if _rc_set_u:
+                                        _rc_rows_u = _pv_df[_pv_df["台番"].apply(lambda b: int(b) in _rc_set_u)]
+                                        if not _rc_rows_u.empty:
+                                            _rc_dr_u = _pv_diff.loc[_rc_rows_u.index]
+                                            _rc_1k_u = _rc_dr_u >= 1000
+                                            if _rc_1k_u.any():
+                                                _upd_extra_dfs.append(
+                                                    _rc_rows_u[_rc_1k_u.values].copy().reset_index(drop=True))
+                                                _upd_extra_diffs.append(_rc_dr_u[_rc_1k_u].reset_index(drop=True))
                         _new_prev = list(_auto_previews)
                         _updated  = False
                         # overflowデータ（ジャグラー）がジャグラーシリーズ優秀台に移る台番を事前計算
@@ -11646,6 +11739,36 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         else:
                                             _extra_dfs.append(_mygood_ex)
                                             _extra_diffs.append(_mygood_ex_diff)
+                        # ⑤オススメ画像をチェック外し → その画像に実際に掲載されていた台を
+                        # 既存の「その他の優秀台」再振り分け経路へ戻す（🔄と同一仕様）。
+                        # チェックが残っている⑤画像の掲載台は _aprev_rec_bans_key（⑦で確定）で除く
+                        # （⑧の⑤生成はこのループより後段のため、ここでは未確定）。
+                        if _pname.startswith("オススメ_") and _rec_ban_level \
+                                and _df_res is not None and _diff_res is not None:
+                            _sue_bans_e: set[int] = set()
+                            for _sb_list_e in (_sue_ban_run or {}).values():
+                                _sue_bans_e |= {int(_b) for _b in (_sb_list_e or [])}
+                            _rc_set_e = _rec_off_bans(
+                                _rec_off_machines(_pname, recommended_blocks), _df_res,
+                                pub_bans=_collect_published_bans(result, include_jug_pool=False),
+                                rec_on_bans=_rec_checked_bans(
+                                    st.session_state.get(_aprev_rec_bans_key) or {},
+                                    store, uploaded.name),
+                                narabi_bans=set(narabi_bans or set()),
+                                sue_bans=_sue_bans_e,
+                                jug_pool_df=(result.get("jug_pool_df") if st.session_state.get(
+                                    _pv_ck_key(store, uploaded.name,
+                                               "ジャグラーシリーズ優秀台.jpg"), True) else None),
+                            )
+                            if _rc_set_e:
+                                _rc_rows_e = _df_res[_df_res["台番"].apply(lambda b: int(b) in _rc_set_e)]
+                                if not _rc_rows_e.empty:
+                                    _rc_dr_e = _diff_res.loc[_rc_rows_e.index]
+                                    _rc_1k_e = _rc_dr_e >= 1000
+                                    if _rc_1k_e.any():
+                                        _extra_dfs.append(
+                                            _rc_rows_e[_rc_1k_e.values].copy().reset_index(drop=True))
+                                        _extra_diffs.append(_rc_dr_e[_rc_1k_e].reset_index(drop=True))
 
                 # 秋葉原スランプ付き: ジャグラー統合画像は不要 → jug_pool +1000枚をその他へ
                 if with_slump and store == "秋葉原" and result["ok"] and _df_res is not None and _diff_res is not None:

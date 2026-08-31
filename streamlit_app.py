@@ -5509,6 +5509,29 @@ _ART_OSUSUME_PER_BLOCK = 6
 # ★ブロックタイトルは画像へ描かない。画像バーは常にこの固定文言。
 _ART_OSUSUME_BAR_TEXT = "オススメ機種の優秀台"
 
+# ── 記事用⑥「差枚数ランキング」（渋谷新館のみ）─────────────────────────
+# 全台を補正後差枚の降順（同値は台番昇順）に並べ、1位〜指定順位までを1枚にする。
+# 描画は専用の _art_ranking_image() 内で完結させる。**共通の draw_table_image()
+# は変更しない**（黒バー・交互背景を共通側へ入れると全画像へ波及するため）。
+_ART_RANK_STORES  = frozenset({"渋谷新館"})
+_ART_RANK_LIMITS  = (20, 25, 30, 35, 40, 45, 50)
+_ART_RANK_DEFAULT = 50
+_ART_RANK_FN      = "差枚数ランキング.jpg"
+_ART_RANK_TITLE   = "差枚数ランキング"
+# ランキング専用の配色（既存の C_TITLE_BG / C_ROW_BG 等は変更しない）
+_ART_RANK_TITLE_BG = "#111111"   # 黒系タイトルバー
+_ART_RANK_TITLE_FG = "#FFFFFF"   # 白文字
+_ART_RANK_HDR_BG   = "#E9E9E9"   # ヘッダー背景（薄いグレー）
+_ART_RANK_HDR_FG   = "#000000"   # ヘッダー文字
+_ART_RANK_ROW_ODD  = "#DCEBFB"   # 奇数行（薄い水色）※行全体の背景。差枚バーではない
+_ART_RANK_ROW_EVEN = "#FFFFFF"   # 偶数行（白）
+# 列ごとの最小幅（CSS content幅 + padding 相当。×scale で実ピクセル）。
+# 機種名を最も広く、ベスト／台番／BIG／REG／AT は狭く。
+_ART_RANK_MIN_COL_W: dict[str, int] = {
+    "ベスト": 62, "台番": 74, "機種名": 186, "ゲーム数": 92,
+    "BIG": 56, "REG": 56, "AT": 56, "差枚数": 116,
+}
+
 _ART_SHARED_KEYS = (
     "art_kojin_enabled",
     "art_narabi_enabled",
@@ -5549,6 +5572,8 @@ def _article_input_keys(store: str) -> list[str]:
         # いずれも文字列のみ。**画像バイナリはここへ入れない**（正式仕様）。
         f"art_wp_top_heading_{store}", f"art_wp_top_text_poster_{store}",
         f"art_wp_top_text_x_{store}",
+        # ⑥差枚数ランキングの表示順位（渋谷新館・Excel＝日付単位。既定50位まで）
+        f"art_ranking_limit_{store}",
     ]
     for i in range(_KOJIN_PICK_COUNT):
         keys += [f"art_kojin_pick_title_{i}_{store}", f"art_kojin_pick_bans_{i}_{store}"]
@@ -7163,6 +7188,118 @@ def _art_osusume_images(machines, df, diff_raw, store: str,
         _bans[_fn] = [int(b) for b in _sel["台番"].dropna()
                       if str(b).split(".")[0].lstrip("-").isdigit()]
     return _imgs, _bans, _logs
+
+
+def _art_ranking_image(df: pd.DataFrame, diff_raw: pd.Series,
+                       limit: int = _ART_RANK_DEFAULT,
+                       scale: float = 150 / 96) -> "Image.Image | None":
+    """記事用⑥「差枚数ランキング」画像（渋谷新館・⑦プレビューと⑧本番で共用）。
+
+    df / diff_raw : パイプラインの **補正後** データ（result["df"] / result["diff_raw"]）。
+                    ここで _pipeline_calc_d を再適用しない（二重適用の禁止）。
+    limit         : 1位から何位までを載せるか。実データがこれ未満ならある分だけ
+                    （ダミー行は作らない）。
+    列は ベスト / 台番 / 機種名 / ゲーム数 / BIG / REG / AT / 差枚数 の固定。
+    ★差枚セルへ値に比例するバー・ゲージ・グラフは描かない（文字のみ）。
+    ★描画はこの関数内で完結させる。共通の draw_table_image() は変更しない。
+    """
+    if df is None or diff_raw is None or len(df) == 0:
+        return None
+    _d = df.copy()
+    _d["_rk_diff"] = pd.to_numeric(diff_raw, errors="coerce").values
+    _d = _d[_d["_rk_diff"].notna()]
+    if _d.empty:
+        return None
+    # 正式順: 差枚降順 → 同差枚は台番昇順（既存ランキングと同じ安定ソート）
+    _d = _d.sort_values(["_rk_diff", "台番"], ascending=[False, True],
+                        kind="mergesort").head(max(int(limit), 0))
+    if _d.empty:
+        return None
+
+    # 表示列（既存の整形関数・表示名変換をそのまま使う）
+    _cols = [c for c in ("台番", "機種名", "ゲーム数", "BB", "RB", "AT") if c in _d.columns]
+    _cols.append("差枚")
+    _fd      = _format_display_cols(_d[_cols])          # ゲーム数=round_games+fmt_games / 差枚=fmt_diff
+    headers  = ["ベスト"] + [_DISPLAY_RENAME.get(h, h) for h in _fd.columns]
+    rows     = [[str(_i + 1)] + [str(_v) for _v in _r]
+                for _i, _r in enumerate(_fd.values.tolist())]
+    diff_idx = headers.index("差枚数") if "差枚数" in headers else None
+
+    _font_sz  = round(IMG_FONT_SZ * scale)
+    _row_h    = round(ROW_H       * scale)
+    _header_h = round(HEADER_H    * scale)
+    _pad      = round(CELL_PAD    * scale)
+    fn_data   = load_font(_font_sz)
+    fn_hdr    = load_font(_font_sz)
+    fn_title  = load_font(TITLE_FONT_SZ)
+
+    # ── 列幅（ヘッダー・全データの実測幅と最小幅の大きい方）─────────────
+    _dummy = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    col_w: list[int] = []
+    for _ci, _h in enumerate(headers):
+        _w = _text_w(_dummy, str(_h), fn_hdr) + _pad * 2
+        for _r in rows:
+            _w = max(_w, _text_w(_dummy, _r[_ci], fn_data) + _pad * 2)
+        col_w.append(max(_w, round(_ART_RANK_MIN_COL_W.get(str(_h), 30) * scale)))
+    total_w = sum(col_w)
+    total_h = TITLE_H + _header_h + _row_h * len(rows)
+
+    img  = Image.new("RGB", (total_w, total_h), "white")
+    draw = ImageDraw.Draw(img)
+
+    def _put(text: str, x: int, y: int, w: int, h: int, font, fill, right: bool = False):
+        _bb = draw.textbbox((0, 0), text, font=font)
+        _tx = (x + w - (_bb[2] - _bb[0]) - _pad if right
+               else x + (w - (_bb[2] - _bb[0])) // 2) - _bb[0]
+        draw.text((_tx, y + (h - (_bb[3] - _bb[1])) // 2 - _bb[1]), text, font=font, fill=fill)
+
+    # ── 黒系タイトルバー（白文字・中央）────────────────────────────────
+    y = 0
+    draw.rectangle([(0, 0), (total_w - 1, TITLE_H - 1)], fill=_ART_RANK_TITLE_BG)
+    _put(_ART_RANK_TITLE, 0, 0, total_w, TITLE_H, fn_title, _ART_RANK_TITLE_FG)
+    y += TITLE_H
+
+    # ── ヘッダー行 ────────────────────────────────────────────────────
+    x = 0
+    for _ci, _h in enumerate(headers):
+        draw.rectangle([(x, y), (x + col_w[_ci] - 1, y + _header_h - 1)],
+                       fill=_ART_RANK_HDR_BG, outline=C_BORDER)
+        _put(str(_h), x, y, col_w[_ci], _header_h, fn_hdr, _ART_RANK_HDR_FG)
+        x += col_w[_ci]
+    y += _header_h
+
+    # ── データ行（行全体を薄い水色／白で交互に塗る）──────────────────
+    for _ri, _row in enumerate(rows):
+        _bg = _ART_RANK_ROW_ODD if _ri % 2 == 0 else _ART_RANK_ROW_EVEN
+        x = 0
+        for _ci in range(len(headers)):
+            _cell = _row[_ci] if _ci < len(_row) else ""
+            draw.rectangle([(x, y), (x + col_w[_ci] - 1, y + _row_h - 1)],
+                           fill=_bg, outline=C_BORDER)
+            if diff_idx is not None and _ci == diff_idx:
+                # 差枚のみ右寄せ＋プラス青／マイナス赤。背景は行の交互色のまま。
+                try:
+                    _v = int(_cell.replace("+", "").replace("枚", "")
+                                  .replace(",", "").replace("±0", "0"))
+                    _fg = C_PLUS if _v > 0 else (C_MINUS if _v < 0 else C_ZERO)
+                except Exception:
+                    _fg = C_ZERO
+                _put(_cell, x, y, col_w[_ci], _row_h, fn_data, _fg, right=True)
+            else:
+                _put(_cell, x, y, col_w[_ci], _row_h, fn_data, C_ZERO)
+            x += col_w[_ci]
+        y += _row_h
+
+    return img
+
+
+def _art_ranking_limit(store: str) -> int:
+    """⑥ランキングの表示順位（保存値 → 既定50）。記事用の既存保存経路から読む。"""
+    try:
+        _v = int(st.session_state.get(f"art_ranking_limit_{store}", _ART_RANK_DEFAULT))
+    except (TypeError, ValueError):
+        return _ART_RANK_DEFAULT
+    return _v if _v in _ART_RANK_LIMITS else _ART_RANK_DEFAULT
 
 
 def _art_sue_settings() -> "tuple[list[str], str, list[str], str]":
@@ -13784,7 +13921,26 @@ def show_auto_article_page() -> None:
     #   （設定UI・ON/OFFなし。該当0台なら画像なし）。
     if _art_v2:
         st.markdown(f"### {_sec_num()} 差枚数ランキング＆島図")
-        st.caption("今後実装予定")
+        if store in _ART_RANK_STORES:
+            st.markdown("**差枚数ランキング**")
+            _rk_key = f"art_ranking_limit_{store}"
+            if _rk_key not in st.session_state:
+                # 保存値（Excel＝日付単位）→ 無ければ既定50。⑤と同じ既存経路で解決する。
+                try:
+                    _rk_saved = int(_art_kojin_default(
+                        st.session_state.get("art_current_excel"), store, _rk_key) or 0)
+                except (TypeError, ValueError):
+                    _rk_saved = 0
+                st.session_state[_rk_key] = (_rk_saved if _rk_saved in _ART_RANK_LIMITS
+                                             else _ART_RANK_DEFAULT)
+            st.selectbox(
+                "表示順位", _ART_RANK_LIMITS, key=_rk_key,
+                format_func=lambda _n: f"{_n}位まで",
+                help="全台を差枚数の高い順に並べ、1位から選んだ順位までを1枚の画像にします。",
+                on_change=_save_article_inputs, args=(store,))
+            st.caption("島図：今後実装予定")
+        else:
+            st.caption("今後実装予定")
 
     # ── ⑤ プレビュー ────────────────────────────────────────────────
     # 記事構成で採番する店舗では、プレビュー・実行は記事の内容ではないので番号外。
@@ -14154,6 +14310,13 @@ def show_auto_article_page() -> None:
                                                          _pk_df,
                                                          hq_scale=_art_hq_scale_for(
                                                              f"{_make_safe_fn(_pk_tit)}.jpg", store, len(_pk_df)))))
+                            # ⑥ 差枚数ランキング（渋谷新館・記事の最後）。
+                            # 補正後の _apdf / _apdi をそのまま渡す（再計算・再取得なし）。
+                            if store in _ART_RANK_STORES:
+                                _rk_img = _art_ranking_image(
+                                    _apdf, _apdi, limit=_art_ranking_limit(store))
+                                if _rk_img is not None:
+                                    _art_pil.append((_ART_RANK_FN, _rk_img))
 
                     # ── スランプグラフ合成（プレビュー）────────────────────────
                     _pv_api_key_sl = _get_pision_api_key()
@@ -15183,6 +15346,19 @@ def show_auto_article_page() -> None:
                     art_osusume_blocks, [_f for _f, _ in _osu_imgs_e])
                 for _olog_e in _osu_logs_e:
                     _log(f"  ⑤ {_olog_e}")
+
+            # ── ⑥ 差枚数ランキング（記事用・渋谷新館）───────────────
+            # ⑦プレビューと同じ _art_ranking_image() ・同じ件数を使う（別実装にしない）。
+            # 差枚は result の補正後データをそのまま使う。
+            if store in _ART_RANK_STORES and result["ok"]:
+                _rk_img_e = _art_ranking_image(
+                    result.get("df"), result.get("diff_raw"),
+                    limit=_art_ranking_limit(store))
+                if _rk_img_e is not None:
+                    _rk_out_e = os.path.join(output_dir, _ART_RANK_FN)
+                    _save_jpeg(_rk_img_e, _rk_out_e)
+                    result["files"].append(_rk_out_e)
+                    _log(f"  ⑥ {_ART_RANK_FN}（{_art_ranking_limit(store)}位まで）")
 
             # ── プレビューでチェックを外した画像を削除・再生成 ────────────
             _art_aprev_imgs = st.session_state.get(f"art_preview_imgs_{store}")

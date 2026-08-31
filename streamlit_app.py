@@ -3487,10 +3487,14 @@ def run_step3_other(
     sonota_exclude: set[str] = frozenset(),
     exclude_units: dict | None = None,
     hq_scale: float = 1.0,
+    osusume_bans: set[int] = frozenset(),
 ) -> tuple[list[str], list[dict], list[dict], list[int]]:
     """Step 3: 非ジャグラー機種の優秀台 + その他の優秀台ピックアップ統合画像。
     戻り値: (generated, high_ratio_list, excellent_list, sonota_bans_all)
-    sonota_bans_all は⑦UI用の「除外前」の掲載候補台番。"""
+    sonota_bans_all は⑦UI用の「除外前」の掲載候補台番。
+    osusume_bans（渋谷新館の記事用⑤）: ⑤オススメ機種の優秀台画像へ掲載される台番。
+    並び台・末尾台と同じ扱いで「その他の優秀台」から台番単位に除外する
+    （＝⑤と重複掲載しない）。高配分の判定・画像生成には影響しない。"""
     juggler_series     = cfg["juggler_series"]
     manual_exclude     = cfg["manual_exclude"]
     rb_thresh_machines = cfg["rb_threshold_machines"]
@@ -3514,8 +3518,8 @@ def run_step3_other(
             all_plus = bool(((dr_m >= 1000) | ((dr_m >= 0) & (grp["ゲーム数_rounded"] >= 2000))).all())
         else:
             all_plus = bool((dr_m >= 0).all())
-        # excellent_list・その他の優秀台用は並び台・末尾台除外
-        _ex_bans = narabi_bans | suebangai_bans
+        # excellent_list・その他の優秀台用は並び台・末尾台・⑤オススメ掲載台を除外
+        _ex_bans = narabi_bans | suebangai_bans | set(osusume_bans)
         if _ex_bans:
             grp_ex = grp[~grp["台番"].isin(_ex_bans)].copy()
             dr_ex  = diff_raw.loc[grp_ex.index]
@@ -3685,6 +3689,12 @@ def run_step3_other(
                     excellent_list.append({"name": machine, "diff": int(dr_f_ex.iloc[_i]), "ban": int(filt_ex.iloc[_i]["台番"])})
 
     if overflow_df is not None and overflow_diff is not None and not overflow_df.empty:
+        # ⑤オススメ掲載台は「その他の優秀台」へ入れない（overflow 経由も同じ扱い）。
+        # ジャグラーシリーズ優秀台.jpg の抽出・統合には影響しない。
+        if osusume_bans and "台番" in overflow_df.columns:
+            _ov_keep_o    = ~overflow_df["台番"].apply(int).isin(set(osusume_bans))
+            overflow_df   = overflow_df[_ov_keep_o].reset_index(drop=True)
+            overflow_diff = overflow_diff[_ov_keep_o.values].reset_index(drop=True)
         # ジャグラー overflow を excellent pool へ（sonota_exclude機種は除外）
         if sonota_exclude and "機種名" in overflow_df.columns:
             _ov_keep      = ~overflow_df["機種名"].isin(sonota_exclude)
@@ -4619,6 +4629,7 @@ def run_auto_pipeline(
     exclude_units: dict | None = None,
     hq_scale: float = 1.0,
     kojin_zentai_machines: set[str] = set(),
+    osusume_machines: set[str] = set(),
 ) -> dict:
     """3ステップパイプラインを実行する。
     exclude_units: ⑦プレビューで台番単位に外した掲載台
@@ -4627,6 +4638,9 @@ def run_auto_pipeline(
       ジャグラー統合・②個別・⑤へは適用しない。
     rec_ban_level=True（新小岩スランプ付き）: ⑤オススメ機種を機種単位で抑制しない。
     呼び出し側で recommended_machines から⑤機種を外して渡すこと。
+    osusume_machines（渋谷新館の記事用⑤）: ⑤「オススメ機種の優秀台」へ入力された機種名。
+    ⑤画像と同じ _kojin_yushu_filter() で掲載台番を求め、その他の優秀台から
+    台番単位に除外する（⑤との重複掲載を防ぐ）。既定は空集合＝従来動作。
     戻り値: {"ok": bool, "files": list[str], "error": str | None,
              "zen_dai_list", "high_ratio_list", "nami_list", "excellent_list", "date"}"""
     _log_rss("run_auto_pipeline 開始（画像生成前）")
@@ -4684,8 +4698,26 @@ def run_auto_pipeline(
         _zen_dai_jug = {item["name"] for item in zen_dai_list if item["name"] in _jug_series}
         f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df, jug_bans_all = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude, no_merge_image=jug_no_merge_image, rec_ban_level=rec_ban_level, exclude_units=exclude_units, hq_scale=hq_scale)
 
+        # ⑤オススメ機種の優秀台（渋谷新館の記事用）の掲載台番。
+        # ⑤画像と同じ _kojin_yushu_filter() を再利用し、パイプラインが既に持つ
+        # df / diff_raw（差枚補正済み）/ cfg だけを使う（再取得・条件の再実装をしない）。
+        # 機種単位の全台系・高配分フィルターはここでは掛けない。全台系・高配分で
+        # 画像化された機種の台は run_step3_other が元から「その他」へ回さないため、
+        # 事前に除外しても結果は変わらない（余分に消える台がない）。
+        _osusume_bans: set[int] = set()
+        for _osu_m in osusume_machines:
+            _osu_m = (_osu_m or "").strip()
+            if not _osu_m:
+                continue
+            _osu_grp = df[df["機種名"] == _osu_m]
+            if _osu_grp.empty:
+                continue
+            _osu_sel = _kojin_yushu_filter(_osu_m, _osu_grp, diff_raw.loc[_osu_grp.index], cfg)
+            _osusume_bans |= {int(b) for b in _osu_sel["台番"].dropna()
+                              if str(b).split(".")[0].lstrip("-").isdigit()}
+
         log("③ その他の優秀台ピックアップ")
-        f3, oth_hr, sonota_excellent, sonota_bans_all = run_step3_other(df, diff_raw, output_dir, cfg, narabi_bans, ov_df, ov_diff, log, recommended_machines, suebangai_bans, article_mode=article_mode, sonota_exclude=sonota_exclude, exclude_units=exclude_units, hq_scale=hq_scale)
+        f3, oth_hr, sonota_excellent, sonota_bans_all = run_step3_other(df, diff_raw, output_dir, cfg, narabi_bans, ov_df, ov_diff, log, recommended_machines, suebangai_bans, article_mode=article_mode, sonota_exclude=sonota_exclude, exclude_units=exclude_units, hq_scale=hq_scale, osusume_bans=_osusume_bans)
         _ex_seen: set[tuple] = set()
         excellent_list = []
         for _ex_item in jug_excellent + sonota_excellent:
@@ -13809,6 +13841,9 @@ def show_auto_article_page() -> None:
                             # ②個別画像(全台)の機種は自動全台系を作らない（同名画像の二重生成を防ぐ）
                             kojin_zentai_machines=({m.strip() for m in kojin_zentai_machines if m.strip()}
                                                    if kojin_enabled else set()),
+                            # ⑤オススメ機種の優秀台へ載る台は「その他の優秀台」へ入れない
+                            # （渋谷新館の記事用のみ。他店舗は art_osusume_machines が空）
+                            osusume_machines={m.strip() for m in art_osusume_machines if m.strip()},
                         )
                         _art_pil: list[tuple[str, "Image.Image"]] = []
                         _art_nb_map: dict[str, list[int]] = {}
@@ -14769,6 +14804,9 @@ def show_auto_article_page() -> None:
                 # ②個別画像(全台)の機種は自動全台系を作らない（同名画像の二重生成を防ぐ）
                 kojin_zentai_machines=({m.strip() for m in kojin_zentai_machines if m.strip()}
                                        if kojin_enabled else set()),
+                # ⑤オススメ機種の優秀台へ載る台は「その他の優秀台」へ入れない
+                # （渋谷新館の記事用のみ。他店舗は art_osusume_machines が空）
+                osusume_machines={m.strip() for m in art_osusume_machines if m.strip()},
             )
 
             # ── 並び画像（subprocess）────────────────────────────────

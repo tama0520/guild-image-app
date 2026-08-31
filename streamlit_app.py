@@ -13924,11 +13924,17 @@ def show_auto_article_page() -> None:
         if store in _ART_RANK_STORES:
             st.markdown("**差枚数ランキング**")
             _rk_key = f"art_ranking_limit_{store}"
-            if _rk_key not in st.session_state:
-                # 保存値（Excel＝日付単位）→ 無ければ既定50。⑤と同じ既存経路で解決する。
+            # ★「キーの存在」ではなく「値が正式な選択肢か」で判定する。
+            #   _restore_article_inputs() は未保存キーへ "" を plain 値として入れるため、
+            #   キー有無で見ると seed が走らず、選択肢に無い "" のまま selectbox が
+            #   先頭(20位)を採ってしまう（⑤ 39f1f1e・② 0e7dc4c と同型の事故）。
+            #   None / "" / 壊れた文字列 / 選択肢外の数値はすべて保存値→既定50へ解決する。
+            if st.session_state.get(_rk_key) not in _ART_RANK_LIMITS:
                 try:
-                    _rk_saved = int(_art_kojin_default(
-                        st.session_state.get("art_current_excel"), store, _rk_key) or 0)
+                    # 保存値は int / 文字列 "35" のどちらでも安全に復元する
+                    _rk_saved = int(_load_article_inputs_json()
+                                    .get(st.session_state.get("art_current_excel") or "", {})
+                                    .get(_rk_key) or 0)
                 except (TypeError, ValueError):
                     _rk_saved = 0
                 st.session_state[_rk_key] = (_rk_saved if _rk_saved in _ART_RANK_LIMITS

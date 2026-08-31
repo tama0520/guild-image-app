@@ -734,7 +734,8 @@
     "art_kojin_z_10_渋谷新館": "",
     "art_kojin_y_10_渋谷新館": "",
     "art_kojin_z_11_渋谷新館": "",
-    "art_kojin_y_11_渋谷新館": ""
+    "art_kojin_y_11_渋谷新館": "",
+    "art_ranking_limit_渋谷新館": 50
   },
   "20260830_高田馬場_20S.xlsx": {
     "art_kojin_enabled": false,

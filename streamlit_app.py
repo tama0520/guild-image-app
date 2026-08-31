@@ -3273,11 +3273,16 @@ def run_step2_juggler(
     rec_ban_level: bool = False,
     exclude_units: dict | None = None,
     hq_scale: float = 1.0,
+    osusume_bans: set[int] = frozenset(),
 ) -> tuple[list[str], pd.DataFrame | None, pd.Series | None, list[dict], list[dict]]:
     """Step 2: ジャグラーシリーズ優秀台フィルター。
     少数機種は統合画像へ。5台以下なら overflow として Step 3 へ渡す。
     rec_ban_level=True（新小岩スランプ付き）: ⑤オススメ機種にジャグラーが含まれても
     統合画像を通常どおり生成する（⑤側で台番単位に除外するため）。
+    osusume_bans（渋谷新館の記事用⑤）: ⑤オススメ機種の優秀台画像へ掲載される台番。
+    ジャグラーシリーズ優秀台の**最終掲載**から台番単位で除外する（⑤を優先）。
+    機種単位の除外はしない。抽出条件・overflow判定・画像生成可否は「除外前」で
+    確定させるため、既存の🎯除外（exclude_units["juggler"]）と同じ位置で引く。
     戻り値: (generated, overflow_df, overflow_diff, high_ratio_list, jug_excellent_list)"""
     juggler_jobs  = cfg["juggler_jobs"]
     juggler_g_min = cfg["juggler_g_min"]
@@ -3412,6 +3417,17 @@ def run_step2_juggler(
     # ⑦UI用: 除外前の掲載候補（overflow で画像を作らない場合も返す）
     jug_bans_all = [int(_b) for _b in combined["台番"].tolist()]
 
+    # ⑤オススメ掲載台は結果テキストのジャグラー側リストからも外す（画像と一致させる）。
+    # 対象は**統合プールに入った台だけ**（_jug_pool_osu）。osusume_bans には
+    # 高配分・全台系で自前の画像を持つ機種の台も含まれるため、そのまま引くと
+    # 統合画像から消えていない台まで結果テキストから落ちてしまう。
+    # overflow で統合画像を作らない経路でも、プール台は Step3 側の osusume_bans で
+    # 「その他の優秀台」からも外れるため、どの画像にも載らない台を残さない。
+    _jug_pool_osu = set(osusume_bans) & set(jug_bans_all)
+    if _jug_pool_osu:
+        jug_excellent_list = [_e for _e in jug_excellent_list
+                              if int(_e["ban"]) not in _jug_pool_osu]
+
     # 統合画像を作らずジャグラー台をその他へ回す（秋葉原スランプ付き等）。
     # sonota_exclude を使わない overflow なので Step3 で台が除外されない。
     # 設計に合わせ +1,000枚以上のみその他へ（プレビューの jug_pool +1000→sonota と同条件）。
@@ -3434,6 +3450,18 @@ def run_step2_juggler(
     if sonota_exclude & _juggler_names and not rec_ban_level:
         log(f"  ジャグラーシリーズ優秀台: オススメ機種に含まれるため統合画像スキップ → overflow")
         return generated, combined, dr_combined, high_ratio_list, jug_excellent_list, None, jug_bans_all
+
+    # ⑤オススメ掲載台の台番単位除外（渋谷新館の記事用）。⑤を優先し、同じ台を
+    # ジャグラーシリーズ優秀台へ重複掲載しない。機種単位では外さないので、⑤に
+    # 載っていない同一機種の台は従来どおり統合画像へ残る。
+    # 上の「除外前」の combined で overflow 判定・生成可否は確定済み。
+    if _jug_pool_osu:
+        _jug_keep_o = ~combined["台番"].apply(int).isin(_jug_pool_osu)
+        combined    = combined[_jug_keep_o.values].reset_index(drop=True)
+        dr_combined = dr_combined[_jug_keep_o.values].reset_index(drop=True)
+        if combined.empty:
+            log("  ジャグラーシリーズ優秀台: ⑤オススメ掲載台のみのため画像なし")
+            return generated, None, None, high_ratio_list, jug_excellent_list, None, jug_bans_all
 
     # ⑦掲載台の台番単位除外（ジャグラー統合画像）。
     # 抽出条件・overflow判定・生成可否は上の「除外前」の combined で確定済みなので、
@@ -4693,14 +4721,10 @@ def run_auto_pipeline(
         f1, zen_dai_list = run_step1_main(df, diff_raw, output_dir, stem, cfg, log, article_mode=article_mode, hq_scale=hq_scale,
                                           kojin_zentai_machines=kojin_zentai_machines)
 
-        log("② ジャグラーシリーズ優秀台")
-        _jug_series = cfg["juggler_series"]
-        _zen_dai_jug = {item["name"] for item in zen_dai_list if item["name"] in _jug_series}
-        f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df, jug_bans_all = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude, no_merge_image=jug_no_merge_image, rec_ban_level=rec_ban_level, exclude_units=exclude_units, hq_scale=hq_scale)
-
         # ⑤オススメ機種の優秀台（渋谷新館の記事用）の掲載台番。
         # ⑤画像と同じ _kojin_yushu_filter() を再利用し、パイプラインが既に持つ
         # df / diff_raw（差枚補正済み）/ cfg だけを使う（再取得・条件の再実装をしない）。
+        # ここで一度だけ算出し、Step2（ジャグラー統合）とStep3（その他）へ渡す。
         # 機種単位の全台系・高配分フィルターはここでは掛けない。全台系・高配分で
         # 画像化された機種の台は run_step3_other が元から「その他」へ回さないため、
         # 事前に除外しても結果は変わらない（余分に消える台がない）。
@@ -4715,6 +4739,11 @@ def run_auto_pipeline(
             _osu_sel = _kojin_yushu_filter(_osu_m, _osu_grp, diff_raw.loc[_osu_grp.index], cfg)
             _osusume_bans |= {int(b) for b in _osu_sel["台番"].dropna()
                               if str(b).split(".")[0].lstrip("-").isdigit()}
+
+        log("② ジャグラーシリーズ優秀台")
+        _jug_series = cfg["juggler_series"]
+        _zen_dai_jug = {item["name"] for item in zen_dai_list if item["name"] in _jug_series}
+        f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df, jug_bans_all = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude, no_merge_image=jug_no_merge_image, rec_ban_level=rec_ban_level, exclude_units=exclude_units, hq_scale=hq_scale, osusume_bans=_osusume_bans)
 
         log("③ その他の優秀台ピックアップ")
         f3, oth_hr, sonota_excellent, sonota_bans_all = run_step3_other(df, diff_raw, output_dir, cfg, narabi_bans, ov_df, ov_diff, log, recommended_machines, suebangai_bans, article_mode=article_mode, sonota_exclude=sonota_exclude, exclude_units=exclude_units, hq_scale=hq_scale, osusume_bans=_osusume_bans)

@@ -19524,7 +19524,7 @@
   },
   "20260830_上野本館_20S.xlsx": {
     "kojin_enabled": true,
-    "narabi_enabled": false,
+    "narabi_enabled": true,
     "narabi_ranges_input": "",
     "suebangai_enabled": false,
     "suebangai_tail_input_1": "",

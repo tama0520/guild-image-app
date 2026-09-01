@@ -4045,3 +4045,80 @@ WordPress非追加・かぶぱ対象外）は **`1410753` / `9ec653e` のまま�
 - push競合の解消時に `888808c` と `c7b4057` を merge して **`42ea146`** を作成した
   （`--no-ff`・`c7b4057` のcommit IDは書き換えていない）。
   **`42ea146` で列コードが直接変更されたわけではない**（アプリ2ファイルは `c7b4057` と差分0）。
+
+## 機種画像紐づけ：Cloud反映時の注意（2026-09-01 確定・調査のみ／コード変更なし）
+
+**正式な運用ルール。**「ローカル／GitHub には機種画像紐づけがあるのに Cloud の
+🖼️ 機種画像紐づけ 一覧に出ない」ときの切り分け手順を定める。**今回コードは変更していない。**
+
+### ① 何が起きたか（戦国恋姫の実例）
+
+- 戦国恋姫の紐づけと画像は **`45025c9`（2026-09-01 14:55:47・`update machine_image_master`）で
+  commit・push 済み**で、当時の main にも現在の main にも含まれていた。
+  同 commit の変更は次の**5ファイルだけ**である。
+
+  ```
+  masters/machine_image_master.xlsx
+  assets/machine_images/sengokukoihime_panel.png
+  assets/machine_images/sengokukoihime_01.png
+  assets/machine_images/sengokukoihime_02.png
+  assets/machine_images/sengokukoihime_03.png
+  ```
+
+- それにもかかわらず、**Cloud の一覧には当初表示されなかった**。
+- **Cloud を Reboot したところ、`🖼️ 機種画像紐づけ` の一覧に戦国恋姫が正常表示された（実機確認済み）**。
+
+  | 簡略名 | 画像グループID | パネル | 液晶 | 状態 |
+  |---|---|---|---|---|
+  | 戦国恋姫 | `sengokukoihime` | **あり** | **3枚** | **OK** |
+
+- **原因は「未push」ではない。**必要ファイルはすでに push 済みで、
+  **Cloud 側が古い状態を保持していたため表示されず、Reboot で最新 main を取り込んで正常反映した**。
+  **今後この事象を「未push」と記録しないこと。**
+
+### ② 構造（コードで確認済みの事実）
+
+- 紐づけマスタ：**`masters/machine_image_master.xlsx`**（列 `簡略名` / `画像グループID`）
+- 画像：**`assets/machine_images/{画像グループID}_panel.*` / `{画像グループID}_01.*` …**
+- 定数：`_MACHINE_IMAGE_MASTER_PATH` / `_MACHINE_IMAGES_DIR`（ともに **`BASE_DIR` 配下＝リポジトリ内**）
+- 読み出し：`load_machine_image_master()` → `get_machine_images(簡略名)` →
+  `_find_panel_image()` / `_find_screen_images()` → `show_machine_image_page()` が表示
+- 外部ストレージ・Secrets・別APIは使わない。**リポジトリ内の実ファイルを直接読む**ため、
+  **main へ push したうえで Cloud が新しいコミットを取り込めば反映される**。
+
+### ③ 同じ事象が起きたときの手順（むやみに再登録・再commitしない）
+
+1. **`origin/main` にマスタと画像が存在するか**を先に確認する。
+   ```
+   git ls-tree -r --name-only origin/main assets/machine_images | Select-String "{画像グループID}"
+   git ls-tree -r --name-only origin/main masters
+   git log --oneline -- assets/machine_images/{画像グループID}_panel.png
+   git merge-base --is-ancestor <その commit> origin/main
+   ```
+   併せて `git status --porcelain --ignored -- masters assets` が空（未追跡・変更なし）かを見る。
+2. **Cloud が最新 main を取り込んでいるか**を確認する。
+3. **必要なら Cloud を Reboot する**（Manage app → Reboot）。
+   push だけでは反映されないことがある（「⑪ Cloud 実機確認と403の原因」の節と同じ現象）。
+4. 1〜3で解決する場合、**画像の再登録・再commit・再pushは不要**。
+
+### ④ ローカルで出ないときは「古いプロセス」を疑う
+
+**`load_machine_image_master()` は `@st.cache_data`（引数なし）**で、
+**プロセス生存中はマスタファイルの更新を検知しない**。
+そのため、マスタを更新した時刻より**前に起動していた Streamlit セッション**では
+新しい紐づけが出ないことがある。
+（`append_machine_image_master()` / 紐づけ追加の経路は `load_machine_image_master.clear()` を
+呼ぶので、**同じプロセス内で登録した場合は反映される**。）
+
+→ **ローカルで出ないときは、まず Streamlit を再起動して再確認する。**
+再登録やマスタの直接編集を先に行わない。
+
+### ⑤ 今回いっさい変更していないもの
+
+`masters/machine_image_master.xlsx` ／ `assets/machine_images/` の画像 ／ `機種名変換.xlsx` ／
+`streamlit_app.py` の機種画像関連コード。**戦国恋姫のための追加 commit / push も不要**である
+（必要ファイルはすべて `45025c9` で main に入っている）。
+
+なお `機種名変換.xlsx` には**戦国恋姫とは無関係の未コミット差分**（HEAD 1067行 → 現在 1074行・
+`Lストファイ6` / `Lリゼロ2` / `L喰霊-零-Re` / `Lうしおととら 白面決戦` / `エウレカ4` 系の**+7行**）が
+存在する。**恋姫の行はHEADと現在で同一（3件）**であり、今回の件と混同しないこと。

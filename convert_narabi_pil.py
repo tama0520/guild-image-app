@@ -31,9 +31,9 @@ HQ_MIN_ROWS = 10
 # 列画像（列仕掛け）用の台番範囲。既定は空リスト＝従来の並び画像だけを生成する。
 # Streamlit 側の ③「列画像を作成する」がONのときだけ書き換えて実行される。
 # 列画像は並び画像とまったく同じ描画・後処理で作り、タイトルだけ
-# 「機種名（列仕掛け）」（台数表記なし）にする。
+# 「機種名(列仕掛け)」（台数表記なし・半角括弧）にする。
 COL_RANGES = []
-COL_SUFFIX = "（列仕掛け）"
+COL_SUFFIX = "(列仕掛け)"
 
 # ── フォントパス（cwd = BASE_DIR で subprocess 実行される）──────────
 _BASE = os.getcwd()
@@ -187,7 +187,7 @@ def make_title(run_indices):
     return f"{machine_label(run_indices)}({len(run_indices)}台並び)"
 
 def make_col_title(run_indices):
-    """列画像のタイトル。台数表記は付けず「機種名（列仕掛け）」とする。"""
+    """列画像のタイトル。台数表記は付けず「機種名(列仕掛け)」とする。"""
     return f"{machine_label(run_indices)}{COL_SUFFIX}"
 
 def make_safe(name):
@@ -355,24 +355,11 @@ for run_idx, (run, title, _dup_set) in enumerate(_JOBS):
     bar_font = _load_font(font_size_bar)
 
     title_text = title.strip().replace('･', '・')
-    # 列画像は「機種名（列仕掛け）」を2パーツで描いて余白を詰める（GAP_TITLE=-22）。
-    # MochiyPopOne の全角括弧は1em幅で左に約半角の空きがあり、一括描画だと
-    # 機種名との間に隙間が見える（streamlit_app._build_machine_img と同じ補正）。
-    # 並び画像のタイトルは COL_SUFFIX で終わらないので従来どおり一括描画。
-    GAP_TITLE = -22
-    _sub  = COL_SUFFIX if (COL_SUFFIX and title_text.endswith(COL_SUFFIX)) else None
-    _main = title_text[:-len(_sub)] if _sub else title_text
-
-    def _title_w(_font):
-        if _sub:
-            _b1 = _textbbox(bar_draw, _main, _font)
-            _b2 = _textbbox(bar_draw, _sub,  _font)
-            return (_b1[2] - _b1[0]) + GAP_TITLE + (_b2[2] - _b2[0])
-        _b = _textbbox(bar_draw, title_text, _font)
-        return _b[2] - _b[0]
-
+    # 列画像も半角括弧「(列仕掛け)」になったため、並び画像と同じ一括描画でよい
+    # （半角括弧の左の空きは4pxで、既存の「(4台並び)」と同じ自然な間隔になる。
+    #   全角括弧用の GAP_TITLE=-22 を半角へ掛けると18px重なるため使わない）。
     bbox = _textbbox(bar_draw, title_text, bar_font)
-    text_w = _title_w(bar_font)
+    text_w = bbox[2] - bbox[0]
     text_h = bbox[3] - bbox[1]
 
     # タイトルが広すぎる場合はフォントを縮小
@@ -381,22 +368,12 @@ for run_idx, (run, title, _dup_set) in enumerate(_JOBS):
         reduced_size -= 2
         bar_font = _load_font(reduced_size)
         bbox   = _textbbox(bar_draw, title_text, bar_font)
-        text_w = _title_w(bar_font)
+        text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
 
-    if _sub:
-        b1 = _textbbox(bar_draw, _main, bar_font)
-        b2 = _textbbox(bar_draw, _sub,  bar_font)
-        w1, w2 = b1[2] - b1[0], b2[2] - b2[0]
-        x1 = (w - (w1 + GAP_TITLE + w2)) // 2 - b1[0]
-        x2 = x1 + w1 + GAP_TITLE - b2[0]
-        ty = (bar_h - (b1[3] - b1[1])) // 2 - b1[1]
-        bar_draw.text((x1, ty), _main, fill=(255, 255, 255, 255), font=bar_font)
-        bar_draw.text((x2, ty), _sub,  fill=(255, 255, 255, 255), font=bar_font)
-    else:
-        tx = (w - text_w) // 2 - bbox[0]
-        ty = (bar_h - text_h) // 2 - bbox[1]
-        bar_draw.text((tx, ty), title_text, fill=(255, 255, 255, 255), font=bar_font)
+    tx = (w - text_w) // 2 - bbox[0]
+    ty = (bar_h - text_h) // 2 - bbox[1]
+    bar_draw.text((tx, ty), title_text, fill=(255, 255, 255, 255), font=bar_font)
 
     # 合成：青バー → 赤ライン → テーブル（NO_BAR=True の記事用はテーブルのみ）
     _top_h  = 0 if NO_BAR else bar_h + line_h
@@ -453,7 +430,13 @@ for run_idx, (run, title, _dup_set) in enumerate(_JOBS):
     # ファイル名（同タイトルが複数あれば台番範囲を付与して区別）
     ban_start = df.iloc[run[0]]["台番"]
     ban_end   = df.iloc[run[-1]]["台番"]
-    file_title = f"{title}（{ban_start}～{ban_end}）" if title in _dup_set else title
+    # 重複名の括弧は列画像だけ半角。並び画像は従来どおり全角（既存仕様）。
+    _is_col_t = bool(COL_SUFFIX) and title.endswith(COL_SUFFIX)
+    if title in _dup_set:
+        file_title = (f"{title}({ban_start}～{ban_end})" if _is_col_t
+                      else f"{title}（{ban_start}～{ban_end}）")
+    else:
+        file_title = title
     safe_title = make_safe(file_title)
     out_path   = os.path.join(SPLIT_DIR, f"{safe_title}.jpg")
 

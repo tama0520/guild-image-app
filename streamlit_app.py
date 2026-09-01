@@ -2777,8 +2777,10 @@ def _stat_from_diff(diff_raw_s: pd.Series) -> dict:
 
 
 # 青タイトルバーで「機種名」と後置語の間を詰める対象（末尾一致・判定順は固定）。
-# MochiyPopOne の全角括弧は1em幅で左に空きがあるため GAP_TITLE=-22 で詰める。
-_TITLE_SUB_PARTS: tuple[str, ...] = ("（優秀台）", "（列仕掛け）")
+# MochiyPopOne の**全角**括弧は1em幅で左に約半角(27px)の空きがあるため GAP_TITLE=-22 で詰める。
+# 半角括弧は左の空きが4pxしかなく、既存の「(4台並び)」と同じ自然な間隔になるため
+# 補正は不要（-22 を掛けると18px重なる）。よって「(列仕掛け)」はここに入れない。
+_TITLE_SUB_PARTS: tuple[str, ...] = ("（優秀台）",)
 
 
 def _build_machine_img(
@@ -2789,9 +2791,10 @@ def _build_machine_img(
     hq_scale: float = 1.0,
 ) -> Image.Image:
     """パイプライン用機種別画像。旧スクリプトと同じ寸法で生成する。
-    title が「（優秀台）」「（列仕掛け）」で終わる場合は2パーツ描画（gap=-22）。
+    title が「（優秀台）」で終わる場合は2パーツ描画（gap=-22）。
     MochiyPopOne は全角括弧も1em幅で左に約半角の空きを持つため、
-    括弧付きの後置語はこの補正なしだと機種名との間に隙間が見える。
+    全角括弧の後置語はこの補正なしだと機種名との間に隙間が見える。
+    半角括弧（例「(列仕掛け)」「(4台並び)」）は空きが4pxで自然なため補正しない。
     no_bar=True で青タイトルバー＋赤ラインを**描かずに**生成する（記事用の並び画像）。
     ピンクサマリーバーの有無・表の内容は no_bar でも変わらない。"""
 
@@ -2829,8 +2832,8 @@ def _build_machine_img(
     bd   = ImageDraw.Draw(bar)
     font = load_font(FONT_SZ)
 
-    # 末尾が括弧付きの後置語なら2パーツ描画で余白を詰める。
-    # （優秀台）は従来どおり。（列仕掛け）＝列画像も同じ補正を使う（2026-09-01）。
+    # 末尾が**全角**括弧の後置語なら2パーツ描画で余白を詰める（（優秀台）のみ）。
+    # 半角括弧の「(列仕掛け)」「(4台並び)」は一括描画のまま（2026-09-01 半角へ統一）。
     SUB = next((_s for _s in _TITLE_SUB_PARTS if title.endswith(_s)), None)
     if SUB:
         main_text = title[:-len(SUB)].replace('\uff65', '\u30fb')
@@ -6037,12 +6040,13 @@ def _rec_checked_bans(rec_ban_map: dict, store: str, excel_name: str) -> set[int
     return bans
 
 
-_COL_TITLE_SUFFIX = "（列仕掛け）"
+_COL_TITLE_SUFFIX  = "(列仕掛け)"      # 表示・ファイル名とも半角で統一（正式）
+_COL_LEGACY_SUFFIX = "（列仕掛け）"    # 旧全角形式。**旧ファイル削除の照合にだけ使う**
 
 
 def _col_group_title(machines) -> str:
     """列画像のタイトル。機種名の並べ方は並び画像と同一（1機種／2機種は+／
-    3機種以上は先頭～末尾）で、台数表記は付けず末尾に（列仕掛け）を付ける。"""
+    3機種以上は先頭～末尾）で、台数表記は付けず末尾に(列仕掛け)を付ける。"""
     _ms = list(dict.fromkeys(str(m).strip() for m in machines))
     if not _ms:
         return _COL_TITLE_SUFFIX
@@ -6073,7 +6077,8 @@ def _build_col_items(df, ranges) -> list[tuple]:
     _dup = {t for t, c in _CtrCol(t for _, t in _infos).items() if c > 1}
     for _grp, _tit in _infos:
         if _tit in _dup:
-            _ft = f"{_tit}（{int(_grp.iloc[0]['台番'])}～{int(_grp.iloc[-1]['台番'])}）"
+            # 重複名の括弧も半角（列専用。並び画像の重複名は従来どおり全角）
+            _ft = f"{_tit}({int(_grp.iloc[0]['台番'])}～{int(_grp.iloc[-1]['台番'])})"
         else:
             _ft = _tit
         items.append((_grp, _tit, f"{_ft}.jpg", [int(b) for b in _grp["台番"].tolist()]))
@@ -6084,7 +6089,7 @@ def _build_retsu_report_items(df, ranges) -> list[dict]:
     """結果テキストの「列仕掛け」用に、列画像と同じ掲載台から nami_list と同形の
     dict リストを返す（順序＝入力した列範囲の順）。
 
-    ・機種名  : 列画像のタイトルから「（列仕掛け）」を除いたもの（1機種／2機種＝+／
+    ・機種名  : 列画像のタイトルから「(列仕掛け)」を除いたもの（1機種／2機種＝+／
                 3機種以上＝先頭～末尾。列画像と必ず一致する）
     ・台数    : 実在する掲載台数（画像の行数と一致）
     ・台番範囲: 実在する掲載台番から連続／単独／飛び地を判定（並びと同じ書式）
@@ -6113,6 +6118,39 @@ def _build_retsu_report_items(df, ranges) -> list[dict]:
             "bans":      _bs,
         })
     return items
+
+
+def _col_legacy_fn(new_fn: str) -> "str | None":
+    """新形式の列画像ファイル名から、旧全角形式のファイル名を**構造的に**組み立てる。
+
+      新: ハピジャグV～ウルトラミラジャグ(列仕掛け).jpg
+      旧: ハピジャグV～ウルトラミラジャグ（列仕掛け）.jpg
+      新: スマスロ北斗の拳(列仕掛け)(2001～2004).jpg
+      旧: スマスロ北斗の拳（列仕掛け）（2001～2004）.jpg
+
+    **機種名本体は絶対に置換しない。**末尾の「列サフィックス」と「重複範囲サフィックス」
+    だけを旧全角へ変換する（ファイル名全体の一括 replace は禁止。機種名に半角括弧が
+    含まれる場合に壊れるため）。形が一致しなければ None を返す（＝何も削除しない）。"""
+    _stem, _ext = os.path.splitext(new_fn)
+    _m = re.fullmatch(
+        r"(?P<mac>.*)" + re.escape(_COL_TITLE_SUFFIX)
+        + r"(?:\((?P<s>\d+)～(?P<e>\d+)\))?", _stem)
+    if not _m:
+        return None
+    _legacy = _m.group("mac") + _COL_LEGACY_SUFFIX
+    if _m.group("s"):
+        _legacy += f"（{_m.group('s')}～{_m.group('e')}）"
+    return _legacy + _ext
+
+
+def _rm_legacy_col_image(output_dir: str, new_fn: str, log=None) -> list[str]:
+    """列画像の括弧を半角へ変えたため、**その画像に対応する旧全角名だけ**を削除する。
+    既存の _rm_stale_image()（連番除去後の完全一致のみ）へ委譲する。
+    対応名が組み立てられないときは何もしない。フォルダの一括掃除はしない。"""
+    _old = _col_legacy_fn(new_fn)
+    if not _old or _old == new_fn:
+        return []
+    return _rm_stale_image(output_dir, _old, log=log)
 
 
 def _render_retsu_option(enabled_key: str, ranges_key: str, on_change, store: str) -> tuple:
@@ -11300,6 +11338,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 "total_count": len(_cgrp_e),
                             }
                             _cfn_e = _unique_fn_e(f"{_make_safe_fn(os.path.splitext(_cfn_e0)[0])}.jpg")
+                            _rm_legacy_col_image(output_dir, _cfn_e, log=_m_log)
                             _save_jpeg(_build_machine_img(_cgrp_e, _ctit_e, _cstat_e),
                                        os.path.join(output_dir, _cfn_e))
                             _exec_order.append(_cfn_e)
@@ -12323,6 +12362,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                             if os.path.exists(_del_n):
                                 os.remove(_del_n)
                                 _log(f"  🗑️ スキップ(並び): {_pname}")
+                # 列画像の括弧半角化に伴い、対応する旧全角名の画像だけを削除する
+                for _cfn_old in st.session_state.get(_aprev_col_key, {}):
+                    _rm_legacy_col_image(output_dir, _cfn_old, log=_log)
                 # 残りの並び画像を output_dir に移動してサブフォルダを削除
                 if ok_n and os.path.isdir(narabi_dir):
                     for _nf in sorted(os.listdir(narabi_dir)):
@@ -15291,6 +15333,9 @@ def show_auto_article_page() -> None:
                             if os.path.exists(_del_n):
                                 os.remove(_del_n)
                                 _log(f"  🗑️ スキップ(並び): {_pname}")
+                # 列画像の括弧半角化に伴い、対応する旧全角名の画像だけを削除する
+                for _cfn_old_a in st.session_state.get(_art_aprev_col_key, {}):
+                    _rm_legacy_col_image(output_dir, _cfn_old_a, log=_log)
                 # 残りの並び画像を output_dir 直下に移動してサブフォルダを削除
                 if ok_n and os.path.isdir(narabi_dir):
                     for _nf in sorted(os.listdir(narabi_dir)):

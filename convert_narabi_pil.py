@@ -28,6 +28,13 @@ NO_BAR = False
 HQ_SCALE = 1.0
 HQ_MIN_ROWS = 10
 
+# 列画像（列仕掛け）用の台番範囲。既定は空リスト＝従来の並び画像だけを生成する。
+# Streamlit 側の ③「列画像を作成する」がONのときだけ書き換えて実行される。
+# 列画像は並び画像とまったく同じ描画・後処理で作り、タイトルだけ
+# 「機種名（列仕掛け）」（台数表記なし）にする。
+COL_RANGES = []
+COL_SUFFIX = "（列仕掛け）"
+
 # ── フォントパス（cwd = BASE_DIR で subprocess 実行される）──────────
 _BASE = os.getcwd()
 FONT_PATH = os.path.join(_BASE, "fonts", "MochiyPopOne-Regular.ttf")
@@ -136,6 +143,10 @@ if RANGES:
         if indices:
             runs.append(indices)
     print(f"指定並び: {len(runs)}件")
+elif COL_RANGES:
+    # 列画像だけを生成する指定（並びはOFF）。自動検出へ落とさない。
+    runs = []
+    print("並び指定なし（列画像のみ）")
 else:
     runs = []
     current_run = []
@@ -161,16 +172,23 @@ else:
     print(f"3台以上の並び（自動検出）: {len(runs)}件")
 
 # --- タイトル生成 ---
-def make_title(run_indices):
+def machine_label(run_indices):
+    """並び・列で共通の機種名ラベル（1機種／2機種／3機種以上）。"""
     machines_ordered = list(dict.fromkeys(df.iloc[i]["機種名"] for i in run_indices))
-    N = len(run_indices)
     unique_dedup = list(dict.fromkeys(m.strip() for m in machines_ordered))
     if len(unique_dedup) == 1:
-        return f"{unique_dedup[0]}({N}台並び)"
+        return f"{unique_dedup[0]}"
     elif len(unique_dedup) == 2:
-        return f"{unique_dedup[0]}+{unique_dedup[1]}({N}台並び)"
+        return f"{unique_dedup[0]}+{unique_dedup[1]}"
     else:
-        return f"{unique_dedup[0]}～{unique_dedup[-1]}({N}台並び)"
+        return f"{unique_dedup[0]}～{unique_dedup[-1]}"
+
+def make_title(run_indices):
+    return f"{machine_label(run_indices)}({len(run_indices)}台並び)"
+
+def make_col_title(run_indices):
+    """列画像のタイトル。台数表記は付けず「機種名（列仕掛け）」とする。"""
+    return f"{machine_label(run_indices)}{COL_SUFFIX}"
 
 def make_safe(name):
     return name.replace("/", "／").replace("\\", "＼").replace(":", "：") \
@@ -179,6 +197,27 @@ def make_safe(name):
 
 title_counts = Counter(make_title(r) for r in runs)
 dup_titles = {t for t, c in title_counts.items() if c > 1}
+
+# --- 列画像 runs（COL_RANGES 指定時のみ。既定は空リスト＝従来と完全に同一）---
+col_runs = []
+for item in (COL_RANGES or []):
+    indices = []
+    bans = range(item[0], item[1] + 1) if (isinstance(item, tuple) and len(item) == 2) else item
+    for ban in bans:
+        if ban in ban_to_idx:
+            indices.append(ban_to_idx[ban])
+        else:
+            print(f"  [警告] 台番 {ban} がExcelに見つかりません（列）")
+    if indices:
+        col_runs.append(indices)
+if col_runs:
+    print(f"指定列: {len(col_runs)}件")
+col_dup_titles = {t for t, c in Counter(make_col_title(r) for r in col_runs).items() if c > 1}
+
+# 並び → 列 の順に (台番indices, タイトル, 同名タイトル集合) を並べる。
+# COL_RANGES が空なら並びだけ＝従来の runs ループと同一。
+_JOBS = ([(r, make_title(r), dup_titles) for r in runs]
+         + [(r, make_col_title(r), col_dup_titles) for r in col_runs])
 
 # ── PIL 描画定数（dfi.export DPI=150 相当に寄せる）─────────────────
 SCALE         = 150 / 96            # ≈ 1.5625
@@ -287,12 +326,11 @@ def build_table_pil(group, diff_raw_s, hq=1.0):
     return img
 
 # ── 各並びの画像生成 ─────────────────────────────────────────────
-for run_idx, run in enumerate(runs):
+for run_idx, (run, title, _dup_set) in enumerate(_JOBS):
     run_df_full = df.iloc[run].copy().reset_index(drop=True)
     diff_raw_s  = diff_raw.iloc[run].reset_index(drop=True)
 
-    title = make_title(run)
-    print(f"\n[{run_idx+1}/{len(runs)}] {title}")
+    print(f"\n[{run_idx+1}/{len(_JOBS)}] {title}")
 
     DISPLAY_COLS = ["台番", "機種名", "ゲーム数", "BIG", "REG", "AT", "合算確率", "差枚数_disp"]
     group = run_df_full[DISPLAY_COLS].copy().rename(columns={"差枚数_disp": "差枚数"})
@@ -389,7 +427,7 @@ for run_idx, run in enumerate(runs):
     # ファイル名（同タイトルが複数あれば台番範囲を付与して区別）
     ban_start = df.iloc[run[0]]["台番"]
     ban_end   = df.iloc[run[-1]]["台番"]
-    file_title = f"{title}（{ban_start}～{ban_end}）" if title in dup_titles else title
+    file_title = f"{title}（{ban_start}～{ban_end}）" if title in _dup_set else title
     safe_title = make_safe(file_title)
     out_path   = os.path.join(SPLIT_DIR, f"{safe_title}.jpg")
 

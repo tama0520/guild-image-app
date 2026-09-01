@@ -4954,7 +4954,7 @@ def ranges_to_bans(ranges: list[list[int]]) -> set[int]:
 
 def _patch_and_run_narabi(
     script_path: str, input_path: str, split_dir: str, ranges: list,
-    no_bar: bool = False, hq_scale: float = 1.0,
+    no_bar: bool = False, hq_scale: float = 1.0, col_ranges: list | None = None,
 ) -> tuple[bool, str, str]:
     """並びスクリプト専用: INPUT/SPLIT_DIR/RANGES を書き換えて実行する。
     no_bar=True のときは NO_BAR も書き換え、青タイトルバーなしで生成させる
@@ -4983,6 +4983,13 @@ def _patch_and_run_narabi(
         f'r"{_name_map_path}"',
         code,
     )
+
+    # 列画像（列仕掛け）: COL_RANGES を書き換える。既定 None＝空リストのままで
+    # 従来どおり並び画像だけを生成する（並び画像の出力は変わらない）。
+    if col_ranges:
+        code = re.sub(r'^COL_RANGES\s*=\s*\[[^\]]*\]',
+                      lambda m, _v=repr(list(col_ranges)): f'COL_RANGES = {_v}',
+                      code, flags=re.MULTILINE)
 
     ranges_str = repr(ranges)
     m_ranges = re.search(r'^RANGES\s*=\s*', code, re.MULTILINE)
@@ -5303,6 +5310,7 @@ def _manual_sonota_auto_extract(df, diff, thr, exc_mac, exc_ban):
 
 def _auto_input_keys(store: str) -> list[str]:
     keys = ["kojin_enabled", "narabi_enabled", "narabi_ranges_input",
+            "retsu_enabled", "retsu_ranges_input",
             "suebangai_enabled",
             "suebangai_tail_input_1", "suebangai_tail_input_2", "suebangai_tail_input_3",
             "suebangai_mode"]
@@ -5536,6 +5544,8 @@ _ART_SHARED_KEYS = (
     "art_kojin_enabled",
     "art_narabi_enabled",
     "art_narabi_ranges_input",
+    "art_retsu_enabled",
+    "art_retsu_ranges_input",
     "art_suebangai_enabled",
     "art_suebangai_tail_input",
     "art_suebangai_tail_input_1",
@@ -5554,6 +5564,7 @@ _ART_SHARED_KEYS = (
 
 def _article_input_keys(store: str) -> list[str]:
     keys = ["art_kojin_enabled", "art_narabi_enabled", "art_narabi_ranges_input",
+            "art_retsu_enabled", "art_retsu_ranges_input",
             "art_suebangai_enabled", "art_suebangai_tail_input",
             "art_suebangai_mode", "art_jug_sue_enabled", "art_jug_sue_mode",
             "art_variety_enabled"]
@@ -5999,6 +6010,75 @@ def _rec_checked_bans(rec_ban_map: dict, store: str, excel_name: str) -> set[int
         if st.session_state.get(_pv_ck_key(store, excel_name, _fn), True):
             bans |= {int(_b) for _b in (_bs or [])}
     return bans
+
+
+_COL_TITLE_SUFFIX = "（列仕掛け）"
+
+
+def _col_group_title(machines) -> str:
+    """列画像のタイトル。機種名の並べ方は並び画像と同一（1機種／2機種は+／
+    3機種以上は先頭～末尾）で、台数表記は付けず末尾に（列仕掛け）を付ける。"""
+    _ms = list(dict.fromkeys(str(m).strip() for m in machines))
+    if not _ms:
+        return _COL_TITLE_SUFFIX
+    if len(_ms) == 1:
+        return f"{_ms[0]}{_COL_TITLE_SUFFIX}"
+    if len(_ms) == 2:
+        return f"{_ms[0]}+{_ms[1]}{_COL_TITLE_SUFFIX}"
+    return f"{_ms[0]}～{_ms[-1]}{_COL_TITLE_SUFFIX}"
+
+
+def _build_col_items(df, ranges) -> list[tuple]:
+    """列画像の生成対象を (DataFrame, タイトル, ファイル名, 台番リスト) で返す。
+    抽出・台番順・同名タイトル時の（開始～終了）付与は並び画像とまったく同じ規則。
+    列画像は表示用の追加画像であり、ここで返す台番は ban_map（スランプ・パネル・
+    液晶・横版）専用。他カテゴリの除外集合へは合流させない。"""
+    items: list[tuple] = []
+    if df is None or not ranges:
+        return items
+    _bmap = {int(row["台番"]): i for i, row in df.iterrows()}
+    _infos = []
+    for _bans in ranges:
+        _idxs = [_bmap[b] for b in _bans if b in _bmap]
+        if not _idxs:
+            continue
+        _grp = df.loc[_idxs].copy().reset_index(drop=True)
+        _infos.append((_grp, _col_group_title(_grp["機種名"])))
+    from collections import Counter as _CtrCol
+    _dup = {t for t, c in _CtrCol(t for _, t in _infos).items() if c > 1}
+    for _grp, _tit in _infos:
+        if _tit in _dup:
+            _ft = f"{_tit}（{int(_grp.iloc[0]['台番'])}～{int(_grp.iloc[-1]['台番'])}）"
+        else:
+            _ft = _tit
+        items.append((_grp, _tit, f"{_ft}.jpg", [int(b) for b in _grp["台番"].tolist()]))
+    return items
+
+
+def _render_retsu_option(enabled_key: str, ranges_key: str, on_change, store: str) -> tuple:
+    """③並び画像セクションの「列画像を作成する」UI。(有効, 範囲リスト) を返す。
+    並び画像のON/OFFとは独立で、並びOFF・列ONでも列画像だけ生成できる。"""
+    _ok, _ranges = False, []
+    _en = st.checkbox("列画像を作成する", key=enabled_key, on_change=on_change, args=(store,))
+    if _en:
+        _txt = st.text_area(
+            "台番範囲（列）　連番: '2001-2008'、スポット: '508+424'、複数: カンマ/スペース/改行区切り",
+            value="", key=ranges_key, height=100, on_change=on_change, args=(store,),
+        )
+        if _txt.strip():
+            try:
+                _parsed = parse_ranges(_txt.strip())
+            except Exception:
+                _parsed = []
+                st.warning("台番範囲の形式が正しくありません。例: 2001-2008, 2031-2038")
+            if _parsed:
+                st.caption(f"列指定: {_parsed}")
+                _ranges, _ok = _parsed, True
+            elif _txt.strip():
+                st.warning("範囲を正しく認識できませんでした。例: 2001-2008, 2031-2038")
+        else:
+            st.info("列の台番範囲を入力してください。")
+    return _ok, _ranges
 
 
 def _narabi_checked_bans(previews, narabi_map: dict, store: str, excel_name: str) -> set[int]:
@@ -8195,6 +8275,9 @@ def show_auto_page(with_slump: bool = False) -> None:
     # ── ③ 並び画像オプション（常に描画）──────────────────────────────
     narabi_ok     = False
     narabi_ranges: list[list[int]] = []
+    # 列画像（列仕掛け）: 並びとは独立にON/OFFできる追加画像
+    retsu_ok      = False
+    retsu_ranges: list[list[int]] = []
     if store in STORE_NARABI_SCRIPT:
         st.markdown(f"### {_sec_num()} 並び画像")
         narabi_enabled = st.checkbox("並び画像も生成する", key="narabi_enabled",
@@ -8293,6 +8376,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                     st.warning("台番範囲の形式が正しくありません。例: 409-413, 315-317")
             else:
                 st.info("台番範囲を入力してください。")
+
+        # ── 列画像（列仕掛け）: 並びとは独立にON/OFF ──────────────────
+        retsu_ok, retsu_ranges = _render_retsu_option(
+            "retsu_enabled", "retsu_ranges_input", _save_auto_inputs, store)
 
     # ── ④ 末尾画像オプション（末尾画像を持つ店舗）──────────────────────
     if "末尾画像" in STORES.get(store, []):
@@ -8904,6 +8991,9 @@ def show_auto_page(with_slump: bool = False) -> None:
         _aprev_jug_pool_key = f"auto_preview_jug_pool_{store}"
         _aprev_jug_ov_key   = f"auto_preview_jug_ov_{store}"
         _aprev_narabi_key   = f"auto_preview_narabi_{store}"
+        # 列画像（列仕掛け）のファイル名→掲載台番。ban_map（スランプ・パネル・液晶・
+        # 横版）専用で、並びのチェック外し再振り分けには使わない。
+        _aprev_col_key      = f"auto_preview_col_{store}"
         _aprev_hr_img_key   = f"auto_preview_hr_img_{store}"
         # ⑤台番単位除外用: 自動生成画像へ掲載された台番（🔄その他を更新でも使う）
         _aprev_pub_bans_key = f"auto_preview_pub_bans_{store}"
@@ -9175,6 +9265,21 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         "total_count": _nn,
                                     }
                                     _prev_img_list.append((f"{_file_tit}.jpg", _build_machine_img(_ngrp, _ntit, _nstat)))
+                            # ─ ③ 列画像（列仕掛け・retsu_ranges）─
+                            # 並び画像と同じ描画・同じ後処理。台番は ban_map 専用で
+                            # 他カテゴリの抽出除外には使わない。
+                            _col_ban_map: dict[str, list[int]] = {}
+                            if retsu_ok and retsu_ranges and _pv_df is not None:
+                                for _cgrp, _ctit, _cfn, _cbans in _build_col_items(_pv_df, retsu_ranges):
+                                    _cds = _cgrp["差枚"]
+                                    _cstat = {
+                                        "total_diff":  int(_cds.sum()),
+                                        "avg_diff":    int(round(_cds.mean())),
+                                        "win_count":   int((_cds > 0).sum()),
+                                        "total_count": len(_cgrp),
+                                    }
+                                    _col_ban_map[_cfn] = _cbans
+                                    _prev_img_list.append((_cfn, _build_machine_img(_cgrp, _ctit, _cstat)))
                             if kojin_enabled and _pv_df is not None and _pv_diff is not None:
                                 if kojin_narabi_ranges_text.strip():
                                     try:
@@ -9438,6 +9543,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _pv_title_map.setdefault(_fn_nb, os.path.splitext(_fn_nb)[0])
                         except NameError:
                             pass
+                        # 列画像（列仕掛け）の台番・タイトルを追加
+                        try:
+                            _pv_ban_map.update(_col_ban_map)
+                            for _fn_cb in _col_ban_map:
+                                _pv_title_map.setdefault(_fn_cb, os.path.splitext(_fn_cb)[0])
+                        except NameError:
+                            pass
                         # バラエティ画像の台番・タイトルを追加（_variety_ban_map はプレビュー生成時に構築）
                         try:
                             _pv_ban_map.update(_variety_ban_map)
@@ -9670,6 +9782,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                         if item.get("has_image", True)
                     }
                     st.session_state[_aprev_narabi_key]   = _narabi_ban_map if narabi_ok and narabi_ranges else {}
+                    try:
+                        st.session_state[_aprev_col_key]  = dict(_col_ban_map)
+                    except NameError:
+                        st.session_state[_aprev_col_key]  = {}
                     # ⑦掲載台を選ぶ: 対象画像 → (種別, 機種名, 除外前の掲載候補台番)
                     _unit_src: dict[str, dict] = {}
                     for _hu in _prev_result.get("high_ratio_list", []):
@@ -9827,6 +9943,20 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _file_tit_m = _ntit
                                 _manual_imgs.append((f"{_make_safe_fn(_file_tit_m)}.jpg", _build_machine_img(_ngrp, _ntit, _nstat)))
                                 _manual_ban_map[f"{_make_safe_fn(_file_tit_m)}.jpg"] = [int(b) for b in _ngrp["台番"].tolist()]
+
+                        # ③ 列画像（列仕掛け）
+                        if retsu_ok and retsu_ranges:
+                            for _cgrp, _ctit, _cfn, _cbans in _build_col_items(_df_m, retsu_ranges):
+                                _cds = _cgrp["差枚"]
+                                _cstat = {
+                                    "total_diff":  int(_cds.sum()),
+                                    "avg_diff":    int(round(_cds.mean())),
+                                    "win_count":   int((_cds > 0).sum()),
+                                    "total_count": len(_cgrp),
+                                }
+                                _cfn_s = f"{_make_safe_fn(os.path.splitext(_cfn)[0])}.jpg"
+                                _manual_imgs.append((_cfn_s, _build_machine_img(_cgrp, _ctit, _cstat)))
+                                _manual_ban_map[_cfn_s] = _cbans
 
                         # ④ 末尾画像
                         _kp_sue_stat: dict[str, list[int]] = {}
@@ -11099,6 +11229,23 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _br_e = (f"{_bls_e[0]}-{_bls_e[-1]}" if _is_consec_e else (str(_bls_e[0]) if len(_bls_e)==1 else "+".join(str(b) for b in _bls_e)))
                             _m_nami.append({"title": _ntit_e, "count": _nstat_e["total_count"], "avg_diff": _nstat_e["avg_diff"], "machine": _mach_e, "ban_range": _br_e, "bans": _bls_e})
 
+                    # ③ 列画像（列仕掛け）: 結果テキスト（_m_nami）へは入れない
+                    if retsu_ok and retsu_ranges:
+                        for _cgrp_e, _ctit_e, _cfn_e0, _cbans_e in _build_col_items(_df_exec_m, retsu_ranges):
+                            _cds_e = _cgrp_e["差枚"]
+                            _cstat_e = {
+                                "total_diff":  int(_cds_e.sum()),
+                                "avg_diff":    int(round(_cds_e.mean())),
+                                "win_count":   int((_cds_e > 0).sum()),
+                                "total_count": len(_cgrp_e),
+                            }
+                            _cfn_e = _unique_fn_e(f"{_make_safe_fn(os.path.splitext(_cfn_e0)[0])}.jpg")
+                            _save_jpeg(_build_machine_img(_cgrp_e, _ctit_e, _cstat_e),
+                                       os.path.join(output_dir, _cfn_e))
+                            _exec_order.append(_cfn_e)
+                            _m_exec_ban_map_e[_cfn_e] = _cbans_e
+                            _m_log(f"  ✅ 列「{_ctit_e}」")
+
                     # ④ 末尾画像
                     _kp_sue_stat_e: dict[str, list[int]] = {}
                     if st.session_state.get("suebangai_enabled", False):
@@ -11641,6 +11788,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _fn2 = f"{_make_safe_fn(_nt2)}.jpg"
                         _ig_ban_map[_fn2]   = [int(_b3) for _b3 in _nami2["bans"]]
                         _ig_title_map[_fn2] = _nt2
+                # 列画像（列仕掛け）: ⑦プレビューで確定した掲載台番をそのまま使う
+                for _cfn_ig, _cbns_ig in st.session_state.get(_aprev_col_key, {}).items():
+                    if _cbns_ig:
+                        _ig_ban_map[_cfn_ig]   = [int(_b5) for _b5 in _cbns_ig]
+                        _ig_title_map[_cfn_ig] = os.path.splitext(_cfn_ig)[0]
                 st.session_state[f"_inagawa_ban_map_{store}"]   = _ig_ban_map
                 st.session_state[f"_inagawa_title_map_{store}"] = _ig_title_map
                 # JPGファイルをバイトとして保存（後でnarabi含む全ファイルを再収集）
@@ -12088,11 +12240,13 @@ def show_auto_page(with_slump: bool = False) -> None:
             # ── 並び画像（subprocess）────────────────────────────────
             narabi_result: dict | None = None
             _moved_narabi: list[str] = []
-            if narabi_ok:
+            if narabi_ok or retsu_ok:
                 st.write(f"⏳ 並び画像スクリプトを実行中…")
                 os.makedirs(narabi_dir, exist_ok=True)
                 ok_n, out_n, err_n = _patch_and_run_narabi(
-                    STORE_NARABI_SCRIPT[store], excel_path, narabi_dir, narabi_ranges
+                    STORE_NARABI_SCRIPT[store], excel_path, narabi_dir,
+                    narabi_ranges if narabi_ok else [],
+                    col_ranges=(retsu_ranges if retsu_ok else None),
                 )
                 narabi_result = {"ok": ok_n, "stdout": out_n, "stderr": err_n}
                 st.write(f"{'✅' if ok_n else '❌'} 並び画像{'完了' if ok_n else 'エラー'}")
@@ -12607,6 +12761,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _bare_u = re.sub(r"^\d{2}_", "", _nfn_u)
                         if _bare_u not in _ig_bm_u:
                             _ig_bm_u[_bare_u] = [int(_b4) for _b4 in _nbns_u]
+                    # 列画像（列仕掛け）
+                    for _cfn_u, _cbns_u in st.session_state.get(_aprev_col_key, {}).items():
+                        _bare_cu = re.sub(r"^\d{2}_", "", _cfn_u)
+                        if _bare_cu not in _ig_bm_u:
+                            _ig_bm_u[_bare_cu] = [int(_b6) for _b6 in _cbns_u]
                     # ④末尾は画像生成時に確定した掲載台番（🎯除外後）をそのまま使う。
                     # 再計算すると除外前の台に戻り、表とスランプが食い違うため。
                     for _fn_su_e, _bns_su_e in _sue_ban_run.items():
@@ -13666,6 +13825,9 @@ def show_auto_article_page() -> None:
     # ── ③ 並び画像オプション ─────────────────────────────────────────
     narabi_ok     = False
     narabi_ranges: list[list[int]] = []
+    # 列画像（列仕掛け）: 並びとは独立にON/OFFできる追加画像
+    retsu_ok      = False
+    retsu_ranges: list[list[int]] = []
     if store in STORE_NARABI_SCRIPT:
         st.markdown(f"### {_sec_num()} {'並び' if _art_v2 else '並び画像'}")
         narabi_enabled = st.checkbox("並び画像も生成する", key="art_narabi_enabled",
@@ -13761,6 +13923,10 @@ def show_auto_article_page() -> None:
                     st.warning("台番範囲の形式が正しくありません。例: 409-413, 315-317")
             else:
                 st.info("台番範囲を入力してください。")
+
+        # ── 列画像（列仕掛け）: 並びとは独立にON/OFF ──────────────────
+        retsu_ok, retsu_ranges = _render_retsu_option(
+            "art_retsu_enabled", "art_retsu_ranges_input", _save_article_inputs, store)
 
     # ── ④ 末尾画像オプション ─────────────────────────────────────────
     if "末尾画像" in STORES.get(store, []):
@@ -13963,6 +14129,9 @@ def show_auto_article_page() -> None:
         _art_aprev_jug_ex_key   = f"art_preview_jug_ex_{store}"
         _art_aprev_jug_pool_key = f"art_preview_jug_pool_{store}"
         _art_aprev_narabi_key   = f"art_preview_narabi_{store}"
+        # 列画像（列仕掛け）のファイル名→掲載台番。ban_map（スランプ・パネル・液晶）
+        # 専用で、並びのチェック外し再振り分けには使わない。
+        _art_aprev_col_key      = f"art_preview_col_{store}"
         # 🎯掲載台を選ぶ（記事用）: 対象画像 → (種別, 画像キー, 除外前の掲載候補台番)
         _art_aprev_unit_key  = f"art_preview_unit_{store}"
         _art_unit_stem       = "art_" + os.path.splitext(uploaded.name)[0]
@@ -13970,7 +14139,8 @@ def show_auto_article_page() -> None:
         if st.session_state.get(_art_aprev_fname_key) != uploaded.name:
             for _k in (_art_aprev_key, _art_aprev_df_key, _art_aprev_di_key, _art_aprev_ex_key,
                        _art_aprev_hr_key, _art_aprev_zen_key, _art_aprev_jug_ex_key,
-                       _art_aprev_jug_pool_key, _art_aprev_narabi_key, _art_aprev_unit_key):
+                       _art_aprev_jug_pool_key, _art_aprev_narabi_key, _art_aprev_col_key,
+                       _art_aprev_unit_key):
                 st.session_state.pop(_k, None)
             st.session_state[_art_aprev_fname_key] = uploaded.name
 
@@ -14038,6 +14208,8 @@ def show_auto_article_page() -> None:
                         )
                         _art_pil: list[tuple[str, "Image.Image"]] = []
                         _art_nb_map: dict[str, list[int]] = {}
+                        # 列画像（列仕掛け）: ban_map 専用。並びの再振り分けには使わない
+                        _art_col_map: dict[str, list[int]] = {}
                         # ④末尾画像: ファイル名 → 掲載台番（ban_map・スランプ用）／
                         # 候補台番（次回🎯用）／集計対象台番
                         _art_sue_ban:  dict[str, list[int]] = {}
@@ -14129,6 +14301,20 @@ def show_auto_article_page() -> None:
                                         int(b) for b in _kgp["台番"].dropna()
                                         if str(b).split(".")[0].lstrip("-").isdigit()]
                             # ③ 並び画像
+                            # ─ ③ 列画像（列仕掛け）: 並び画像と同じ描画・後処理 ─
+                            if retsu_ok and retsu_ranges and _apdf is not None:
+                                for _cgrp_a, _ctit_a, _cfn_a, _cbans_a in _build_col_items(_apdf, retsu_ranges):
+                                    _cds_a = _cgrp_a["差枚"]
+                                    _cstat_a = {
+                                        "total_diff":  int(_cds_a.sum()),
+                                        "avg_diff":    int(round(_cds_a.mean())),
+                                        "win_count":   int((_cds_a > 0).sum()),
+                                        "total_count": len(_cgrp_a),
+                                    }
+                                    _art_col_map[_cfn_a] = _cbans_a
+                                    _art_pil.append((_cfn_a, _build_machine_img(
+                                        _cgrp_a, _ctit_a, _cstat_a, no_bar=True,
+                                        hq_scale=_art_hq_scale_for(_cfn_a, store, len(_cgrp_a)))))
                             if narabi_ok and narabi_ranges and _apdf is not None:
                                 _anbm = {int(row["台番"]): i for i, row in _apdf.iterrows()}
                                 def _antit(nms, nn):
@@ -14379,6 +14565,8 @@ def show_auto_article_page() -> None:
                                 _pv_bm_sl["その他の優秀台ピックアップ.jpg"] = _son_bns_pv
                         for _fn_nb_pv2, _bns_nb_pv2 in _art_nb_map.items():
                             _pv_bm_sl[_fn_nb_pv2] = _bns_nb_pv2
+                        for _fn_cb_pv2, _bns_cb_pv2 in _art_col_map.items():
+                            _pv_bm_sl[_fn_cb_pv2] = _bns_cb_pv2
                         # ④末尾画像（掲載台のみ・パネル/スランプ/液晶はban_map経由で連動）
                         for _fn_sue_pv, _bns_sue_pv in _art_sue_ban.items():
                             if _bns_sue_pv:
@@ -14532,6 +14720,7 @@ def show_auto_article_page() -> None:
                                                  "machine": _ssrc_a["machine"],
                                                  "bans": list(_ssrc_a.get("bans") or [])}
                     st.session_state[_art_aprev_narabi_key]   = _art_nb_map
+                    st.session_state[_art_aprev_col_key]      = _art_col_map
                     # ④末尾画像: 次回🎯用の候補台番と、🔄更新で使う確定掲載台番
                     st.session_state[f"art_sue_src_{store}"]  = _art_sue_src
                     st.session_state[f"art_sue_ban_{store}"]  = _art_sue_ban
@@ -14914,7 +15103,8 @@ def show_auto_article_page() -> None:
                 if st.button("🔄 プレビューをクリア", key="art_preview_clear_btn", use_container_width=True):
                     for _k in (_art_aprev_key, _art_aprev_df_key, _art_aprev_di_key, _art_aprev_ex_key,
                                _art_aprev_hr_key, _art_aprev_zen_key, _art_aprev_jug_ex_key,
-                               _art_aprev_jug_pool_key, _art_aprev_narabi_key, _art_aprev_unit_key):
+                               _art_aprev_jug_pool_key, _art_aprev_narabi_key, _art_aprev_col_key,
+                               _art_aprev_unit_key):
                         st.session_state.pop(_k, None)
                     for _ci in range(len(_art_auto_previews)):
                         st.session_state.pop(f"art_prev_ck_{store}_{_ci}", None)
@@ -15009,16 +15199,18 @@ def show_auto_article_page() -> None:
 
             # ── 並び画像（subprocess）────────────────────────────────
             narabi_result: dict | None = None
-            if narabi_ok:
+            if narabi_ok or retsu_ok:
                 st.write("⏳ 並び画像スクリプトを実行中…")
                 os.makedirs(narabi_dir, exist_ok=True)
                 # 記事用は生成段階で青タイトルバーなし（NO_BAR=True）。
                 # 生成後に上部を crop する旧処理は廃止（表ヘッダー・先頭台番を守るため）。
                 ok_n, out_n, err_n = _patch_and_run_narabi(
-                    STORE_NARABI_SCRIPT[store], excel_path, narabi_dir, narabi_ranges,
+                    STORE_NARABI_SCRIPT[store], excel_path, narabi_dir,
+                    narabi_ranges if narabi_ok else [],
                     no_bar=True,
                     # 掲載台10台以上の並び画像は最初から2倍解像度で描画させる
                     hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0),
+                    col_ranges=(retsu_ranges if retsu_ok else None),
                 )
                 narabi_result = {"ok": ok_n, "stdout": out_n, "stderr": err_n}
                 st.write(f"{'✅' if ok_n else '❌'} 並び画像{'完了' if ok_n else 'エラー'}")
@@ -15522,6 +15714,9 @@ def show_auto_article_page() -> None:
                     _art_bm_sl["その他の優秀台ピックアップ.jpg"] = _son_bns_sl
                 for _fn_nb_sl, _bns_nb_sl in st.session_state.get(f"art_preview_narabi_{store}", {}).items():
                     _art_bm_sl[_fn_nb_sl] = _bns_nb_sl
+                # 列画像（列仕掛け）
+                for _fn_cb_sl, _bns_cb_sl in st.session_state.get(f"art_preview_col_{store}", {}).items():
+                    _art_bm_sl[_fn_cb_sl] = _bns_cb_sl
                 # ④末尾画像（生成できたものだけ・掲載台番）
                 for _fn_sue_sl, _bns_sue_sl in _art_sue_ban_e.items():
                     if _bns_sue_sl and os.path.exists(os.path.join(output_dir, _fn_sue_sl)):

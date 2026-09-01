@@ -90,7 +90,7 @@
       "machine_name": "スマスロ北斗の拳",
       "blank_days": [
         false,
-        false,
+        true,
         false,
         false,
         false,
@@ -187,16 +187,6 @@
       ],
       "machine_name": "東京喰種",
       "date_checks": {
-        "2026-08-25": [
-          false,
-          false,
-          true,
-          false,
-          false,
-          true,
-          false,
-          false
-        ],
         "2026-08-26": [
           false,
           false,
@@ -256,6 +246,16 @@
           true,
           false,
           false
+        ],
+        "2026-09-01": [
+          false,
+          false,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false
         ]
       },
       "blank_days": [
@@ -268,13 +268,13 @@
         false
       ],
       "blank_date_checks": {
-        "2026-08-25": false,
         "2026-08-26": true,
         "2026-08-27": false,
         "2026-08-28": false,
         "2026-08-29": false,
         "2026-08-30": false,
-        "2026-08-31": false
+        "2026-08-31": false,
+        "2026-09-01": false
       }
     },
     "t3": {
@@ -291,10 +291,22 @@
       "title": "週間オススメ ジャグラーシリーズ",
       "machine_name": "ジャグラー系",
       "cell_machines": {
+        "0,1": [
+          "ゴージャグ3"
+        ],
+        "2,1": [
+          "ゴージャグ3"
+        ],
         "4,0": [
           "マイジャグV",
           "ネオアイム",
           "ゴージャグ3"
+        ],
+        "4,1": [
+          "マイジャグV",
+          "ネオアイム",
+          "ファンキー2",
+          "ジャグラーガールズ"
         ]
       },
       "start_date": "2026-08-31",

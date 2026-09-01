@@ -355,8 +355,24 @@ for run_idx, (run, title, _dup_set) in enumerate(_JOBS):
     bar_font = _load_font(font_size_bar)
 
     title_text = title.strip().replace('･', '・')
+    # 列画像は「機種名（列仕掛け）」を2パーツで描いて余白を詰める（GAP_TITLE=-22）。
+    # MochiyPopOne の全角括弧は1em幅で左に約半角の空きがあり、一括描画だと
+    # 機種名との間に隙間が見える（streamlit_app._build_machine_img と同じ補正）。
+    # 並び画像のタイトルは COL_SUFFIX で終わらないので従来どおり一括描画。
+    GAP_TITLE = -22
+    _sub  = COL_SUFFIX if (COL_SUFFIX and title_text.endswith(COL_SUFFIX)) else None
+    _main = title_text[:-len(_sub)] if _sub else title_text
+
+    def _title_w(_font):
+        if _sub:
+            _b1 = _textbbox(bar_draw, _main, _font)
+            _b2 = _textbbox(bar_draw, _sub,  _font)
+            return (_b1[2] - _b1[0]) + GAP_TITLE + (_b2[2] - _b2[0])
+        _b = _textbbox(bar_draw, title_text, _font)
+        return _b[2] - _b[0]
+
     bbox = _textbbox(bar_draw, title_text, bar_font)
-    text_w = bbox[2] - bbox[0]
+    text_w = _title_w(bar_font)
     text_h = bbox[3] - bbox[1]
 
     # タイトルが広すぎる場合はフォントを縮小
@@ -365,12 +381,22 @@ for run_idx, (run, title, _dup_set) in enumerate(_JOBS):
         reduced_size -= 2
         bar_font = _load_font(reduced_size)
         bbox   = _textbbox(bar_draw, title_text, bar_font)
-        text_w = bbox[2] - bbox[0]
+        text_w = _title_w(bar_font)
         text_h = bbox[3] - bbox[1]
 
-    tx = (w - text_w) // 2 - bbox[0]
-    ty = (bar_h - text_h) // 2 - bbox[1]
-    bar_draw.text((tx, ty), title_text, fill=(255, 255, 255, 255), font=bar_font)
+    if _sub:
+        b1 = _textbbox(bar_draw, _main, bar_font)
+        b2 = _textbbox(bar_draw, _sub,  bar_font)
+        w1, w2 = b1[2] - b1[0], b2[2] - b2[0]
+        x1 = (w - (w1 + GAP_TITLE + w2)) // 2 - b1[0]
+        x2 = x1 + w1 + GAP_TITLE - b2[0]
+        ty = (bar_h - (b1[3] - b1[1])) // 2 - b1[1]
+        bar_draw.text((x1, ty), _main, fill=(255, 255, 255, 255), font=bar_font)
+        bar_draw.text((x2, ty), _sub,  fill=(255, 255, 255, 255), font=bar_font)
+    else:
+        tx = (w - text_w) // 2 - bbox[0]
+        ty = (bar_h - text_h) // 2 - bbox[1]
+        bar_draw.text((tx, ty), title_text, fill=(255, 255, 255, 255), font=bar_font)
 
     # 合成：青バー → 赤ライン → テーブル（NO_BAR=True の記事用はテーブルのみ）
     _top_h  = 0 if NO_BAR else bar_h + line_h

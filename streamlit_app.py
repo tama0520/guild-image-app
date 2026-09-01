@@ -2776,6 +2776,11 @@ def _stat_from_diff(diff_raw_s: pd.Series) -> dict:
     }
 
 
+# 青タイトルバーで「機種名」と後置語の間を詰める対象（末尾一致・判定順は固定）。
+# MochiyPopOne の全角括弧は1em幅で左に空きがあるため GAP_TITLE=-22 で詰める。
+_TITLE_SUB_PARTS: tuple[str, ...] = ("（優秀台）", "（列仕掛け）")
+
+
 def _build_machine_img(
     df_m: pd.DataFrame,
     title: str,
@@ -2784,7 +2789,9 @@ def _build_machine_img(
     hq_scale: float = 1.0,
 ) -> Image.Image:
     """パイプライン用機種別画像。旧スクリプトと同じ寸法で生成する。
-    title が「（優秀台）」で終わる場合は2パーツ描画（gap=-22）。
+    title が「（優秀台）」「（列仕掛け）」で終わる場合は2パーツ描画（gap=-22）。
+    MochiyPopOne は全角括弧も1em幅で左に約半角の空きを持つため、
+    括弧付きの後置語はこの補正なしだと機種名との間に隙間が見える。
     no_bar=True で青タイトルバー＋赤ラインを**描かずに**生成する（記事用の並び画像）。
     ピンクサマリーバーの有無・表の内容は no_bar でも変わらない。"""
 
@@ -2822,8 +2829,10 @@ def _build_machine_img(
     bd   = ImageDraw.Draw(bar)
     font = load_font(FONT_SZ)
 
-    SUB = "（優秀台）"
-    if title.endswith(SUB):
+    # 末尾が括弧付きの後置語なら2パーツ描画で余白を詰める。
+    # （優秀台）は従来どおり。（列仕掛け）＝列画像も同じ補正を使う（2026-09-01）。
+    SUB = next((_s for _s in _TITLE_SUB_PARTS if title.endswith(_s)), None)
+    if SUB:
         main_text = title[:-len(SUB)].replace('\uff65', '\u30fb')
         sub_text  = SUB
         GAP_TITLE = -22
@@ -4176,10 +4185,14 @@ def generate_report_text(
     jug_sue_data: list[dict] | None = None,
     excellent_min_diff: int = 2000,
     variety_excellent: list[dict] | None = None,
+    retsu_list: list[dict] | None = None,
 ) -> str:
     """画像生成で使ったデータをそのまま文章化して返す。
     variety_excellent: ⑤バラエティ画像に実際に掲載された+1,000枚以上の台
-      （_variety_excellent_items() の戻り値）。None / 空なら見出しごと出力しない。"""
+      （_variety_excellent_items() の戻り値）。None / 空なら見出しごと出力しない。
+    retsu_list: ③列画像（列仕掛け）。nami_list と同じ形の dict リスト
+      （_build_retsu_report_items() の戻り値）。None / 空なら見出しごと出力しない。
+      **既存の nami_list へ列を混ぜてはならない**（案E1・WordPress非波及のため）。"""
     weekday_jp = ["月", "火", "水", "木", "金", "土", "日"]
     if date is not None:
         date_str = f"{date.month}/{date.day}({weekday_jp[date.weekday()]})"
@@ -4253,13 +4266,14 @@ def generate_report_text(
                 lines.append(f"{emoji}{_format_diffs(item['diffs'])}")
         return "\n".join(lines)
 
-    def nami_section() -> str:
-        if not nami_list:
+    def _nami_like_section(items: list[dict]) -> str:
+        """並び仕掛け／列仕掛け共通の整形。中身は従来の nami_section と同一。"""
+        if not items:
             return "（なし）"
-        if any("machine" in item and "ban_range" in item for item in nami_list):
+        if any("machine" in item and "ban_range" in item for item in items):
             machine_order = []
             grouped: dict[str, list] = {}
-            for item in nami_list:
+            for item in items:
                 m = item.get("machine") or item["title"].split("(")[0]
                 if m not in grouped:
                     machine_order.append(m)
@@ -4274,8 +4288,16 @@ def generate_report_text(
                     avg = _fmt_diff(item["avg_diff"])
                     lines.append(f"{br}番台({n}台並び)→平均{avg}" if br else f"({n}台並び)→平均{avg}")
             return "\n".join(lines)
-        lines = [f"🍡{item['title']}→平均{_fmt_diff(item['avg_diff'])}" for item in nami_list]
+        lines = [f"🍡{item['title']}→平均{_fmt_diff(item['avg_diff'])}" for item in items]
         return "\n".join(lines)
+
+    def nami_section() -> str:
+        return _nami_like_section(nami_list)
+
+    def retsu_section() -> str:
+        # ③列画像（列仕掛け）。並び仕掛けと同じ整形で出す。
+        # 平均差枚は列画像に載っている補正済み差枚（呼び出し側で算出）。
+        return _nami_like_section(retsu_list or [])
 
     def suebangai_section() -> str:
         _circle_map = {"0":"⓪","1":"①","2":"②","3":"③","4":"④",
@@ -4616,6 +4638,9 @@ def generate_report_text(
         nami_section(),
         "",
     ]
+    # ③列画像（列仕掛け）。0件なら見出しごと出力しない（末尾・バラエティと同じ流儀）。
+    if retsu_list:
+        parts += [f"{e2}列仕掛け", retsu_section(), ""]
     _sue_sec = suebangai_section()
     if _sue_sec:
         parts += [_sue_sec, ""]
@@ -6052,6 +6077,41 @@ def _build_col_items(df, ranges) -> list[tuple]:
         else:
             _ft = _tit
         items.append((_grp, _tit, f"{_ft}.jpg", [int(b) for b in _grp["台番"].tolist()]))
+    return items
+
+
+def _build_retsu_report_items(df, ranges) -> list[dict]:
+    """結果テキストの「列仕掛け」用に、列画像と同じ掲載台から nami_list と同形の
+    dict リストを返す（順序＝入力した列範囲の順）。
+
+    ・機種名  : 列画像のタイトルから「（列仕掛け）」を除いたもの（1機種／2機種＝+／
+                3機種以上＝先頭～末尾。列画像と必ず一致する）
+    ・台数    : 実在する掲載台数（画像の行数と一致）
+    ・台番範囲: 実在する掲載台番から連続／単独／飛び地を判定（並びと同じ書式）
+    ・平均差枚: **列画像に載っている補正済み差枚**の平均（df["差枚"] は補正済み。
+                ここで _pipeline_calc_d を再適用しない＝二重補正の禁止）
+
+    ここで返す台番は結果テキスト用のみ。**他カテゴリの除外集合へ合流させない**
+    （案E1）。`result["nami_list"]` へも入れない。"""
+    items: list[dict] = []
+    for _grp, _tit, _fn, _bans in _build_col_items(df, ranges):
+        _mac = _tit[:-len(_COL_TITLE_SUFFIX)] if _tit.endswith(_COL_TITLE_SUFFIX) else _tit
+        _bs  = sorted(int(b) for b in _bans)
+        _n   = len(_grp)
+        if len(_bs) == 1:
+            _br = str(_bs[0])
+        elif len(_bs) >= 2 and (_bs[-1] - _bs[0] + 1 == len(_bs)):
+            _br = f"{_bs[0]}-{_bs[-1]}"
+        else:
+            _br = "+".join(str(b) for b in _bs)
+        items.append({
+            "title":     f"{_mac}({_n}台並び)",
+            "count":     _n,
+            "avg_diff":  int(round(_grp["差枚"].mean())) if _n else 0,
+            "machine":   _mac,
+            "ban_range": _br,
+            "bans":      _bs,
+        })
     return items
 
 
@@ -11547,6 +11607,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 excellent_min_diff=(_SONOTA_AUTO_THR[sonota_extra_auto]
                                                     if (store == "秋葉原" and sonota_extra_auto in _SONOTA_AUTO_THR)
                                                     else 2000),
+                                retsu_list=(_build_retsu_report_items(_df_exec_m, retsu_ranges)
+                                            if (retsu_ok and retsu_ranges) else None),
                             )
                         for _old_rt, _new_rt in STORE_RESULT_TRANSFORMS.get(store, []):
                             _m_report_text = _m_report_text.replace(_old_rt, _new_rt)
@@ -13122,6 +13184,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                 suebangai_data=_sue_stats_data or None,
                 jug_sue_data=_jug_sue_stats_data or None,
                 variety_excellent=_variety_excellent_run or None,
+                retsu_list=(_build_retsu_report_items(result.get("df"), retsu_ranges)
+                            if (retsu_ok and retsu_ranges and result.get("df") is not None)
+                            else None),
             )
             # オススメ機種ブロックの優秀台（+1000枚以上）を挿入（拡張機能店舗）
             if store in EXTENDED_FEATURE_STORES and recommended_blocks:
@@ -15915,6 +15980,9 @@ def show_auto_article_page() -> None:
                 df=result.get("df"),
                 suebangai_data=_art_sue_stats or None,
                 jug_sue_data=_art_jsue_stats or None,
+                retsu_list=(_build_retsu_report_items(result.get("df"), retsu_ranges)
+                            if (retsu_ok and retsu_ranges and result.get("df") is not None)
+                            else None),
             )
             for _old, _new in STORE_RESULT_TRANSFORMS.get(store, []):
                 report_text = report_text.replace(_old, _new)

@@ -16263,6 +16263,163 @@ def _find_kisha_col(df: pd.DataFrame) -> pd.DataFrame | None:
     return None
 
 
+_NAME_MAP_REPO_PATH = "機種名変換.xlsx"   # リポジトリ内の相対パス（同期対象はこの1ファイルだけ）
+
+
+def _sync_name_map() -> tuple[bool, str]:
+    """機種名変換.xlsx **だけ**を GitHub main へ同期する（保存成功後に呼ぶ）。
+
+    ローカル: fetch → ahead/behind 判定 → 差分確認 → `git add` 1ファイル →
+             **パス限定 commit** → push
+             **ahead>0（未pushのローカルcommitが1件でもある）なら自動pushしない。**
+             `git push origin main` はブランチ単位で別件commitまで反映してしまうため、
+             そのcommitが機種名変換由来かどうかに関係なく停止する（案B・安全優先）。
+    Cloud   : GitHub Contents API（読み込み時SHAと現在SHAの一致確認・不一致ならPUTしない）
+
+    **pull / rebase / merge / reset / force push / autostash は一切行わない。**
+    リモートが進んでいる・push が拒否された場合は**その場で停止**して理由を返す
+    （自動解決しない）。戻り値: (成功, メッセージ)
+
+    ・対象は `機種名変換.xlsx` の1ファイルのみ。他の変更ファイル・未追跡ファイルは
+      絶対に stage / commit しない（`git add .` / `-A` / `commit -a` は使わない）。
+    ・他のファイルが既に stage されていても巻き込まないため、commit は
+      **pathspec 付き**（`git commit -- 機種名変換.xlsx`）で行う。
+    ・差分が無ければ commit を作らず「変更なし」で正常終了する。
+    """
+    _rp = _NAME_MAP_REPO_PATH
+
+    # ── Cloud: Contents API（既存の安全仕様を弱めない）──────────────
+    if _IS_CLOUD:
+        import urllib.request, urllib.error, base64 as _b64
+        token = get_secret_value("GITHUB_TOKEN", "")
+        if not token:
+            return False, "GITHUB_TOKEN未設定（Cloudで同期するにはSecrets設定が必要）"
+        url = f"https://api.github.com/repos/tama0520/guild-image-app/contents/{_rp}"
+        hdrs = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "Content-Type": "application/json",
+        }
+        try:
+            with open(NAME_MAP_PATH, "rb") as _f:
+                _data = _f.read()
+        except Exception as e:
+            return False, f"ファイル読込失敗: {e}"
+        # 現在SHAを取得
+        _remote_sha = None
+        try:
+            with urllib.request.urlopen(
+                    urllib.request.Request(url, headers=hdrs), timeout=10) as r:
+                _remote_sha = json.loads(r.read()).get("sha")
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                return False, f"同期停止: 現在SHAの取得に失敗（{e}）"
+        except Exception as e:
+            return False, f"同期停止: 現在SHAの取得に失敗（{e}）"
+        # 読み込み時SHAがあり、現在SHAと違う＝他環境で更新済み → PUTしない
+        _base_sha = st.session_state.get(_gh_sha_key(_rp))
+        if _base_sha and _remote_sha and _base_sha != _remote_sha:
+            return False, ("同期停止: GitHub側が他環境で更新されています"
+                           "（SHA不一致のため上書きしません）")
+        _payload = {
+            "message": "update: 機種名変換マスタを更新",
+            "content": _b64.b64encode(_data).decode("ascii"),
+            "branch": "main",
+        }
+        if _remote_sha:
+            _payload["sha"] = _remote_sha
+        try:
+            with urllib.request.urlopen(
+                    urllib.request.Request(url, data=json.dumps(_payload).encode("utf-8"),
+                                           headers=hdrs, method="PUT"), timeout=15) as r:
+                _res = json.loads(r.read())
+            _new_sha = (_res.get("content") or {}).get("sha")
+            if _new_sha:
+                st.session_state[_gh_sha_key(_rp)] = _new_sha
+            return True, "GitHubへ同期しました"
+        except urllib.error.HTTPError as e:
+            if e.code == 409:
+                # 409 は再送しない（新しいSHAで古い内容を送ると他の更新を消すため）
+                return False, "同期停止: SHA競合（409）。再送しません"
+            return False, f"同期失敗: {e}"
+        except Exception as e:
+            return False, f"同期失敗: {e}"
+
+    # ── ローカル: git（pull/rebase/merge/reset/force は使わない）──────
+    import subprocess
+
+    def _git(*args, check=True):
+        return subprocess.run(["git", *args], cwd=BASE_DIR,
+                              capture_output=True, check=check)
+
+    def _err(e) -> str:
+        _o = (getattr(e, "stderr", b"") or b"").decode("utf-8", errors="replace").strip()
+        return _o or str(e)
+
+    def _count(rng) -> int:
+        _r = _git("rev-list", "--count", rng, check=False)
+        try:
+            return int(_r.stdout.decode("utf-8", errors="replace").strip() or "0")
+        except ValueError:
+            return 0
+
+    try:
+        # 1) リモートの状態を取得（fetch のみ。pull は絶対にしない）
+        _git("fetch", "origin", "main")
+        _ahead  = _count("origin/main..HEAD")   # ローカルにある未pushのcommit数
+        _behind = _count("HEAD..origin/main")   # GitHub側にある未取り込みのcommit数
+        # 2) GitHub側が進んでいる → 停止（merge/rebase/pull/reset/force はしない）
+        if _behind > 0:
+            return False, ("同期停止: GitHub側に新しいcommitが"
+                           f"{_behind}件あります。自動でmerge/rebaseは行いません。"
+                           "手動で確認してください")
+        # 3) 未pushのローカルcommitがある → **由来を問わず**停止（案B）
+        #    push はブランチ単位のため、別件のcommitまで巻き込む可能性がある。
+        #    新しいcommitも作らない（未pushcommitの積み上がりも防ぐ）。
+        if _ahead > 0:
+            return False, (f"同期停止: ローカルに未pushのcommitが{_ahead}件あります。"
+                           "別の変更を巻き込む可能性があるため自動pushしません。"
+                           "手動でGit履歴を確認してください")
+        # 4) ahead==0 かつ behind==0 のときだけ、対象ファイルの差分を見る
+        if _git("diff", "--quiet", "HEAD", "--", _rp, check=False).returncode == 0:
+            return True, "変更なし（同期不要）"
+        # 5) 対象1ファイルだけを stage
+        _git("add", "--", _rp)
+        # 6) 対象パスが stage されたことを確認
+        _st = _git("diff", "--cached", "--name-only", "--", _rp)
+        if not _st.stdout.decode("utf-8", errors="replace").strip():
+            return True, "変更なし（同期不要）"
+        # 7) パス限定 commit（他ファイルが stage 済みでも巻き込まない）
+        _git("commit", "-m", "update: 機種名変換マスタを更新", "--", _rp)
+        # 8) push（拒否されたら停止。rollback も force もしない）
+        try:
+            _git("push", "origin", "main")
+        except subprocess.CalledProcessError as e:
+            return False, ("同期停止: pushに失敗しました。"
+                           "ローカル保存とcommitは完了していますが、GitHubへは未反映です。"
+                           "次回の自動同期は安全のため停止します。"
+                           f"手動でGit履歴を確認してください（{_err(e)}）")
+        return True, "GitHubへ同期しました"
+    except subprocess.CalledProcessError as e:
+        return False, f"同期停止: {_err(e)}"
+    except Exception as e:
+        return False, f"同期停止: {e}"
+
+
+def _sync_name_map_ui(saved_msg: str) -> None:
+    """ローカル保存の成否と GitHub 同期の成否を**分けて**表示する。
+    同期失敗でも保存済みファイルは巻き戻さない。"""
+    st.success(saved_msg)
+    _ok, _msg = _sync_name_map()
+    if _ok:
+        st.success(f"☁️ {_msg}")
+        st.caption("Cloudで反映されない場合は Streamlit Cloud を Reboot してください。")
+    else:
+        st.error(f"☁️ GitHubへの自動同期に失敗しました: {_msg}")
+        st.caption("ローカルへの保存は完了しています。"
+                   "GitHub側の状態を確認してから手動で反映してください。")
+
+
 def _load_master_df() -> pd.DataFrame:
     """機種名変換.xlsx を「変換前」「変換後」の2列DataFrameとして読み込む"""
     raw = pd.read_excel(NAME_MAP_PATH, header=1, usecols=[1, 2])
@@ -19034,7 +19191,8 @@ def show_name_conversion_page() -> None:
                 if st.button("💾 マスタを保存", type="primary", key="nc_save_master", use_container_width=True):
                     try:
                         _save_master_df(edited_master)
-                        st.success(f"✅ 保存しました（{len(edited_master):,} 件）")
+                        # ローカル保存成功 → GitHubへ自動同期（成否は分けて表示）
+                        _sync_name_map_ui(f"✅ 保存しました（{len(edited_master):,} 件）")
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ 保存に失敗しました: {e}")
@@ -19125,7 +19283,8 @@ def show_name_conversion_page() -> None:
                                 ws.append([None, orig, conv])
                             wb.save(NAME_MAP_PATH)
                             load_name_map.clear()
-                            st.success(f"✅ {len(new_entries)} 件を追加しました。")
+                            # ローカル保存成功 → GitHubへ自動同期（成否は分けて表示）
+                            _sync_name_map_ui(f"✅ {len(new_entries)} 件を追加しました。")
                             st.rerun()
                         except Exception as e:
                             st.error(f"❌ 追加に失敗しました: {e}")
@@ -19418,7 +19577,8 @@ def show_name_conversion_page() -> None:
                                     _ws.append([None, _orig, _cv])
                                 _wb.save(NAME_MAP_PATH)
                                 load_name_map.clear()
-                                st.success(f"✅ {len(_nc_new)} 件を追加しました。")
+                                # ローカル保存成功 → GitHubへ自動同期（成否は分けて表示）
+                                _sync_name_map_ui(f"✅ {len(_nc_new)} 件を追加しました。")
                                 st.rerun()
                             except Exception as _e:
                                 st.error(f"❌ 追加に失敗しました: {_e}")

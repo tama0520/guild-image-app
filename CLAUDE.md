@@ -4394,3 +4394,251 @@ ban_map系** はいっさい変更していない。
 - **他ファイルの差分・stage を巻き込まない**
 - **差分なしなら commit を作らない**
 - **Cloud の競合を自動解決しない**
+
+## 全店舗共通：③ 列仕掛け台を優秀台の重複掲載から除外（2026-09-02 確定・`5ef8bde`）
+
+**正式仕様。巻き戻し禁止。**対象は**③「列画像を作成する」で指定した掲載台**だけ。
+正式コード commit は **`5ef8bdeda2e3de1f1ab0d405c69214bf406c50a2`**
+（`fix: 列仕掛け台を優秀台の重複掲載から除外`・**`streamlit_app.py` の1ファイルのみ**・+46／−8）。push済み。
+
+これは
+「## 全店舗共通：③ 列画像（列仕掛け）（2026-09-01 確定・`1410753`）」
+「## 全店舗共通：③ 列仕掛け タイトル余白・結果テキスト（2026-09-01 確定・`9ec653e`）」
+「## 全店舗共通：③ 列仕掛け 括弧半角化（2026-09-01 確定・`42ea146`）」
+に続く追加修正であり、**3節とも削除・書き換えしない**。
+
+### ⓪ `1410753`（案E1）から上書きされた点
+
+| | 旧（`1410753`） | **新（`5ef8bde`・正式）** |
+|---|---|---|
+| 列台の他カテゴリ除外 | **どのカテゴリの除外集合へも合流させない** | **「その他のジャグラーシリーズ優秀台」「その他の優秀台ピックアップ」の2カテゴリだけ除外集合へ合流させる** |
+
+**上書きされたのはこの1点だけ。**`1410753` / `9ec653e` / `42ea146` のそれ以外
+（列画像生成・列専用ban_map・自動検出抑止・`COL_RANGES`／`COL_SUFFIX`・タイトル・
+ファイル名・保存キー・`👑列仕掛け` の結果テキスト・WordPress非追加・かぶぱ対象外）は
+**すべてそのまま有効**である。
+
+### ① 正式仕様
+
+- **③で「列仕掛け」として指定された掲載台番は、
+  「その他のジャグラーシリーズ優秀台」と「その他の優秀台ピックアップ」へ重複掲載しない。**
+- **ただし**、列台を除外した結果ジャグラー統合プールが既存条件の**5台以下**になった場合は、
+  残った**「列指定ではないジャグラー優秀台」**を既存仕様どおり Step3 の
+  「その他の優秀台」へ **overflow させる**。
+- **この overflow は並び指定時とまったく同じ既存挙動であり、列だけ特別扱いして止めない。**
+- **overflow 先へ移動するのは非列台のみ。列指定台そのものは overflow 先にも掲載しない。**
+
+### ② 原因
+
+**`retsu_ranges` が `run_auto_pipeline()` へ一度も渡されていなかった。**
+列画像は pipeline を呼んだ**後**に `_build_col_items(_pv_df, retsu_ranges)` で生成されるため、
+Step2／Step3 の除外集合は列台の存在を知り得なかった。
+`1410753` の案E1（列台をどの除外集合へも合流させない）がそのまま出た状態である。
+
+### ③ 正式な retsu_bans 経路
+
+```
+retsu_ranges（parse_ranges の結果）
+  → ranges_to_bans()
+  → run_auto_pipeline(retsu_bans=...)
+      → run_step2_juggler(retsu_bans=...)
+      → run_step3_other(retsu_bans=...)
+```
+
+呼び出しは **`run_auto_pipeline` の4か所**（通常⑦プレビュー・通常⑧本番・
+記事用⑦プレビュー・記事用⑧本番）で、いずれも
+**`retsu_bans=(ranges_to_bans(retsu_ranges) if retsu_ok else set())`**。
+**列OFF時は `set()`＝既定＝従来動作。**
+
+### ④ `run_step2_juggler()`
+
+```python
+_jug_all_bans = narabi_bans | suebangai_bans | set(retsu_bans)
+```
+
+除外位置は既存のまま（`all_for_m` の絞り込み）。高配分判定・台数集計・カテゴリ判定は
+**除外前の `all_for_m_orig` 基準**で不変。統合プール（`pool_dfs`）と `jug_excellent_list` は
+除外後の `filtered_ex` 基準なので、**画像と結果テキストが一致**する。
+
+### ⑤ `run_step3_other()`
+
+```python
+_ex_bans = narabi_bans | suebangai_bans | set(osusume_bans) | set(retsu_bans)
+```
+
+`grp_ex` 経由で「その他の優秀台」画像と `excellent_list` の両方へ効く。
+`all_plus` 等の判定は除外前の `grp` 基準で不変。
+
+### ⑥ 📝記入部分のみモード
+
+**`_manual_sonota_auto_bans()` に引数 `retsu_ranges=None`（既定＝従来動作）を追加**し、
+並びとは**別ループ**で列range由来の台番を `_exc_ban` へ加算する。
+
+```python
+for _bl in (narabi_ranges or []):      # 既存（並び）
+    _exc_ban |= {int(b) for b in _bl}
+for _cl in (retsu_ranges or []):       # 追加（列・列専用）
+    _exc_ban |= {int(b) for b in _cl}
+```
+
+呼び出しは**4か所**（📝プレビュー・🔄その他を更新・⑧本番2経路）で
+`retsu_ranges=(retsu_ranges if retsu_ok else [])`。
+
+**通常・記事用・📝の3経路で列仕掛けの除外仕様を統一する。**
+ページ／モードによって列の除外有無が変わる状態へ戻さない。
+
+### ⑦ `narabi_bans` は変更していない（最重要・巻き戻し禁止）
+
+**「列台を優秀台から除外するために `narabi_bans` へ列を混ぜる」実装へ将来戻してはならない。**
+理由：
+
+1. `narabi_bans` は `run_step2_juggler` の **`has_narabi_jug`** でも使われ、
+   ジャグラー統合画像のタイトル（`ジャグラーシリーズの優秀台` ⇄ `その他のジャグラーシリーズの優秀台`）
+   を左右する。列ONだけでタイトルが変わる＝非回帰違反。
+2. `narabi_bans` は `generate_recommended_block_image()` / `_rec_off_bans()` にも同名引数で流れ、
+   ⑤オススメの抽出へ波及するおそれがある。
+3. 案E1の「列は並びから独立」という構造が崩れる。
+
+**必ず列専用の `retsu_bans` / `retsu_ranges` を1本足し、上記④⑤⑥の3か所にだけ合流させること。**
+
+### ⑧ `has_narabi_jug` は変更していない
+
+`has_narabi_jug = bool(narabi_bans) and not df[...]` は**そのまま**。
+**列は統合画像のタイトル判定に影響しない。**
+
+### ⑨ 案E1は維持している（無変更）
+
+**本体がバイト単位で無変更**であることを機械確認済み：
+
+`_build_col_items()` ／ `_col_group_title()` ／ `_build_retsu_report_items()` ／
+`_patch_and_run_narabi()` ／ `_nami_like_section()` ／ `generate_report_text()` ／
+`_narabi_checked_bans()` ／ `_rec_off_bans()` ／ `_collect_published_bans()` ／
+`generate_recommended_block_image()` ／ `run_step1_main()` ／ `_build_sue_images()` ／
+**`wp_client.py` 全体**。
+
+維持しているもの：列画像生成 ／ 並び画像生成 ／
+**列専用ban_map（`auto_preview_col_{store}` / `art_preview_col_{store}`）** ／
+`result["nami_list"]`（列を混ぜない）／ `payload["nami"]`（列を混ぜない）／
+`👑並び仕掛け` ／ `👑列仕掛け` ／ スランプ ／ パネル ／ 液晶 ／ 横版 ／ 掲載順 ／
+保存キー（`retsu_enabled` / `retsu_ranges_input` / `art_retsu_enabled` / `art_retsu_ranges_input`）。
+
+### ⑩ `ranges_to_bans(retsu_ranges)` を使う理由
+
+除外は必ず **`~df["台番"].isin(...)`** の形で使うため、**df に存在しない台番が集合に含まれていても無害**。
+したがって
+
+```
+ranges_to_bans(retsu_ranges) ∩ 実在台番  ==  _build_col_items() が返す掲載台番の和集合
+```
+
+が恒等的に成立する。**並び仕掛けが `ranges_to_bans(narabi_ranges)` をそのまま渡す既存仕様と同形**であり、
+「pipeline は自前で df を読むので UI 側で実在台番を先に確定できない」という循環も生じない。
+**列だけ別方式（実在台番を先に確定してから渡す）へ変更しない。**
+
+### ⑪ 実機確認結果（2026-09-02・ローカル・正式HEAD `5ef8bde`）
+
+**渋谷新館 結果ポスト用 ／ 2026/9/1 の確定データ（433台）／⑦プレビュー。**
+列指定＝**`2229-2237`（ゴージャグ3）**。
+
+| | 列OFF（＝修正前の挙動） | 列ON（修正後） |
+|---|---|---|
+| ジャグラーシリーズ優秀台 | **12台**（2027 / 2149 / 2154 / 2160 / 2176 / **2229・2230・2231・2232・2233・2234・2235**） | **画像なし**（プール5台以下→overflow） |
+| その他の優秀台ピックアップ | **33台** | **38台** |
+| `ゴージャグ3(列仕掛け).jpg` | — | **2229〜2237 の9台を正常掲載** |
+| プレビュー枚数 | 23枚 | 23枚 |
+
+- **列指定台 2229〜2235 がジャグラー統合から除外された。**
+- **その他の優秀台に 2229〜2237 は0台。**
+- **2176（ゴージャグ3・列範囲外）など無関係な台は従来どおり掲載。**
+- 全台系・高配分・並び・カバネリ等の画像は列OFF/ONで同一。
+
+### ⑫ overflow の正式仕様（誤認しないこと）
+
+列台を除外した結果、ジャグラー統合プールが**既存条件の5台以下**になった場合は、
+**残った非列台を既存仕様どおり Step3「その他の優秀台」へ overflow させる。**
+
+2026/9/1 の実データでは
+
+```
+2027（ハピジャグV）/ 2149（ファンキー2）/ 2154（ファンキー2）
+2160（ファンキー2）/ 2176（ゴージャグ3・列範囲外）
+```
+
+の**5台**がこれに該当し、**その他の優秀台が 33台 → 38台**になった。
+
+**これは新規ロジックによる追加ではなく、`run_step2_juggler` の既存 overflow 仕様
+（「5台以下なら overflow として Step 3 へ渡す」）による正常挙動である。**
+**「その他優秀台が33→38台になったから不具合」と誤認しないこと。**
+並び指定時とまったく同じ挙動なので**変更しない**。
+
+**重要：overflow してよいのは列指定ではない残存台だけ。
+列指定台そのものを Step3 へ復活させてはならない**
+（`run_step3_other` の `_ex_bans` に `retsu_bans` が入っているため構造的に起こらない）。
+
+### ⑬ 純粋テスト結果（HEAD版と現在版を同一データで比較・全PASS）
+
+- **列OFF：HEAD版と戻り値・生成JPEGの SHA256 が完全一致**
+- 列ON：ジャグラー統合プール 9→6台／その他 6→4台、いずれも列台だけが減る
+- **`added == set()`** ／ **`removed <= retsu_bans`** を
+  `jug_pool_bans` / `jug_excellent` / `sonota_excellent` の3集合で assert
+- **並び＋列 同時ON**：両方の台が2カテゴリへ載らない／**並びのみは HEAD と一致**
+- **欠番を含む range**（例 2001-2012 で 2005 欠番）：実在台だけに影響。
+  `ranges_to_bans ∩ 実在 == _build_col_items() の掲載台` を確認
+- **高配分 `high_ratio_list` 不変**
+- 📝：列OFFは HEAD 一致／列ONで増えたのは列rangeだけ
+- ⑨に挙げた12関数＋`wp_client.py` の本体バイト一致
+
+**列OFF時は修正前HEADと完全一致する。**これを壊す変更をしない。
+
+### ⑭ 非回帰（今回いっさい影響を与えていない）
+
+全台系（Step1）／高配分（個別画像・判定は除外前基準）／並び画像／列画像／バラエティ／
+末尾・ジャグラー末尾／⑤オススメ機種ピックアップ／記事用②個別画像／結果テキストの
+`👑高配分機種`・`👑並び仕掛け`・`👑列仕掛け`／WordPress（`wp_client.py` / `payload["nami"]`）／
+新宿歌舞伎町かぶぱ（`_build_kabupa_result_text()`）／スランプ・パネル・液晶・横版・ZIP・保存復元。
+
+### ⑮ ⑧本番・WordPress
+
+**⑧「自動処理を開始」は実行していない**（`auto_page_inputs.json` の既存差分を
+`_git_auto_push()` が巻き込むため意図的に未実行）。⑧経路は純粋テストとコード経路の確認まで。
+**WordPress 通信は0件**（POST / media upload / draft作成 / update / DELETE いずれも未実施）。
+
+### ⑯ 実装時の既存差分・stash
+
+commit 時点の既存差分
+
+```
+M  auto_page_inputs.json
+M  wrt_machines.json
+?? WordPress連携テスト.jpg
+?? wp_test.py
+```
+
+は **`5ef8bde` に含めていない**（`git add streamlit_app.py` のみ・pathspec 限定 commit。
+`git add .` / `git add -A` / `commit -a` は使用していない）。**stash は4件のまま維持**。
+
+`auto_page_inputs.json` の HEAD との差分は
+**`20260901_渋谷新館_20S.xlsx` の新規エントリ1件のみ**で、既存エントリの値変更・消失は0件。
+実機確認中に列チェックOFFで一時的に空になった `retsu_ranges_input` は、確認後に**UI上で
+`2229-2237` へ戻し**、`retsu_enabled: true` とともに元の値であることを検証済み
+（**JSONの直接編集はしていない**）。
+
+### ⑰ 作業順序（CLAUDE.md の既存ルールに従った）
+
+「未コミット状態でアプリを動かしたまま検証しない（`55e7752`）」に従い、
+**純粋テスト全PASS → アプリ停止 → `streamlit_app.py` のみ commit → 再起動 → ⑦実機確認**
+の順で実施した。stash 窓で旧コードが動く事故を避けるため、**この順序を維持すること。**
+
+### ⑱ 今後の非回帰確認項目（列仕掛けの除外を触るとき）
+
+- **`narabi_bans` へ列を混ぜない**（⑦の3理由）
+- **`has_narabi_jug` を変えない**
+- **列OFF時は HEAD と完全一致**（生成JPEGの SHA256 まで）
+- **`added == set()` / `removed <= retsu_bans`** を機械確認する
+- **overflow 仕様を列だけ止めない／列台を overflow 先へ復活させない**
+- 通常・記事用・📝の3経路で除外仕様を統一したままにする
+- `ranges_to_bans(retsu_ranges)` 方式を維持する
+- 案E1（列専用ban_map・`nami_list`・`payload["nami"]`・`👑列仕掛け`）を維持する
+- 既存の正式仕様：**`1410753` / `9ec653e` / `42ea146`** ／ 新小岩 `b530bee` ／
+  渋谷新館 `551c9d5` `d477a91` `1bd0e3b` `39b652d` ／ 高田馬場・秋葉原の記事用 ／
+  ローテ ／ 末尾・ジャグラー末尾

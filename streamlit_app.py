@@ -3481,13 +3481,26 @@ def run_step2_juggler(
             return generated, None, None, high_ratio_list, jug_excellent_list, None, []
         return generated, _nm_df, _nm_dr, high_ratio_list, jug_excellent_list, None, jug_bans_all
 
+    _juggler_names = {m for m, _, _ in juggler_jobs}
+    # rec_ban_level（新小岩スランプ付き）で⑤オススメにジャグラー機種がある場合は、
+    # ⑤のジャグラー枠（オススメ_..._1000枚以上.jpg）を**正本**とし、通常の
+    # ジャグラーシリーズ優秀台.jpg を作らない。**その他へも overflow しない**
+    # （＝ジャグラーを「その他の優秀台」へ逆流させない）。
+    # 秋葉原の no_merge_image は「統合画像を作らないので台を消失させないよう
+    # その他へ回す」という**正反対の**既存例外で、意味を一本化しない（b600ad3）。
+    # ⑤がOFF／⑤のジャグラー対象が無い（sonota_exclude と交差しない）ときは
+    # 従来どおり統合画像を生成する（完全消失を防ぐ条件付き停止）。
+    if rec_ban_level and (sonota_exclude & _juggler_names):
+        log("  ジャグラーシリーズ優秀台: ⑤オススメのジャグラー枠が正本のため統合画像なし"
+            "（その他へも回さない）")
+        return generated, None, None, high_ratio_list, jug_excellent_list, None, jug_bans_all
+
     if len(combined) <= 5:
         log(f"  ジャグラー統合 {len(combined)}台 → overflow")
         return generated, combined, dr_combined, high_ratio_list, jug_excellent_list, None, jug_bans_all
 
     # オススメ機種にジャグラーが含まれる場合は統合画像を作らずoverflowへ
-    # rec_ban_level 時は統合画像を通常どおり生成し、⑤側で掲載台番を除外する
-    _juggler_names = {m for m, _, _ in juggler_jobs}
+    # rec_ban_level 時は上の分岐で処理済み（⑤が正本・その他へ回さない）
     if sonota_exclude & _juggler_names and not rec_ban_level:
         log(f"  ジャグラーシリーズ優秀台: オススメ機種に含まれるため統合画像スキップ → overflow")
         return generated, combined, dr_combined, high_ratio_list, jug_excellent_list, None, jug_bans_all

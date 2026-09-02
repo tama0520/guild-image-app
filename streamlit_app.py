@@ -10617,8 +10617,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                             else:
                                 _cat_drop("ジャグラーシリーズ優秀台.jpg")
                             st.session_state[_aprev_key] = _dedup_previews(_cat_prev)
+                            _cat_done = True
                         except Exception as _cat_e:
                             st.warning(f"その他／ジャグラーの再抽出に失敗しました: {_cat_e}")
+                        # 📝経路（_pv_df なし）は後段の `if _updated:` に載らないため、
+                        # ここで再実行して差し替え後のプレビューを表示する（rerun は try の外）。
+                        if locals().get("_cat_done") and _pv_df is None:
+                            st.rerun()
                     if _manual_son_upd:
                         # 📝経路では⑦由来の自動抽出情報を一切使わない。
                         # （同一セッションで先に⑦を実行していると古い値が残るため明示的に空にする。

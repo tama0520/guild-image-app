@@ -2832,6 +2832,28 @@ def _build_machine_img(
     bd   = ImageDraw.Draw(bar)
     font = load_font(FONT_SZ)
 
+    # ── タイトルが長い場合だけ 1pt ずつ縮小して左右の安全余白を確保する ──
+    # 判定は PIL の実描画幅（textbbox）で行う。**文字数では判定しない。**
+    # 安全余白は BAR_H 比例（標準 BAR_H=76px のとき片側30px≒5mm／DPI150換算）。
+    # 現在のサイズで収まっているタイトルは 1pt も変えない（完全非回帰）。
+    # タイトル文字列は一切加工しない（省略・…・改行・2行化をしない）。
+    _BAR_PAD  = max(1, round(BAR_H * 30 / 76))
+    _BAR_MAXW = w - 2 * _BAR_PAD
+
+    def _fit_title_font(_texts: list[str], _gap: int = 0):
+        """_texts を _gap 込みで並べた実描画幅が _BAR_MAXW に収まる最大サイズの
+        フォントを返す（既定サイズで収まるならそのまま返す）。"""
+        _sz = FONT_SZ
+        _f  = font
+        while True:
+            _tw = sum(bd.textbbox((0, 0), _t, font=_f)[2]
+                      - bd.textbbox((0, 0), _t, font=_f)[0] for _t in _texts)
+            _tw += _gap * (len(_texts) - 1)
+            if _tw <= _BAR_MAXW or _sz <= 12:
+                return _f
+            _sz -= 1
+            _f = load_font(_sz)
+
     # 末尾が**全角**括弧の後置語なら2パーツ描画で余白を詰める（（優秀台）のみ）。
     # 半角括弧の「(列仕掛け)」「(4台並び)」は一括描画のまま（2026-09-01 半角へ統一）。
     SUB = next((_s for _s in _TITLE_SUB_PARTS if title.endswith(_s)), None)
@@ -2839,6 +2861,7 @@ def _build_machine_img(
         main_text = title[:-len(SUB)].replace('\uff65', '\u30fb')
         sub_text  = SUB
         GAP_TITLE = -22
+        font = _fit_title_font([main_text, sub_text], GAP_TITLE)
         b1 = bd.textbbox((0, 0), main_text, font=font)
         b2 = bd.textbbox((0, 0), sub_text,  font=font)
         w1, w2  = b1[2]-b1[0], b2[2]-b2[0]
@@ -2850,6 +2873,7 @@ def _build_machine_img(
         bd.text((x2, ty), sub_text,  fill=(255, 255, 255, 255), font=font)
     else:
         disp_title = title.replace('\uff65', '\u30fb')
+        font = _fit_title_font([disp_title])
         bb = bd.textbbox((0, 0), disp_title, font=font)
         tx = (w - (bb[2]-bb[0])) // 2 - bb[0]
         ty = (BAR_H - (bb[3]-bb[1])) // 2 - bb[1]

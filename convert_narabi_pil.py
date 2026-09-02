@@ -362,10 +362,15 @@ for run_idx, (run, title, _dup_set) in enumerate(_JOBS):
     text_w = bbox[2] - bbox[0]
     text_h = bbox[3] - bbox[1]
 
-    # タイトルが広すぎる場合はフォントを縮小
+    # タイトルが長い場合だけ 1pt ずつ縮小して左右の安全余白を確保する
+    # （_build_machine_img() と同じ計算思想：安全余白は BAR_H 比例で
+    #   標準 bar_h=76px のとき片側30px≒5mm／DPI150換算。判定は実描画幅で行う。
+    #   現在のサイズで収まっているタイトルは 1pt も変えない）。
+    _bar_pad  = max(1, round(bar_h * 30 / 76))
+    _bar_maxw = w - 2 * _bar_pad
     reduced_size = font_size_bar
-    while text_w > w - 20 and reduced_size > 12:
-        reduced_size -= 2
+    while text_w > _bar_maxw and reduced_size > 12:
+        reduced_size -= 1
         bar_font = _load_font(reduced_size)
         bbox   = _textbbox(bar_draw, title_text, bar_font)
         text_w = bbox[2] - bbox[0]

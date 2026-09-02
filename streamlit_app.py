@@ -5465,7 +5465,7 @@ def _manual_kojin_on(df, diff, store: str, excel_name: str, previews,
         _fn = f"{_make_safe_fn(_km + ('（優秀台）' if _is_yushu else ''))}.jpg"
         if _fn not in _names:
             continue
-        if not st.session_state.get(_pv_ck_key(store, excel_name, _fn), True):
+        if not _pv_is_on(store, excel_name, _fn):
             continue          # チェックOFFの②画像は除外集合へ入れない
         _base, _grp = _resolve_kojin_name(df, _km)
         if _grp.empty:
@@ -6202,7 +6202,7 @@ def _rec_checked_bans(rec_ban_map: dict, store: str, excel_name: str) -> set[int
     OFF画像の解除で、他のON画像の掲載台まで「その他」へ重複させないため。"""
     bans: set[int] = set()
     for _fn, _bs in (rec_ban_map or {}).items():
-        if st.session_state.get(_pv_ck_key(store, excel_name, _fn), True):
+        if _pv_is_on(store, excel_name, _fn):
             bans |= {int(_b) for _b in (_bs or [])}
     return bans
 
@@ -6350,7 +6350,7 @@ def _narabi_checked_bans(previews, narabi_map: dict, store: str, excel_name: str
     """チェックが入ったままの並び画像へ掲載されている台番を集める。"""
     bans: set[int] = set()
     for _fn, _ in (previews or []):
-        if st.session_state.get(_pv_ck_key(store, excel_name, _fn), True):
+        if _pv_is_on(store, excel_name, _fn):
             bans |= {int(_b) for _b in ((narabi_map or {}).get(_fn) or [])}
     return bans
 
@@ -7285,6 +7285,51 @@ def _pv_ck_key(store: str, excel_name: str, fname: str) -> str:
         f"{store}|{os.path.splitext(excel_name)[0]}|{fname}".encode("utf-8")
     ).hexdigest()[:12]
     return f"auto_prev_ck_{_sig}"
+
+
+def _pv_off_key(store: str, excel_name: str) -> str:
+    """⑦プレビューでOFFにした画像名の集合を持つ非widgetキー（店舗＋Excel（日付）単位）。"""
+    return f"_pv_off_{store}_{os.path.splitext(excel_name)[0]}"
+
+
+def _pv_off_set(store: str, excel_name: str) -> set:
+    """現在OFFになっている画像ファイル名の集合（OFF状態の正本）。"""
+    _v = st.session_state.get(_pv_off_key(store, excel_name))
+    return set(_v) if _v else set()
+
+
+def _pv_off_toggle(store: str, excel_name: str, fname: str) -> None:
+    """⑦「生成する」checkbox の on_change。ON→OFF集合から除外／OFF→OFF集合へ追加。
+
+    widget state（auto_prev_ck_*）だけを正本にすると、プレビュー再生成・🎯掲載台変更・
+    液晶再選択などで checkbox が描画されない run を挟んだときに Streamlit の
+    stale widget GC でキーが消え、次の描画で既定 True へ戻る。その結果⑦でOFFにした
+    画像が⑧で復活し、その他への再配分も失われる。OFF集合を非widgetで持って防ぐ。"""
+    _on = bool(st.session_state.get(_pv_ck_key(store, excel_name, fname), True))
+    _off = _pv_off_set(store, excel_name)
+    if _on:
+        _off.discard(fname)
+    else:
+        _off.add(fname)
+    st.session_state[_pv_off_key(store, excel_name)] = _off
+
+
+def _pv_is_on(store: str, excel_name: str, fname: str) -> bool:
+    """⑦プレビューの最終ON/OFF判定（⑦表示・🔄その他を更新・⑧本番・結果テキスト共通）。
+    widget state があればその現在値、無ければOFF集合を正本として判定する。"""
+    _k = _pv_ck_key(store, excel_name, fname)
+    if _k in st.session_state:
+        return bool(st.session_state[_k])
+    return fname not in _pv_off_set(store, excel_name)
+
+
+def _pv_set_on(store: str, excel_name: str, fname: str) -> None:
+    """プレビューへ新規追加した画像をONにする（OFF集合からも必ず外す）。"""
+    st.session_state[_pv_ck_key(store, excel_name, fname)] = True
+    _off = _pv_off_set(store, excel_name)
+    if fname in _off:
+        _off.discard(fname)
+        st.session_state[_pv_off_key(store, excel_name)] = _off
 
 
 def _dedup_previews(items: list) -> list:
@@ -10188,7 +10233,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     kojin_yushu_machines if kojin_enabled else [],
                                     _jg_cfg_m, force_1k=(with_slump and store == "秋葉原"))
                                 for _fn_jm, _bl_jm in _manual_ban_map.items():
-                                    if not st.session_state.get(_pv_ck_key(store, uploaded.name, _fn_jm), True):
+                                    if not _pv_is_on(store, uploaded.name, _fn_jm):
                                         continue   # チェックOFFの②画像は除外集合へ入れない
                                     _jg_exc_m |= {int(b) for b in (_bl_jm or [])}
                                 _jg_df_m = _manual_juggler_auto_extract(
@@ -10426,17 +10471,23 @@ def show_auto_page(with_slump: bool = False) -> None:
             if _unit_pdf is None or _unit_pdi is None:
                 _unit_pdf = st.session_state.get(f"_manual_unit_df_{store}")
                 _unit_pdi = st.session_state.get(f"_manual_unit_di_{store}")
+            _pv_off_now = _pv_off_set(store, uploaded.name)
             for _row_start in range(0, len(_auto_previews), 3):
                 _grid_cols = st.columns(3)
                 for _col_idx, _ci in enumerate(range(_row_start, min(_row_start + 3, len(_auto_previews)))):
                     _ptitle, _pimg = _auto_previews[_ci]
                     _ck_key = _pv_ck_key(store, uploaded.name, _ptitle)
+                    # widget state が無いとき（プレビュー再生成・🎯掲載台変更・液晶再選択などで
+                    # checkbox が描画されない run を挟み stale widget GC でキーが消えたとき）は、
+                    # 非widgetのOFF集合を正本として復元する。「キーが無いから True」に戻さない。
                     if _ck_key not in st.session_state:
-                        st.session_state[_ck_key] = True
+                        st.session_state[_ck_key] = _ptitle not in _pv_off_now
                     with _grid_cols[_col_idx]:
                         _sub_ck, _sub_img = st.columns([1, 10])
                         with _sub_ck:
-                            st.checkbox("生成する", key=_ck_key, label_visibility="collapsed")
+                            st.checkbox("生成する", key=_ck_key, label_visibility="collapsed",
+                                        on_change=_pv_off_toggle,
+                                        args=(store, uploaded.name, _ptitle))
                         with _sub_img:
                             st.image(_pimg, caption=_ptitle, use_container_width=True)
                             if store in _GAP_FILL_STORES:
@@ -10624,7 +10675,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _cat_prev[_ci_c] = (_pn_c, _img_c)
                                         return
                                 _cat_prev.append((_fn_c, _img_c))
-                                st.session_state[_pv_ck_key(store, uploaded.name, _fn_c)] = True
+                                _pv_set_on(store, uploaded.name, _fn_c)
                             def _cat_drop(_fn_c):
                                 for _ci_c, (_pn_c, _) in enumerate(list(_cat_prev)):
                                     if _pn_c == _fn_c:
@@ -10695,7 +10746,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         # チェック済みの高配分・全台系画像がある機種セット（並び外しでその他に重複追加しないため）
                         _checked_img_machines: set[str] = set()
                         for _spn, _ in _auto_previews:
-                            if st.session_state.get(_pv_ck_key(store, uploaded.name, _spn), True):
+                            if _pv_is_on(store, uploaded.name, _spn):
                                 _hm = _pv_hr.get(_spn)
                                 if _hm:
                                     _checked_img_machines.add(_hm)
@@ -10703,7 +10754,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 if _zm:
                                     _checked_img_machines.add(_zm)
                         for _pname, _ in _auto_previews:
-                            if not st.session_state.get(_pv_ck_key(store, uploaded.name, _pname), True):
+                            if not _pv_is_on(store, uploaded.name, _pname):
                                 # 高配分：kojin済みはスキップ・ジャグラーならジャグラー優秀台へ、それ以外はその他へ
                                 _m = _pv_hr.get(_pname)
                                 if _m and _m not in _kojin_machines_set:
@@ -10742,7 +10793,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         # チェック済み並び画像に含まれる台番は除外（並びと優秀台の重複防止）
                                         _narabi_excl_m: set[int] = set()
                                         for _npname2, _ in _auto_previews:
-                                            if st.session_state.get(_pv_ck_key(store, uploaded.name, _npname2), True):
+                                            if _pv_is_on(store, uploaded.name, _npname2):
                                                 _nb2 = _pv_narabi.get(_npname2)
                                                 if _nb2:
                                                     _nb2_set = set(_nb2)
@@ -10786,7 +10837,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         # チェック済み並び画像に含まれる台番は除外（並びと優秀台の重複防止）
                                         _narabi_excl_z: set[int] = set()
                                         for _npname3, _ in _auto_previews:
-                                            if st.session_state.get(_pv_ck_key(store, uploaded.name, _npname3), True):
+                                            if _pv_is_on(store, uploaded.name, _npname3):
                                                 _nb3 = _pv_narabi.get(_npname3)
                                                 if _nb3:
                                                     _nb3_set = set(_nb3)
@@ -10958,9 +11009,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         narabi_bans=_narabi_checked_bans(_auto_previews, _pv_narabi,
                                                                          store, uploaded.name),
                                         sue_bans=_sue_bans_upd,
-                                        jug_pool_df=(_pv_jug_pool if st.session_state.get(
-                                            _pv_ck_key(store, uploaded.name,
-                                                       "ジャグラーシリーズ優秀台.jpg"), True) else None),
+                                        jug_pool_df=(_pv_jug_pool if _pv_is_on(store, uploaded.name, "ジャグラーシリーズ優秀台.jpg") else None),
                                     )
                                     if _rc_set_u:
                                         _rc_rows_u = _pv_df[_pv_df["台番"].apply(lambda b: int(b) in _rc_set_u)]
@@ -11061,7 +11110,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     break
                             else:
                                 _new_prev.append((_son_pv_key, _son_img))
-                                st.session_state[_pv_ck_key(store, uploaded.name, _new_prev[-1][0])] = True
+                                _pv_set_on(store, uploaded.name, _new_prev[-1][0])
                             # ②(③)も素の表を再生成して差し替える（後段のスランプ合成が
                             # 合成済み画像に二重合成して崩れるのを防ぐ）
                             if _sonota_split and not _manual_son_upd and _pv_diff is not None and _pv_df is not None:
@@ -11113,12 +11162,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         break
                                 else:
                                     _new_prev.append(("その他の優秀台ピックアップ.jpg", _ov_img))
-                                    st.session_state[_pv_ck_key(store, uploaded.name, _new_prev[-1][0])] = True
+                                    _pv_set_on(store, uploaded.name, _new_prev[-1][0])
                                 _updated = True
                             else:
                                 _has_kojin_jug = any(m.strip() in _jug_series_set for m in (kojin_zentai_machines + kojin_yushu_machines) if m.strip())
                                 _still_jug_other = _has_kojin_jug or any(
-                                    st.session_state.get(_pv_ck_key(store, uploaded.name, _sp), True) and
+                                    _pv_is_on(store, uploaded.name, _sp) and
                                     (_pv_hr.get(_sp) in _jug_series_set or _pv_zen.get(_sp) in _jug_series_set)
                                     for _sp, _ in _auto_previews
                                 )
@@ -11130,7 +11179,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         break
                                 else:
                                     _new_prev.append(("ジャグラーシリーズ優秀台.jpg", _jug_img))
-                                    st.session_state[_pv_ck_key(store, uploaded.name, _new_prev[-1][0])] = True
+                                    _pv_set_on(store, uploaded.name, _new_prev[-1][0])
                                 _updated = True
                         # オススメ機種ピックアップ再生成（チェック外し機種がオススメに含まれる場合）
                         if _rec_unchecked_machines and _pv_df is not None and _pv_diff is not None:
@@ -11181,7 +11230,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             break
                                     else:
                                         _new_prev.append((_tgt_r, _rec_img_r))
-                                        st.session_state[_pv_ck_key(store, uploaded.name, _new_prev[-1][0])] = True
+                                        _pv_set_on(store, uploaded.name, _new_prev[-1][0])
                             _updated = True
                         # with_slump=True の場合、更新された画像にスランプグラフを合成
                         if _updated and with_slump:
@@ -11289,7 +11338,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                     break
                                             else:
                                                 _new_prev.append((_side_ufn, _side_u2))
-                                                st.session_state[_pv_ck_key(store, uploaded.name, _new_prev[-1][0])] = True
+                                                _pv_set_on(store, uploaded.name, _new_prev[-1][0])
                                         except Exception:
                                             pass
                         if _updated:
@@ -11308,6 +11357,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         st.session_state.pop(f"jug_sue_ck_{store}_{_ci}", None)
                     for _pfn_c, _ in _auto_previews:
                         st.session_state.pop(_pv_ck_key(store, uploaded.name, _pfn_c), None)
+                    st.session_state.pop(_pv_off_key(store, uploaded.name), None)
                     st.rerun()
 
     # ── ⑧ 実行ボタン（常に描画・ファイル未選択時は disabled）─────────
@@ -11452,8 +11502,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             #   画像はOFFなのに👑全台系濃厚機種へ残ってしまう）。
                             if _is_manual_mode:
                                 _kz_fn_chk_e = f"{_make_safe_fn(_km_e)}.jpg"
-                                if not st.session_state.get(
-                                        _pv_ck_key(store, uploaded.name, _kz_fn_chk_e), True):
+                                if not _pv_is_on(store, uploaded.name, _kz_fn_chk_e):
                                     _rm_stale_image(output_dir, _kz_fn_chk_e, log=_m_log)
                                     _m_log(f"  🗑️ チェック外し対象: {_kz_fn_chk_e}")
                                     continue
@@ -11496,8 +11545,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _manual_cat_off_e = _manual_son_upd_e or _is_manual_mode
                             if _manual_cat_off_e:
                                 _ky_fn_chk_e = f"{_make_safe_fn(_metit)}.jpg"
-                                if not st.session_state.get(
-                                        _pv_ck_key(store, uploaded.name, _ky_fn_chk_e), True):
+                                if not _pv_is_on(store, uploaded.name, _ky_fn_chk_e):
                                     _rm_stale_image(output_dir, _ky_fn_chk_e, log=_m_log)
                                     _off_bans_e = {
                                         int(str(b).split(".")[0])
@@ -11617,7 +11665,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 kojin_yushu_machines if kojin_enabled else [],
                                 _jg_cfg_e, force_1k=(with_slump and store == "秋葉原"))
                             for _fn_je, _bl_je in _m_exec_ban_map_e.items():
-                                if not st.session_state.get(_pv_ck_key(store, uploaded.name, _fn_je), True):
+                                if not _pv_is_on(store, uploaded.name, _fn_je):
                                     continue   # チェックOFFの②画像は除外集合へ入れない
                                 _jg_exc_e |= {int(b) for b in (_bl_je or [])}
                             _jg_df_e = _manual_juggler_auto_extract(
@@ -11855,7 +11903,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     # ⑥プレビューでチェックを外した画像は出力しない（縦/横 _side を個別に判定）
                     _unchecked_bare_e: set[str] = set()
                     for _ppn_e, _ in (st.session_state.get(_aprev_key) or []):
-                        if not st.session_state.get(_pv_ck_key(store, uploaded.name, _ppn_e), True):
+                        if not _pv_is_on(store, uploaded.name, _ppn_e):
                             _unchecked_bare_e.add(re.sub(r"^\d{2}_", "", _ppn_e))
                     if _unchecked_bare_e:
                         _kept_order_e: list[str] = []
@@ -12005,8 +12053,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             if _is_manual_mode:
                                 def _kojin_img_on(_nm: str, _yushu: bool) -> bool:
                                     _fn_k = f"{_make_safe_fn(_nm + ('（優秀台）' if _yushu else ''))}.jpg"
-                                    return st.session_state.get(
-                                        _pv_ck_key(store, uploaded.name, _fn_k), True)
+                                    return _pv_is_on(store, uploaded.name, _fn_k)
                                 _m_high_rt = [x for x in _m_high
                                               if _kojin_img_on(str(x.get("name", "")), True)]
                                 _m_zen_rt  = [x for x in _m_zen
@@ -12432,7 +12479,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 # チェック済みの高配分・全台系画像がある機種セット（並び外しで重複追加しないため）
                 _checked_img_machines_ex: set[str] = set()
                 for _spn2, _ in _aprev_imgs:
-                    if st.session_state.get(_pv_ck_key(store, uploaded.name, _spn2), True):
+                    if _pv_is_on(store, uploaded.name, _spn2):
                         _hm2 = _hr_map.get(_spn2)
                         if _hm2:
                             _checked_img_machines_ex.add(_hm2)
@@ -12445,11 +12492,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                 # 合成ループで縦を除外し、横だけ出力する）。
                 _checked_side_bases_ex: set[str] = set()
                 for _spn3, _ in _aprev_imgs:
-                    if _spn3.endswith("_side.jpg") and st.session_state.get(_pv_ck_key(store, uploaded.name, _spn3), True):
+                    if _spn3.endswith("_side.jpg") and _pv_is_on(store, uploaded.name, _spn3):
                         _checked_side_bases_ex.add(_spn3[:-len("_side.jpg")] + ".jpg")
 
                 for _pname, _ in _aprev_imgs:
-                    if not st.session_state.get(_pv_ck_key(store, uploaded.name, _pname), True):
+                    if not _pv_is_on(store, uploaded.name, _pname):
                         # 横(_side)がチェック済みの縦(base)は、横の生成元として残す（削除・再振り分けしない）
                         if _pname in _checked_side_bases_ex:
                             continue
@@ -12586,9 +12633,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     store, uploaded.name),
                                 narabi_bans=set(narabi_bans or set()),
                                 sue_bans=_sue_bans_e,
-                                jug_pool_df=(result.get("jug_pool_df") if st.session_state.get(
-                                    _pv_ck_key(store, uploaded.name,
-                                               "ジャグラーシリーズ優秀台.jpg"), True) else None),
+                                jug_pool_df=(result.get("jug_pool_df") if _pv_is_on(store, uploaded.name, "ジャグラーシリーズ優秀台.jpg") else None),
                             )
                             if _rc_set_e:
                                 _rc_rows_e = _df_res[_df_res["台番"].apply(lambda b: int(b) in _rc_set_e)]
@@ -12734,7 +12779,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 # narabiスクリプトはmake_safeでASCIIコロン→全角コロンに変換するため両方試みる
                 if ok_n and _aprev_imgs and os.path.isdir(narabi_dir):
                     for _pname, _ in _aprev_imgs:
-                        if not st.session_state.get(_pv_ck_key(store, uploaded.name, _pname), True):
+                        if not _pv_is_on(store, uploaded.name, _pname):
                             _del_n = os.path.join(narabi_dir, _pname)
                             if not os.path.exists(_del_n):
                                 _del_n = os.path.join(narabi_dir, _pname.replace(":", "："))
@@ -13058,7 +13103,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     # 画像へ載せたDataFrameそのものから作る（再抽出しない）。
                                     # ⑦プレビューで生成チェックを外した画像は載せない。
                                     _var_side_fn = os.path.splitext(_var_fn_ex)[0] + "_side.jpg"
-                                    if (st.session_state.get(_pv_ck_key(store, uploaded.name, _var_fn_ex), True)
+                                    if (_pv_is_on(store, uploaded.name, _var_fn_ex)
                                             or st.session_state.get(_pv_ck_key(store, uploaded.name, _var_side_fn), False)):
                                         _variety_excellent_run = _variety_excellent_items(_var_df_ex)
                                     _log(f"  ✅ バラエティ「{_var_title_ex}」({len(_var_df_ex)}台)")
@@ -13119,7 +13164,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 _nb_map_for_order = st.session_state.get(_aprev_narabi_key, {})
                 if _aprev_imgs and _nb_map_for_order:
                     for _pname, _ in _aprev_imgs:
-                        if _pname in _nb_map_for_order and st.session_state.get(_pv_ck_key(store, uploaded.name, _pname), True):
+                        if _pname in _nb_map_for_order and _pv_is_on(store, uploaded.name, _pname):
                             _pname_safe = _pname.replace(":", "：")
                             if _pname_safe not in _order:
                                 _order.append(_pname_safe)
@@ -13472,7 +13517,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     # ⑥プレビューでチェックを外した画像は出力しない（縦/横 _side を個別に判定）
                                     _unchecked_bare_ig: set[str] = set()
                                     for _ppn_ig, _ in (st.session_state.get(f"auto_preview_imgs_{store}") or []):
-                                        if not st.session_state.get(_pv_ck_key(store, uploaded.name, _ppn_ig), True):
+                                        if not _pv_is_on(store, uploaded.name, _ppn_ig):
                                             _unchecked_bare_ig.add(re.sub(r"^\d{2}_", "", _ppn_ig))
                                     # output_dirに上書き保存 & session_stateを合成済み画像で更新
                                     _ig_composite_kept = []
@@ -13541,7 +13586,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 _unchecked_ban_sets: list[frozenset] = [
                     frozenset(st.session_state[_aprev_narabi_key][_pname])
                     for _pname, _ in _aprev_imgs
-                    if not st.session_state.get(_pv_ck_key(store, uploaded.name, _pname), True)
+                    if not _pv_is_on(store, uploaded.name, _pname)
                     and _pname in _nb_map_r
                 ]
                 if _unchecked_ban_sets:
@@ -13605,7 +13650,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 _off_hr_r:  set[str] = set()
                 _off_zen_r: set[str] = set()
                 for _pname_r, _ in _aprev_imgs:
-                    if st.session_state.get(_pv_ck_key(store, uploaded.name, _pname_r), True):
+                    if _pv_is_on(store, uploaded.name, _pname_r):
                         continue
                     if _hr_map_r.get(_pname_r):
                         _off_hr_r.add(_hr_map_r[_pname_r])

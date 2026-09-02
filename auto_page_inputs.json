@@ -19429,7 +19429,10 @@
     "kojin_pick_title_1_新小岩": "",
     "kojin_pick_bans_1_新小岩": "",
     "kojin_pick_title_2_新小岩": "",
-    "kojin_pick_bans_2_新小岩": ""
+    "kojin_pick_bans_2_新小岩": "",
+    "retsu_enabled": false,
+    "retsu_ranges_input": "",
+    "jug_extra_auto_新小岩": "なし"
   },
   "20260830_エスパス新小岩.xlsx": {
     "kojin_enabled": false,

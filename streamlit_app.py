@@ -8426,41 +8426,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         if _previews is None:
                             # プレビュー未生成
                             st.caption(f"並び指定: {_parsed_ranges}")
-                            if uploaded is not None:
-                                if st.button("🔍 プレビュー生成", key="narabi_preview_btn"):
-                                    with st.spinner("プレビュー生成中..."):
-                                        _raw_p = _read_uploaded_df(uploaded)
-                                        _df_p, _ = normalize_df(_raw_p)
-                                        _df_p = apply_name_conversion(_df_p)
-                                        _ban_map_p = {int(row["台番"]): i for i, row in _df_p.iterrows()}
-                                        _prev_list = []
-                                        for _bans in _parsed_ranges:
-                                            _idxs = [_ban_map_p[b] for b in _bans if b in _ban_map_p]
-                                            if not _idxs:
-                                                _prev_list.append(None)
-                                                continue
-                                            _grp = _df_p.loc[_idxs].copy().reset_index(drop=True)
-                                            _ds  = _grp["差枚"]
-                                            _ms  = list(dict.fromkeys(str(m) for m in _grp["機種名"]))
-                                            _n   = len(_grp)
-                                            if len(_ms) == 1:
-                                                _tit = f"{_ms[0]}({_n}台並び)"
-                                            elif len(_ms) == 2:
-                                                _tit = f"{_ms[0]}+{_ms[1]}({_n}台並び)"
-                                            else:
-                                                _tit = f"{_ms[0]}～{_ms[-1]}({_n}台並び)"
-                                            _stat_p = {
-                                                "total_diff":  int(_ds.sum()),
-                                                "avg_diff":    int(round(_ds.mean())),
-                                                "win_count":   int((_ds > 0).sum()),
-                                                "total_count": _n,
-                                            }
-                                            _prev_list.append((_tit, _build_machine_img(_grp, _tit, _stat_p)))
-                                        st.session_state[_prev_key]    = _prev_list
-                                        st.session_state[_prev_rt_key] = ranges_text.strip()
-                                        for _ci in range(len(_prev_list)):
-                                            st.session_state[f"narabi_ck_{store}_{_ci}"] = True
-                                    st.rerun()
+                            # ③直下の個別プレビューボタンは廃止（確認は⑦プレビューで行う）。
                             narabi_ranges = _parsed_ranges
                             narabi_ok = uploaded is not None
                         else:
@@ -13993,42 +13959,7 @@ def show_auto_article_page() -> None:
 
                         if _previews is None:
                             st.caption(f"並び指定: {_parsed_ranges}")
-                            if uploaded is not None:
-                                if st.button("🔍 プレビュー生成", key="art_narabi_preview_btn"):
-                                    with st.spinner("プレビュー生成中..."):
-                                        _raw_p = pd.read_excel(uploaded)
-                                        uploaded.seek(0)
-                                        _df_p, _ = normalize_df(_raw_p)
-                                        _df_p = apply_name_conversion(_df_p)
-                                        _ban_map_p = {int(row["台番"]): i for i, row in _df_p.iterrows()}
-                                        _prev_list = []
-                                        for _bans in _parsed_ranges:
-                                            _idxs = [_ban_map_p[b] for b in _bans if b in _ban_map_p]
-                                            if not _idxs:
-                                                _prev_list.append(None)
-                                                continue
-                                            _grp = _df_p.loc[_idxs].copy().reset_index(drop=True)
-                                            _ds  = _grp["差枚"]
-                                            _ms  = list(dict.fromkeys(str(m) for m in _grp["機種名"]))
-                                            _n   = len(_grp)
-                                            if len(_ms) == 1:
-                                                _tit = f"{_ms[0]}({_n}台並び)"
-                                            elif len(_ms) == 2:
-                                                _tit = f"{_ms[0]}+{_ms[1]}({_n}台並び)"
-                                            else:
-                                                _tit = f"{_ms[0]}～{_ms[-1]}({_n}台並び)"
-                                            _stat_p = {
-                                                "total_diff":  int(_ds.sum()),
-                                                "avg_diff":    int(round(_ds.mean())),
-                                                "win_count":   int((_ds > 0).sum()),
-                                                "total_count": _n,
-                                            }
-                                            _prev_list.append((_tit, _build_machine_img(_grp, _tit, _stat_p)))
-                                        st.session_state[_prev_key]    = _prev_list
-                                        st.session_state[_prev_rt_key] = ranges_text.strip()
-                                        for _ci in range(len(_prev_list)):
-                                            st.session_state[f"art_narabi_ck_{store}_{_ci}"] = True
-                                    st.rerun()
+                            # ③直下の個別プレビューボタンは廃止（確認は⑦プレビューで行う）。
                             narabi_ranges = _parsed_ranges
                             narabi_ok = uploaded is not None
                         else:

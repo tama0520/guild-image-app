@@ -91,7 +91,7 @@
       "blank_days": [
         false,
         true,
-        false,
+        true,
         false,
         false,
         false,
@@ -187,16 +187,6 @@
       ],
       "machine_name": "東京喰種",
       "date_checks": {
-        "2026-08-26": [
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false
-        ],
         "2026-08-27": [
           false,
           false,
@@ -256,6 +246,16 @@
           true,
           false,
           false
+        ],
+        "2026-09-02": [
+          false,
+          false,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false
         ]
       },
       "blank_days": [
@@ -268,13 +268,13 @@
         false
       ],
       "blank_date_checks": {
-        "2026-08-26": true,
         "2026-08-27": false,
         "2026-08-28": false,
         "2026-08-29": false,
         "2026-08-30": false,
         "2026-08-31": false,
-        "2026-09-01": false
+        "2026-09-01": false,
+        "2026-09-02": false
       }
     },
     "t3": {
@@ -307,6 +307,11 @@
           "ネオアイム",
           "ファンキー2",
           "ジャグラーガールズ"
+        ],
+        "4,2": [
+          "マイジャグV",
+          "ネオアイム",
+          "ゴージャグ3"
         ]
       },
       "start_date": "2026-08-31",

@@ -5347,15 +5347,82 @@ def _manual_sonota_auto_bans(df, store, kojin_zentai_machines, kojin_yushu_machi
                     _exc_ban.add(_b)
     return _exc_mac, _exc_ban
 
-def _manual_sonota_auto_extract(df, diff, thr, exc_mac, exc_ban):
-    """差枚>=thr かつ 機種名∉exc_mac かつ 台番∉exc_ban の台を台番順で返す。"""
+def _manual_sonota_auto_extract(df, diff, thr, exc_mac, exc_ban,
+                                exc_series: set | frozenset = frozenset()):
+    """差枚>=thr かつ 機種名∉exc_mac かつ 台番∉exc_ban の台を台番順で返す。
+    exc_series: 機種名で丸ごと除外する集合（📝モードで cfg["juggler_series"] を渡し、
+    ジャグラーシリーズを「その他の優秀台」へ入れないために使う）。既定 空＝従来動作。"""
     _mask = ((~df["機種名"].isin(exc_mac)) &
              (diff.values >= thr) &
              (~df["台番"].apply(lambda b: int(b) in exc_ban)))
+    if len(exc_series):
+        _mask = _mask & (~df["機種名"].isin(set(exc_series)))
     _r = df[_mask.values].copy()
     if _r.empty:
         return _r
     return _r.iloc[_r["台番"].argsort()].reset_index(drop=True)
+
+
+# 📝記入部分のみモードの「ジャグラーシリーズ優秀台」自動抽出の選択肢。
+# 「優秀台」は _kojin_yushu_filter()、枚数条件は _SONOTA_AUTO_THR を再利用する
+# （新しい優秀台判定・新しい閾値は作らない）。
+_JUG_AUTO_OPTS = ["なし", "優秀台", "+1,000枚以上", "+2,000枚以上"]
+
+
+def _manual_juggler_auto_extract(df, diff, mode: str, cfg: dict,
+                                 exc_ban: set | frozenset = frozenset()):
+    """📝モードの「ジャグラーシリーズ優秀台」対象台を台番順で返す。
+
+    対象機種は cfg["juggler_series"]（機種名のハードコードはしない）。
+    mode="優秀台"        → 機種ごとに既存の _kojin_yushu_filter() をそのまま使う
+    mode="+1,000枚以上"  → _SONOTA_AUTO_THR の既存閾値
+    mode="+2,000枚以上"  → 同上
+    exc_ban: 除外する台番集合（②個別画像の実掲載台・並び・列・末尾など）。
+    **機種名単位では除外しない**（②に同じジャグラー機種があっても、②へ載っていない
+    優秀台は統合画像へ残す）。"""
+    _empty = df.iloc[0:0].copy() if df is not None else None
+    if df is None or df.empty or mode not in _JUG_AUTO_OPTS or mode == "なし":
+        return _empty
+    _series = set(cfg.get("juggler_series", set()))
+    if not _series:
+        return _empty
+    _parts = []
+    for _m, _grp in df[df["機種名"].isin(_series)].groupby("機種名", sort=False):
+        _dr = diff.loc[_grp.index]
+        if mode == "優秀台":
+            _sel = _kojin_yushu_filter(str(_m), _grp, _dr, cfg)
+        else:
+            _sel = _grp[_dr.values >= _SONOTA_AUTO_THR[mode]]
+        if not _sel.empty:
+            _parts.append(_sel)
+    if not _parts:
+        return _empty
+    _r = pd.concat(_parts)
+    if exc_ban:
+        _r = _r[~_r["台番"].apply(lambda b: int(str(b).split(".")[0]) in set(exc_ban))]
+    if _r.empty:
+        return _empty
+    return _r.iloc[_r["台番"].argsort()].reset_index(drop=True)
+
+
+def _jug_sonota_exc_series(store: str, with_slump: bool = False) -> set:
+    """📝の「その他の優秀台」自動抽出から丸ごと外す機種名集合（＝ジャグラーシリーズ）。
+
+    ジャグラーは「ジャグラーシリーズ優秀台」側からだけ生成する正式仕様。
+    ただし**秋葉原のスランプ付きはジャグラー統合画像を作らない既存の正式仕様**
+    （pipeline へ渡す jug_no_merge_image と同じ判定）で、ジャグラー台をその他へ
+    回すことが前提のため、従来どおり除外しない。"""
+    if with_slump and store == "秋葉原":
+        return set()
+    return set(get_store_config(store).get("juggler_series", set()))
+
+
+def _manual_jug_title(kojin_machines, cfg: dict) -> str:
+    """📝のジャグラー統合画像タイトル。②個別画像にジャグラーシリーズが1機種以上
+    あれば「その他の…」にする（run_step2_juggler の has_other_jug_img と同じ考え方）。"""
+    _series = set(cfg.get("juggler_series", set()))
+    _has = any(str(m).strip() in _series for m in (kojin_machines or []) if str(m).strip())
+    return "その他のジャグラーシリーズの優秀台" if _has else "ジャグラーシリーズの優秀台"
 
 
 def _auto_input_keys(store: str) -> list[str]:
@@ -5375,6 +5442,8 @@ def _auto_input_keys(store: str) -> list[str]:
         f"kojin_narabi_range_{store}", f"kojin_narabi_title_{store}",
         f"kojin_narabi2_range_{store}", f"kojin_narabi2_title_{store}",
         f"sonota_extra_title_{store}", f"sonota_extra_text_{store}", f"sonota_extra_auto_{store}",
+        # 📝記入部分のみモードの「ジャグラーシリーズ優秀台」自動抽出（Excel＝日付単位）
+        f"jug_extra_auto_{store}",
         "variety_enabled", f"variety_range_{store}", "variety_mode",
     ]
     for i in range(_KOJIN_PICK_COUNT):
@@ -5483,7 +5552,7 @@ def _restore_auto_inputs(excel_name: str, store: str) -> None:
         if k not in saved:
             if k in pk and k in persistent:
                 st.session_state[k] = persistent[k]  # 永続値を優先
-            elif k.startswith("sonota_extra_auto_"):
+            elif k.startswith(("sonota_extra_auto_", "jug_extra_auto_")):
                 st.session_state[k] = "なし"  # ラジオは有効な選択肢を既定に
             else:
                 st.session_state[k] = False if k.endswith("_enabled") else ""
@@ -5629,6 +5698,8 @@ def _article_input_keys(store: str) -> list[str]:
         f"art_kojin_narabi2_range_{store}", f"art_kojin_narabi2_title_{store}",
         f"art_sonota_extra_title_{store}", f"art_sonota_extra_text_{store}",
         f"art_sonota_extra_auto_{store}",
+        # 📝記入部分のみモードの「ジャグラーシリーズ優秀台」自動抽出（Excel＝日付単位）
+        f"art_jug_extra_auto_{store}",
         # 記事上部（WordPress）: 見出し／ポスター下文章／Xリンク下文章。
         # いずれも文字列のみ。**画像バイナリはここへ入れない**（正式仕様）。
         f"art_wp_top_heading_{store}", f"art_wp_top_text_poster_{store}",
@@ -5762,7 +5833,7 @@ def _restore_article_inputs(excel_name: str, store: str) -> None:
     saved = _load_article_inputs_json().get(excel_name, {})
     for k in _article_input_keys(store):
         if k not in saved:
-            if k.startswith("art_sonota_extra_auto_"):
+            if k.startswith(("art_sonota_extra_auto_", "art_jug_extra_auto_")):
                 st.session_state[k] = "なし"
             else:
                 st.session_state[k] = False if k.endswith("_enabled") else ""
@@ -8222,6 +8293,8 @@ def show_auto_page(with_slump: bool = False) -> None:
     _no_kojin_narabi = with_slump and store in _KOJIN_Y_EXPAND_SLUMP_STORES
     sonota_extra_title: str = ""
     sonota_extra_text: str = ""
+    sonota_extra_auto: str = "なし"
+    jug_extra_auto: str = "なし"
     st.markdown(f"### {_sec_num()} 個別画像")
     variety_enabled: bool = False
     variety_ranges_text: str = ""
@@ -8388,9 +8461,24 @@ def show_auto_page(with_slump: bool = False) -> None:
                 horizontal=True,
                 on_change=_save_auto_inputs, args=(store,),
             )
+            # ジャグラーシリーズ優秀台（📝記入部分のみモード）。
+            # 「その他の優秀台」からジャグラーは常に除外され、こちらから生成する。
+            _jg_key = f"jug_extra_auto_{store}"
+            if st.session_state.get(_jg_key) not in _JUG_AUTO_OPTS:
+                st.session_state[_jg_key] = "なし"   # 保存値が選択肢に無ければ安全側へ
+            st.radio(
+                "下記の条件で「ジャグラーシリーズ優秀台」を自動抽出（📝記入部分のみモード）",
+                options=_JUG_AUTO_OPTS,
+                key=_jg_key,
+                horizontal=True,
+                on_change=_save_auto_inputs, args=(store,),
+            )
         sonota_extra_title = st.session_state.get(f"sonota_extra_title_{store}", "")
         sonota_extra_text  = st.session_state.get(f"sonota_extra_text_{store}", "")
         sonota_extra_auto = st.session_state.get(f"sonota_extra_auto_{store}", "なし")
+        jug_extra_auto = st.session_state.get(f"jug_extra_auto_{store}", "なし")
+        if jug_extra_auto not in _JUG_AUTO_OPTS:
+            jug_extra_auto = "なし"
 
     # ── ③ 並び画像オプション（常に描画）──────────────────────────────
     narabi_ok     = False
@@ -9998,12 +10086,38 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     except Exception:
                                         pass
                                 _se_auto_m = _manual_sonota_auto_extract(
-                                    _df_m, _diff_m, _SONOTA_AUTO_THR[sonota_extra_auto], _exc_mac_m, _exc_ban_m)
+                                    _df_m, _diff_m, _SONOTA_AUTO_THR[sonota_extra_auto], _exc_mac_m, _exc_ban_m,
+                                    exc_series=_jug_sonota_exc_series(store, with_slump))
                                 if not _se_auto_m.empty:
                                     _se_tit_m = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
                                     _manual_imgs.append((f"{_make_safe_fn(_se_tit_m)}.jpg",
                                                          _build_machine_img(_se_auto_m, _se_tit_m, None)))
                                     _manual_ban_map[f"{_make_safe_fn(_se_tit_m)}.jpg"] = [int(b) for b in _se_auto_m["台番"].tolist()]
+
+                            # ② ジャグラーシリーズ優秀台（📝記入部分のみモード）
+                            # その他とは別カテゴリ。②個別画像の「実掲載台番」だけを除外する
+                            # （機種名単位では除外しない）。
+                            if jug_extra_auto != "なし":
+                                _jg_cfg_m = get_store_config(store)
+                                _, _jg_exc_m = _manual_sonota_auto_bans(
+                                    _df_m, store, [], [],
+                                    narabi_ranges if narabi_ok else [],
+                                    "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi_range_{store}", ""),
+                                    "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi2_range_{store}", ""),
+                                    retsu_ranges=(retsu_ranges if retsu_ok else []),
+                                )
+                                _jg_exc_m = set(_jg_exc_m)
+                                for _bl_jm in _manual_ban_map.values():
+                                    _jg_exc_m |= {int(b) for b in (_bl_jm or [])}
+                                _jg_df_m = _manual_juggler_auto_extract(
+                                    _df_m, _diff_m, jug_extra_auto, _jg_cfg_m, _jg_exc_m)
+                                if _jg_df_m is not None and not _jg_df_m.empty:
+                                    _jg_tit_m = _manual_jug_title(
+                                        list(kojin_zentai_machines) + list(kojin_yushu_machines), _jg_cfg_m)
+                                    _manual_imgs.append(("ジャグラーシリーズ優秀台.jpg",
+                                                         _build_machine_img(_jg_df_m, _jg_tit_m, None)))
+                                    _manual_ban_map["ジャグラーシリーズ優秀台.jpg"] = [
+                                        int(b) for b in _jg_df_m["台番"].tolist()]
 
                         # ③ 並び画像
                         if narabi_ok and narabi_ranges:
@@ -10709,7 +10823,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         pass
                                 _se_auto_u = _manual_sonota_auto_extract(
                                     _pv_df, _pv_diff, _SONOTA_AUTO_THR[sonota_extra_auto],
-                                    _exc_mac_u, _exc_ban_u)
+                                    _exc_mac_u, _exc_ban_u,
+                                    exc_series=_jug_sonota_exc_series(store, with_slump))
                                 if not _se_auto_u.empty:
                                     _ex_bans_for_son |= {
                                         int(str(b).split(".")[0]) for b in _se_auto_u["台番"].dropna()
@@ -11257,7 +11372,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 retsu_ranges=(retsu_ranges if retsu_ok else []),
                             )
                             _se_df_e = _manual_sonota_auto_extract(
-                                _df_exec_m, _diff_exec_m, _SONOTA_AUTO_THR[sonota_extra_auto], _exc_mac_e, _exc_ban_e)
+                                _df_exec_m, _diff_exec_m, _SONOTA_AUTO_THR[sonota_extra_auto], _exc_mac_e, _exc_ban_e,
+                                exc_series=_jug_sonota_exc_series(store, with_slump))
                             _se_src_log_e = f"（自動抽出 {sonota_extra_auto}）"
                         # チェック外しした②個別優秀台の +1,000枚以上台を合流（🔄プレビューと同じ内容にする）
                         _se_merged_e = False
@@ -11280,6 +11396,33 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _exec_order.append(_sefn_e)
                             _m_exec_ban_map_e[_sefn_e] = [int(b) for b in _se_df_e["台番"].tolist()]
                             _m_log(f"  ✅ その他の優秀台ピックアップ「{_se_tit_e}」{_se_src_log_e}({len(_se_df_e)}台)")
+
+                        # ② ジャグラーシリーズ優秀台（📝記入部分のみモード）
+                        # その他とは別カテゴリ。②個別画像の実掲載台番だけを除外する。
+                        _jg_df_e = pd.DataFrame()
+                        if jug_extra_auto != "なし":
+                            _jg_cfg_e = get_store_config(store)
+                            _, _jg_exc_e = _manual_sonota_auto_bans(
+                                _df_exec_m, store, [], [],
+                                narabi_ranges if narabi_ok else [],
+                                "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi_range_{store}", ""),
+                                "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi2_range_{store}", ""),
+                                retsu_ranges=(retsu_ranges if retsu_ok else []),
+                            )
+                            _jg_exc_e = set(_jg_exc_e)
+                            for _bl_je in _m_exec_ban_map_e.values():
+                                _jg_exc_e |= {int(b) for b in (_bl_je or [])}
+                            _jg_df_e = _manual_juggler_auto_extract(
+                                _df_exec_m, _diff_exec_m, jug_extra_auto, _jg_cfg_e, _jg_exc_e)
+                            if _jg_df_e is not None and not _jg_df_e.empty:
+                                _jg_tit_e = _manual_jug_title(
+                                    list(kojin_zentai_machines) + list(kojin_yushu_machines), _jg_cfg_e)
+                                _jgfn_e = _unique_fn_e("ジャグラーシリーズ優秀台.jpg")
+                                _save_jpeg(_build_machine_img(_jg_df_e, _jg_tit_e, None),
+                                           os.path.join(output_dir, _jgfn_e), target_kb=800)
+                                _exec_order.append(_jgfn_e)
+                                _m_exec_ban_map_e[_jgfn_e] = [int(b) for b in _jg_df_e["台番"].tolist()]
+                                _m_log(f"  ✅ {_jg_tit_e}（自動抽出 {jug_extra_auto}）({len(_jg_df_e)}台)")
 
                     # ③ 並び画像（重複タイトルは台番範囲サフィックスで区別）
                     if narabi_ok and narabi_ranges:
@@ -11568,9 +11711,24 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 retsu_ranges=(retsu_ranges if retsu_ok else []),
                             )
                             _se_auto_rt = _manual_sonota_auto_extract(
-                                _df_exec_m, _diff_exec_m, _SONOTA_AUTO_THR[sonota_extra_auto], _exc_mac_rt, _exc_ban_rt)
+                                _df_exec_m, _diff_exec_m, _SONOTA_AUTO_THR[sonota_extra_auto], _exc_mac_rt, _exc_ban_rt,
+                                exc_series=_jug_sonota_exc_series(store, with_slump))
                             for _, _row_rt in _se_auto_rt.iterrows():
                                 _m_excel.append({"name": str(_row_rt["機種名"]), "diff": int(_row_rt["差枚"]), "ban": int(_row_rt["台番"])})
+                        # ジャグラーシリーズ優秀台の掲載台も同じ excellent_list へ入れる。
+                        # 通常 pipeline も excellent_list = jug_excellent + sonota_excellent の
+                        # 和集合（(name, ban) で重複除去）なので、画像だけあってテキストから
+                        # 消える／二重掲載になることを防ぐ。専用セクションは作らない。
+                        _jg_final_rt = locals().get("_jg_df_e")
+                        if _jg_final_rt is not None and not _jg_final_rt.empty:
+                            _rt_seen = {(x["name"], x["ban"]) for x in _m_excel}
+                            for _, _row_jr in _jg_final_rt.iterrows():
+                                _key_jr = (str(_row_jr["機種名"]), int(str(_row_jr["台番"]).split(".")[0]))
+                                if _key_jr in _rt_seen:
+                                    continue
+                                _rt_seen.add(_key_jr)
+                                _m_excel.append({"name": _key_jr[0], "diff": int(_row_jr["差枚"]),
+                                                 "ban": _key_jr[1]})
                         # 🎯掲載台を選ぶ: 実際に画像へ載った台番だけを+1,000枚一覧に載せる
                         # （total / win_count / avg_diff は元データ基準のまま）
                         def _sel_from_ban_out(_bo) -> "set[int] | None":
@@ -13814,6 +13972,7 @@ def show_auto_article_page() -> None:
     art_sonota_extra_title: str = ""
     art_sonota_extra_text: str = ""
     art_sonota_extra_auto: str = "なし"
+    art_jug_extra_auto: str = "なし"
     st.markdown(f"### {_sec_num()} {'高配分' if _art_v2 else '個別画像'}")
     kojin_enabled = st.checkbox("個別画像も生成する", key="art_kojin_enabled",
                                 on_change=_save_article_enabled, args=(store,))
@@ -13923,9 +14082,23 @@ def show_auto_article_page() -> None:
             horizontal=True,
             on_change=_save_article_inputs, args=(store,),
         )
+        # ジャグラーシリーズ優秀台（📝記入部分のみモード）。通常ページと同じ考え方。
+        _art_jg_key = f"art_jug_extra_auto_{store}"
+        if st.session_state.get(_art_jg_key) not in _JUG_AUTO_OPTS:
+            st.session_state[_art_jg_key] = "なし"
+        st.radio(
+            "下記の条件で「ジャグラーシリーズ優秀台」を自動抽出（📝記入部分のみモード）",
+            options=_JUG_AUTO_OPTS,
+            key=_art_jg_key,
+            horizontal=True,
+            on_change=_save_article_inputs, args=(store,),
+        )
         art_sonota_extra_title = st.session_state.get(f"art_sonota_extra_title_{store}", "")
         art_sonota_extra_text  = st.session_state.get(f"art_sonota_extra_text_{store}", "")
         art_sonota_extra_auto  = st.session_state.get(f"art_sonota_extra_auto_{store}", "なし")
+        art_jug_extra_auto     = st.session_state.get(f"art_jug_extra_auto_{store}", "なし")
+        if art_jug_extra_auto not in _JUG_AUTO_OPTS:
+            art_jug_extra_auto = "なし"
 
     # ── ③ 並び画像オプション ─────────────────────────────────────────
     narabi_ok     = False
@@ -14472,8 +14645,38 @@ def show_auto_article_page() -> None:
                                 st.session_state[f"_art_osu_plan_{store}"] = _art_osu_plan
                                 for _olog in _osu_logs:
                                     st.caption(f"⑤ {_olog}")
+                            # 📝の自動抽出で共通に使う除外集合（②ピック・並び・列・台番範囲）。
+                            # その他／ジャグラーの両方から参照するためここで1回だけ作る。
+                            _exc_mac_a = {m.strip() for m in (kojin_zentai_machines + kojin_yushu_machines) if m.strip()}
+                            _exc_ban_a: set[int] = set()
+                            for _pt_a, _pb_a in _collect_kojin_pick(store, prefix="art_"):
+                                _exc_ban_a |= set(_pb_a)
+                            for _bl_a in (narabi_ranges or []):
+                                _exc_ban_a |= {int(b) for b in _bl_a}
+                            for _txt_a in (kojin_narabi_ranges_text, kojin_narabi2_ranges_text):
+                                if _txt_a and _txt_a.strip():
+                                    try: _exc_ban_a |= ranges_to_bans(parse_ranges(_txt_a.strip()))
+                                    except Exception: pass
                             # ④ ジャグラーシリーズ優秀台
-                            if not _art_manual and "ジャグラーシリーズ優秀台.jpg" in _art_fpm:
+                            # 📝記入部分のみモードでは pipeline 版が無いため、通常ページと同じ
+                            # 条件（_manual_juggler_auto_extract）で別カテゴリとして生成する。
+                            # 記事用は青タイトルバーを描かない既存仕様のため _build_machine_img_no_bar。
+                            _art_jg_bans: list[int] = []
+                            if _art_manual and art_jug_extra_auto != "なし" and _apdf is not None and _apdi is not None:
+                                _art_jg_cfg = get_store_config(store)
+                                _art_jg_exc: set[int] = set(_exc_ban_a)
+                                for _cl_ja in (retsu_ranges if retsu_ok else []):
+                                    _art_jg_exc |= {int(b) for b in _cl_ja}
+                                for _bl_ja in _art_ky_bans.values():
+                                    _art_jg_exc |= {int(b) for b in (_bl_ja or [])}
+                                _art_jg_df = _manual_juggler_auto_extract(
+                                    _apdf, _apdi, art_jug_extra_auto, _art_jg_cfg, _art_jg_exc)
+                                if _art_jg_df is not None and not _art_jg_df.empty:
+                                    _art_pil.append(("ジャグラーシリーズ優秀台.jpg", _build_machine_img_no_bar(
+                                        _art_jg_df,
+                                        hq_scale=_art_hq_scale_for("ジャグラーシリーズ優秀台.jpg", store, len(_art_jg_df)))))
+                                    _art_jg_bans = [int(b) for b in _art_jg_df["台番"].tolist()]
+                            elif not _art_manual and "ジャグラーシリーズ優秀台.jpg" in _art_fpm:
                                 _art_pil.append(_art_fpm["ジャグラーシリーズ優秀台.jpg"])
                             # ⑤ その他の優秀台ピックアップ
                             # 台番テキスト貼付 or 自動抽出（📝記入部分のみモード）があれば
@@ -14495,18 +14698,9 @@ def show_auto_article_page() -> None:
                                             _art_son_bans = [int(b) for b in _se_df_a["台番"].tolist()]
                                             _art_son_added = True
                                 elif art_sonota_extra_auto in _SONOTA_AUTO_THR and _apdi is not None:
-                                    _exc_mac_a = {m.strip() for m in (kojin_zentai_machines + kojin_yushu_machines) if m.strip()}
-                                    _exc_ban_a: set[int] = set()
-                                    for _pt_a, _pb_a in _collect_kojin_pick(store, prefix="art_"):
-                                        _exc_ban_a |= set(_pb_a)
-                                    for _bl_a in (narabi_ranges or []):
-                                        _exc_ban_a |= {int(b) for b in _bl_a}
-                                    for _txt_a in (kojin_narabi_ranges_text, kojin_narabi2_ranges_text):
-                                        if _txt_a and _txt_a.strip():
-                                            try: _exc_ban_a |= ranges_to_bans(parse_ranges(_txt_a.strip()))
-                                            except Exception: pass
                                     _se_auto_a = _manual_sonota_auto_extract(
-                                        _apdf, _apdi, _SONOTA_AUTO_THR[art_sonota_extra_auto], _exc_mac_a, _exc_ban_a)
+                                        _apdf, _apdi, _SONOTA_AUTO_THR[art_sonota_extra_auto], _exc_mac_a, _exc_ban_a,
+                                        exc_series=_jug_sonota_exc_series(store))
                                     if not _se_auto_a.empty:
                                         _se_tit_a = art_sonota_extra_title.strip() or "その他の優秀台ピックアップ"
                                         _art_pil.append((_art_son_fn, _build_machine_img(

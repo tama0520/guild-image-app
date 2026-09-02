@@ -5405,6 +5405,43 @@ def _manual_juggler_auto_extract(df, diff, mode: str, cfg: dict,
     return _r.iloc[_r["台番"].argsort()].reset_index(drop=True)
 
 
+def _manual_kojin_on(df, diff, store: str, excel_name: str, previews,
+                     kojin_zentai_machines, kojin_yushu_machines,
+                     cfg: dict, force_1k: bool = False) -> "tuple[set[int], list[str]]":
+    """📝経路で **現在チェックONの②個別画像** の実掲載台番と機種名を返す。
+
+    正本は「②に記入されている機種名」でも「一度②画像として生成された台」でもなく、
+    **現在プレビューでチェックONになっている②画像の実掲載台番**（ban単位）。
+    チェックOFFの②画像の台は除外集合へ入れない＝他カテゴリの候補へ戻る。
+    抽出は📝プレビューと同じ `_resolve_kojin_name()` / `_kojin_yushu_filter()` を使う
+    （新しい優秀台判定は作らない）。"""
+    _bans: set[int] = set()
+    _macs: list[str] = []
+    if df is None or df.empty:
+        return _bans, _macs
+    _names = {_pn for _pn, _ in (previews or [])}
+    for _km_raw, _is_yushu in ([(m, False) for m in (kojin_zentai_machines or [])] +
+                               [(m, True) for m in (kojin_yushu_machines or [])]):
+        _km = str(_km_raw).strip()
+        if not _km:
+            continue
+        _fn = f"{_make_safe_fn(_km + ('（優秀台）' if _is_yushu else ''))}.jpg"
+        if _fn not in _names:
+            continue
+        if not st.session_state.get(_pv_ck_key(store, excel_name, _fn), True):
+            continue          # チェックOFFの②画像は除外集合へ入れない
+        _base, _grp = _resolve_kojin_name(df, _km)
+        if _grp.empty:
+            continue
+        if _is_yushu:
+            _grp = _kojin_yushu_filter(_base, _grp, diff.loc[_grp.index], cfg, force_1k=force_1k)
+            if _grp.empty:
+                continue
+        _bans |= {int(str(b).split(".")[0]) for b in _grp["台番"].dropna()}
+        _macs.append(_km)
+    return _bans, _macs
+
+
 def _jug_sonota_exc_series(store: str, with_slump: bool = False) -> set:
     """📝の「その他の優秀台」自動抽出から丸ごと外す機種名集合（＝ジャグラーシリーズ）。
 
@@ -10107,13 +10144,21 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     retsu_ranges=(retsu_ranges if retsu_ok else []),
                                 )
                                 _jg_exc_m = set(_jg_exc_m)
-                                for _bl_jm in _manual_ban_map.values():
+                                # 現在チェックONの②個別画像の実掲載台番・機種名（ban単位が正本）
+                                _kon_bans_m, _kon_macs_m = _manual_kojin_on(
+                                    _df_m, _diff_m, store, uploaded.name, _manual_imgs,
+                                    kojin_zentai_machines if kojin_enabled else [],
+                                    kojin_yushu_machines if kojin_enabled else [],
+                                    _jg_cfg_m, force_1k=(with_slump and store == "秋葉原"))
+                                for _fn_jm, _bl_jm in _manual_ban_map.items():
+                                    if not st.session_state.get(_pv_ck_key(store, uploaded.name, _fn_jm), True):
+                                        continue   # チェックOFFの②画像は除外集合へ入れない
                                     _jg_exc_m |= {int(b) for b in (_bl_jm or [])}
                                 _jg_df_m = _manual_juggler_auto_extract(
                                     _df_m, _diff_m, jug_extra_auto, _jg_cfg_m, _jg_exc_m)
                                 if _jg_df_m is not None and not _jg_df_m.empty:
-                                    _jg_tit_m = _manual_jug_title(
-                                        list(kojin_zentai_machines) + list(kojin_yushu_machines), _jg_cfg_m)
+                                    # タイトルは「現在チェックONの②画像」基準（記入欄の機種名ではない）
+                                    _jg_tit_m = _manual_jug_title(_kon_macs_m, _jg_cfg_m)
                                     _manual_imgs.append(("ジャグラーシリーズ優秀台.jpg",
                                                          _build_machine_img(_jg_df_m, _jg_tit_m, None)))
                                     _manual_ban_map["ジャグラーシリーズ優秀台.jpg"] = [
@@ -10496,6 +10541,84 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _pv_hr       = st.session_state.get(_aprev_hr_key, {})
                     _pv_zen    = st.session_state.get(_aprev_zen_key, {})
                     _pv_narabi = st.session_state.get(_aprev_narabi_key, {})
+                    # ── 📝記入部分のみモード専用のカテゴリ再抽出（既存 _manual_son_upd は変更しない）──
+                    # ②個別画像のチェックON/OFFを正本として「その他の優秀台」「ジャグラー
+                    # シリーズ優秀台」を作り直す。抽出条件は既存ヘルパーをそのまま再利用する。
+                    # 対象は📝プレビュー由来かつ _manual_son_upd の既存経路に載らないページ
+                    # （fd42ccf / ce2fafc の店舗条件・用途はここでは一切変更しない）。
+                    _manual_cat_upd = (
+                        bool(st.session_state.get(f"_manual_preview_mode_{store}", False))
+                        and not _manual_son_upd and uploaded is not None and bool(_auto_previews)
+                    )
+                    if _manual_cat_upd:
+                        try:
+                            uploaded.seek(0)
+                            _dfu, _ = normalize_df(_read_uploaded_df(uploaded))
+                            _dfu = apply_name_conversion(_dfu)
+                            if "差枚" in _dfu.columns:
+                                _dfu["差枚"] = _dfu["差枚"].apply(_pipeline_calc_d)
+                            _dfu = _ensure_juggler_cols(_dfu)
+                            _diu = _dfu["差枚"].copy()
+                            _cfg_u = get_store_config(store)
+                            # 現在チェックONの②画像の実掲載台番・機種名（ban単位が正本）
+                            _kon_bans, _kon_macs = _manual_kojin_on(
+                                _dfu, _diu, store, uploaded.name, _auto_previews,
+                                kojin_zentai_machines if kojin_enabled else [],
+                                kojin_yushu_machines if kojin_enabled else [],
+                                _cfg_u, force_1k=(with_slump and store == "秋葉原"))
+                            # 並び・列・末尾・ジャグラー末尾・②個別ピックの既存除外
+                            _, _exc_base_u = _manual_sonota_auto_bans(
+                                _dfu, store, [], [],
+                                narabi_ranges if narabi_ok else [],
+                                "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi_range_{store}", ""),
+                                "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi2_range_{store}", ""),
+                                retsu_ranges=(retsu_ranges if retsu_ok else []),
+                            )
+                            _exc_base_u = set(_exc_base_u)
+                            if _variety_ui and variety_enabled and variety_ranges_text.strip():
+                                try:
+                                    _exc_base_u |= ranges_to_bans(parse_ranges(variety_ranges_text.strip()))
+                                except Exception:
+                                    pass
+                            _cat_prev = list(_auto_previews)
+                            def _cat_put(_fn_c, _img_c):
+                                for _ci_c, (_pn_c, _) in enumerate(_cat_prev):
+                                    if _pn_c == _fn_c:
+                                        _cat_prev[_ci_c] = (_pn_c, _img_c)
+                                        return
+                                _cat_prev.append((_fn_c, _img_c))
+                                st.session_state[_pv_ck_key(store, uploaded.name, _fn_c)] = True
+                            def _cat_drop(_fn_c):
+                                for _ci_c, (_pn_c, _) in enumerate(list(_cat_prev)):
+                                    if _pn_c == _fn_c:
+                                        _cat_prev.pop(_ci_c)
+                                        return
+                            # その他の優秀台（自動抽出のときだけ作り直す）
+                            if not sonota_extra_text.strip() and sonota_extra_auto in _SONOTA_AUTO_THR:
+                                _se_u = _manual_sonota_auto_extract(
+                                    _dfu, _diu, _SONOTA_AUTO_THR[sonota_extra_auto],
+                                    set(_kon_macs), _exc_base_u | _kon_bans,
+                                    exc_series=_jug_sonota_exc_series(store, with_slump))
+                                _se_tit_u = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
+                                _se_fn_u  = f"{_make_safe_fn(_se_tit_u)}.jpg"
+                                if _se_u is not None and not _se_u.empty:
+                                    _cat_put(_se_fn_u, _build_machine_img(_se_u, _se_tit_u, None))
+                                else:
+                                    _cat_drop(_se_fn_u)
+                            # ジャグラーシリーズ優秀台
+                            if jug_extra_auto != "なし":
+                                _jg_u = _manual_juggler_auto_extract(
+                                    _dfu, _diu, jug_extra_auto, _cfg_u, _exc_base_u | _kon_bans)
+                                if _jg_u is not None and not _jg_u.empty:
+                                    _cat_put("ジャグラーシリーズ優秀台.jpg", _build_machine_img(
+                                        _jg_u, _manual_jug_title(_kon_macs, _cfg_u), None))
+                                else:
+                                    _cat_drop("ジャグラーシリーズ優秀台.jpg")
+                            else:
+                                _cat_drop("ジャグラーシリーズ優秀台.jpg")
+                            st.session_state[_aprev_key] = _dedup_previews(_cat_prev)
+                        except Exception as _cat_e:
+                            st.warning(f"その他／ジャグラーの再抽出に失敗しました: {_cat_e}")
                     if _manual_son_upd:
                         # 📝経路では⑦由来の自動抽出情報を一切使わない。
                         # （同一セッションで先に⑦を実行していると古い値が残るため明示的に空にする。
@@ -10722,17 +10845,33 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _myrows = _pv_df[_pv_df["機種名"] == _km_y]
                                         if not _myrows.empty:
                                             _mydiff = _pv_diff.loc[_myrows.index]
-                                            _mymask = _mydiff >= 1000
+                                            # ジャグラーシリーズは「ジャグラーシリーズ優秀台」の
+                                            # 現在の設定と同じ条件で戻す（+1,000枚固定にしない）。
+                                            # 抽出は _manual_juggler_auto_extract() を再利用する。
+                                            if _km_y in _jug_series_set and jug_extra_auto != "なし":
+                                                _myj = _manual_juggler_auto_extract(
+                                                    _myrows.reset_index(drop=True),
+                                                    _mydiff.reset_index(drop=True),
+                                                    jug_extra_auto, get_store_config(store), set())
+                                                _myj_bans = ({int(str(b).split(".")[0]) for b in _myj["台番"].dropna()}
+                                                             if _myj is not None and not _myj.empty else set())
+                                                _mymask = _myrows["台番"].apply(
+                                                    lambda b: int(str(b).split(".")[0]) in _myj_bans)
+                                            else:
+                                                _mymask = _mydiff >= 1000
                                             _mygood = _myrows[_mymask.values].copy().reset_index(drop=True)
-                                            _mygood_diff = _mydiff[_mymask].reset_index(drop=True)
+                                            _mygood_diff = _mydiff[_mymask.values].reset_index(drop=True)
                                             if not _mygood.empty and _sue_bans_upd:
                                                 _my_keep = ~_mygood["台番"].apply(int).isin(_sue_bans_upd)
                                                 _mygood      = _mygood[_my_keep.values].copy().reset_index(drop=True)
                                                 _mygood_diff = _mygood_diff[_my_keep.values].reset_index(drop=True)
                                             if not _mygood.empty:
                                                 _has_jug_ex_img = any(_pn == "ジャグラーシリーズ優秀台.jpg" for _pn, _ in _auto_previews)
-                                                if _km_y in _jug_series_set and _has_jug_ex_img and not (with_slump and store == "秋葉原"):
-                                                    _jug_extra_dfs.append(_mygood)
+                                                if _km_y in _jug_series_set and not (with_slump and store == "秋葉原"):
+                                                    # ジャグラー設定が「なし」のときは統合へ戻さない。
+                                                    # その他へも回さない（b600ad3 のカテゴリ分離を維持）。
+                                                    if jug_extra_auto != "なし" and _has_jug_ex_img:
+                                                        _jug_extra_dfs.append(_mygood)
                                                 else:
                                                     _upd_extra_dfs.append(_mygood)
                                                     _upd_extra_diffs.append(_mygood_diff)
@@ -11410,13 +11549,21 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 retsu_ranges=(retsu_ranges if retsu_ok else []),
                             )
                             _jg_exc_e = set(_jg_exc_e)
-                            for _bl_je in _m_exec_ban_map_e.values():
+                            _kon_bans_e, _kon_macs_e = _manual_kojin_on(
+                                _df_exec_m, _diff_exec_m, store, uploaded.name,
+                                [(_f, None) for _f in _m_exec_ban_map_e],
+                                kojin_zentai_machines if kojin_enabled else [],
+                                kojin_yushu_machines if kojin_enabled else [],
+                                _jg_cfg_e, force_1k=(with_slump and store == "秋葉原"))
+                            for _fn_je, _bl_je in _m_exec_ban_map_e.items():
+                                if not st.session_state.get(_pv_ck_key(store, uploaded.name, _fn_je), True):
+                                    continue   # チェックOFFの②画像は除外集合へ入れない
                                 _jg_exc_e |= {int(b) for b in (_bl_je or [])}
                             _jg_df_e = _manual_juggler_auto_extract(
                                 _df_exec_m, _diff_exec_m, jug_extra_auto, _jg_cfg_e, _jg_exc_e)
                             if _jg_df_e is not None and not _jg_df_e.empty:
-                                _jg_tit_e = _manual_jug_title(
-                                    list(kojin_zentai_machines) + list(kojin_yushu_machines), _jg_cfg_e)
+                                # タイトルは「現在チェックONの②画像」基準
+                                _jg_tit_e = _manual_jug_title(_kon_macs_e, _jg_cfg_e)
                                 _jgfn_e = _unique_fn_e("ジャグラーシリーズ優秀台.jpg")
                                 _save_jpeg(_build_machine_img(_jg_df_e, _jg_tit_e, None),
                                            os.path.join(output_dir, _jgfn_e), target_kb=800)
@@ -13370,11 +13517,33 @@ def show_auto_page(with_slump: bool = False) -> None:
                     if x["name"] not in _block_only
                     and not (x["name"] in _memo_machines and x.get("ban") in _memo_bans)
                 ]
+            # ⑦プレビューでチェックOFFにした高配分／全台系画像の機種は、最終掲載対象では
+            # ないので結果テキストからも外す（画像とカテゴリを一致させる）。
+            # 既存 pipeline 結果からOFF分を「除外するだけ」で、チェックONの項目の
+            # 内容・順序・表記は変更しない（ce2fafc の思想を維持）。
+            _zen_for_report  = result.get("zen_dai_list", [])
+            _high_for_report = result.get("high_ratio_list", [])
+            if _aprev_imgs:
+                _hr_map_r  = st.session_state.get(_aprev_hr_key, {})
+                _zen_map_r = st.session_state.get(_aprev_zen_key, {})
+                _off_hr_r:  set[str] = set()
+                _off_zen_r: set[str] = set()
+                for _pname_r, _ in _aprev_imgs:
+                    if st.session_state.get(_pv_ck_key(store, uploaded.name, _pname_r), True):
+                        continue
+                    if _hr_map_r.get(_pname_r):
+                        _off_hr_r.add(_hr_map_r[_pname_r])
+                    if _zen_map_r.get(_pname_r):
+                        _off_zen_r.add(_zen_map_r[_pname_r])
+                if _off_hr_r:
+                    _high_for_report = [x for x in _high_for_report if x.get("name") not in _off_hr_r]
+                if _off_zen_r:
+                    _zen_for_report = [x for x in _zen_for_report if x.get("name") not in _off_zen_r]
             report_text = generate_report_text(
                 store_name=store,
                 date=result.get("date"),
-                zen_dai_list=result.get("zen_dai_list", []),
-                high_ratio_list=result.get("high_ratio_list", []),
+                zen_dai_list=_zen_for_report,
+                high_ratio_list=_high_for_report,
                 nami_list=nami_for_report,
                 excellent_list=_excellent_all,
                 diff_raw=result.get("diff_raw"),

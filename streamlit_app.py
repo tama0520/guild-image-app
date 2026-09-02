@@ -11410,6 +11410,16 @@ def show_auto_page(with_slump: bool = False) -> None:
                             if _mg_e.empty:
                                 continue
                             _md_e = _diff_exec_m.loc[_resolve_kojin_name(_df_exec_m, _km_e)[1].index].reset_index(drop=True)
+                            # 📝経路: チェックOFFの②全台画像は生成前にスキップする
+                            # （生成してから画像だけ削除すると _m_zen.append() に到達し、
+                            #   画像はOFFなのに👑全台系濃厚機種へ残ってしまう）。
+                            if _is_manual_mode:
+                                _kz_fn_chk_e = f"{_make_safe_fn(_km_e)}.jpg"
+                                if not st.session_state.get(
+                                        _pv_ck_key(store, uploaded.name, _kz_fn_chk_e), True):
+                                    _rm_stale_image(output_dir, _kz_fn_chk_e, log=_m_log)
+                                    _m_log(f"  🗑️ チェック外し対象: {_kz_fn_chk_e}")
+                                    continue
                             _mfn_e = _unique_fn_e(f"{_make_safe_fn(_km_e)}.jpg")
                             _mout = os.path.join(output_dir, _mfn_e)
                             _save_jpeg(_build_machine_img(_mg_e, _km_e, _stat_from_diff(_md_e)), _mout)
@@ -11441,7 +11451,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                             # 削除する（後段の一括削除）方式に頼らず、ここで作らずに飛ばす。
                             # OFF機種の候補台のうち +1,000枚以上は「その他の優秀台」へ回す
                             # （⑦/🔄と同じ正式条件）。対象は秋葉原スランプ付きの📝経路だけ。
-                            if _manual_son_upd_e:
+                            # 📝経路は全店舗で「生成前スキップ」に統一する（_manual_cat_off_e）。
+                            # 生成してから画像だけ削除する方式では _m_high.append() に到達し、
+                            # 画像はOFFなのに結果テキストの👑高配分機種に残ってしまう。
+                            # その他へ回す（_m_son_extra_bans）分岐は従来条件 _manual_son_upd_e の
+                            # ままにし、既存の意味・店舗条件を広げない（fd42ccf / ce2fafc 維持）。
+                            _manual_cat_off_e = _manual_son_upd_e or _is_manual_mode
+                            if _manual_cat_off_e:
                                 _ky_fn_chk_e = f"{_make_safe_fn(_metit)}.jpg"
                                 if not st.session_state.get(
                                         _pv_ck_key(store, uploaded.name, _ky_fn_chk_e), True):
@@ -11460,7 +11476,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _km_e in set(get_store_config(store)["juggler_series"])
                                         and _has_jug_img_off_e
                                         and not (with_slump and store == "秋葉原"))
-                                    if not _to_jug_off_e:
+                                    # その他へ回すのは従来対象（_manual_son_upd_e）だけ。
+                                    # それ以外の📝経路は📝のジャグラー／その他の再抽出が
+                                    # 現在ONの②だけを除外集合として拾い直すので二重にしない。
+                                    if not _to_jug_off_e and _manual_son_upd_e:
                                         _m_son_extra_bans |= _off_bans_e
                                     _m_log(f"  🗑️ チェック外し対象: {_ky_fn_chk_e}"
                                            f"（その他へ {0 if _to_jug_off_e else len(_off_bans_e)}台）")
@@ -11940,9 +11959,24 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 variety_bans=_kp_vbans_e, variety_title="バラエティ",
                                 narabi_blocks=_kp_nblocks_e, sue_blocks=_kp_sblocks_e)
                         else:
+                            # 保険: 最終掲載ONになっていない②画像に対応する項目を
+                            # _m_high / _m_zen から「除外だけ」する（📝は②画像を根拠に
+                            # 自前構築しているため、OFF画像の項目を残さない）。
+                            # ON項目の内容・順序・表記は変更しない（ce2fafc の思想）。
+                            _m_high_rt = _m_high
+                            _m_zen_rt  = _m_zen
+                            if _is_manual_mode:
+                                def _kojin_img_on(_nm: str, _yushu: bool) -> bool:
+                                    _fn_k = f"{_make_safe_fn(_nm + ('（優秀台）' if _yushu else ''))}.jpg"
+                                    return st.session_state.get(
+                                        _pv_ck_key(store, uploaded.name, _fn_k), True)
+                                _m_high_rt = [x for x in _m_high
+                                              if _kojin_img_on(str(x.get("name", "")), True)]
+                                _m_zen_rt  = [x for x in _m_zen
+                                              if _kojin_img_on(str(x.get("name", "")), False)]
                             _m_report_text = generate_report_text(
                                 store_name=store, date=_m_date,
-                                zen_dai_list=_m_zen, high_ratio_list=_m_high,
+                                zen_dai_list=_m_zen_rt, high_ratio_list=_m_high_rt,
                                 nami_list=_m_nami, excellent_list=_m_excel,
                                 diff_raw=_diff_exec_m, df=_df_exec_m,
                                 suebangai_data=_m_sue_data or None,

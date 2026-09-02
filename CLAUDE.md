@@ -4642,3 +4642,142 @@ M  wrt_machines.json
 - 既存の正式仕様：**`1410753` / `9ec653e` / `42ea146`** ／ 新小岩 `b530bee` ／
   渋谷新館 `551c9d5` `d477a91` `1bd0e3b` `39b652d` ／ 高田馬場・秋葉原の記事用 ／
   ローテ ／ 末尾・ジャグラー末尾
+
+## 全店舗共通：③並び画像の記入枠直下プレビュー廃止（2026-09-02 確定・`bbf9aec`）
+
+**正式仕様。巻き戻し禁止。**対象は**③「並び画像」の台番範囲入力欄の直下に出ていた
+個別プレビューボタン**だけ。
+正式コード commit は **`bbf9aec8627d4f15b4f191a27fbb52907f63c7a0`**
+（`fix: ③並び画像の記入枠直下のプレビューボタンを廃止`・
+**`streamlit_app.py` の1ファイルのみ**・+2／−71）。push済み。
+
+### ① 対象（全店舗・全ページ共通）
+
+**店舗名のハードコードはしない。** ③のUIは2箇所の実装で全ページをカバーする。
+
+| 実装 | 対象ページ |
+|---|---|
+| **`show_auto_page`** | 通常結果ポスト用 ／ スランプ付き結果ポスト用 ／ 新宿歌舞伎町かぶぱ ／ **📝記入部分のみモード** |
+| **`show_auto_article_page`** | 記事用 |
+
+③のブロックは各関数に **`if store in STORE_NARABI_SCRIPT:` の1つだけ**で、
+`with_slump` や📝モードによる分岐を持たない。したがって
+**2箇所を直せば全店舗・全ページで消える。**
+
+### ② 廃止したUI
+
+```
+③ 並び画像
+  並び画像も生成する
+  台番範囲（入力欄）
+  並び指定: [...]        ← キャプションは維持
+  🔍 プレビュー生成       ← ★これを廃止
+  列画像を作成する
+  台番範囲（列）
+```
+
+廃止した widget key は次の**2つだけ**。
+
+```
+narabi_preview_btn        （show_auto_page）
+art_narabi_preview_btn    （show_auto_article_page）
+```
+
+**この2ボタンは今後復活させない。**
+
+### ③ 今後の正式な確認方法
+
+**並び画像・列画像のプレビュー確認は、③直下ではなく⑦「プレビュー生成」で行う。**
+したがって **「③にプレビューが無い」ことは不具合ではない。**
+`auto_preview_btn`（⑦）は従来どおり残っている。
+
+### ④ 削除したもの
+
+上記2ボタンの描画と、**そのボタンを押した場合だけ実行されていた専用処理**（③直下ボタン専用経路）。
+
+- Excel再読込（`_read_uploaded_df` / `pd.read_excel`）
+- `normalize_df`
+- `apply_name_conversion`
+- 範囲ごとの `_build_machine_img`（プレビュー画像生成）
+- `narabi_previews_{store}` / `art_narabi_previews_{store}` への保存
+- `narabi_prev_rt_{store}` / `art_narabi_prev_rt_{store}` への保存
+- `narabi_ck_*` / `art_narabi_ck_*` の初期化
+- このボタン専用の `st.rerun()`
+
+**共通関数は1つも削除していない。**
+
+### ⑤ 削除していないもの（正式仕様として維持）
+
+「並び画像も生成する」チェック ／ 台番範囲入力欄 ／ `parse_ranges` ／
+**`narabi_ranges = _parsed_ranges`** ／ **`narabi_ok = uploaded is not None`** ／
+**`並び指定: [...]` キャプション** ／ 列画像UI ／ `retsu_ranges` ／
+`_render_retsu_option` ／ `_patch_and_run_narabi` ／ 並び画像生成本体 ／ 列画像生成本体 ／
+⑦プレビュー ／ ⑧本番 ／ 保存・復元（`narabi_enabled` / `narabi_ranges_input` /
+`art_narabi_*` / `retsu_*` / `art_retsu_*`）／ `👑並び仕掛け` ／ `👑列仕掛け` ／
+WordPress関連（`wp_client.py` / `payload["nami"]`）。
+
+### ⑥ 重要：残置コードについて（勝手に整理しない）
+
+③直下ボタンの削除により、**従来の `_previews` 表示・チェックボックス側の分岐など、
+到達しなくなった既存コードが一部残っている。今回は意図的に削除していない。**
+
+理由：今回の目的は **「③直下のプレビューボタンを表示しない」という最小変更**であり、
+**未使用コードの整理・リファクタ・名称変更は対象外**だから。
+
+**今後、「未使用に見える」という理由だけで勝手に削除しないこと。**
+削除が必要なら、**影響範囲を別途調査してユーザーの承認を得てから**行う。
+
+### ⑦ 非回帰実績（2026-09-02・ローカル実機・正式HEAD `bbf9aec`）
+
+**渋谷新館 結果ポスト用 ／ 2026/9/1 の確定データ（433台）で⑦プレビューを実行。**
+
+- **プレビュー23枚を正常生成**
+- **並び画像10件を正常生成**（北斗転生2(3台並び) / 東京喰種(3台並び) / ネオアイム(6台並び) ほか）
+- **`ゴージャグ3(列仕掛け).jpg` を正常生成**（2229〜2237）
+- **その他の優秀台38台**で前回（`5ef8bde` 確認時）と一致
+- **`5ef8bde` の列仕掛け台の優秀台重複除外も維持**（2229〜2237 はその他・ジャグラー統合に0台）
+
+UI確認：**通常 ／ スランプ付き（新小岩）／ 記事用（渋谷新館）** のいずれも
+③直下にボタンが無く、台番範囲・`並び指定:`・列画像UIは従来どおり表示される。
+📝記入モードは `show_auto_page` の同一ブロックのため同じ描画。
+⑦`auto_preview_btn`・④末尾`sue_preview_btn`・ジャグラー末尾`jug_sue_preview_btn`・
+📝`manual_only_preview_btn`・記事用`art_preview_btn` は**すべて残存**を確認。
+
+### ⑧ 変更範囲
+
+- **`streamlit_app.py` のみ**（**+2 / −71**・**2ハンクだけ**。追加はコメント2行のみ）
+- 本体が変わった関数は **`show_auto_page` / `show_auto_article_page` の2つだけ**
+- **その他の関数はすべてバイト一致**（`parse_ranges` / `ranges_to_bans` /
+  `_patch_and_run_narabi` / `_build_col_items` / `_render_retsu_option` /
+  `_build_retsu_report_items` / `generate_report_text` / `run_auto_pipeline` /
+  `run_step1_main` / `run_step2_juggler` / `run_step3_other` / `_save_auto_inputs` /
+  `_restore_auto_inputs` / `_merge_auto_entry` / `_save_article_inputs` /
+  `_restore_article_inputs` / `_auto_input_keys` / `_article_input_keys` /
+  `_build_machine_img` / `_narabi_checked_bans` を機械確認）
+- **`wp_client.py` 無変更**／`st.button` の key 集合の差は上記2件ちょうど・追加ボタン0件
+
+### ⑨ Git履歴上の注意（誤認しないこと）
+
+`bbf9aec` の親側には、`77aa860`（`docs: 列仕掛け台の優秀台重複除外仕様を記録`）の**後**に
+**アプリの自動commit**
+
+```
+3f73e38  auto: 画像生成後の設定を保存
+```
+
+が存在する。これは `_git_auto_push()` によるもので**手作業のコード変更ではない**。
+**`bbf9aec` は `3f73e38` を起点に実装された正式commit**である。
+この自動commitにより、それまで未コミットだった `auto_page_inputs.json` の差分が
+取り込まれ、作業開始時の既存差分は
+`M wrt_machines.json` / `?? WordPress連携テスト.jpg` / `?? wp_test.py` の**3件**だった
+（stash は4件のまま）。
+
+### ⑩ 今後の禁止事項
+
+- **`narabi_preview_btn` を復活させない**
+- **`art_narabi_preview_btn` を復活させない**
+- **③直下に別名のプレビューボタンを新設しない**
+- **「以前ここにプレビューがあった」という理由で戻さない**
+- **⑦プレビューと③旧プレビューを二重化しない**
+- **今回残置したコード（`_previews` 表示・チェックボックス分岐など）を承認なしで整理・削除しない**
+- ③の `narabi_ranges` / `narabi_ok` の決定ロジック・保存キー・列画像UIを一緒に変更しない

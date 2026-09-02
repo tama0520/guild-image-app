@@ -6022,3 +6022,248 @@ fix: 新小岩スランプ付きで⑤ジャグラー枠を正本とし統合画
 14. **記事用へ推測コピーしない**
 15. **他店舗の既存 overflow 仕様を変更しない**
 16. **今回無関係なリファクタ・未使用コード整理をしない**
+
+## ⑦プレビューのON/OFFは非widgetのOFF集合を正本にする（2026-09-02 確定・`00a472a`）
+
+**正式仕様。巻き戻し禁止。**対象は**⑦プレビュー「生成する」チェックを使う全店舗・全経路**
+（通常結果ポスト用／スランプ付き結果ポスト用／新宿歌舞伎町かぶぱ／📝記入部分のみ）。
+正式コード commit は **`00a472a`**（`fix: ⑦プレビューのON/OFFを非widgetのOFF集合で正本化する`・
+**`streamlit_app.py` の1ファイルのみ**・**+85 / −40**・32ハンク）。push済み。
+
+### ① 事象
+
+【新小岩】スランプ付き結果ポスト用・2026/8/30 で
+
+```
+⑦プレビュー生成
+  → ToLOVEるトランス_高配分.jpg を OFF
+  → 🔄その他を更新
+  → ⑦プレビュー上では 2060 / 2334 が「その他の優秀台」へ移動（正常）
+  → その後の再生成等で checkbox の widget state が消失
+  → ⑧実行
+```
+
+としたとき、⑧の完成フォルダに **`08_ToLOVEるトランス_高配分.jpg` が復活**し、
+**その他の優秀台へ再配分した 2060 / 2334 も消えていた**。
+結果テキストにも `🎖️ToLOVEるトランス(2/3台)→平均+1,650枚` が残っていた。
+＝**⑦の最終状態が⑧へ引き継がれない**不整合。
+
+### ② 根本原因
+
+**⑦の画像ON/OFF状態を `auto_prev_ck_*` の Streamlit widget state だけに保持していた。**
+
+⑦プレビューのグリッドは
+`if _auto_previews is None or _unit_regen or _manual_regen:` の **`else:` 側でのみ描画**される。
+そのため**プレビュー再生成・🎯掲載台変更・液晶再選択など checkbox が描画されない run** を挟むと
+**Streamlit の stale widget GC** がキーを削除し、旧実装の
+
+```python
+if key not in st.session_state:
+    st.session_state[key] = True          # ← これが原因
+```
+
+によって**勝手にONへ戻っていた**。⑧・🔄・結果テキスト同期はいずれも
+`st.session_state.get(_pv_ck_key(...), True)` を直接読んでいたため、
+**画像の復活・その他への再配分の消失・結果テキストの不整合が同時に発生**した。
+
+**この単純seedへ絶対に戻さないこと。**
+
+なお ⑧側の再配分機構（OFF画像を `os.remove` し `_extra_dfs` へ回す）自体は元から存在し、
+`with_slump` や店舗による除外条件も無い。**壊れていたのは判定の正本だけ**である。
+
+### ③ 正式仕様
+
+**画像のOFF状態を widget state だけの正本にしない。**
+**店舗＋Excel（日付）単位の非widget session_state に「OFF画像名の集合」を持ち、それを正本とする。**
+
+```
+_pv_off_key(store, excel_name) → f"_pv_off_{store}_{os.path.splitext(excel_name)[0]}"
+例: _pv_off_新小岩_20260830_新小岩_20S
+値: OFF になっている画像ファイル名の set
+```
+
+**`_pv_ck_key()` は変更・廃止しない**（キー体系も不変。`auto_prev_ck_*` のままで、
+約20箇所の逆引きを壊さない）。
+
+### ④ 正式ヘルパー（5つ）
+
+| 関数 | 役割 |
+|---|---|
+| **`_pv_off_key(store, excel_name)`** | OFF集合を持つ非widgetキーを返す（店舗＋Excel日付単位） |
+| **`_pv_off_set(store, excel_name)`** | 現在OFFの画像ファイル名の集合を返す（OFF状態の正本） |
+| **`_pv_off_toggle(store, excel_name, fname)`** | checkbox の `on_change`。ON→集合から `discard` ／ OFF→集合へ `add` |
+| **`_pv_is_on(store, excel_name, fname)`** | **最終ON/OFF判定の共通関数**。widget state があればその現在値、無ければ `fname not in OFF集合` |
+| **`_pv_set_on(store, excel_name, fname)`** | プレビューへ新規追加した画像をONにする（widget値True＋OFF集合からも除外） |
+
+### ⑤ ON/OFF の更新
+
+```python
+st.checkbox("生成する", key=_ck_key, label_visibility="collapsed",
+            on_change=_pv_off_toggle, args=(store, uploaded.name, _ptitle))
+```
+
+- **OFF → OFF集合へ add**
+- **ON → OFF集合から discard**
+- **一度OFFにした画像をONへ戻したら、以後ONを維持する。「一度OFFなら永久OFF」にしてはならない。**
+  ON復帰後にプレビュー再生成・液晶再選択・⑧実行をしてもONのままであること。
+
+### ⑥ widget GC 後の復元
+
+```python
+_pv_off_now = _pv_off_set(store, uploaded.name)     # グリッド描画の直前に1回だけ読む
+...
+if _ck_key not in st.session_state:
+    st.session_state[_ck_key] = _ptitle not in _pv_off_now
+```
+
+**「キーが無い＝True」へ戻さない。**OFF集合にある画像は False、無い画像は True で復元する。
+
+### ⑦ 共通判定への統一
+
+**⑧実行 ／ 🔄その他を更新 ／ 結果テキスト同期 ／ 並び・列 ／ ⑤オススメ ／ ②関連**など、
+従来 `st.session_state.get(_pv_ck_key(...), True)` を直接読んでいた既存経路は
+**`_pv_is_on()` の共通判定へ統一**した（該当26箇所 → 0箇所）。
+新規追加プレビューのON化は **`_pv_set_on()`** に統一（7箇所）。
+
+**各所へ `st.session_state.get(_pv_ck_key(...), True)` を再びコピペしない。
+独自のON/OFF判定を再実装しない。**
+
+**ただし横版の `default=False` 判定は別物なので今回の仕様へ巻き込まない。**
+
+```python
+if (_pv_is_on(store, uploaded.name, _var_fn_ex)
+        or st.session_state.get(
+            _pv_ck_key(store, uploaded.name, _var_side_fn), False)):
+```
+
+この `, False)` は「キーが無ければ横版は未チェック扱い」という既存の意図であり、
+`_pv_is_on()`（キー無し＝ON扱い）へ置き換えてはならない。
+
+### ⑧ 日付スコープ
+
+**OFF集合は必ず店舗＋Excel（日付）単位。**
+
+- **8/30 のOFFを 9/1 へ持ち越さない。**
+- **他店舗へ持ち越さない。**
+- **同じ 8/30 へ戻ればOFF状態は復元される。**
+
+### ⑨ pipeline は無変更
+
+今回**生成前skipへの拡大はしていない。`run_auto_pipeline()` の署名も変更していない。**
+
+```
+pipeline が画像生成 → ⑧でOFF判定 → os.remove → その他へ再配分
+```
+
+という既存構造を維持したまま、**ON/OFF判定の正本だけを壊れないようにした**。
+**勝手に生成前skipへ拡大しないこと。**
+
+### ⑩ 実機確認結果（2026-09-02・ローカル・新小岩 2026/8/30・⑧実行）
+
+**ToLOVEるトランスOFF時**
+
+- `ToLOVEるトランス_高配分.jpg` **なし**（連番は繰り上がり・欠番なし）
+- 結果テキストの **`👑高配分機種` から `🎖️ToLOVEるトランス` が消滅**
+- **`🚩【2060番台】ToLOVEるトランス→+4,350枚` → `👑その他の優秀台`**
+- **`🚩【2334番台】ToLOVEるトランス→+3,750枚` → `👑その他の優秀台`**
+- ⑦のその他画像にも 2060 / 2334 が掲載されていることを画面で確認
+
+**OFF→ON へ戻した場合**
+
+- **`08_ToLOVEるトランス_高配分.jpg` が復活**
+- **`🎖️ToLOVEるトランス(2/3台)→平均+1,650枚` が復活**（199行目・修正前と同一）
+- **2060 / 2334 はその他から消滅**
+- **修正前ベースラインへ完全復帰**
+
+**日付切替**：8/30でOFF → 9/1取得＋⑦生成で**12枚すべてON（持ち越し0）** →
+8/30へ戻して⑦生成で**OFFが復元**。
+
+### ⑪ widget GC 再現テスト（P①②・両方PASS）
+
+| | 操作 | 結果 |
+|---|---|---|
+| **P①** | OFF → 🔄その他を更新 → **液晶再選択** | **OFF保持** |
+| **P②** | OFF → 🔄 → **🎯掲載台変更＋🔄（＝プレビュー全再生成 `_unit_regen` 経路）** | **OFF保持**・その他の再配分も維持 |
+
+**どちらの後に⑧を実行しても高配分画像は復活しない。**⑧完了後もOFF表示が保持される。
+
+**注**: ⑦「プレビュー生成」ボタンはプレビュー存在中は表示されない仕様のため、
+P②は**同じ全再生成経路である🎯変更＋🔄**で実施した（旧実装でOFFが消えていた経路そのもの）。
+
+### ⑫ 非回帰
+
+**A〜P すべてPASS。純粋テスト42項目PASS / FAIL 0。**
+
+**バイト一致（本体無変更）**：`generate_report_text()` ／ `run_auto_pipeline` ／
+`run_step1_main` ／ `run_step2_juggler` ／ `run_step3_other` ／ `_kojin_yushu_filter` ／
+`_pv_ck_key` ／ `_dedup_previews` ／ `_manual_juggler_auto_extract` ／
+`_manual_sonota_auto_extract` ／ `_jug_sonota_exc_series` ／ `_build_machine_img` ／
+`_build_sue_images` ／ `generate_recommended_block_image` ／
+`generate_recommended_result_text` ／ `filter_recommended_machines` ／
+`_rm_stale_image` ／ **`show_auto_article_page`（記事用）** ／ **`wp_client.py`**。
+
+**変更したのは `show_auto_page` と、判定を共通化した3ヘルパー**
+（`_manual_kojin_on` / `_narabi_checked_bans` / `_rec_checked_bans`。
+差分は各2行＝`st.session_state.get(_pv_ck_key(...), True)` → `_pv_is_on(...)` だけ）。
+**新規は上記5ヘルパーのみ。**
+
+**全画像ON時は修正前と完全一致**（OFF集合が空なら `_pv_is_on` は旧 `.get(key, True)` と論理同値）。
+
+維持している既存正式仕様：**`1301431`（新小岩⑤ジャグラー枠が正本・通常統合画像を作らない）**／
+**秋葉原 `jug_no_merge_image` 例外**／`_rec_ban_level` の判定式／結果テキストの
+`excellent_min_diff=2000`／📝3カテゴリ分離（`0f0697f` / `b600ad3`）／
+②の現在ON ban 正本（`f719581` / `20c4ac3` / `2860b2f`）／列仕掛け（`1410753` 〜 `5ef8bde`）。
+
+**記事用（`art_prev_ck_*` の別キー体系）は今回の対象外。**
+
+### ⑬ Git履歴（誤認しないこと）
+
+```
+00a472a  fix: ⑦プレビューのON/OFFを非widgetのOFF集合で正本化する   ← 正式コードcommit（streamlit_app.py のみ）
+4708793  auto: 画像生成後の設定を保存                              ← ⑧のアプリ自動commit
+HEAD = origin/main = 47087934f4b47f604600fc24655dd43ce523df27
+```
+
+`4708793` は `_git_auto_push()` による `auto_page_inputs.json` の自動commitで、
+**コード変更ではない**。**`00a472a` が消えた・上書きされたと誤認しないこと**（`4708793` の祖先）。
+
+**実機確認より前にコードをコミットしている。**これは
+「未コミット状態でアプリを動かしたまま検証しない（`55e7752`）」の必須ルール
+（`_git_auto_push()` の stash 窓で HEAD版＝修正前コードが走り設定JSONを壊し得る）に従ったため。
+実行前に `_git_auto_push()` の targets と既存差分の交差が **0件**であることを確認している。
+
+### ⑭ `auto_page_inputs.json` について
+
+作業後に残る `M auto_page_inputs.json` は、**日付切替の実機テストで 9/1 を開いたことによる
+アプリの正常な毎レンダー保存**（`20260901_新小岩_20S.xlsx` エントリの新規追加。既存値の変更・消失0）。
+⑧の自動commit `4708793` は 8/30 エントリへの既定3キー追加
+（`retsu_enabled` / `retsu_ranges_input` / `jug_extra_auto_新小岩`）のみ。
+
+**この仕様の記録作業では `auto_page_inputs.json` を編集・restore・reset・checkout・commit しない。**
+
+### ⑮ 保護対象
+
+```
+M auto_page_inputs.json
+M wrt_machines.json
+?? WordPress連携テスト.jpg
+?? wp_test.py
+stash 4件
+```
+
+**すべて保持する**（stage / commit / restore / reset / checkout / stash / 削除 / 編集をしない）。
+
+### ⑯ 禁止事項
+
+1. **widget state だけを正本へ戻す**
+2. **キーが無い場合に無条件 True へ seed する**（`if key not in st.session_state: = True`）
+3. **OFF集合の日付スコープを外す**（店舗のみ・グローバルにしない）
+4. **`_pv_ck_key()` のキー体系を変更する**（index・乱数の追加も禁止）
+5. **各所へ独自のON/OFF判定を再実装／`st.session_state.get(_pv_ck_key(...), True)` を再コピペする**
+6. **横版の `default=False` 判定を今回の仕様へ巻き込む**
+7. **`run_auto_pipeline()` の署名変更**
+8. **生成前skipへの勝手な拡大**
+9. **結果テキストの閾値変更**（`excellent_min_diff=2000` を触らない）
+10. **`1301431` の巻き戻し**
+11. **秋葉原 `jug_no_merge_image` 例外の変更**
+12. **記事用への推測コピー**

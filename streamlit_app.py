@@ -5728,6 +5728,8 @@ _ART_RANK_LIMITS  = (20, 25, 30, 35, 40, 45, 50)
 _ART_RANK_DEFAULT = 50
 _ART_RANK_FN      = "差枚数ランキング.jpg"
 _ART_RANK_TITLE   = "差枚数ランキング"
+# ⑥島図の正式ファイル名（記事用に採番機構は無いので固定名。ランキングと同じ流儀）
+_ART_SHIMAZU_FN   = "島図.jpg"
 # ランキング専用の配色（既存の C_TITLE_BG / C_ROW_BG 等は変更しない）
 _ART_RANK_TITLE_BG = "#111111"   # 黒系タイトルバー
 _ART_RANK_TITLE_FG = "#FFFFFF"   # 白文字
@@ -15115,6 +15117,19 @@ def show_auto_article_page() -> None:
                                     _apdf, _apdi, limit=_art_ranking_limit(store))
                                 if _rk_img is not None:
                                     _art_pil.append((_ART_RANK_FN, _rk_img))
+                            # ⑥ 島図（渋谷新館・ランキングの直後＝記事の最後）。
+                            # 入力は ⑥/⑧ と同じ _art_view_units（Pision再取得なし）。
+                            # ban_map へは登録しない → 後段のスランプ/パネル/液晶ループを
+                            # _pv_bm_sl.get() が空で素通りするため、例外分岐は不要。
+                            if store in _ARTICLE_SHIMAZU_STORES:
+                                _sz_units_pv = st.session_state.get(f"_art_view_units_{store}")
+                                if _sz_units_pv is not None and not getattr(_sz_units_pv, "empty", True):
+                                    try:
+                                        import shimazu_renderer as _szr_pv
+                                        _art_pil.append(
+                                            (_ART_SHIMAZU_FN, _szr_pv.render(_sz_units_pv, store)))
+                                    except Exception as _sz_e_pv:
+                                        st.warning(f"島図の生成に失敗しました: {_sz_e_pv}")
 
                     # ── スランプグラフ合成（プレビュー）────────────────────────
                     _pv_api_key_sl = _get_pision_api_key()
@@ -16177,6 +16192,25 @@ def show_auto_article_page() -> None:
                     _save_jpeg(_rk_img_e, _rk_out_e)
                     result["files"].append(_rk_out_e)
                     _log(f"  ⑥ {_ART_RANK_FN}（{_art_ranking_limit(store)}位まで）")
+
+            # ── ⑥ 島図（記事用・渋谷新館）──────────────────────────
+            # ⑦プレビューと同じ shimazu_renderer.render() ・同じ入力
+            # （_art_view_units）を使う。result["df"] は補正後で色階級が変わるため使わない。
+            if store in _ARTICLE_SHIMAZU_STORES:
+                _sz_units_e = st.session_state.get(f"_art_view_units_{store}")
+                if _sz_units_e is not None and not getattr(_sz_units_e, "empty", True):
+                    try:
+                        import shimazu_renderer as _szr_e
+                        _sz_img_e = _szr_e.render(_sz_units_e, store)
+                        _sz_out_e = os.path.join(output_dir, _ART_SHIMAZU_FN)
+                        _save_jpeg(_sz_img_e, _sz_out_e)
+                        result["files"].append(_sz_out_e)
+                        _log(f"  ⑥ {_ART_SHIMAZU_FN}（{_szr_e.master_unit_count(store)}台）")
+                        # 3555×6490 RGB は約66MB。保存後すぐ解放する
+                        _sz_img_e.close()
+                        del _sz_img_e
+                    except Exception as _sz_e_e:
+                        _log(f"  ⚠️ 島図の生成に失敗しました: {_sz_e_e}")
 
             # ── プレビューでチェックを外した画像を削除・再生成 ────────────
             _art_aprev_imgs = st.session_state.get(f"art_preview_imgs_{store}")

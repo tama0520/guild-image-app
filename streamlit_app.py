@@ -5720,6 +5720,10 @@ _ART_OSUSUME_BAR_TEXT = "オススメ機種の優秀台"
 # 描画は専用の _art_ranking_image() 内で完結させる。**共通の draw_table_image()
 # は変更しない**（黒バー・交互背景を共通側へ入れると全画像へ波及するため）。
 _ART_RANK_STORES  = frozenset({"渋谷新館"})
+# ⑥「島図」を生成できる店舗。描画は独立モジュール shimazu_renderer.py が担当し、
+# 座標は masters/shimazu_{店舗}.json、設備画像は assets/shimazu/{店舗}/ を使う
+# （実行時に島図Excelを読まないので Cloud でも動く）。
+_ARTICLE_SHIMAZU_STORES = frozenset({"渋谷新館"})
 _ART_RANK_LIMITS  = (20, 25, 30, 35, 40, 45, 50)
 _ART_RANK_DEFAULT = 50
 _ART_RANK_FN      = "差枚数ランキング.jpg"
@@ -14648,7 +14652,47 @@ def show_auto_article_page() -> None:
                 format_func=lambda _n: f"{_n}位まで",
                 help="全台を差枚数の高い順に並べ、1位から選んだ順位までを1枚の画像にします。",
                 on_change=_save_article_inputs, args=(store,))
-            st.caption("島図：今後実装予定")
+        if store in _ARTICLE_SHIMAZU_STORES:
+            st.markdown("**島図**")
+            # ★Pision へは再アクセスしない。⓪で取得済みの
+            #   _art_view_units_{store}（normalize_df → apply_name_conversion 済み）
+            #   をそのまま使う。突合キーは台番のみで、機種名はマスタに持たせない。
+            _sz_units = st.session_state.get(f"_art_view_units_{store}")
+            _sz_key   = f"_art_shimazu_png_{store}_{_art_excel_now}"
+            if _sz_units is None or getattr(_sz_units, "empty", True):
+                st.caption("⓪でデータを取得すると島図を生成できます。")
+            else:
+                if st.button("🗺️ 島図を生成", key=f"art_shimazu_btn_{store}"):
+                    try:
+                        import shimazu_renderer as _szr
+                        _sz_img = _szr.render(_sz_units, store)
+                        _sz_buf = io.BytesIO()
+                        _sz_img.save(_sz_buf, format="PNG")
+                        st.session_state[_sz_key] = {
+                            "png":     _sz_buf.getvalue(),
+                            "size":    _sz_img.size,
+                            "counts":  _sz_img.info.get("shimazu_counts", {}),
+                            "missing": _sz_img.info.get("shimazu_missing", []),
+                            "total":   _szr.master_unit_count(store),
+                        }
+                    except Exception as _sz_e:
+                        st.session_state.pop(_sz_key, None)
+                        st.error(f"島図の生成に失敗しました: {_sz_e}")
+                _sz_res = st.session_state.get(_sz_key)
+                if _sz_res:
+                    _sz_c = _sz_res["counts"]
+                    st.caption(
+                        "%d×%d px ／ 島図 %d台 ・ 突合 %d/%d ／ "
+                        "+1,000=%d ・ +2,000=%d ・ +3,000=%d ・ +5,000=%d ・ +10,000=%d ・ 色なし=%d"
+                        % (_sz_res["size"][0], _sz_res["size"][1], _sz_res["total"],
+                           _sz_res["total"] - len(_sz_res["missing"]), _sz_res["total"],
+                           _sz_c.get("FFFF0D", 0), _sz_c.get("00C85A", 0),
+                           _sz_c.get("FF552D", 0), _sz_c.get("964FFF", 0),
+                           _sz_c.get("RAINBOW", 0), _sz_c.get("なし", 0)))
+                    if _sz_res["missing"]:
+                        st.warning("島図にあってデータに無い台番: "
+                                   + ", ".join(str(_b) for _b in _sz_res["missing"][:20]))
+                    st.image(_sz_res["png"], use_container_width=True)
         else:
             st.caption("今後実装予定")
 

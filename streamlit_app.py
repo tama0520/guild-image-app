@@ -2935,6 +2935,11 @@ _ART_HQ_TARGET_KB = 5500   # 2倍描画で画素数が20倍以上になるため
                            # 1200KBだとレインボー階調が15〜40段まで潰れる（実測）。
 _ART_HQ_MIN_ROWS = 10      # 掲載台がこの数以上なら画像種別を問わず高解像度
 
+# 記事用の高解像度2倍描画の対象店舗。WordPressへ画像を送る店舗だけに限定する。
+# パネル合成・液晶はめ込みは倍率に依存しないため _ARTICLE_PANEL_STORES とは分離する
+# （渋谷新館はパネル・液晶のみ対象で、HQ2倍の対象にはしない）。
+_ART_HQ_STORES = {"高田馬場"}
+
 
 def _art_hq_scale_for(bare_fn: str, store: str, n_rows: int = 0) -> float:
     """記事用の高解像度倍率を返す（対象外は 1.0）。
@@ -2945,7 +2950,7 @@ def _art_hq_scale_for(bare_fn: str, store: str, n_rows: int = 0) -> float:
     描画時は DataFrame の行数、合成時は ban_map の台数を n_rows へ渡す。
     両者は一致する（表に載る台＝ban_map の台）ため⑦/🔄/⑧で同じ倍率になる。
     スランプデータ欠損で実グラフが n_rows より少なくなっても倍率は変えない（安全側）。"""
-    if store not in _ARTICLE_PANEL_STORES:
+    if store not in _ART_HQ_STORES:
         return 1.0
     if bare_fn in _ART_HQ_FNS:
         return _ART_HQ_SCALE
@@ -14729,7 +14734,7 @@ def show_auto_article_page() -> None:
                             variety_bans=_art_vbans,
                             article_mode=True,
                             # ジャグラーシリーズ優秀台／その他の優秀台ピックアップを高解像度で描画
-                            hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0),
+                            hq_scale=(_ART_HQ_SCALE if store in _ART_HQ_STORES else 1.0),
                             # 🎯掲載台を選ぶ（高配分／ジャグラー統合／その他）: 記事用stateの投影
                             exclude_units=_art_pipeline_exclude(_art_unit_state),
                             # ②個別画像(全台)の機種は自動全台系を作らない（同名画像の二重生成を防ぐ）
@@ -14909,7 +14914,7 @@ def show_auto_article_page() -> None:
                                         is_juggler=_is_jug_pv,
                                         ban_out=_art_sue_ban, stat_out=_art_sue_stat,
                                         src_out=_art_sue_src, article_mode=True,
-                                        hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0),
+                                        hq_scale=(_ART_HQ_SCALE if store in _ART_HQ_STORES else 1.0),
                                         exclude_state=_art_unit_state,
                                         exclude_kind="art_suebangai"):
                                     _art_pil.append((_sfn_pv, _simg_pv))
@@ -14926,7 +14931,7 @@ def show_auto_article_page() -> None:
                                     _osu_high |= {m.strip() for m in kojin_yushu_machines if m.strip()}
                                 _osu_imgs, _art_osu_bans, _osu_logs = _art_osusume_images(
                                     art_osusume_machines, _apdf, _apdi, store, _osu_zen, _osu_high,
-                                    hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0))
+                                    hq_scale=(_ART_HQ_SCALE if store in _ART_HQ_STORES else 1.0))
                                 for _ofn, _oimg in _osu_imgs:
                                     _art_pil.append((_ofn, _oimg))
                                 # ブロック→画像の対応（将来のWordPress H3用・送信はしない）
@@ -15751,7 +15756,7 @@ def show_auto_article_page() -> None:
                 variety_bans=_art_vbans_ex,
                 article_mode=True,
                 # ジャグラーシリーズ優秀台／その他の優秀台ピックアップを高解像度で描画
-                hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0),
+                hq_scale=(_ART_HQ_SCALE if store in _ART_HQ_STORES else 1.0),
                 # 🎯掲載台を選ぶ（高配分／ジャグラー統合／その他）: 記事用stateの投影
                 exclude_units=_art_pipeline_exclude(_art_unit_state_e),
                 # ②個別画像(全台)の機種は自動全台系を作らない（同名画像の二重生成を防ぐ）
@@ -15777,7 +15782,7 @@ def show_auto_article_page() -> None:
                     narabi_ranges if narabi_ok else [],
                     no_bar=True,
                     # 掲載台10台以上の並び画像は最初から2倍解像度で描画させる
-                    hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0),
+                    hq_scale=(_ART_HQ_SCALE if store in _ART_HQ_STORES else 1.0),
                     col_ranges=(retsu_ranges if retsu_ok else None),
                 )
                 narabi_result = {"ok": ok_n, "stdout": out_n, "stderr": err_n}
@@ -16049,7 +16054,7 @@ def show_auto_article_page() -> None:
                             uploaded, store, _tails_e, _mode_e, is_juggler=_isjug_e,
                             ban_out=_art_sue_ban_e, stat_out=_art_sue_stat_e,
                             src_out=_art_sue_src_e, article_mode=True,
-                            hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0),
+                            hq_scale=(_ART_HQ_SCALE if store in _ART_HQ_STORES else 1.0),
                             exclude_state=_art_unit_state_e,
                             exclude_kind="art_suebangai"):
                         _sout_e = os.path.join(output_dir, _sfn_e)
@@ -16104,7 +16109,7 @@ def show_auto_article_page() -> None:
                 _osu_imgs_e, _art_osu_bans_e, _osu_logs_e = _art_osusume_images(
                     art_osusume_machines, result.get("df"), result.get("diff_raw"),
                     store, _osu_zen_e, _osu_high_e,
-                    hq_scale=(_ART_HQ_SCALE if store in _ARTICLE_PANEL_STORES else 1.0))
+                    hq_scale=(_ART_HQ_SCALE if store in _ART_HQ_STORES else 1.0))
                 for _ofn_e, _oimg_e in _osu_imgs_e:
                     _oout_e = os.path.join(output_dir, _ofn_e)
                     _save_jpeg(_oimg_e, _oout_e)
@@ -20600,7 +20605,7 @@ def _build_panel_row(machine_names: list[str], width: int) -> "Image.Image | Non
 #   _PANEL_STORES         … 通常経路（📝記入部分のみ＝かぶぱポストの結果）でパネルを合成する店舗
 #   _ARTICLE_PANEL_STORES … 記事用ページ経路だけでパネルを合成する店舗（通常ページには適用しない）
 _PANEL_STORES = {"新宿歌舞伎町"}
-_ARTICLE_PANEL_STORES = {"高田馬場"}
+_ARTICLE_PANEL_STORES = {"高田馬場", "渋谷新館"}
 
 
 # 記事用で必ず「複数機種画像」として扱う画像（2×2パネル対象）
@@ -21296,7 +21301,7 @@ _GAP_FILL_STORES = {"新宿歌舞伎町", "上野新館", "上野本館", "新�
 
 # 記事用ページ経路だけで液晶をはめ込む店舗（通常ページには一切適用しない）。
 # session_state も専用キー（_art_gap_meta_/_art_gap_base_）で通常ページと分離する。
-_ARTICLE_GAP_FILL_STORES = {"高田馬場"}
+_ARTICLE_GAP_FILL_STORES = {"高田馬場", "渋谷新館"}
 
 
 def _fit_center_in_box(img: "Image.Image", box_w: int, box_h: int) -> tuple["Image.Image", int, int]:

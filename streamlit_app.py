@@ -15196,7 +15196,11 @@ def show_auto_article_page() -> None:
                                                 crop_bar=False,      # 記事用は元画像をcropしない
                                                 is_multi=_is_multi_pv2)
                                         # 高解像度対象（その他／ジャグラー統合）はスランプも2倍で描画
-                                        _hq_pv2 = _art_hq_scale_for(_bare_pv2, store, len(_bans_pv2))
+                                        _hq_pv2 = _art_hq_scale_for(
+                                            re.sub(r"^\d{2}_", "", _fn_pv2),
+                                            store,
+                                            len(_bans_pv2),
+                                        )
                                         for _b_pv2 in _bans_pv2:
                                             _it_pv2 = _pv_by_uid.get(str(_b_pv2))
                                             if _it_pv2 is None or not _it_pv2.get("points"):
@@ -15609,7 +15613,11 @@ def show_auto_article_page() -> None:
                                                         crop_bar=False,      # 記事用は元画像をcropしない
                                                         is_multi=_is_multi_u)
                                                 # 高解像度対象（その他／ジャグラー統合）はスランプも2倍で描画
-                                                _hq_u = _art_hq_scale_for(_bare_u, store, len(_bans_u))
+                                                _hq_u = _art_hq_scale_for(
+                                                    re.sub(r"^\d{2}_", "", _fn_u),
+                                                    store,
+                                                    len(_bans_u),
+                                                )
                                                 for _b_u in _bans_u:
                                                     _it_u = _upd_by_uid.get(str(_b_u))
                                                     if _it_u is None or not _it_u.get("points"):

@@ -3007,6 +3007,12 @@ def _art_zh_hq(store: str) -> float:
 # 店舗追加はこの集合への追記だけで行う（記事用ページを持つ3店舗）。
 _ART_NARABI_HQ_STORES = frozenset({"高田馬場", "渋谷新館", "秋葉原"})
 
+# 記事用の「📝 WordPress下書きを作成」を出す店舗。
+# 接続先（WP_SITE_URL / WP_USER / WP_APP_PASSWORD）は全店舗共通の1組で、
+# 投稿先カテゴリだけが店舗別（wp_client.WP_STORE_CATEGORY）。
+# **秋葉原は対象外**。店舗追加はこの集合と WP_STORE_CATEGORY の両方が要る。
+_ART_WP_STORES = frozenset({"高田馬場", "渋谷新館"})
+
 # 記事用の並び・列を subprocess で描くときの「何台以上でHQか」。
 # 1 にすると台数を見ずに常に HQ_SCALE が効く（スクリプト既定の10台判定を上書きする）。
 _ART_NARABI_HQ_MIN_ROWS = 1
@@ -16790,10 +16796,10 @@ def show_auto_article_page() -> None:
                 except Exception as _ze:
                     st.warning(f"ZIP生成に失敗: {_ze}")
 
-            # ── WordPress下書き用のpayloadをセッションへ保存（高田馬場の記事用のみ）──
+            # ── WordPress下書き用のpayloadをセッションへ保存（_ART_WP_STORES のみ）──
             # result は読むだけ（既存ロジックは一切変更しない）。
             # _git_auto_push() の stash 窓に入れないため、push より前に実行する。
-            if store == "高田馬場":
+            if store in _ART_WP_STORES:
                 try:
                     import wp_client as _wpc0
                     _art_wp_pl = _wpc0.build_payload(
@@ -16820,6 +16826,37 @@ def show_auto_article_page() -> None:
                         _fn for _fn, _bns in _art_sue_ban_e.items() if _bns]
                     _art_wp_pl["variety"] = (
                         [_art_var_fn_e] if _art_var_fn_e else [])
+                    # ── 渋谷新館の記事用にだけ存在するセクション（2026-09-04 追加）──
+                    # いずれも **実ファイルの有無は wp_client._existing_files() が最終判定**
+                    # するので、⑦でチェックを外して⑧が削除した画像は自然に本文へ入らない。
+                    # 高田馬場では列・⑤・ランキング・島図の画像を作らないため、
+                    # ここでキーを足しても本文は1ブロックも変わらない。
+                    #
+                    # ③列: ファイル名は ⑧の subprocess と同じ規則で作られる
+                    # `_build_col_items()` の結果をそのまま渡す（再生成・再推測しない）。
+                    _art_wp_pl["retsu"] = []
+                    if retsu_ok and retsu_ranges and result.get("df") is not None:
+                        try:
+                            for _cg, _ct, _cf, _cb in _build_col_items(result["df"], retsu_ranges):
+                                _cd = _cg["差枚"]
+                                _art_wp_pl["retsu"].append({
+                                    "file":     _cf,
+                                    "title":    _ct,
+                                    # H3用の機種名はタイトルから列サフィックスを外したもの
+                                    "machine":  (_ct[:-len(_ART_RETSU_FN_MARK)]
+                                                 if _ct.endswith(_ART_RETSU_FN_MARK) else _ct),
+                                    "count":    len(_cg),
+                                    "avg_diff": int(round(_cd.mean())),
+                                    "bans":     [int(b) for b in _cb],
+                                })
+                        except Exception:
+                            _art_wp_pl["retsu"] = []
+                    # ⑤オススメ機種の優秀台: ブロックタイトル＋画像の対応（⑧で保存済み）
+                    _art_wp_pl["osusume"] = list(
+                        st.session_state.get(f"_art_osu_plan_{store}") or [])
+                    # ⑥差枚数ランキング / 島図（固定ファイル名）
+                    _art_wp_pl["ranking"] = [_ART_RANK_FN]
+                    _art_wp_pl["shimazu"] = [_ART_SHIMAZU_FN]
                     st.session_state[f"_art_wp_payload_{store}"] = _art_wp_pl
                 except Exception as _wpe0:
                     st.warning(f"WordPress用データの準備に失敗: {_wpe0}")
@@ -16856,16 +16893,22 @@ def show_auto_article_page() -> None:
             >{_safe}</textarea>
             """, height=_h)
 
-    # ── 📝 WordPress下書きを作成（⑧画像生成とは独立した別ボタン・高田馬場のみ）──
-    if store == "高田馬場":
+    # ── 📝 WordPress下書きを作成（⑧画像生成とは独立した別ボタン・_ART_WP_STORES のみ）──
+    if store in _ART_WP_STORES:
         _wp_pl = st.session_state.get(f"_art_wp_payload_{store}")
         if _wp_pl:
             import wp_client as _wpc
             st.markdown("---")
             st.markdown("### 📝 WordPress下書きを作成")
             _wp_ok, _wp_msg = _wpc.config_ready()
+            _wp_cat = _wpc.store_category(store)
             if not _wp_ok:
                 st.warning(f"⚠️ WordPress接続情報が未設定です（{_wp_msg}）。.env を確認してください。")
+            elif _wp_cat is None:
+                # 投稿先カテゴリ未登録の店舗は送信させない（誤カテゴリ投稿の防止）。
+                st.warning(f"⚠️ {store} の WordPress カテゴリ（term_id / slug）が未登録のため、"
+                           "下書きを作成できません。管理画面で確認した値を "
+                           "`wp_client.WP_STORE_CATEGORY` へ登録してください。")
             else:
                 _wp_plan = _wpc.plan_blocks(_wp_pl)
                 _wp_found, _wp_miss, _wp_opt = _wpc.collect_files(_wp_plan, _wp_pl["output_dir"])
@@ -16873,7 +16916,7 @@ def show_auto_article_page() -> None:
                 st.caption(
                     f"送信対象 {len(_wp_found)}枚 / 合計 {_wp_mb:.2f} MB　"
                     f"タイトル: {_wpc.build_title(_wp_pl.get('date'), store)}　"
-                    f"（status=draft / category={_wpc.WP_CATEGORY_ID} / author={_wpc.WP_AUTHOR_ID}）"
+                    f"（status=draft / category={_wp_cat['id']} / author={_wpc.WP_AUTHOR_ID}）"
                 )
                 if _wp_miss:
                     st.error(f"❌ 必須画像が {len(_wp_miss)} 件不足しています。"

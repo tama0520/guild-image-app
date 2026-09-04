@@ -43,6 +43,28 @@ WP_CATEGORY_SLUG  = "espace-takadanobaba"
 WP_UPLOAD_TIMEOUT = 180                     # 実測0.6秒/枚に対し十分な余裕
 WP_POST_TIMEOUT   = 60
 
+# ── 店舗別の投稿先カテゴリ ───────────────────────────────────────────
+# 接続先（WP_SITE_URL / WP_USER / WP_APP_PASSWORD）は **全店舗共通の1組だけ**で、
+# 店舗別の Secrets は無い（同じサイトの別カテゴリへ投稿する）。
+# 未登録の店舗は store_category() が None を返し、呼び出し側が送信させない。
+# **カテゴリ term_id / slug を推測で入れてはならない**（誤ったカテゴリへ投稿するため）。
+# WordPress 管理画面で確認した値だけをここへ追記する。
+WP_STORE_CATEGORY: "dict[str, dict]" = {
+    "高田馬場": {"id": WP_CATEGORY_ID, "slug": WP_CATEGORY_SLUG},
+    # 2026-09-04 に GET /wp-json/wp/v2/categories で実測（参照のみ・変更通信なし）。
+    #   id=19 name='エスパス渋谷新館' slug='espace-shibuyashin'
+    #   （id=20 は 'エスパス渋谷本館' で別カテゴリ。取り違えないこと）
+    "渋谷新館": {"id": 19, "slug": "espace-shibuyashin"},
+}
+
+
+def store_category(store: str) -> "dict | None":
+    """店舗の投稿先カテゴリ {"id": int, "slug": str}。未登録なら None。"""
+    c = WP_STORE_CATEGORY.get(str(store or ""))
+    if not c or not c.get("id") or not c.get("slug"):
+        return None
+    return c
+
 # ── サイト側の画像縮小仕様（2026-08-20 実測）────────────────────────
 # slotterguild3.com は **長辺が 2560px を超える画像を 2560px へ縮小**する。
 # 縦横比は保たれるため、保存後の幅 = 2560 * w / h となり、縦長画像ほど幅が潰れる。
@@ -87,6 +109,15 @@ H2_NARABI   = "並び・列仕掛けも！"
 H2_VARIETY  = "バラエティ"
 H2_SONOTA   = "その他単品優秀台も多数"
 H2_SHIMAZU  = "シマズをチェック！"
+
+# ── 渋谷新館の記事用にだけ現れるセクション（2026-09-04 追加）──────────────
+# 文言は **記事用画面の既存表記をそのまま採用**する（新語を増やさない）:
+#   ⑤ オススメ機種の優秀台 ／ ⑥ 差枚数ランキング＆島図（小見出し「差枚数ランキング」「島図」）
+# これらは payload に該当キーがある店舗でだけ出る。高田馬場は payload に無いので
+# 1ブロックも増えない（本文はバイト単位で従来と一致する）。
+H2_OSUSUME  = "オススメ機種の優秀台"
+H2_RANKING  = "差枚数ランキング"
+H2_SHIMAZUZ = "島図"
 BUTTON_TEXT = "店舗情報・過去の結果はコチラ"
 
 # 機種H3の接頭辞（2026-08-25 追加）。**全台系と高配分だけ**に付ける。
@@ -296,6 +327,17 @@ def h3_narabi(item: dict) -> str:
     `h3_zendai()` のマイナス非表示仕様（`9c83eef`）は**並びへ適用しない**。
     """
     return (f"【{item['count']}台並び】{item['machine']}"
+            f"({ban_range_str(item.get('bans') or [])})"
+            f"{_ARROW_R2}平均{fmt_signed(item['avg_diff'])}枚")
+
+
+def h3_retsu(item: dict) -> str:
+    """列画像のH3。`h3_narabi()` と同じ体裁だが先頭を【列仕掛け】にする。
+
+    並びは `【N台並び】…` だが、列は台数表記をしない（画像タイトルと同じ流儀・`42ea146`）。
+    **`h3_narabi()` 本体は変更しない**（並びの表記を巻き込まないため）。
+    """
+    return (f"【列仕掛け】{item['machine']}"
             f"({ban_range_str(item.get('bans') or [])})"
             f"{_ARROW_R2}平均{fmt_signed(item['avg_diff'])}枚")
 
@@ -745,9 +787,17 @@ def plan_blocks(payload: dict) -> list[dict]:
         for fn in sue_files:
             plan.append({"type": "image", "file": fn, "label": f"末尾 {fn}"})
 
-    # ── 並び: H2 →（H3 + 画像）× 並び数 ──
+    # ── 並び・列: H2 →（H3 + 画像）× 並び数 →（H3 + 画像）× 列数 ──
+    #    列は渋谷新館の記事用にだけある。payload["retsu"] が無い店舗（高田馬場）は
+    #    従来どおり並びだけで、ブロックは1つも増えない。
+    #    列のファイル名は **⑧が使うのと同じ `_build_col_items()` の結果**を
+    #    呼び出し側から受け取る（ここで再生成・再推測しない）。
+    #    H2 は既存の「並び・列仕掛けも！」をそのまま使う（元から列を含む文言）。
     nami = payload["nami"]
-    if nami:
+    retsu = [r for r in (payload.get("retsu") or [])
+             if str(r.get("file") or "")
+             and out_dir and os.path.isfile(os.path.join(out_dir, str(r["file"])))]
+    if nami or retsu:
         dup = {t for t, c in Counter(x["title"] for x in nami).items() if c > 1}
         plan.append({"type": "h2", "text": H2_NARABI})
         for it in nami:
@@ -755,6 +805,10 @@ def plan_blocks(payload: dict) -> list[dict]:
             plan.append({"type": "image",
                          "file": narabi_file_name(it, dup),
                          "label": f"並び {it['title']}"})
+        for it in retsu:
+            plan.append({"type": "h3", "text": h3_retsu(it)})
+            plan.append({"type": "image", "file": it["file"],
+                         "label": f"列 {it.get('machine', it['file'])}"})
 
     # ── バラエティ: H2 → 画像（2026-08-25 追加）──
     #    ⑧は最大1枚（`バラエティ.jpg` / `バラエティの優秀台.jpg`）。
@@ -784,8 +838,42 @@ def plan_blocks(payload: dict) -> list[dict]:
     plan.append({"type": "image", "file": FN_SONOTA,
                  "label": "その他の優秀台ピックアップ", "optional": True})
 
-    # ── シマズ: 見出しのみ（画像は人間が挿入）──
-    plan.append({"type": "h2", "text": H2_SHIMAZU})
+    # ── ⑤オススメ機種の優秀台: H2 →（H3=ブロックタイトル + 画像）× ブロック数 ──
+    #    渋谷新館の記事用のみ。payload["osusume"] は
+    #    [{"title": ブロックタイトル, "images": [ファイル名, …]}, …]（⑧の生成順）。
+    #    ブロックタイトルは**画像には描かれない**（記事の小見出し用・`d121e54`）。
+    #    実ファイルが1枚も無いブロックは出さず、全ブロック空なら H2 ごと省略する。
+    osu_blocks = []
+    for _b in (payload.get("osusume") or []):
+        _files = _existing_files((_b or {}).get("images"), out_dir)
+        if _files:
+            osu_blocks.append((str((_b or {}).get("title") or "").strip(), _files))
+    if osu_blocks:
+        plan.append({"type": "h2", "text": H2_OSUSUME})
+        for _t, _files in osu_blocks:
+            if _t:
+                plan.append({"type": "h3", "text": _t})
+            for fn in _files:
+                plan.append({"type": "image", "file": fn, "label": f"オススメ {fn}"})
+
+    # ── 差枚数ランキング: H2 → 画像（渋谷新館の記事用のみ）──
+    rank_files = _existing_files(payload.get("ranking"), out_dir)
+    if rank_files:
+        plan.append({"type": "h2", "text": H2_RANKING})
+        for fn in rank_files:
+            plan.append({"type": "image", "file": fn, "label": f"差枚数ランキング {fn}"})
+
+    # ── 島図 / シマズ ──
+    #    島図画像がある店舗（渋谷新館）は「島図」H2 + 画像。
+    #    島図画像が無い店舗（高田馬場）は従来どおり「シマズをチェック！」の見出しのみ
+    #    （画像は人間が挿入する）。**高田馬場のブロックは1つも変わらない。**
+    shimazu_files = _existing_files(payload.get("shimazu"), out_dir)
+    if shimazu_files:
+        plan.append({"type": "h2", "text": H2_SHIMAZUZ})
+        for fn in shimazu_files:
+            plan.append({"type": "image", "file": fn, "label": f"島図 {fn}"})
+    else:
+        plan.append({"type": "h2", "text": H2_SHIMAZU})
 
     # ── 店舗情報ボタン ──
     plan.append({"type": "button"})
@@ -843,7 +931,8 @@ def plan_split(found: list[dict], tmp_dir: str) -> dict:
 
 
 def build_content(plan: list[dict], media_map: dict, site: str = "",
-                  split_map: "dict | None" = None) -> str:
+                  split_map: "dict | None" = None,
+                  category_slug: str = WP_CATEGORY_SLUG) -> str:
     """plan と {ファイル名: {"id":…, "src":…}} から content.raw を組み立てる。
 
     split_map があるファイルは、その分割片を順に並べ、
@@ -883,7 +972,7 @@ def build_content(plan: list[dict], media_map: dict, site: str = "",
                 if m:
                     out.append(blk_image(m["id"], m["src"]))
         elif t == "button":
-            out.append(blk_button(site=site))
+            out.append(blk_button(slug=category_slug, site=site))
     return "\n\n".join(out)
 
 
@@ -963,10 +1052,12 @@ def upload_media(path: str, *, timeout: int = WP_UPLOAD_TIMEOUT) -> dict:
             "retry_after": r.headers.get("Retry-After"), "sec": sec, "file": fn}
 
 
-def create_draft(title: str, content: str) -> dict:
+def create_draft(title: str, content: str,
+                 category_id: int = WP_CATEGORY_ID) -> dict:
     """POST /wp/v2/posts。status=draft 固定・publish しない。
 
     既存投稿の更新（PUT/PATCH）は実装しない。常に新規 draft のみ。
+    category_id の既定は高田馬場（24）＝従来動作。
     """
     import requests
     site, auth = _conf()
@@ -974,7 +1065,7 @@ def create_draft(title: str, content: str) -> dict:
         "title":      title,
         "content":    content,
         "status":     WP_STATUS,       # "draft" 固定
-        "categories": [WP_CATEGORY_ID],
+        "categories": [int(category_id)],
         "author":     WP_AUTHOR_ID,
         # tags / featured_media / excerpt / template / meta は送らない
     }
@@ -1007,6 +1098,15 @@ def create_takadanobaba_draft(payload: dict, progress=None) -> dict:
     if not ok:
         return {"ok": False, "stage": "config", "error": site_or_msg}
     site = site_or_msg
+
+    # 投稿先カテゴリは店舗別。未登録の店舗は**1枚も送らずに中止**する
+    # （推測したカテゴリへ投稿しないため）。既定は高田馬場＝従来動作。
+    _store = payload.get("store", WP_STORE)
+    _cat = store_category(_store)
+    if _cat is None:
+        return {"ok": False, "stage": "config", "uploaded": [],
+                "error": f"{_store} の WordPress カテゴリが未登録です"
+                         "（wp_client.WP_STORE_CATEGORY へ term_id / slug を登録してください）"}
 
     plan = plan_blocks(payload)
     found, miss_req, miss_opt = collect_files(plan, payload["output_dir"])
@@ -1064,9 +1164,10 @@ def create_takadanobaba_draft(payload: dict, progress=None) -> dict:
         uploaded.append({"file": f["file"], "id": r["id"], "src": r["src"],
                          "sec": r["sec"], "bytes": f["bytes"]})
 
-    title   = build_title(payload.get("date"), payload.get("store", WP_STORE))
-    content = build_content(plan, media_map, site=site, split_map=split_map)
-    res = create_draft(title, content)
+    title   = build_title(payload.get("date"), _store)
+    content = build_content(plan, media_map, site=site, split_map=split_map,
+                            category_slug=_cat["slug"])
+    res = create_draft(title, content, category_id=_cat["id"])
     if not res["ok"]:
         return {"ok": False, "stage": "post", "uploaded": uploaded,
                 "missing_optional": miss_opt, "tmp_dir": tmp_dir,

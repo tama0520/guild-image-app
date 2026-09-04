@@ -207,6 +207,11 @@ def render(df: pd.DataFrame, store: str = "渋谷新館") -> Image.Image:
     units = _units_from_df(df)
 
     x_adj = float(m["x_adj"])
+    # range は「島図として描く範囲」であってシート全体の使用範囲ではない。
+    # 画像サイズは colx[c1+1]-colx[c0] で決まるため、島図の外側にある列
+    # （元Excelの装飾用の黒塗り列など）を c1 に含めると、その分だけ
+    # キャンバス右端に不要な帯が出る。c1 は台番／機種名／罫線／設備が
+    # 存在する最終列までにすること（後から crop で消さない）。
     c0, c1 = m["range"]["c0"], m["range"]["c1"]
     r0, r1 = m["range"]["r0"], m["range"]["r1"]
     colw, rowh = m["colw"], m["rowh"]

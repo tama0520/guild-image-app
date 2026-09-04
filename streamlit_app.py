@@ -6142,6 +6142,14 @@ def _art_widget_key(excel_name: "str | None", logical_key: str) -> str:
     return f"_artw_{_stem}_{logical_key}"
 
 
+def _art_edited_key(widget_key: str) -> str:
+    """そのウィジェットをユーザーが操作したか記録する内部キー（session_state 専用）。
+
+    `_article_input_keys()` へは入れず、article_page_inputs.json へも保存しない。
+    """
+    return f"_artw_edited_{widget_key}"
+
+
 def _art_saved_value(excel_name: "str | None", store: str,
                      logical_key: str, default):
     """対象Excelの保存エントリから logical key の値を**型を保ったまま**返す。
@@ -6181,6 +6189,11 @@ def _on_article_widget_change(store: str, logical_key: str, widget_key: str,
     """
     if st.session_state.get("art_current_excel") != expected_excel:
         return
+    # ★このウィジェットを**ユーザーが実際に操作した**ことを記録する（session_state のみ）。
+    #   表示専用の既定文言（empty_default）を、未編集のまま logical＝JSON へ
+    #   焼き付けないための判定に使う。値の一致では判定しない
+    #   （ユーザーが既定文言そのものを入力した場合と区別できないため）。
+    st.session_state[_art_edited_key(widget_key)] = True
     if widget_key in st.session_state:
         st.session_state[logical_key] = st.session_state[widget_key]
     _save_article_inputs(store, skip_kojin)
@@ -14537,19 +14550,27 @@ def show_auto_article_page() -> None:
         旧日付のブラウザ値が新日付へ返らないようにする。初期値は保存値から解決。
         """
         _wk = _art_widget_key(_art_excel_w, logical)
-        _sv = _art_saved_value(_art_excel_w, store, logical, "")
-        _sv = _sv if isinstance(_sv, str) else ""
-        # 空欄のときに既定文言を入れる欄（その他の優秀台ピックアップのタイトル）は
-        # 従来の `value=保存値 or 既定` と同じ意味を保つ。
-        _sv = _sv or empty_default
+        _raw = _art_saved_value(_art_excel_w, store, logical, "")
+        _raw = _raw if isinstance(_raw, str) else ""
+        # 空欄のときに既定文言を**表示だけ**入れる欄（その他の優秀台ピックアップの
+        # タイトル）。従来の `value=保存値 or 既定` と同じ見た目を保つ。
+        _disp = _raw or empty_default
         _fn = st.text_area if area else st.text_input
         _kw = {"height": height} if area else {"placeholder": placeholder}
         if help:
             _kw["help"] = help
-        _cur = _fn(label, key=_wk, value=_sv,
+        _cur = _fn(label, key=_wk, value=_disp,
                    on_change=_on_article_widget_change,
                    args=(store, logical, _wk, _art_excel_w, skip_kojin), **_kw)
-        st.session_state[logical] = _cur
+        # ★表示専用の既定文言を logical（＝JSONの保存値）へ焼き付けない。
+        #   ユーザーがこの欄を実際に操作したかは **on_change の発火記録**で判定し、
+        #   値の一致では判定しない（既定文言そのものを入力した場合も編集として扱う）。
+        #   未編集なら保存値をそのまま維持する。empty_default を使わない欄
+        #   （＝_raw と _disp が常に同じ）は従来どおり _cur を同期する。
+        if empty_default and not st.session_state.get(_art_edited_key(_wk)):
+            st.session_state[logical] = _raw
+        else:
+            st.session_state[logical] = _cur
         return _cur
 
     def _art_mac(label: str, logical: str, candidates, *, skip_kojin: bool = False,

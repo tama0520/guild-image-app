@@ -841,7 +841,7 @@
     "art_wp_top_heading_渋谷新館": "",
     "art_wp_top_text_poster_渋谷新館": "",
     "art_wp_top_text_x_渋谷新館": "",
-    "art_ranking_limit_渋谷新館": 30,
+    "art_ranking_limit_渋谷新館": 50,
     "art_kojin_pick_title_0_渋谷新館": "",
     "art_kojin_pick_bans_0_渋谷新館": "",
     "art_kojin_pick_title_1_渋谷新館": "",
@@ -896,7 +896,8 @@
     "art_nanako_hint_2_渋谷新館": "",
     "art_nanako_hint_3_渋谷新館": "",
     "art_nanako_hint_4_渋谷新館": "",
-    "art_nanako_hint_5_渋谷新館": ""
+    "art_nanako_hint_5_渋谷新館": "",
+    "art_guild_x_url_渋谷新館": ""
   },
   "20260903_渋谷新館_20S.xlsx": {
     "art_kojin_enabled": false,
@@ -927,7 +928,7 @@
     "art_wp_top_heading_渋谷新館": "3のつく日は仕掛けが満載",
     "art_wp_top_text_poster_渋谷新館": "ああああああ",
     "art_wp_top_text_x_渋谷新館": "いいいいいいいいい",
-    "art_ranking_limit_渋谷新館": 50,
+    "art_ranking_limit_渋谷新館": 30,
     "art_kojin_pick_title_0_渋谷新館": "",
     "art_kojin_pick_bans_0_渋谷新館": "",
     "art_kojin_pick_title_1_渋谷新館": "",
@@ -982,7 +983,8 @@
     "art_nanako_hint_2_渋谷新館": "",
     "art_nanako_hint_3_渋谷新館": "",
     "art_nanako_hint_4_渋谷新館": "",
-    "art_nanako_hint_5_渋谷新館": ""
+    "art_nanako_hint_5_渋谷新館": "",
+    "art_guild_x_url_渋谷新館": "https://x.com/slotterguild/status/2095102999077253437"
   },
   "20260903_高田馬場_20S.xlsx": {
     "art_kojin_enabled": false,

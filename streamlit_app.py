@@ -6018,6 +6018,12 @@ def _save_article_inputs(store: str, skip_kojin: bool = False) -> None:
     excel_name = st.session_state.get("art_current_excel")
     if not excel_name:
         return
+    # ★保険（案A）: その Excel について _restore_article_inputs() が完了していない
+    #   状態では1キーも書かない。restore 前に保存すると、session_state に残っている
+    #   **前の日付の値**を新しい日付のエントリへ書き込んでしまう。
+    #   内部キーなので _article_input_keys() へは入れず、JSON へも保存しない。
+    if st.session_state.get("_art_restored_excel") != excel_name:
+        return
     _skip_kojin = skip_kojin or not bool(st.session_state.get("art_kojin_enabled", False))
     data = _load_article_inputs_json()
     _entry = dict(data.get(excel_name) or {})
@@ -6094,6 +6100,8 @@ def _restore_article_inputs(excel_name: str, store: str) -> None:
                 st.session_state[k] = False if k.endswith("_enabled") else ""
     for k, v in saved.items():
         st.session_state[k] = v
+    # restore 完了を記録（案A の scope guard 用・内部キー。JSON へは保存しない）
+    st.session_state["_art_restored_excel"] = excel_name
 
 
 def _art_kojin_default(excel_name: "str | None", store: str, key: str) -> str:
@@ -6109,6 +6117,73 @@ def _art_kojin_default(excel_name: "str | None", store: str, key: str) -> str:
         return ""
     _v = _load_article_inputs_json().get(excel_name, {}).get(key, "")
     return _v if isinstance(_v, str) else ""
+
+
+# ── 記事用ウィジェットの日付スコープ化（B2）────────────────────────────
+# 事故の構造: 同じ widget key を日付をまたいで使い回すと、日付を切り替えた run で
+# **ブラウザが旧日付の値をエコーバック**し、それが on_change 経由で新日付の
+# エントリへ保存される（2026-09-04 に 9/2→9/3 で 11キーが空上書きされた事故）。
+# Streamlit は `_new_session_state`（Session State API で設定した値）を `value=` より
+# 優先するため（session_state.py の _getitem）、同じ key のまま `value=` を渡す方式
+# （B1）では防げない。**表示 widget の key 自体を Excel（日付）単位にする**ことで
+# widget identity を分け、旧日付の値が新日付の widget へ返らないようにする。
+#
+# ★保存側は従来どおり logical key（art_*）のまま。
+#   article_page_inputs.json の構造・_article_input_keys() ・_save_article_inputs() ・
+#   _restore_article_inputs() は変更しない。
+
+def _art_widget_key(excel_name: "str | None", logical_key: str) -> str:
+    """表示用ウィジェットキー（Excel＝日付スコープ）。保存キーとは別物。
+
+    同じExcel＋同じ logical key なら必ず同じキー、別Excelなら必ず別キーになる。
+    Excel名には店舗名が含まれるため店舗間でも衝突しない。
+    """
+    _stem = os.path.splitext(str(excel_name or "_none"))[0]
+    return f"_artw_{_stem}_{logical_key}"
+
+
+def _art_saved_value(excel_name: "str | None", store: str,
+                     logical_key: str, default):
+    """対象Excelの保存エントリから logical key の値を**型を保ったまま**返す。
+
+    読み取り専用。エントリが無い／キーが無いときは default を返す。
+    `_art_kojin_default()` は str 専用なので、bool / int を扱うこちらを使う。
+    **新しい復元経路ではない**（描画直前の初期値解決だけに使う）。
+    """
+    if not excel_name:
+        return default
+    _e = _load_article_inputs_json().get(excel_name, {})
+    return _e[logical_key] if logical_key in _e else default
+
+
+def _on_article_kojin_enabled(store: str, logical_key: str, widget_key: str,
+                              expected_excel: str) -> None:
+    """②「個別画像も生成する」専用（従来の _save_article_enabled と同じ意味）。
+
+    機種名キーを巻き込まないよう `_save_article_enabled()` を使う点は従来どおりで、
+    日付スコープ widget → logical key への同期と expected_excel ガードだけを足す。
+    """
+    if st.session_state.get("art_current_excel") != expected_excel:
+        return
+    if widget_key in st.session_state:
+        st.session_state[logical_key] = st.session_state[widget_key]
+    _save_article_enabled(store)
+
+
+def _on_article_widget_change(store: str, logical_key: str, widget_key: str,
+                              expected_excel: str, skip_kojin: bool = True) -> None:
+    """日付スコープ widget → logical key へ同期してから保存する（on_change）。
+
+    ★expected_excel ガード: そのウィジェットを描画したときの Excel と、
+    コールバックが走る時点の art_current_excel が食い違う場合は**何もしない**。
+    日付を切り替えた直後に旧日付のウィジェットイベントが遅れて届いても、
+    新しい日付のエントリへ書き込まない。
+    """
+    if st.session_state.get("art_current_excel") != expected_excel:
+        return
+    if widget_key in st.session_state:
+        st.session_state[logical_key] = st.session_state[widget_key]
+    _save_article_inputs(store, skip_kojin)
 
 
 def _init_recommended_settings(store: str) -> dict:
@@ -14381,20 +14456,25 @@ def show_auto_article_page() -> None:
     #   session_state の値だけでは正しい選択を復元できないため、読み取り専用の既存
     #   ヘルパー _art_kojin_default()（= 該当Excelエントリを読むだけ）で補う。
     #   6名のいずれでもない値（"" / None / 未知）は必ず **未選択（None）** にする。
+    _art_excel_w = st.session_state.get("art_current_excel") or ""
     if store in _ART_WP_AUTHOR_STORES:
         st.markdown("**WordPress投稿者**")
         _au_key = f"art_wp_author_{store}"
-        if st.session_state.get(_au_key) not in _ART_WP_AUTHORS:
-            _au_saved = _art_kojin_default(
-                st.session_state.get("art_current_excel"), store, _au_key)
-            st.session_state[_au_key] = (_au_saved if _au_saved in _ART_WP_AUTHORS
-                                         else None)
-        st.radio("WordPress投稿者", _ART_WP_AUTHORS, key=_au_key, index=None,
-                 label_visibility="collapsed",
-                 help="ここで選んだ人物が WordPress 下書きの投稿者になります。"
-                      "未選択のままでは下書きを作成できません。",
-                 on_change=_save_article_inputs, args=(store, True))
-        if st.session_state.get(_au_key) not in _ART_WP_AUTHORS:
+        _au_wkey = _art_widget_key(_art_excel_w, _au_key)
+        # 初期値は **その日付の保存値**から解決する（旧日付の logical 値を使わない）。
+        # 6名のいずれでもない値（未保存 / "" / None / 未知）は必ず未選択（index=None）。
+        _au_saved = _art_saved_value(_art_excel_w, store, _au_key, None)
+        _au_idx = (_ART_WP_AUTHORS.index(_au_saved)
+                   if _au_saved in _ART_WP_AUTHORS else None)
+        _au_cur = st.radio(
+            "WordPress投稿者", _ART_WP_AUTHORS, key=_au_wkey, index=_au_idx,
+            label_visibility="collapsed",
+            help="ここで選んだ人物が WordPress 下書きの投稿者になります。"
+                 "未選択のままでは下書きを作成できません。",
+            on_change=_on_article_widget_change,
+            args=(store, _au_key, _au_wkey, _art_excel_w, True))
+        st.session_state[_au_key] = _au_cur
+        if _au_cur not in _ART_WP_AUTHORS:
             st.caption("⚠️ 投稿者が未選択です。選択するまで WordPress下書きは作成できません。")
 
     st.markdown(f"### {_sec_num()} {'冒頭部分' if _art_v2 else 'ポスター画像'}")
@@ -14447,36 +14527,116 @@ def show_auto_article_page() -> None:
     else:
         st.info("ℹ️ ポスター未アップロードのため、ポスターなしで作成します")
 
-    st.text_input("その日の見出し（空欄なら出力しません）",
-                  key=f"art_wp_top_heading_{store}",
-                  on_change=_save_article_inputs, args=(store, True),
-                  placeholder="記事の一番上に入る見出し")
+    # ── 記事上部テキスト（B2: 表示キーは日付スコープ・初期値はその日付の保存値）──
+    def _art_txt(label: str, logical: str, *, area: bool = False,
+                 height: int = 120, placeholder: str = "", help: str = "",
+                 skip_kojin: bool = True, empty_default: str = ""):
+        """記事用の text_input / text_area を日付スコープキーで描く共通処理。
+
+        logical key（保存キー）は従来のまま。表示キーだけ Excel 単位にして、
+        旧日付のブラウザ値が新日付へ返らないようにする。初期値は保存値から解決。
+        """
+        _wk = _art_widget_key(_art_excel_w, logical)
+        _sv = _art_saved_value(_art_excel_w, store, logical, "")
+        _sv = _sv if isinstance(_sv, str) else ""
+        # 空欄のときに既定文言を入れる欄（その他の優秀台ピックアップのタイトル）は
+        # 従来の `value=保存値 or 既定` と同じ意味を保つ。
+        _sv = _sv or empty_default
+        _fn = st.text_area if area else st.text_input
+        _kw = {"height": height} if area else {"placeholder": placeholder}
+        if help:
+            _kw["help"] = help
+        _cur = _fn(label, key=_wk, value=_sv,
+                   on_change=_on_article_widget_change,
+                   args=(store, logical, _wk, _art_excel_w, skip_kojin), **_kw)
+        st.session_state[logical] = _cur
+        return _cur
+
+    def _art_mac(label: str, logical: str, candidates, *, skip_kojin: bool = False,
+                 label_visibility: str = "visible"):
+        """機種名オートコンプリート欄を日付スコープキーで描く（案①）。
+
+        **共通関数 render_machine_autocomplete_input() は変更しない。**
+        渡す `key` を表示用（Excel＝日付スコープ）にするだけ。共通関数内部は
+        その key で text_input / 候補読み取り / 候補ボタン / on_click を組み立てるので、
+        表示キーを渡しても候補表示・絞り込み・選択はそのまま動く。
+        初期値は従来どおり `_art_kojin_default()`（＝その日付の保存値）。
+        描画後に **表示キー → logical key** へ同期し、既存の下流参照を保つ。
+        """
+        _wk = _art_widget_key(_art_excel_w, logical)
+        render_machine_autocomplete_input(
+            label, _wk, candidates,
+            default=_art_kojin_default(_art_excel_w, store, logical),
+            on_change=_on_article_widget_change,
+            on_change_args=(store, logical, _wk, _art_excel_w, skip_kojin),
+            label_visibility=label_visibility)
+        st.session_state[logical] = st.session_state.get(_wk, "")
+        return st.session_state[logical]
+
+    def _art_chk(label: str, logical: str, *, default: bool = False,
+                 skip_kojin: bool = True, **kw):
+        """記事用の checkbox を日付スコープキーで描く。
+
+        ★`bool(saved)` 一本にしない。**保存キーがあればその値、無ければ
+        そのウィジェットの正式 default** を使う（保存済み False と未保存を区別する）。
+        """
+        _wk = _art_widget_key(_art_excel_w, logical)
+        _sv = _art_saved_value(_art_excel_w, store, logical, default)
+        _cur = st.checkbox(label, key=_wk, value=bool(_sv),
+                           on_change=_on_article_widget_change,
+                           args=(store, logical, _wk, _art_excel_w, skip_kojin),
+                           **kw)
+        st.session_state[logical] = _cur
+        return _cur
+
+    def _art_choice(label: str, logical: str, options, *, default=None,
+                    kind: str = "radio", allow_none: bool = False,
+                    skip_kojin: bool = True, **kw):
+        """記事用の radio / selectbox を日付スコープキーで描く。
+
+        ★unknown / 未保存を **options[0] へ落とさない**。
+          allow_none=True なら未選択（index=None）、そうでなければ default の index。
+        """
+        _wk = _art_widget_key(_art_excel_w, logical)
+        _sv = _art_saved_value(_art_excel_w, store, logical, None)
+        _opts = list(options)
+        if _sv in _opts:
+            _idx = _opts.index(_sv)
+        elif allow_none:
+            _idx = None
+        else:
+            _idx = _opts.index(default) if default in _opts else 0
+        _fn = st.selectbox if kind == "selectbox" else st.radio
+        _cur = _fn(label, _opts, key=_wk, index=_idx,
+                   on_change=_on_article_widget_change,
+                   args=(store, logical, _wk, _art_excel_w, skip_kojin), **kw)
+        st.session_state[logical] = _cur
+        return _cur
+
+    _art_txt("その日の見出し（空欄なら出力しません）",
+             f"art_wp_top_heading_{store}",
+             placeholder="記事の一番上に入る見出し")
     if store in _ART_GUILD_X_STORES:
         # ギルドポストXを自動で埋め込む店舗は、本文と同じ縦並びで入力させる
         # （ポスター下の文章 → ギルドポスト Xリンク → Xリンク下の文章）。
         # 「Xリンク下の文章」は**既存キーをそのまま流用**する（新設しない）。
-        st.text_area("ポスター下の文章（改行で段落／空欄なら出力しません）",
-                     key=f"art_wp_top_text_poster_{store}", height=120,
-                     on_change=_save_article_inputs, args=(store, True))
-        st.text_input("ギルドポスト Xリンク（空欄・不正URLなら埋め込みません）",
-                      key=f"art_guild_x_url_{store}",
-                      on_change=_save_article_inputs, args=(store, True),
-                      placeholder="https://x.com/.../status/...")
-        st.text_area("Xリンク下の文章（改行で段落／空欄なら出力しません）",
-                     key=f"art_wp_top_text_x_{store}", height=120,
-                     on_change=_save_article_inputs, args=(store, True))
+        _art_txt("ポスター下の文章（改行で段落／空欄なら出力しません）",
+                 f"art_wp_top_text_poster_{store}", area=True)
+        _art_txt("ギルドポスト Xリンク（空欄・不正URLなら埋め込みません）",
+                 f"art_guild_x_url_{store}",
+                 placeholder="https://x.com/.../status/...")
+        _art_txt("Xリンク下の文章（改行で段落／空欄なら出力しません）",
+                 f"art_wp_top_text_x_{store}", area=True)
         st.caption("ギルドポストのX投稿はここへURLを入れると**自動で埋め込まれます**"
                    "（手貼り用の空段落は出しません）。")
     else:
         _tp_c1, _tp_c2 = st.columns(2, gap="large")
         with _tp_c1:
-            st.text_area("ポスター下の文章（改行で段落／空欄なら出力しません）",
-                         key=f"art_wp_top_text_poster_{store}", height=120,
-                         on_change=_save_article_inputs, args=(store, True))
+            _art_txt("ポスター下の文章（改行で段落／空欄なら出力しません）",
+                     f"art_wp_top_text_poster_{store}", area=True)
         with _tp_c2:
-            st.text_area("Xリンク下の文章（改行で段落／空欄なら出力しません）",
-                         key=f"art_wp_top_text_x_{store}", height=120,
-                         on_change=_save_article_inputs, args=(store, True))
+            _art_txt("Xリンク下の文章（改行で段落／空欄なら出力しません）",
+                     f"art_wp_top_text_x_{store}", area=True)
         st.caption("Xの投稿URLは自動挿入しません。WordPress編集画面で、ポスター下文章と"
                    "Xリンク下文章の間にできる**空段落3行**へ手で貼り付けてください。")
 
@@ -14489,17 +14649,14 @@ def show_auto_article_page() -> None:
         st.markdown("**ななこポスト**（WordPress冒頭・「全台系」の直前に入ります）")
         st.caption("見出し・導入文・締め文は固定です。ヒントは先頭の「■」を自動で付けるので"
                    "本文だけ入力してください。空欄のヒントは出力しません。")
-        st.text_input("前日のななこポスト Xリンク（空欄なら「↓前日の夜に…」ごと出力しません）",
-                      key=f"art_nanako_url_{store}",
-                      on_change=_save_article_inputs, args=(store, True),
-                      placeholder="https://x.com/... ")
+        _art_txt("前日のななこポスト Xリンク（空欄なら「↓前日の夜に…」ごと出力しません）",
+                 f"art_nanako_url_{store}", placeholder="https://x.com/... ")
         _nk_cols = st.columns(2, gap="large")
         for _nk_i in range(_ART_NANAKO_HINTS):
             with _nk_cols[_nk_i % 2]:
-                st.text_input(f"ヒント{_nk_i + 1}",
-                              key=f"art_nanako_hint_{_nk_i}_{store}",
-                              on_change=_save_article_inputs, args=(store, True),
-                              placeholder="例: ヒソカ→見た目がピエロ→ピエロ→北斗")
+                _art_txt(f"ヒント{_nk_i + 1}",
+                         f"art_nanako_hint_{_nk_i}_{store}",
+                         placeholder="例: ヒソカ→見た目がピエロ→ピエロ→北斗")
 
     # ── ② 全台系（表示のみ。抽出・生成は run_step1_main が自動で行う）──────
     # 設定UIは持たない（ON/OFFも無い）。記事の構成番号を1つ使うためだけの見出し。
@@ -14519,8 +14676,15 @@ def show_auto_article_page() -> None:
     art_sonota_extra_auto: str = "なし"
     art_jug_extra_auto: str = "なし"
     st.markdown(f"### {_sec_num()} {'高配分' if _art_v2 else '個別画像'}")
-    kojin_enabled = st.checkbox("個別画像も生成する", key="art_kojin_enabled",
-                                on_change=_save_article_enabled, args=(store,))
+    # ②チェックボックスの on_change は従来どおり _save_article_enabled（機種名を
+    # 巻き込まない専用コールバック・0e7dc4c）。widget キーだけ日付スコープ化する。
+    _kj_en_wk = _art_widget_key(_art_excel_w, "art_kojin_enabled")
+    kojin_enabled = st.checkbox(
+        "個別画像も生成する", key=_kj_en_wk,
+        value=bool(_art_saved_value(_art_excel_w, store, "art_kojin_enabled", False)),
+        on_change=_on_article_kojin_enabled,
+        args=(store, "art_kojin_enabled", _kj_en_wk, _art_excel_w))
+    st.session_state["art_kojin_enabled"] = kojin_enabled
     if kojin_enabled:
         _kojin_candidates = load_machine_candidates()
         st.caption("指定した機種の個別画像を生成します。ここに入力した機種はその他の優秀台ピックアップから除外されます。")
@@ -14532,52 +14696,34 @@ def show_auto_article_page() -> None:
             _kz_rows = [st.columns(3) for _ in range(4)]
             for _i, _col in enumerate([c for row in _kz_rows for c in row]):
                 with _col:
-                    _akz_key = f"art_kojin_z_{_i}_{store}"
-                    render_machine_autocomplete_input(str(_i + 1), _akz_key, _kojin_candidates,
-                                                      default=_art_kojin_default(_art_kojin_excel, store, _akz_key),
-                                                      on_change=_save_article_inputs, on_change_args=(store,))
+                    _art_mac(str(_i + 1), f"art_kojin_z_{_i}_{store}", _kojin_candidates)
             kojin_zentai_machines = [st.session_state.get(f"art_kojin_z_{_i}_{store}", "") for _i in range(12)]
         with col_ky:
             st.markdown("**優秀台**")
             _ky_rows = [st.columns(3) for _ in range(4)]
             for _i, _col in enumerate([c for row in _ky_rows for c in row]):
                 with _col:
-                    _aky_key = f"art_kojin_y_{_i}_{store}"
-                    render_machine_autocomplete_input(str(_i + 1), _aky_key, _kojin_candidates,
-                                                      default=_art_kojin_default(_art_kojin_excel, store, _aky_key),
-                                                      on_change=_save_article_inputs, on_change_args=(store,))
+                    _art_mac(str(_i + 1), f"art_kojin_y_{_i}_{store}", _kojin_candidates)
             kojin_yushu_machines = [st.session_state.get(f"art_kojin_y_{_i}_{store}", "") for _i in range(12)]
         st.markdown("**並び台番範囲 優秀台**")
         _col_nr, _col_nt = st.columns([2, 3])
         with _col_nr:
-            st.text_input(
-                "台番範囲（例: 409-413）　ピンクバーあり",
-                key=f"art_kojin_narabi_range_{store}",
-                placeholder="例: 409-413",
-                on_change=_save_article_inputs, args=(store,),
-            )
+            _art_txt("台番範囲（例: 409-413）　ピンクバーあり",
+                     f"art_kojin_narabi_range_{store}",
+                     placeholder="例: 409-413", skip_kojin=False)
         with _col_nt:
-            st.text_input(
-                "タイトル（省略時は台番範囲をそのまま使用）",
-                key=f"art_kojin_narabi_title_{store}",
-                placeholder="例: 4・5列目の優秀台",
-                on_change=_save_article_inputs, args=(store,),
-            )
+            _art_txt("タイトル（省略時は台番範囲をそのまま使用）",
+                     f"art_kojin_narabi_title_{store}",
+                     placeholder="例: 4・5列目の優秀台", skip_kojin=False)
         _col_nr2, _col_nt2 = st.columns([2, 3])
         with _col_nr2:
-            st.text_input(
-                "台番範囲（例: 409-413）　ピンクバーなし",
-                key=f"art_kojin_narabi2_range_{store}",
-                placeholder="例: 409-413",
-                on_change=_save_article_inputs, args=(store,),
-            )
+            _art_txt("台番範囲（例: 409-413）　ピンクバーなし",
+                     f"art_kojin_narabi2_range_{store}",
+                     placeholder="例: 409-413", skip_kojin=False)
         with _col_nt2:
-            st.text_input(
-                "タイトル（省略時は台番範囲をそのまま使用）",
-                key=f"art_kojin_narabi2_title_{store}",
-                placeholder="例: 4・5列目の優秀台",
-                on_change=_save_article_inputs, args=(store,),
-            )
+            _art_txt("タイトル（省略時は台番範囲をそのまま使用）",
+                     f"art_kojin_narabi2_title_{store}",
+                     placeholder="例: 4・5列目の優秀台", skip_kojin=False)
         kojin_narabi_ranges_text  = st.session_state.get(f"art_kojin_narabi_range_{store}", "")
         kojin_narabi_title        = st.session_state.get(f"art_kojin_narabi_title_{store}", "")
         kojin_narabi2_ranges_text = st.session_state.get(f"art_kojin_narabi2_range_{store}", "")
@@ -14588,56 +14734,34 @@ def show_auto_article_page() -> None:
         for _pi in range(_KOJIN_PICK_COUNT):
             _col_apt, _col_apb = st.columns([2, 3])
             with _col_apt:
-                st.text_input(
-                    "タイトル",
-                    key=f"art_kojin_pick_title_{_pi}_{store}",
-                    placeholder="例: マイジャグV",
-                    on_change=_save_article_inputs, args=(store,),
-                )
+                _art_txt("タイトル", f"art_kojin_pick_title_{_pi}_{store}",
+                         placeholder="例: マイジャグV", skip_kojin=False)
             with _col_apb:
-                st.text_area(
-                    "台番テキスト（台番を含むテキストをそのまま貼り付け）",
-                    key=f"art_kojin_pick_bans_{_pi}_{store}",
-                    height=68,
-                    on_change=_save_article_inputs, args=(store,),
-                )
+                _art_txt("台番テキスト（台番を含むテキストをそのまま貼り付け）",
+                         f"art_kojin_pick_bans_{_pi}_{store}",
+                         area=True, height=68, skip_kojin=False)
 
         st.markdown("**その他の優秀台ピックアップ**")
         _col_aset, _col_aseb = st.columns([2, 3])
         with _col_aset:
-            st.text_input(
-                "タイトル",
-                value=st.session_state.get(f"art_sonota_extra_title_{store}", "") or "その他の優秀台ピックアップ",
-                key=f"art_sonota_extra_title_{store}",
-                placeholder="例: その他の優秀台ピックアップ",
-                on_change=_save_article_inputs, args=(store,),
-            )
+            _art_txt("タイトル", f"art_sonota_extra_title_{store}",
+                     placeholder="例: その他の優秀台ピックアップ",
+                     empty_default="その他の優秀台ピックアップ", skip_kojin=False)
         with _col_aseb:
-            st.text_area(
-                "台番テキスト（台番を含むテキストをそのまま貼り付け）",
-                value=st.session_state.get(f"art_sonota_extra_text_{store}", ""),
-                key=f"art_sonota_extra_text_{store}",
-                height=80,
-                on_change=_save_article_inputs, args=(store,),
-            )
-        st.radio(
+            _art_txt("台番テキスト（台番を含むテキストをそのまま貼り付け）",
+                     f"art_sonota_extra_text_{store}",
+                     area=True, height=80, skip_kojin=False)
+        # 未保存・未知の値は options[0] ではなく **正式既定「なし」**へ落とす。
+        _art_choice(
             "台番テキストが空欄のとき、下記の閾値で「その他の優秀台ピックアップ」を自動抽出（📝記入部分のみモード）",
-            options=["なし", "+1,000枚以上", "+2,000枚以上", "+3,000枚以上"],
-            key=f"art_sonota_extra_auto_{store}",
-            horizontal=True,
-            on_change=_save_article_inputs, args=(store,),
-        )
+            f"art_sonota_extra_auto_{store}",
+            ["なし", "+1,000枚以上", "+2,000枚以上", "+3,000枚以上"],
+            default="なし", horizontal=True, skip_kojin=False)
         # ジャグラーシリーズ優秀台（📝記入部分のみモード）。通常ページと同じ考え方。
-        _art_jg_key = f"art_jug_extra_auto_{store}"
-        if st.session_state.get(_art_jg_key) not in _JUG_AUTO_OPTS:
-            st.session_state[_art_jg_key] = "なし"
-        st.radio(
+        _art_choice(
             "下記の条件で「ジャグラーシリーズ優秀台」を自動抽出（📝記入部分のみモード）",
-            options=_JUG_AUTO_OPTS,
-            key=_art_jg_key,
-            horizontal=True,
-            on_change=_save_article_inputs, args=(store,),
-        )
+            f"art_jug_extra_auto_{store}", _JUG_AUTO_OPTS,
+            default="なし", horizontal=True, skip_kojin=False)
         art_sonota_extra_title = st.session_state.get(f"art_sonota_extra_title_{store}", "")
         art_sonota_extra_text  = st.session_state.get(f"art_sonota_extra_text_{store}", "")
         art_sonota_extra_auto  = st.session_state.get(f"art_sonota_extra_auto_{store}", "なし")
@@ -14653,16 +14777,12 @@ def show_auto_article_page() -> None:
     retsu_ranges: list[list[int]] = []
     if store in STORE_NARABI_SCRIPT:
         st.markdown(f"### {_sec_num()} {'並び' if _art_v2 else '並び画像'}")
-        narabi_enabled = st.checkbox("並び画像も生成する", key="art_narabi_enabled",
-                                     on_change=_save_article_inputs, args=(store,))
+        narabi_enabled = _art_chk("並び画像も生成する", "art_narabi_enabled",
+                                  default=False, skip_kojin=False)
         if narabi_enabled:
-            ranges_text = st.text_area(
+            ranges_text = _art_txt(
                 "台番範囲　連番: '409-413'、スポット: '508+424'、複数: カンマ/スペース/改行区切り　Excelからのコピペ（台番・機種名・数値の表）もそのまま貼り付け可",
-                value="",
-                key="art_narabi_ranges_input",
-                height=120,
-                on_change=_save_article_inputs, args=(store,),
-            )
+                "art_narabi_ranges_input", area=True, height=120, skip_kojin=False)
             if ranges_text.strip():
                 try:
                     _parsed_ranges = parse_ranges(ranges_text.strip())
@@ -14719,66 +14839,58 @@ def show_auto_article_page() -> None:
     # ── ④ 末尾画像オプション ─────────────────────────────────────────
     if "末尾画像" in STORES.get(store, []):
         st.markdown(f"### {_sec_num()} {'末尾' if _art_v2 else '末尾画像'}")
-        suebangai_enabled = st.checkbox("末尾画像も生成する", key="art_suebangai_enabled",
-                                        on_change=_save_article_inputs, args=(store,))
+        suebangai_enabled = _art_chk("末尾画像も生成する", "art_suebangai_enabled",
+                                     default=False, skip_kojin=False)
         if suebangai_enabled:
             # UI構成は上野新館（スランプ付き結果ポスト用）と同じ。
             # 他画像からの末尾台除外（pipelineの suebangai_tails）は
             # 従来どおり1枠だけ＝末尾①を使う（_art_sue_exclude_tails）。
             _atc1, _atc2, _atc3 = st.columns(3)
             with _atc1:
-                _a_ti1 = st.text_input("末尾①", value="", key="art_suebangai_tail_input_1",
-                                       placeholder="例: 5",
-                                       on_change=_save_article_inputs, args=(store,))
+                _a_ti1 = _art_txt("末尾①", "art_suebangai_tail_input_1",
+                                  placeholder="例: 5", skip_kojin=False)
             with _atc2:
-                _a_ti2 = st.text_input("末尾②", value="", key="art_suebangai_tail_input_2",
-                                       placeholder="例: 7",
-                                       on_change=_save_article_inputs, args=(store,))
+                _a_ti2 = _art_txt("末尾②", "art_suebangai_tail_input_2",
+                                  placeholder="例: 7", skip_kojin=False)
             with _atc3:
-                _a_ti3 = st.text_input("末尾③", value="", key="art_suebangai_tail_input_3",
-                                       placeholder="ゾロ目",
-                                       on_change=_save_article_inputs, args=(store,))
+                _a_ti3 = _art_txt("末尾③", "art_suebangai_tail_input_3",
+                                  placeholder="ゾロ目", skip_kojin=False)
             _a_sue_tails_ui = [t.strip() for t in [_a_ti1, _a_ti2, _a_ti3] if t.strip()]
             if _a_sue_tails_ui:
                 _a_sue_mode_opts = ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）",
                                     "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"]
-                if st.session_state.get("art_suebangai_mode") not in _a_sue_mode_opts:
-                    st.session_state.pop("art_suebangai_mode", None)
-                st.radio("モード", _a_sue_mode_opts, key="art_suebangai_mode",
-                         horizontal=True, format_func=_art_sue_mode_label,
-                         on_change=_save_article_inputs, args=(store,))
+                # 保存値が選択肢外なら先頭「全台」＝従来と同じ既定へ落とす
+                # （options[0] を機械的に選ぶのではなく、正式既定として明示する）。
+                _art_choice("モード", "art_suebangai_mode", _a_sue_mode_opts,
+                            default=_a_sue_mode_opts[0], horizontal=True,
+                            format_func=_art_sue_mode_label, skip_kojin=False)
 
             if not _a_sue_tails_ui:
                 st.info("末尾を入力してください。")
 
         # ジャグラー専用末尾画像（上野新館 スランプ付き結果ポスト用と同じ構成）
         st.markdown("##### ジャグラー末尾画像")
-        _a_jug_sue_enabled = st.checkbox("ジャグラー機種の末尾画像も生成する",
-                                         key="art_jug_sue_enabled",
-                                         on_change=_save_article_inputs, args=(store,))
+        _a_jug_sue_enabled = _art_chk("ジャグラー機種の末尾画像も生成する",
+                                      "art_jug_sue_enabled",
+                                      default=False, skip_kojin=False)
         if _a_jug_sue_enabled:
             _ajc1, _ajc2, _ajc3 = st.columns(3)
             with _ajc1:
-                _a_jt1 = st.text_input("末尾①（ジャグラー）", value="",
-                                       key="art_jug_sue_tail_input_1", placeholder="例: 7",
-                                       on_change=_save_article_inputs, args=(store,))
+                _a_jt1 = _art_txt("末尾①（ジャグラー）", "art_jug_sue_tail_input_1",
+                                  placeholder="例: 7", skip_kojin=False)
             with _ajc2:
-                _a_jt2 = st.text_input("末尾②（ジャグラー）", value="",
-                                       key="art_jug_sue_tail_input_2", placeholder="例: 3",
-                                       on_change=_save_article_inputs, args=(store,))
+                _a_jt2 = _art_txt("末尾②（ジャグラー）", "art_jug_sue_tail_input_2",
+                                  placeholder="例: 3", skip_kojin=False)
             with _ajc3:
-                _a_jt3 = st.text_input("末尾③（ジャグラー）", value="",
-                                       key="art_jug_sue_tail_input_3", placeholder="ゾロ目",
-                                       on_change=_save_article_inputs, args=(store,))
+                _a_jt3 = _art_txt("末尾③（ジャグラー）", "art_jug_sue_tail_input_3",
+                                  placeholder="ゾロ目", skip_kojin=False)
             _a_jug_tails_ui = [t.strip() for t in [_a_jt1, _a_jt2, _a_jt3] if t.strip()]
             if _a_jug_tails_ui:
                 _a_jug_mode_opts = ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）",
                                     "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"]
-                if st.session_state.get("art_jug_sue_mode") not in _a_jug_mode_opts:
-                    st.session_state.pop("art_jug_sue_mode", None)
-                st.radio("モード（ジャグラー）", _a_jug_mode_opts, key="art_jug_sue_mode",
-                         horizontal=True, format_func=_art_sue_mode_label,
-                         on_change=_save_article_inputs, args=(store,))
+                _art_choice("モード（ジャグラー）", "art_jug_sue_mode", _a_jug_mode_opts,
+                            default=_a_jug_mode_opts[0], horizontal=True,
+                            format_func=_art_sue_mode_label, skip_kojin=False)
             else:
                 st.info("末尾を入力してください。")
 
@@ -14805,8 +14917,8 @@ def show_auto_article_page() -> None:
         # art_variety_enabled は参照しない。
         if "art_variety_enabled" not in st.session_state:
             st.session_state["art_variety_enabled"] = False
-        art_variety_enabled = st.checkbox("個別画像も生成する", key="art_variety_enabled",
-                                          on_change=_save_article_inputs, args=(store,))
+        art_variety_enabled = _art_chk("個別画像も生成する", "art_variety_enabled",
+                                       default=False, skip_kojin=False)
         # 台番欄・モードは checkbox の状態に関係なく毎run必ず生成（常時mount）する。
         # checkbox で unmount すると remount 時にフロントエンドの空値が session/JSON を
         # 上書きしてしまうため。OFF時は st-key-art_variety_box に display:none を当てて
@@ -14850,22 +14962,15 @@ def show_auto_article_page() -> None:
                     continue
                 with _bcol:
                     st.markdown(f"**ブロック{_n + 1}**")
-                    _ttl_key = f"art_osusume_title_{_n}_{store}"
-                    st.text_input(
-                        "タイトル（記事の小見出し用・画像には描かれません）",
-                        key=_ttl_key,
-                        value=_art_kojin_default(_osu_excel, store, _ttl_key),
-                        placeholder="例: 月間オススメ機種",
-                        on_change=_save_article_inputs, args=(store,))
+                    _art_txt("タイトル（記事の小見出し用・画像には描かれません）",
+                             f"art_osusume_title_{_n}_{store}",
+                             placeholder="例: 月間オススメ機種", skip_kojin=False)
                     # 機種欄は 3列×2段
                     _mrows = [st.columns(3) for _ in range(2)]
                     for _i, _mcol in enumerate([c for r in _mrows for c in r]):
                         with _mcol:
-                            _aos_key = f"art_osusume_m_{_n}_{_i}_{store}"
-                            render_machine_autocomplete_input(
-                                str(_i + 1), _aos_key, _osu_cands,
-                                default=_art_kojin_default(_osu_excel, store, _aos_key),
-                                on_change=_save_article_inputs, on_change_args=(store,))
+                            _art_mac(str(_i + 1), f"art_osusume_m_{_n}_{_i}_{store}",
+                                     _osu_cands)
         art_osusume_blocks = _art_osusume_collect(store)
         art_osusume_machines = _art_osusume_flat(art_osusume_blocks)
 
@@ -14883,21 +14988,21 @@ def show_auto_article_page() -> None:
             #   キー有無で見ると seed が走らず、選択肢に無い "" のまま selectbox が
             #   先頭(20位)を採ってしまう（⑤ 39f1f1e・② 0e7dc4c と同型の事故）。
             #   None / "" / 壊れた文字列 / 選択肢外の数値はすべて保存値→既定50へ解決する。
-            if st.session_state.get(_rk_key) not in _ART_RANK_LIMITS:
-                try:
-                    # 保存値は int / 文字列 "35" のどちらでも安全に復元する
-                    _rk_saved = int(_load_article_inputs_json()
-                                    .get(st.session_state.get("art_current_excel") or "", {})
-                                    .get(_rk_key) or 0)
-                except (TypeError, ValueError):
-                    _rk_saved = 0
-                st.session_state[_rk_key] = (_rk_saved if _rk_saved in _ART_RANK_LIMITS
-                                             else _ART_RANK_DEFAULT)
-            st.selectbox(
-                "表示順位", _ART_RANK_LIMITS, key=_rk_key,
+            #   B2: 表示キーを日付スコープ化し、初期値は **その日付の保存値**から解決する。
+            try:
+                # 保存値は int / 文字列 "35" のどちらでも安全に復元する
+                _rk_saved = int(_art_saved_value(_art_excel_w, store, _rk_key, 0) or 0)
+            except (TypeError, ValueError):
+                _rk_saved = 0
+            _rk_val = _rk_saved if _rk_saved in _ART_RANK_LIMITS else _ART_RANK_DEFAULT
+            _rk_wkey = _art_widget_key(_art_excel_w, _rk_key)
+            st.session_state[_rk_key] = st.selectbox(
+                "表示順位", _ART_RANK_LIMITS, key=_rk_wkey,
+                index=list(_ART_RANK_LIMITS).index(_rk_val),
                 format_func=lambda _n: f"{_n}位まで",
                 help="全台を差枚数の高い順に並べ、1位から選んだ順位までを1枚の画像にします。",
-                on_change=_save_article_inputs, args=(store,))
+                on_change=_on_article_widget_change,
+                args=(store, _rk_key, _rk_wkey, _art_excel_w, False))
         if store in _ARTICLE_SHIMAZU_STORES:
             st.markdown("**島図**")
             # ★Pision へは再アクセスしない。⓪で取得済みの

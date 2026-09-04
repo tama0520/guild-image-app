@@ -12959,11 +12959,15 @@ def show_auto_page(with_slump: bool = False) -> None:
                 for _cfn_old in st.session_state.get(_aprev_col_key, {}):
                     _rm_legacy_col_image(output_dir, _cfn_old, log=_log)
                 # 残りの並び画像を output_dir に移動してサブフォルダを削除
+                # ★os.replace を使う（os.rename は Windows で既存の宛先があると
+                #   WinError 183 で落ちる）。⑦でチェックを外した等で前回⑧の成果物が
+                #   連番プレフィックスなしのまま残っていると再実行で衝突するため、
+                #   記事用と同じく置換にする（宛先は同じ⑧が作り直す並び／列画像）。
                 if ok_n and os.path.isdir(narabi_dir):
                     for _nf in sorted(os.listdir(narabi_dir)):
                         if _nf.lower().endswith((".jpg", ".jpeg")):
-                            os.rename(os.path.join(narabi_dir, _nf),
-                                      os.path.join(output_dir, _nf))
+                            os.replace(os.path.join(narabi_dir, _nf),
+                                       os.path.join(output_dir, _nf))
                             _moved_narabi.append(_nf)
                     try:
                         os.rmdir(narabi_dir)
@@ -16067,11 +16071,17 @@ def show_auto_article_page() -> None:
                 for _cfn_old_a in st.session_state.get(_art_aprev_col_key, {}):
                     _rm_legacy_col_image(output_dir, _cfn_old_a, log=_log)
                 # 残りの並び画像を output_dir 直下に移動してサブフォルダを削除
+                # ★os.replace を使う（os.rename は Windows で既存の宛先があると
+                #   WinError 183 で落ちる）。記事用⑧は連番プレフィックスを付けないため
+                #   前回⑧の成果物が **素のファイル名のまま** output_dir に残り、
+                #   同じ日付で⑧を再実行すると必ず衝突していた。
+                #   宛先は「同じ⑧が同じ規則で毎回作り直す並び／列画像」なので、
+                #   今回の生成物で置き換えるのが正しい（既存の連番付与 os.replace と同じ考え方）。
                 if ok_n and os.path.isdir(narabi_dir):
                     for _nf in sorted(os.listdir(narabi_dir)):
                         if _nf.lower().endswith((".jpg", ".jpeg")):
-                            os.rename(os.path.join(narabi_dir, _nf),
-                                      os.path.join(output_dir, _nf))
+                            os.replace(os.path.join(narabi_dir, _nf),
+                                       os.path.join(output_dir, _nf))
                     try:
                         os.rmdir(narabi_dir)
                     except OSError:

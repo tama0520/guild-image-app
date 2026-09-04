@@ -8406,3 +8406,148 @@ Cloud Reboot も未実行。
 13. **高田馬場の本文HTML MD5 `c35ac89ea13c` を壊さない**
 14. **前ノードの記録を削除・改変しない**（supersede した事実を残す）
 15. **無関係なリファクタ・未使用コード整理をしない**
+
+## ⑧再実行時の FileExistsError（WinError 183）を修正（2026-09-04）
+
+**正式仕様。巻き戻し禁止。**対象は**並び／列画像を一時フォルダから `output_dir` へ移す2箇所だけ**。
+正式コード commit は本節と**同一の commit**
+（`fix: 画像再生成時の同名ファイル移動エラーを修正`・2026-09-04・
+**`streamlit_app.py` と `CLAUDE.md` の2ファイルのみ**）。
+**画像の内容・ファイル名・WordPress処理は一切変更していない。**
+
+### ① 発生したエラー
+
+渋谷新館の記事用⑧を**同じ日付・同じ店舗で再実行**したときに発生した。
+
+```
+FileExistsError: [WinError 183] 既に存在するファイルを作成することはできません。
+  src: …60903_渋谷新館\並び画像\カバネリ海門決戦(3台並び)（3170～3172）.jpg
+  dst: …60903_渋谷新館\カバネリ海門決戦(3台並び)（3170～3172）.jpg
+  streamlit_app.py の os.rename(...) で停止
+```
+
+### ② 確定原因
+
+1. **`output_dir` は再利用される。** `os.makedirs(output_dir, exist_ok=True)` のみで、
+   **既存ファイルを消す処理が無い**（`rmtree` は存在しない）。
+   → **前回⑧で生成された並び／列画像が、正式ファイル名のまま `output_dir` 直下に残る。**
+2. **記事用⑧には連番プレフィックス（`NN_`）の付与も剥がしも無い**
+   （`_seq` / de-prefix があるのは通常ページ側と📝側だけ）。
+   → 記事用の `output_dir` には**常に素のファイル名**が残る。
+3. そこへ今回の再生成物を **`os.rename(src, dst)`** で移そうとした。
+   **Windows の `os.rename()` は宛先が既に存在すると必ず失敗する**（WinError 183）。
+   **POSIX の rename は上書きするため、Cloud / Linux では顕在化していなかった。**
+
+**⑧は何度でも押せる通常操作**（⑧ → WordPress下書き確認 → 修正 → 再度⑧）なので、
+**「既存ファイルを手で消してから実行」は解決策にしない。**
+
+### ③ 正式修正：`os.rename` → `os.replace`（2箇所のみ）
+
+| 箇所 | 関数 | 対象 |
+|---|---|---|
+| `show_auto_page()` | 通常／スランプ付き／かぶぱ／📝 | 並び画像・列画像（同一ループ） |
+| `show_auto_article_page()` | 記事用⑧ | 並び画像・列画像（同一ループ） |
+
+```python
+# 修正前
+os.rename(os.path.join(narabi_dir, _nf), os.path.join(output_dir, _nf))
+# 修正後
+os.replace(os.path.join(narabi_dir, _nf), os.path.join(output_dir, _nf))
+```
+
+**無関係な `os.rename` / `os.replace` は変更しない。**
+`shutil.move` は導入しない。`os.remove(dst)` してから rename する二段階処理も採らない。
+
+### ④ `os.replace` を選んだ根拠
+
+- **src は今回新規生成した並び／列成果物**、**dst は前回⑧が作った同一論理成果物**。
+  同じ正式ファイル名のまま**最新版へ更新するのが正しい**。
+- `narabi_dir = os.path.join(output_dir, "並び画像")` なので **src / dst は常に同一FS**、
+  dst は常にファイル。
+- **Windows でも既存 dst を置換でき、POSIX / Linux でも同じ意味**（Cloud 互換）。
+- **本プロジェクトは既に「再実行時の同名成果物の置換」に `os.replace` を使っている**
+  （連番プレフィックスの剥がし・付け直し／📝側の連番付与など計5箇所）。同じ考え方の踏襲。
+
+### ⑤ 並び・列の両方が対象（列専用の修正は作らない）
+
+`convert_narabi_pil.py` は **並び画像と列仕掛け画像を同じ `SPLIT_DIR`（＝`narabi_dir`）へ出力**し、
+**同じ移動ループを通る**。したがって**この2箇所の修正で並び・列の双方が解決**する。
+**列専用の別修正を追加しない。**
+
+### ⑥ 正式ファイル名は変更しない
+
+```
+カバネリ海門決戦(3台並び)（3170～3172）.jpg   ← このまま
+```
+
+**`_timestamp` / `_2` / ランダム suffix を付けて衝突を避けることは禁止。**
+**同じ論理成果物は同じ正式ファイル名のまま、再実行で最新版へ置換される。**
+全角／半角括弧の表記も不変。
+
+### ⑦ 店舗
+
+記事用は**共通経路**なので、**高田馬場・渋谷新館・秋葉原のすべて**が同じ再実行安全性を持つ。
+**渋谷新館だけの店舗特例は作らない。**各店舗固有の生成仕様は一切変更していない。
+通常ページ側も同じ理由で置換にした（⑦でチェックを外した等で連番なしの成果物が残ると
+同じ衝突が起き得るため）。
+
+### ⑧ tempdir での再現・修正確認（実データ不使用）
+
+**修正前（`os.rename`）**
+
+```
+1回目移動 : OK
+2回目（同名を再生成）: ★FileExistsError [WinError 183]
+                       …60903_渋谷新館\カバネリ海門決戦(3台並び)（3170～3172）.jpg
+```
+
+**修正後（`os.replace`）**
+
+```
+1回目移動 : OK
+2回目移動 : OK（エラーなし）
+  dst が最新版へ置換      : True（内容が「2回目の内容」）
+  他の並び画像も更新      : True
+  src 移動済み            : True
+  並び画像フォルダ削除    : True
+  ★別名の手動配置ファイル : 内容ごと無変更
+  ファイル名不変          : True（suffix付き別名の生成なし）
+```
+
+**実データ（`C:\Users\23-3\Desktop\20260903_渋谷新館`）には一切触れていない。**
+
+### ⑨ 非回帰（commit直前に再確認）
+
+| 項目 | 結果 |
+|---|---|
+| **高田馬場 WordPress 本文HTML MD5** | **`c35ac89ea13c` → `c35ac89ea13c`（完全一致）** |
+| ななこポスト X embed | 不変（`_X_EMBED_HOST = "twitter.com"` / `providerNameSlug="x"`） |
+| ヒント表示 | 不変（「■＋全文」を `#e60012` ＋ `strong`／1 paragraph ＋ `<br>`） |
+| ランキングHQ | 不変（`_ART_RANK_HQ_STORES = {"渋谷新館"}`） |
+| 島図1枚絵 | 不変（`WP_NOSPLIT_FILES = {"島図.jpg"}` / `_ART_SHIMAZU_TARGET_KB = 3000`） |
+| 日付保存 | 不変（`art_nanako_*` 7キーを含む既存仕様） |
+| HQ各gate | 不変（`_ART_HQ_STORES` / `_ART_ZH_HQ_STORES` / `_ART_NARABI_HQ_STORES` / `_ART_RANK_HQ_STORES`） |
+
+**変更した関数は `show_auto_page` と `show_auto_article_page` の2つだけ**（各1行＋コメント）。
+新規／消失関数0。
+**`wp_client.py` / `convert_narabi_pil.py` / `shimazu_renderer.py` /
+`masters/shimazu_渋谷新館.json` はすべて無変更。**
+
+### ⑩ 今回の通信
+
+**WordPress 通信0件**（GET / POST / PUT / PATCH / DELETE / media upload / draft作成すべてなし）。
+Cloud Reboot もなし。実データでの⑧実行もしていない。
+
+### ⑪ 今後の禁止事項
+
+1. **一時フォルダ → `output_dir` の移動を `os.rename` へ戻さない**（Windowsで再実行が落ちる）
+2. **`shutil.move` や `os.remove(dst)` + rename の二段階処理へ置き換えない**
+3. **無関係な `os.rename` / `os.replace` を一括で書き換えない**
+4. **衝突回避のためにファイル名へ suffix / timestamp / 連番を足さない**
+5. **列画像に専用の移動・削除処理を作らない**（並びと同じループで扱う）
+6. **`output_dir` を毎回 `rmtree` する方式にしない**（他カテゴリの成果物やユーザー配置物を消す）
+7. **「既存ファイルを手動削除してから実行」を解決策にしない**
+8. **渋谷新館だけの店舗特例にしない**（記事用は共通経路として直す）
+9. **`convert_narabi_pil.py` の出力先・ファイル名規則を変えない**
+10. **高田馬場の WordPress 本文HTML MD5 `c35ac89ea13c` を壊さない**
+11. **無関係なリファクタ・未使用コード整理をしない**

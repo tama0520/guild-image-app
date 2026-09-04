@@ -27,7 +27,7 @@
           false,
           false,
           false,
-          false,
+          true,
           false,
           false
         ],
@@ -36,7 +36,7 @@
           false,
           false,
           false,
-          false,
+          true,
           false,
           false
         ],
@@ -187,16 +187,6 @@
       ],
       "machine_name": "東京喰種",
       "date_checks": {
-        "2026-08-28": [
-          false,
-          true,
-          true,
-          false,
-          false,
-          true,
-          false,
-          false
-        ],
         "2026-08-29": [
           false,
           true,
@@ -256,6 +246,16 @@
           true,
           false,
           false
+        ],
+        "2026-09-04": [
+          false,
+          false,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false
         ]
       },
       "blank_days": [
@@ -268,13 +268,13 @@
         false
       ],
       "blank_date_checks": {
-        "2026-08-28": false,
         "2026-08-29": false,
         "2026-08-30": false,
         "2026-08-31": false,
         "2026-09-01": false,
         "2026-09-02": false,
-        "2026-09-03": false
+        "2026-09-03": false,
+        "2026-09-04": false
       }
     },
     "t3": {
@@ -294,11 +294,17 @@
         "0,1": [
           "ゴージャグ3"
         ],
+        "0,4": [
+          "ハピジャグV"
+        ],
         "1,3": [
           "対象台が3/3でプラス差枚"
         ],
         "2,1": [
           "ゴージャグ3"
+        ],
+        "3,4": [
+          "ハピジャグV"
         ],
         "4,0": [
           "マイジャグV",
@@ -320,6 +326,9 @@
           "マイジャグV",
           "ネオアイム",
           "ファンキー2"
+        ],
+        "4,4": [
+          "マイジャグV"
         ],
         "5,3": [
           "対象台が2/2でプラス差枚"

@@ -8551,3 +8551,200 @@ Cloud Reboot もなし。実データでの⑧実行もしていない。
 9. **`convert_narabi_pil.py` の出力先・ファイル名規則を変えない**
 10. **高田馬場の WordPress 本文HTML MD5 `c35ac89ea13c` を壊さない**
 11. **無関係なリファクタ・未使用コード整理をしない**
+
+## 渋谷新館 記事用①冒頭：ギルドポスト Xリンク（2026-09-04）
+
+**正式仕様。巻き戻し禁止。**対象は**【渋谷新館】の記事用①冒頭部分だけ**。
+正式コード commit は本節と**同一の commit**
+（`feat: 渋谷新館の記事冒頭にギルドX投稿を追加`・2026-09-04・
+**`streamlit_app.py` / `wp_client.py` / `CLAUDE.md` の3ファイルのみ**）。
+**高田馬場・秋葉原の記事用は本文HTMLを含め完全に不変。**
+
+### ① 正式な出力順（渋谷新館の記事冒頭）
+
+```
+その日の見出し
+  ↓
+ポスター（あれば）
+  ↓
+ポスター下の文章
+  ↓
+ギルドポスト Xリンク（X投稿の埋め込み）      ★新規
+  ↓
+Xリンク下の文章
+  ↓
+ななこポスト（H2「ななこポストに仕掛けのヒントを確認！」以下）
+  ↓
+H2 全台系濃厚機種が複数（以降は従来どおり）
+```
+
+**渋谷新館では、旧「X手貼り用の空段落×3」を廃止する。**
+代わりにURL入力欄からX投稿を自動で埋め込む。
+
+**高田馬場・秋葉原は従来どおり空段落×3を維持する。**
+**`X_EMPTY_PARAS = 3` を変更しない。**
+
+**`H2 差枚数ランキング&島図` のランキングと島図の間にある空段落×5
+（`RANK_SHIMAZU_GAP_PARAS = 5`）は別仕様。今回いっさい変更していない。**
+
+### ② 店舗ゲートと新規保存キー
+
+```python
+# streamlit_app.py
+_ART_GUILD_X_STORES = frozenset({"渋谷新館"})
+```
+
+| キー | 内容 |
+|---|---|
+| **`art_guild_x_url_{store}`（新規）** | ギルドポストのX投稿URL |
+| `art_wp_top_text_x_{store}`（**既存を流用**） | 「Xリンク下の文章」 |
+
+- **「Xリンク下の文章」に新しいキーを作らない。**既存 `art_wp_top_text_x_{store}` を正式流用する。
+- `_article_input_keys(store)` へ **`art_guild_x_url_{store}` の1キーだけ**追加し、
+  既存の **`article_page_inputs.json`（Excelファイル名＝日付でスコープ）** に保存する。
+  **新しい保存ファイル・新しい保存関数を作らない。**
+- `on_change` は既存の **`_save_article_inputs`／`args=(store, True)`＝`skip_kojin=True`**
+  （②個別画像を巻き込まない・`0e7dc4c` の正式仕様）。
+- UIは **`_ART_GUILD_X_STORES` の店舗だけ**縦並び（ポスター下文章 → ギルドX → Xリンク下文章）で表示し、
+  **対象外店舗は従来の2カラム表示・従来キャプションのまま**。
+
+### ③ ★ `plan_blocks()` は店舗名で分岐しない（payload 駆動）
+
+```python
+_has_guild_key = "guild_x" in payload
+_guild_x = normalize_x_url(payload.get("guild_x")) if _has_guild_key else ""
+...
+if _has_guild_key:
+    if _guild_x:
+        plan.append({"type": "embed_x", "url": _guild_x})
+else:
+    for _ in range(X_EMPTY_PARAS):
+        plan.append({"type": "empty_para"})
+```
+
+- **`guild_x` キーを渡した店舗だけ**が「空段落×3 → X埋め込み」へ切り替わる。
+- **高田馬場・秋葉原は `guild_x` キー自体を渡さない**ので、
+  `empty_para` × 3 の従来動作が完全に維持される（実測で3個を確認）。
+- **`plan_blocks()` に `store == …` の判定を入れてはならない。**
+
+### ④ X埋め込みは既存関数を再利用（新しいX処理を作らない）
+
+**`normalize_x_url()` と `blk_embed_x()` をそのまま使う。**
+**ギルドポスト専用のURL処理・専用のembedブロック生成関数を新設しない。**
+
+| 項目 | 正式仕様 |
+|---|---|
+| 入力できるホスト | **`x.com` / `twitter.com` の両方** |
+| WordPress embed のホスト | **`twitter.com` へ統一**（`_X_EMBED_HOST`） |
+| `providerNameSlug` | **`"x"`** |
+| status ID | **維持**（書き換えない） |
+| query / fragment | **除去** |
+| `http://` / `javascript:` / `data:` / 他ドメイン / `/status/` なし / status が非数値 | **拒否＝埋め込まない** |
+| 空欄・不正URL | **「URLなし」と同じ扱い**（そのブロックを出さないだけで中止しない） |
+
+**ななこポストのX実装（`34d0244` の正式仕様）は今回いっさい変更していない。**
+
+### ⑤ URL検証の実測（9パターン）
+
+```
+https://x.com/slotterguild/status/1234567890123456789        → 埋め込む
+https://twitter.com/…/status/1234567890123456789             → 埋め込む
+https://x.com/…/status/…?s=20&t=ab                           → クエリ除去して埋め込む
+https://x.com/…/status/…#frag                                → フラグメント除去して埋め込む
+http://x.com/a/status/1                                      → 埋め込まない
+javascript:alert(1)                                          → 埋め込まない
+https://evil.com/a/status/1                                  → 埋め込まない
+https://x.com/a                                              → 埋め込まない
+（空文字）                                                    → 埋め込まない
+```
+
+生成される embed 属性は **ホスト `twitter.com` ／ `providerNameSlug":"x"` ／ status ID 維持**。
+
+### ⑥ 実UI日付往復テスト（2026-09-04・全PASS）
+
+**渋谷新館の記事用ページで、実際のUI操作だけで検証した（JSONの直接編集はしていない）。**
+
+| ステップ | 結果 |
+|---|---|
+| **日付A = 2026/09/03** 取得 → ギルドX欄へ `https://x.com/slotterguild/status/2090764602548367826` を入力 | **`20260903_渋谷新館_20S.xlsx` へ `art_guild_x_url_渋谷新館` として保存** |
+| **日付B = 2026/09/02** 取得 | **ギルドX欄は空欄・9/3の値の混入0件**（見出し／ポスター下／Xリンク下／ななこもすべて空） |
+| **日付A = 2026/09/03** へ戻す | **URLが完全復元** |
+
+同時に維持を確認した既存キー：
+`art_wp_top_heading_渋谷新館`（「3のつく日は仕掛けが満載」）／
+`art_wp_top_text_poster_渋谷新館`（「ああああああ」）／
+`art_wp_top_text_x_渋谷新館`（「いいいいいいいいい」）／
+`art_nanako_url_渋谷新館` ＋ `art_nanako_hint_0〜5_渋谷新館`。
+
+**日付スコープ保存（Excelファイル名単位）が正しく効いていることを実UIで確認済み。**
+
+### ⑦ 高田馬場の非回帰（MD5基準の扱いに注意）
+
+- **過去の正式基準である高田馬場の本文HTML MD5 `c35ac89ea13c` は引き続き有効**であり、
+  **削除・上書きしてはならない。**
+- 今回の検証では、**HEAD版 `wp_client.py` と現行を同一 payload で比較して完全一致**することを確認した。
+  そのとき算出した `1fae8c5ddff2` / `158a937f4a24` は**この検証で使った payload に対する値**であり、
+  **新しい正式基準として `c35ac89ea13c` を置き換えるものではない。**
+- 高田馬場は **`empty_para` 3個 ／ `embed_x` 0個**（＝空段落×3の従来動作）を実測で確認済み。
+
+### ⑧ HTMLエスケープについて（今回の対象外・誤記しないこと）
+
+- **ギルドポストのX URL** は `normalize_x_url()` の検証を通り、
+  embed 属性は `json.dumps`、figure 内URLは `esc()` を通るため**保護されている**。
+- 一方、**「ポスター下の文章」「Xリンク下の文章」は既存の `blk_para()` 経由で
+  エスケープされない既存仕様のまま**である（今回の追加によって生じた問題ではない）。
+  **今回いっさい変更していない。**必要なら**別案件**として調査・承認のうえ対応する。
+
+### ⑨ 無変更（今回いっさい触れていない）
+
+`X_EMPTY_PARAS = 3` ／ `RANK_SHIMAZU_GAP_PARAS = 5` ／
+ななこポスト（`NANAKO_*` / `_X_EMBED_HOST = "twitter.com"` / `providerNameSlug="x"` /
+`blk_para_hints()` / `NANAKO_MARK_COLOR = #e60012` / `NANAKO_HINT_COUNT = 6`）／
+`normalize_x_url()` 本体 ／ `blk_embed_x()` 本体 ／ `esc()` ／
+`_ART_WP_STORES = {"高田馬場","渋谷新館"}` ／
+`WP_STORE_CATEGORY`（高田馬場 24 / `espace-takadanobaba`・渋谷新館 19 / `espace-shibuyashin`）／
+`WP_NOSPLIT_FILES = {"島図.jpg"}` ／ `WP_MAX_SIDE = 2560` ／ `WP_STATUS = "draft"` ／
+`WP_AUTHOR_ID = 14` ／ `_ART_HQ_STORES` ／ `_ART_ZH_HQ_STORES` ／ `_ART_NARABI_HQ_STORES` ／
+`_ART_RANK_HQ_STORES` ／ `_ART_SHIMAZU_TARGET_KB = 3000` ／ `_ART_HQ_TARGET_KB = 5500` ／
+`bceda28` の島図右端黒帯104px削除 ／ 抽出条件 ／ パネル ／ 液晶 ／ スランプ ／ ZIP ／
+Pision取得 ／ 機種名変換。
+
+**`convert_narabi_pil.py` / `shimazu_renderer.py` / `masters/shimazu_渋谷新館.json` は無変更。**
+**`MEMORY.md` は今回変更していない。**
+
+### ⑩ 今回のWordPress通信
+
+**0件。** GET / POST / PUT / PATCH / DELETE / media upload / draft作成のいずれも未実行。
+**Cloud Reboot もなし。**検証はすべてローカルのモックと実UI操作で行った。
+
+### ⑪ `article_page_inputs.json` の扱い
+
+実UI日付往復テストにより `20260903_渋谷新館_20S.xlsx` へ
+`art_guild_x_url_渋谷新館` が保存され、同ファイルは dirty になっている。
+
+- **この commit には含めない**（commit 対象は
+  `streamlit_app.py` / `wp_client.py` / `CLAUDE.md` の3件のみ）。
+- **`reset` / `restore` / `checkout` で戻すことも禁止。**そのまま未stageで保護する。
+- 以後アプリの `_git_auto_push()` により自動commitされた場合は、
+  **その時点のHEADを正として扱い、過去HEADへ戻さない。**
+
+### ⑫ 今後の禁止事項
+
+1. **渋谷新館で空段落×3を復活させない**（X埋め込みへ置き換え済み）
+2. **高田馬場・秋葉原の空段落×3を削らない／`X_EMPTY_PARAS = 3` を変更しない**
+3. **`RANK_SHIMAZU_GAP_PARAS = 5` を今回の理由で変更しない**
+4. **`plan_blocks()` に店舗名の分岐を入れない**（`guild_x` キーの有無で判定する）
+5. **「Xリンク下の文章」に新しいキーを作らない**（`art_wp_top_text_x_{store}` を流用）
+6. **ギルドX専用のURL処理・embed生成関数を新設しない**
+   （`normalize_x_url()` / `blk_embed_x()` を再利用）
+7. **embed のホストを `x.com` へ戻さない**（`twitter.com` を維持）
+8. **`providerNameSlug` を `"twitter"` へ変えない**
+9. **status ID / path を書き換えない／query・fragment 除去をやめない**
+10. **不正URLをそのまま embed しない**
+11. **ななこポストの既存X実装を変更しない**
+12. **保存に新しいJSONを作らない**（`article_page_inputs.json` の日付スコープを維持）
+13. **`skip_kojin=True` を外さない**
+14. **高田馬場の本文HTML MD5 `c35ac89ea13c` を削除・上書きしない**
+    （`1fae8c5ddff2` / `158a937f4a24` を新しい正式基準にしない）
+15. **`article_page_inputs.json` を今回の commit へ含めない／reset・restore・checkout しない**
+16. **無関係なリファクタ・未使用コード整理をしない**

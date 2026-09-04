@@ -3022,6 +3022,11 @@ _ART_WP_JUG_H3_STORES = frozenset({"渋谷新館"})
 # **高田馬場は対象外**（既存のWordPress本文をバイト単位で維持するため）。
 # 秋葉原はそもそもWordPress対象外（_ART_WP_STORES に無い）。
 _ART_NANAKO_STORES = frozenset({"渋谷新館"})
+
+# 記事用①冒頭部分へ「ギルドポスト Xリンク」を出す店舗。
+# **高田馬場・秋葉原は対象外**（高田馬場の既存WordPress本文をバイト単位で維持するため）。
+# 対象店舗では手貼り用の空段落×3 を出さず、代わりにX投稿を自動で埋め込む。
+_ART_GUILD_X_STORES = frozenset({"渋谷新館"})
 # ヒント入力欄の数（固定6枠）。空欄の枠は本文へ出さない。
 _ART_NANAKO_HINTS = 6
 
@@ -5934,6 +5939,8 @@ def _article_input_keys(store: str) -> list[str]:
         # いずれも文字列のみ。**画像バイナリはここへ入れない**（正式仕様）。
         f"art_wp_top_heading_{store}", f"art_wp_top_text_poster_{store}",
         f"art_wp_top_text_x_{store}",
+        # ギルドポストのXポストURL（渋谷新館・記事上部）。Excel＝日付単位で保存する。
+        f"art_guild_x_url_{store}",
         # ⑥差枚数ランキングの表示順位（渋谷新館・Excel＝日付単位。既定50位まで）
         f"art_ranking_limit_{store}",
         # ななこポスト（渋谷新館・WordPress冒頭）: 前日のXポストURL。
@@ -14407,17 +14414,34 @@ def show_auto_article_page() -> None:
                   key=f"art_wp_top_heading_{store}",
                   on_change=_save_article_inputs, args=(store, True),
                   placeholder="記事の一番上に入る見出し")
-    _tp_c1, _tp_c2 = st.columns(2, gap="large")
-    with _tp_c1:
+    if store in _ART_GUILD_X_STORES:
+        # ギルドポストXを自動で埋め込む店舗は、本文と同じ縦並びで入力させる
+        # （ポスター下の文章 → ギルドポスト Xリンク → Xリンク下の文章）。
+        # 「Xリンク下の文章」は**既存キーをそのまま流用**する（新設しない）。
         st.text_area("ポスター下の文章（改行で段落／空欄なら出力しません）",
                      key=f"art_wp_top_text_poster_{store}", height=120,
                      on_change=_save_article_inputs, args=(store, True))
-    with _tp_c2:
+        st.text_input("ギルドポスト Xリンク（空欄・不正URLなら埋め込みません）",
+                      key=f"art_guild_x_url_{store}",
+                      on_change=_save_article_inputs, args=(store, True),
+                      placeholder="https://x.com/.../status/...")
         st.text_area("Xリンク下の文章（改行で段落／空欄なら出力しません）",
                      key=f"art_wp_top_text_x_{store}", height=120,
                      on_change=_save_article_inputs, args=(store, True))
-    st.caption("Xの投稿URLは自動挿入しません。WordPress編集画面で、ポスター下文章と"
-               "Xリンク下文章の間にできる**空段落3行**へ手で貼り付けてください。")
+        st.caption("ギルドポストのX投稿はここへURLを入れると**自動で埋め込まれます**"
+                   "（手貼り用の空段落は出しません）。")
+    else:
+        _tp_c1, _tp_c2 = st.columns(2, gap="large")
+        with _tp_c1:
+            st.text_area("ポスター下の文章（改行で段落／空欄なら出力しません）",
+                         key=f"art_wp_top_text_poster_{store}", height=120,
+                         on_change=_save_article_inputs, args=(store, True))
+        with _tp_c2:
+            st.text_area("Xリンク下の文章（改行で段落／空欄なら出力しません）",
+                         key=f"art_wp_top_text_x_{store}", height=120,
+                         on_change=_save_article_inputs, args=(store, True))
+        st.caption("Xの投稿URLは自動挿入しません。WordPress編集画面で、ポスター下文章と"
+                   "Xリンク下文章の間にできる**空段落3行**へ手で貼り付けてください。")
 
     # ── ななこポスト（渋谷新館のWordPress冒頭・Xリンク下文章の直後に入る）──
     # 見出し・導入文・締め文はコード側の固定文（wp_client）なので入力欄は作らない。
@@ -16887,6 +16911,11 @@ def show_auto_article_page() -> None:
                         f"art_wp_top_text_poster_{store}", "")
                     _art_wp_pl["top_text_x"] = st.session_state.get(
                         f"art_wp_top_text_x_{store}", "")
+                    # ギルドポストX（渋谷新館のみ）。キーを渡した店舗だけ
+                    # 「空段落×3 → X埋め込み」へ切り替わる（高田馬場は渡さない）。
+                    if store in _ART_GUILD_X_STORES:
+                        _art_wp_pl["guild_x"] = st.session_state.get(
+                            f"art_guild_x_url_{store}", "")
                     # ④末尾・⑥バラエティ（2026-08-25 追加）。
                     # **⑧が実際に保存した正式画像のファイル名をそのまま渡す**
                     # （wp_client 側でファイル名を再生成・再推測しない）。

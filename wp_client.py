@@ -872,11 +872,20 @@ def plan_blocks(payload: dict) -> list[dict]:
     #   空段落×3 も含めて上部を1ブロックも出力しない**。この場合の本文は
     #   記事上部の追加前とバイト単位で完全一致する（正式仕様）。
     # ここより下（全台系以降）の構成は一切変更しない。
+    # ★ギルドポストX（2026-09-04 追加・渋谷新館の記事用のみ）:
+    #   payload に "guild_x" キーがある店舗は、ポスター下文章の直後へ
+    #   **X投稿の埋め込み**を入れ、**手貼り用の空段落×3 は出さない**
+    #   （自動で埋め込むので手で貼る枠が不要になるため）。
+    #   キー自体を持たない店舗（高田馬場）は従来どおり空段落×3 のままで、
+    #   本文はバイト単位で変わらない。URLはななこポストと同じ
+    #   normalize_x_url() / blk_embed_x() をそのまま再利用する（新関数を作らない）。
     _top_h = str(payload.get("top_heading") or "").strip()
     _top_p = _split_para(payload.get("top_text_poster"))
     _top_x = _split_para(payload.get("top_text_x"))
     _has_poster = bool(out_dir) and os.path.isfile(os.path.join(out_dir, POSTER_FN))
-    if _top_h or _has_poster or _top_p or _top_x:
+    _has_guild_key = "guild_x" in payload
+    _guild_x = normalize_x_url(payload.get("guild_x")) if _has_guild_key else ""
+    if _top_h or _has_poster or _top_p or _top_x or _guild_x:
         if _top_h:
             plan.append({"type": "h2", "text": _top_h})
         if _has_poster:
@@ -884,9 +893,14 @@ def plan_blocks(payload: dict) -> list[dict]:
                          "label": "その日のポスター", "optional": True})
         for _ln in _top_p:
             plan.append({"type": "para", "text": _ln})
-        # X (旧Twitter) の URL を後から手で貼るための空段落
-        for _ in range(X_EMPTY_PARAS):
-            plan.append({"type": "empty_para"})
+        if _has_guild_key:
+            # 不正URL・空欄は「URLなし」と同じ扱い（ななこポストと同じ流儀）
+            if _guild_x:
+                plan.append({"type": "embed_x", "url": _guild_x})
+        else:
+            # X (旧Twitter) の URL を後から手で貼るための空段落
+            for _ in range(X_EMPTY_PARAS):
+                plan.append({"type": "empty_para"})
         for _ln in _top_x:
             plan.append({"type": "para", "text": _ln})
 

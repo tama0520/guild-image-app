@@ -8748,3 +8748,194 @@ Pision取得 ／ 機種名変換。
     （`1fae8c5ddff2` / `158a937f4a24` を新しい正式基準にしない）
 15. **`article_page_inputs.json` を今回の commit へ含めない／reset・restore・checkout しない**
 16. **無関係なリファクタ・未使用コード整理をしない**
+
+## 渋谷新館 WordPress：記事用画像をすべて1枚絵で送る（2026-09-04）
+
+**正式仕様。巻き戻し禁止。**対象は**【渋谷新館】の記事用WordPress送信時の画像分割だけ**。
+正式コード commit は本節と**同一の commit**
+（`feat: 渋谷新館のWordPress画像をすべて1枚絵に変更`・2026-09-04・
+**`wp_client.py` と `CLAUDE.md` の2ファイルのみ**・`wp_client.py` は **+19 / −2**・3ハンク）。
+**`streamlit_app.py` は今回いっさい変更していない。**
+
+### ① 発端（実WordPress記事の確認結果）
+
+島図は既に1枚絵で送っていたが、**高配分・差枚数ランキングなどの縦長画像は
+Python側で複数枚へ分割**されており、記事上でクリック拡大しても
+**片方しか開けず画像全体を1枚で確認できなかった。**
+
+### ② 正式仕様
+
+**渋谷新館の記事用WordPress画像は、高さに関係なくPython側で分割しない。**
+
+```
+元画像1ファイル → WordPress media 1件 → Gutenberg wp:image 1個
+```
+
+- **高さ2560px超でも分割しない。**
+- **渋谷新館では `split_image_for_wp()` を1度も呼ばない。**
+- 対象は**渋谷新館の記事用WordPress画像すべて**：
+  ポスター／全台系／高配分／末尾／並び／列／ジャグラー／その他優秀台／
+  ⑤オススメ／差枚数ランキング／島図。
+- **今後、機種名・掲載台数・画像サイズが変わっても渋谷新館なら自動的に nosplit**
+  になる**店舗単位仕様**とする。**ファイル名列挙方式にはしない。**
+
+### ③ 正式 gate（`WP_NOSPLIT_FILES` とは独立・統合禁止）
+
+```python
+_ART_WP_NOSPLIT_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
+```
+
+| 定数 | 単位 | 値 | 役割 |
+|---|---|---|---|
+| **`WP_NOSPLIT_FILES`** | **ファイル名** | **`{"島図.jpg"}`（不変）** | 島図だけを全店舗で1枚絵にする既存例外 |
+| **`_ART_WP_NOSPLIT_STORES`** | **店舗** | **`{"渋谷新館"}`** | その店舗の**全画像**を1枚絵にする |
+
+**両者は別仕様として独立に維持する。**
+**「店舗gateがあるからファイル名gateは不要」と整理・統合・削除してはならない。**
+
+### ④ `plan_split()` の正式仕様
+
+```python
+def plan_split(found, tmp_dir, store: str = "") -> dict:
+    from PIL import Image
+    result: dict[str, list[dict]] = {}
+    if store in _ART_WP_NOSPLIT_STORES:
+        return result                    # ← 早期return（空dict）
+    ...  # 以降は従来のまま（WP_NOSPLIT_FILES → needs_split → split_image_for_wp）
+```
+
+- **早期returnにより `WP_NOSPLIT_FILES` / `needs_split()` / `split_image_for_wp()` の
+  いずれへも進まない。**
+- **`store` の既定は `""`。**引数を渡さない呼び出しは**完全に従来動作**。
+- **対象外店舗（高田馬場）は従来どおり**。
+
+### ⑤ `create_takadanobaba_draft()` の正式仕様
+
+```python
+split_map = plan_split(found, tmp_dir, store=_store)
+```
+
+`_store = payload.get("store", WP_STORE)` は**同関数内の先頭付近で既に確定済み**
+（カテゴリ解決に使っている値）なので、**store情報の受け渡しに波及は無い**。
+**`plan_split()` の呼び出し元はリポジトリ全体でこの1箇所だけ**
+（`streamlit_app.py` は `collect_files()` しか呼ばず、送信前プレビューの「送信対象 N枚」も
+分割前の枚数）。
+
+### ⑥ 分割判定の正確な条件（誤認しないこと）
+
+**分割は「カテゴリだから」ではなく、例外なく「高さ > 2560px だから」である。**
+
+```python
+def needs_split(w, h, max_h=WP_SPLIT_MAX_H) -> bool:   # WP_SPLIT_MAX_H = WP_MAX_SIDE = 2560
+    return h > max_h            # 幅・ファイル名・カテゴリ・店舗は見ていない
+```
+
+したがって高配分・並び・列などは**掲載台数が増えて高さが2560を超えた日だけ分割**されていた
+（日によって挙動が変わる状態だった）。**この関数は今回変更していない。**
+
+### ⑦ WordPress側の `-scaled.jpg` は許容
+
+今回禁止したのは **Python側の `split_image_for_wp()` による複数ファイル化**だけ。
+
+```
+元画像1枚 → media 1件 → 必要ならWordPress内部で -scaled.jpg 生成   … OK（正式）
+元画像1枚 → Python側で2〜4枚へcrop → media 複数件                  … 渋谷新館では禁止
+```
+
+渋谷新館では長辺2560px超の画像がサイト側で縮小され `-scaled.jpg` が作られるが、
+**画像全体を1枚絵として拡大できることを優先する**（島図と同じ考え方）。
+
+### ⑧ ローカル検証結果（2026-09-04・WordPress通信0件）
+
+合成画像14枚（実サイズに準拠）で実測。
+
+**渋谷新館（`store="渋谷新館"`）**
+
+```
+split_map                 : {}（空dict）
+split_image_for_wp 呼び出し : 0回（一時フォルダの生成ファイルも0件）
+元画像 14件 → 送信 media 14件（完全一致）
+SHA256 : 全件が原本と一致／送信パスは元ファイルそのもの
+JPEG再圧縮・crop : なし
+```
+
+| 画像 | サイズ | 結果 |
+|---|---|---|
+| 高配分（2560超） | 1985×2900 | **1 media** |
+| 末尾 | 1460×4598 | **1 media** |
+| 並び（2560超） | 2062×2600 | **1 media** |
+| 列（2560超） | 2062×3000 | **1 media** |
+| ジャグラー統合 | 1985×2971 | **1 media** |
+| その他優秀台 | 2160×8934 | **1 media** |
+| 差枚数ランキング | 2181×4638 | **1 media** |
+| 島図 | 3451×6490 | **1 media** |
+
+ポスター／全台系／高配分2560以下／並び・列の通常サイズ／⑤オススメも**すべて1 media**。
+`build_content()` は `split_map` が空のとき単一ブロック分岐へ入り、
+**`wp:image` は1個・連結クラスなし**であることも確認済み。
+
+**送信media数「14」はコードに固定していない**（gate は店舗のみで判定するため、
+記事内容により枚数は変動する）。
+
+### ⑨ 高田馬場の非回帰（実測）
+
+```
+2560以下 → 従来どおり1枚 ／ 2560超 → 従来どおり分割
+split_image_for_wp 呼び出し数 : 7回（store指定あり／なしで同数）
+分割数・分割後ファイル名・寸法 : store指定あり／なし（＝修正前の呼び方）で完全一致
+WP_NOSPLIT_FILES の島図例外   : 維持（高田馬場でも島図は1 media）
+```
+
+**本文HTMLは HEAD版 `wp_client.py` と現行を同一payloadで比較して完全一致。**
+
+**過去の正式基準 `c35ac89ea13c` はそのまま正式基準として残す。**
+今回の検証payloadで出た `1fae8c5ddff2` / `158a937f4a24` は
+**その検証payloadに対する値であり、正式基準へ置き換えない。**
+
+### ⑩ 無変更（本体バイト一致を機械確認）
+
+`needs_split()` ／ `split_count()` ／ `split_image_for_wp()` ／ `collect_files()` ／
+`build_content()` ／ `blk_image()` ／ `plan_blocks()` ／ `build_title()` ／
+`upload_media()` ／ `create_draft()` ／ `build_poster()` ／ `_existing_files()` ／
+`blk_embed_x()` ／ `normalize_x_url()` ／ `blk_para_hints()`。
+
+定数も不変：`WP_NOSPLIT_FILES = {"島図.jpg"}` ／ `WP_MAX_SIDE = 2560` ／
+`WP_SPLIT_MAX_H = 2560` ／ `WP_STATUS = "draft"` ／ `WP_AUTHOR_ID = 14` ／
+`_ART_WP_STORES = {"高田馬場","渋谷新館"}`（**秋葉原は対象外のまま**）／
+`WP_STORE_CATEGORY`。
+
+**画像生成仕様は完全に不変**：画像生成サイズ／native 2x／JPEG quality／subsampling／
+正式ファイル名／`_ART_HQ_STORES`・`_ART_ZH_HQ_STORES`・`_ART_NARABI_HQ_STORES`・
+`_ART_RANK_HQ_STORES` の**HQ gate 4種**／島図 3451×6490／`_ART_SHIMAZU_TARGET_KB = 3000`／
+スランプ／パネル／液晶／`os.replace`。**nosplit gate と HQ gate を統合しない。**
+
+**X関連・本文仕様も不変**：ななこX／ギルドX／`_X_EMBED_HOST = "twitter.com"`／
+`providerNameSlug="x"`／ギルドXリンク下文章／渋谷新館の旧空段落×3廃止／
+**高田馬場の空段落×3維持（`X_EMPTY_PARAS = 3`）**／
+**ランキング&島図の空段落×5（`RANK_SHIMAZU_GAP_PARAS = 5`）**／Gutenberg本文順序。
+
+**新規関数0・消失関数0。**変更関数は `plan_split()` と `create_takadanobaba_draft()` の2つだけ。
+
+### ⑪ 今回の通信
+
+**WordPress 通信0件**（GET / POST / PUT / PATCH / DELETE / media upload / draft作成すべてなし）。
+検証はすべてローカルの合成画像とモックで実施。**Cloud Reboot も未実行。**
+
+### ⑫ 今後の禁止事項
+
+1. **渋谷新館でPython側の画像分割を復活させない**
+2. **`_ART_WP_NOSPLIT_STORES` と `WP_NOSPLIT_FILES` を統合・整理・削除しない**
+3. **`WP_NOSPLIT_FILES = {"島図.jpg"}` を変更しない**
+4. **渋谷新館をファイル名列挙方式（`WP_NOSPLIT_FILES` への大量追加）へ切り替えない**
+5. **`plan_split()` の `store` 既定値 `""` を変更しない**（対象外店舗の従来動作が壊れる）
+6. **早期returnの位置を下げない**（`needs_split()` / `split_image_for_wp()` へ進ませない）
+7. **`needs_split()` / `split_count()` / `split_image_for_wp()` 本体を変更しない**
+8. **`WP_MAX_SIDE` / `WP_SPLIT_MAX_H` を店舗別にしない／値を変更しない**
+9. **高田馬場の分割仕様（分割数・ファイル名・寸法・切れ目・JPEG品質・本文構造）を変更しない**
+10. **秋葉原を `_ART_WP_STORES` へ追加しない**
+11. **nosplit gate を HQ gate 4種と統合しない**
+12. **画像生成側（サイズ・2x・quality・subsampling・ファイル名・島図・スランプ・パネル・液晶）を変更しない**
+13. **X関連・空段落仕様・Gutenberg本文順序を変更しない**
+14. **高田馬場の本文HTML MD5 `c35ac89ea13c` を削除・上書きしない**
+15. **WordPress側の `-scaled.jpg` 生成を理由にサイト設定・PHP・テーマ・サーバー設定を変更しない**
+16. **無関係なリファクタ・未使用コード整理をしない**

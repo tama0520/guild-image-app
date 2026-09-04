@@ -396,6 +396,15 @@ def build_title(date_obj, store: str = WP_STORE) -> str:
 # トレードオフ: 1枚で送るとサイト側の長辺2560px縮小により約1361×2560になる。
 WP_NOSPLIT_FILES: "frozenset[str]" = frozenset({"島図.jpg"})
 
+# 記事用WordPress送信で **画像を1枚も分割しない店舗**（2026-09-04 追加）。
+# 分割すると1つの縦長画像が複数メディアになり、クリック拡大したときに片方しか
+# 開けない。記事では元画像全体を1枚絵として拡大できることを優先する。
+# 上の `WP_NOSPLIT_FILES`（ファイル名単位の例外）とは **別仕様**で、両方を独立に維持する。
+# **`needs_split()` / `split_count()` / `split_image_for_wp()` は変更しない**
+# （高田馬場の長画像分割は従来どおりの正式仕様）。
+# トレードオフ: 1枚で送ると長辺2560px超はサイト側で `-scaled.jpg` が作られる（許容）。
+_ART_WP_NOSPLIT_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
+
 
 def needs_split(w: int, h: int, max_h: int = WP_SPLIT_MAX_H) -> bool:
     """WordPress側の長辺縮小で幅が潰れるか。高さが上限超なら分割対象。"""
@@ -1102,14 +1111,20 @@ def collect_files(plan: list[dict], output_dir: str) -> tuple[list[dict], list[d
     return found, miss_req, miss_opt
 
 
-def plan_split(found: list[dict], tmp_dir: str) -> dict:
+def plan_split(found: list[dict], tmp_dir: str, store: str = "") -> dict:
     """送信対象のうち縦長すぎる画像を、送信用の一時コピーへ分割する。
 
     戻り値: {元ファイル名: [{"path","file","w","h","bytes"}, …]}
     分割対象でなければキーを作らない。**原本は読み取るだけ。**
+
+    `store` が `_ART_WP_NOSPLIT_STORES` の店舗なら、高さに関係なく
+    **1枚も分割しない**（`split_image_for_wp()` を1度も呼ばない）。
+    既定 `""` は従来動作なので、引数を渡さない呼び出しは影響を受けない。
     """
     from PIL import Image
     result: dict[str, list[dict]] = {}
+    if store in _ART_WP_NOSPLIT_STORES:
+        return result
     for f in found:
         # 島図など「1枚絵のまま送る」ファイルは分割しない（needs_split は呼ばない）
         if f["file"] in WP_NOSPLIT_FILES:
@@ -1330,7 +1345,7 @@ def create_takadanobaba_draft(payload: dict, progress=None) -> dict:
     # ── 縦長画像を送信用に分割（原本は読み取るだけ）──
     tmp_dir = tempfile.mkdtemp(prefix="wp_split_")
     try:
-        split_map = plan_split(found, tmp_dir)
+        split_map = plan_split(found, tmp_dir, store=_store)
     except Exception as e:
         return {"ok": False, "stage": "split", "tmp_dir": tmp_dir,
                 "error": f"送信用画像の分割に失敗: {type(e).__name__}: {e}",

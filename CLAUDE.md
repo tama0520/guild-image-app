@@ -9203,3 +9203,282 @@ user ID 確認の **GET `/wp/v2/users` を1回**だけ実施（参照のみ）�
 17. **nosplit・X関連・ランキング&島図・空段落・画像生成処理を今回の理由で変更しない**
 18. **「実UIで日付往復を確認済み」と誤記しない**（commit 後に実施する）
 19. **無関係なリファクタ・未使用コード整理をしない**
+
+## 記事用：日付切替時の保存値上書きと表示defaultの自動保存を修正（2026-09-03 確定・`62168f1` / `7d6cdfa`）
+
+**正式仕様。巻き戻し禁止。**対象は**記事用ページ（高田馬場・渋谷新館・秋葉原）の
+日付依存保存widgetだけ**。正式コード commit は
+
+| commit | 内容 |
+|---|---|
+| **`62168f1cdc6ef55e5a79b19b79b9b38731a9ca97`** | `fix: 記事用の日付切替で保存値が上書きされる問題を修正`（案A ＋ B2） |
+| **`7d6cdfa3571047de1b5a8c1caf3bb7ff941c7cc4`** | `fix: 記事用の既定タイトルが自動保存される問題を修正`（表示default副作用） |
+
+いずれも **`streamlit_app.py` のみ**。**`wp_client.py` / `article_page_inputs.json` /
+`wrt_machines.json` は無変更。**
+
+### ① 実事故（2026-09-03・渋谷新館）
+
+```
+9/2 → ⑧実行 → ページ/セッション遷移 → 9/3 → 🔄取得
+```
+
+の付近で、**9/3 の保存済み値が 9/2 側の 空／default 値で上書きされた。**
+
+**破壊された11キー**
+
+```
+art_wp_top_heading_渋谷新館
+art_wp_top_text_poster_渋谷新館
+art_wp_top_text_x_渋谷新館
+art_guild_x_url_渋谷新館
+art_nanako_url_渋谷新館
+art_nanako_hint_0_渋谷新館
+art_nanako_hint_1_渋谷新館
+art_narabi_enabled
+art_suebangai_enabled
+art_wp_author_渋谷新館
+art_ranking_limit_渋谷新館
+```
+
+当時の 9/3 は正常値 **86キー**で、**11キーだけが破壊され、他75キーは正常**だった。
+
+### ② 根本原因（restore順序だけではない）
+
+**Streamlit の stable widget key を日付を跨いで使い回していたこと**が真因。
+
+```
+新日付を restore
+  ↓
+ブラウザ側に残っていた旧日付の widget 値が、同じ key へ返る
+  ↓
+on_change callback が発火
+  ↓
+旧日付値 → logical session_state → _save_article_inputs() → 新日付JSON
+```
+
+したがって **`_restore_article_inputs()` 完了後の scope guard だけでは防げない。**
+
+### ③ 案A（正式・ただし二次防御）
+
+`_restore_article_inputs()` 完了時に**現在 restore 済みの Excel を記録**し、
+保存時に **`current excel == restored excel`** を確認する。
+**scope 不一致なら記事用の保存を拒否する。**
+
+```python
+# _save_article_inputs() 冒頭
+if st.session_state.get("_art_restored_excel") != excel_name:
+    return
+# _restore_article_inputs() 末尾
+st.session_state["_art_restored_excel"] = excel_name
+```
+
+**これは二次防御であり、単独では形(b)（ブラウザ旧値エコーバック）を防げない。**
+**案A単独へ戻さないこと。**
+
+### ④ B1 は正式不採用
+
+**同じ widget key のまま `value=` / `index=` だけを入れ替える方式は採用しない。**
+
+理由：**Streamlit 1.56 は、key が既に session_state にある場合 `value=` を無視する**
+（`SessionState._getitem` の優先順位 `_new_session_state` ＞ `_new_widget_state` ＞ `_old_state`。
+`elements/lib/policies.py` の警告も同じ意味）。
+`value=` / `index=` だけでは、ブラウザ／既存 widget 状態との競合を完全には防げない。
+
+**★ 過去記録の supersede**：本 CLAUDE.md には
+**「初期値は `value=default` でフロントへ渡す（`39f1f1e`）」「②も `default=` で渡す（`0e7dc4c`）」**
+という正式記録がある。**これらの節は削除・書き換えしない**（当時の正式仕様として正しく、
+⑤・②の全消し事故を止めた修正である）。
+ただし **「`value=` を渡していれば日付跨ぎでも安全」という解釈は、今回の実事故により
+記事用の日付依存 widget については正式に supersede された。**
+`value=` は **key が session_state に無いときだけ**効くため、
+**日付を跨いで同じ widget key を使い回す限り、`value=` だけでは保存値を守れない。**
+
+### ⑤ B2（正式仕様）
+
+記事用の日付依存保存 widget は、**logical key と 表示 widget key を分離**する。
+
+| | key |
+|---|---|
+| **表示 widget key** | **`_artw_{excel_stem}_{logical_key}`**（日付／Excel ごとに widget identity が変わる） |
+| **logical key** | **従来キーを維持**（JSON schema も従来のまま） |
+
+```python
+def _art_widget_key(excel_name, logical_key) -> str:
+    _stem = os.path.splitext(str(excel_name or "_none"))[0]
+    return f"_artw_{_stem}_{logical_key}"
+```
+
+- **`_artw_*` は JSON へ絶対に保存しない**（`_article_input_keys()` に入れない）。
+- 日付が変われば widget identity も変わるため、**旧日付のブラウザ値が新日付の widget へ
+  エコーバックされる経路が構造的に消える。**
+
+### ⑥ B2 の callback
+
+widget 変更時は **display widget → logical key → `_save_article_inputs()`** へ同期する。
+callback は **`expected_excel` guard** を持ち、
+**旧日付 widget の遅延 callback が来ても現在日付へ保存しない。**
+
+```python
+def _on_article_widget_change(store, logical_key, widget_key, expected_excel, skip_kojin=True):
+    if st.session_state.get("art_current_excel") != expected_excel:
+        return
+    ...
+```
+
+### ⑦ 対象欄数（正式監査結果）
+
+**記事用の保存対象 stateful widget＝35呼び出し／103欄。すべて B2 対応済み。
+危険経路 X＝0。**
+
+### ⑧ autocomplete（記事用60欄）
+
+| 区分 | 欄数 |
+|---|---|
+| ②全台 | 12 |
+| ②優秀台 | 12 |
+| ⑤オススメ | 36 |
+| **計** | **60** |
+
+- **共通関数 `render_machine_autocomplete_input()` の本体は変更しない。**
+- **記事用の3 callsite だけ**が日付スコープ display key を渡す。
+  **非記事用17 callsite は変更なし。**
+- autocomplete 内部の query / button key も**渡された display key 由来**なので、
+  自動的に日付スコープ化される。
+
+### ⑨ 純粋テスト（B2）
+
+```
+test_b2   35 PASS
+test_b2b  22 PASS
+test_b2c  26 PASS
+合計      83 PASS / 0 FAIL
+```
+
+確認：**危険経路 X=0 ／ 11キー破壊0 ／ 9/3 86/86一致 ／ `_artw_*` の JSON 混入0**。
+
+### ⑩ 実UI確認（`62168f1`・再発なし）
+
+```
+9/3 → 9/2 → ⑧ → 記事用離脱 → 高田馬場／秋葉原 → 渋谷新館再入場 → 9/3
+```
+
+を実UIで再現した結果：
+
+- **9/3 は 86/86 一致**
+- **11キー破壊0**
+- **9/2 側の `'' / False / None / 50` が 9/3 へ混入0**
+- **高田馬場・秋葉原も例外0**
+
+---
+
+## 表示default の自動保存副作用（`7d6cdfa`）
+
+### ⑪ 事象
+
+B2 導入後、**`art_sonota_extra_title_渋谷新館`** で次の副作用を検知した。
+
+```
+raw="" → UI default「その他の優秀台ピックアップ」
+      → 毎run の無条件 display→logical 同期
+      → 別 widget の save
+      → default が JSON へ自動保存
+```
+
+**ユーザーは title 欄を編集していなかった。**
+
+### ⑫ 原因
+
+`_art_txt()` の **`st.session_state[logical] = _cur` 相当の無条件同期**。
+`empty_default` を使う **`art_sonota_extra_title` だけ**で新規に発生した。
+
+### ⑬ 正式仕様
+
+`raw == ""` のとき：
+
+| | 値 |
+|---|---|
+| UI 表示 | **「その他の優秀台ピックアップ」** |
+| logical | **`""`** |
+| JSON | **`""`** |
+
+- **別 widget の操作だけでは default を保存しない。**
+- **ユーザーが title 欄を実際に編集したときだけ** display → logical → JSON へ保存する。
+- **ユーザーが明示的に「その他の優秀台ピックアップ」と入力した場合は、正式入力値として保存してよい。**
+- **★ 値の一致で「未編集」と判定しない**（`_cur == empty_default` 方式は禁止）。
+
+### ⑭ 正式方式（編集イベント記録）
+
+```python
+def _art_edited_key(widget_key: str) -> str:
+    return f"_artw_edited_{widget_key}"
+```
+
+- **`_art_edited_key()` は session_state 専用。JSON 保存対象外。**
+- **`_on_article_widget_change()` で編集済みを記録**する。
+- `_art_txt()` は
+  **未編集 → raw を維持 ／ 編集済み → display 値を logical へ同期。**
+
+### ⑮ 下流補完（JSON raw="" でも生成物は壊れない）
+
+画像生成・⑦プレビュー・⑧本番は
+**`.strip() or "その他の優秀台ピックアップ"`** で補完する（既存仕様）。
+したがって **JSON raw="" でも生成物は不変**。
+**WordPress は⑧が生成済みのファイルを使うため影響なし。**
+
+### ⑯ 純粋テスト（表示default）
+
+```
+新規（test_default） 31 PASS / 0 FAIL
+既存B2             83 PASS / 0 FAIL
+合計              114 PASS / 0 FAIL
+```
+
+確認：**35呼び出し103欄 ／ 危険経路 X=0 ／ 11キー破壊0 ／ 9/3 86/86 ／
+`_artw_*` の JSON 混入0**。
+
+### ⑰ 実UI確認（`7d6cdfa`・再発なし）
+
+9/3 の `art_sonota_extra_title_渋谷新館` は **raw=""**。
+
+| 操作 | JSON raw |
+|---|---|
+| ②ON（UI は「その他の優秀台ピックアップ」を表示） | **`""` 維持** |
+| ②OFF | **`""` 維持** |
+| 記事用離脱 → 再入場 | **`""` 維持** |
+| 9/3 → 9/2 → 9/3 | **`""` 維持** |
+
+**9/3 は 86/86 一致・11キー破壊0。**
+
+### ⑱ 確認状況の正確な記録（誇張しないこと）
+
+**text_input への自動操作ツールの制約により、
+「任意タイトルの実入力」「既定文言の明示入力」の2ケースだけは実UI未確認である。**
+**「実UI確認済み」と書かない。**
+ただし**純粋テスト CASE3 / CASE4 で PASS 済み**。
+
+### ⑲ 既存仕様との関係（今回いっさい変更していない）
+
+本節は**記事用の日付依存 widget の保存安全性に関する追加仕様**であり、次を変更しない。
+
+記事用② ／ ⑤オススメ ／ ⑧本番 ／ 高田馬場 ／ 渋谷新館 ／ 秋葉原 ／ WordPress ／
+画像生成 ／ HQ 各 gate ／ 島図 ／ 投稿者選択 ／ X埋め込み ／
+`render_machine_autocomplete_input()` 共通helper ／ `_article_input_keys()` の JSON schema ／
+通常結果ポスト用 ／ スランプ付き ／ ローテ用。
+
+### ⑳ 今後の禁止事項
+
+1. **記事用の日付依存 widget で stable widget key を日付跨ぎで使い回さない**
+2. **B1（同じ key のまま `value=` / `index=` 差し替え）へ戻さない**
+3. **案A（scope guard）単独へ戻さない**（B2 とセットで運用する）
+4. **`_artw_*` / `_artw_edited_*` を JSON 保存対象へ入れない**
+5. **`expected_excel` guard を外さない**
+6. **`render_machine_autocomplete_input()` 本体を変更しない／非記事用 callsite を巻き込まない**
+7. **表示default を無条件に logical へ同期しない**
+8. **値の一致で「未編集」と判定しない**（`_cur == empty_default` 方式の禁止）
+9. **ユーザーが明示入力した既定文言を `""` へ落とさない**
+10. **下流の `.strip() or "その他の優秀台ピックアップ"` 補完を外さない**
+11. **`39f1f1e` / `0e7dc4c` の既存節を削除・書き換えない**（supersede は追記で記録する）
+12. **`article_page_inputs.json` の JSON schema・logical キー名を変更しない**
+13. **実UI未確認の2ケースを「実UI確認済み」と記録しない**
+14. **無関係なリファクタ・未使用コード整理をしない**

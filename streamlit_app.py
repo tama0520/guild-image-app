@@ -3013,6 +3013,11 @@ _ART_NARABI_HQ_STORES = frozenset({"高田馬場", "渋谷新館", "秋葉原"})
 # **秋葉原は対象外**。店舗追加はこの集合と WP_STORE_CATEGORY の両方が要る。
 _ART_WP_STORES = frozenset({"高田馬場", "渋谷新館"})
 
+# ジャグラー統合画像（ジャグラーシリーズ優秀台.jpg）の直前へ
+# H3「その他のジャグラーシリーズの優秀台」を入れる店舗。
+# **高田馬場は対象外**（既存のWordPress本文をバイト単位で維持するため）。
+_ART_WP_JUG_H3_STORES = frozenset({"渋谷新館"})
+
 # 記事用の並び・列を subprocess で描くときの「何台以上でHQか」。
 # 1 にすると台数を見ずに常に HQ_SCALE が効く（スクリプト既定の10台判定を上書きする）。
 _ART_NARABI_HQ_MIN_ROWS = 1
@@ -5845,6 +5850,17 @@ _ART_RANK_LIMITS  = (20, 25, 30, 35, 40, 45, 50)
 _ART_RANK_DEFAULT = 50
 _ART_RANK_FN      = "差枚数ランキング.jpg"
 _ART_RANK_TITLE   = "差枚数ランキング"
+
+# 差枚数ランキング画像をネイティブ2倍で描く店舗（WordPress掲載時の鮮明さ優先）。
+# ランキング自体 `_ART_RANK_STORES` の店舗しか作らないが、**倍率の gate は別に持つ**
+# （`_ART_HQ_STORES` / `_ART_ZH_HQ_STORES` / `_ART_NARABI_HQ_STORES` とも用途が違う）。
+# 通常ページ・他店舗はランキング画像自体を作らないので影響しない。
+_ART_RANK_HQ_STORES = frozenset({"渋谷新館"})
+
+
+def _art_rank_hq(store: str) -> float:
+    """差枚数ランキング画像の描画倍率（対象外は 1.0）。"""
+    return _ART_HQ_SCALE if store in _ART_RANK_HQ_STORES else 1.0
 # ⑥島図の正式ファイル名（記事用に採番機構は無いので固定名。ランキングと同じ流儀）
 _ART_SHIMAZU_FN   = "島図.jpg"
 # 島図は 3451×6490（約22.4Mpx）。_save_jpeg の既定 target(250KB) は
@@ -7715,7 +7731,8 @@ def _art_osusume_images(machines, df, diff_raw, store: str,
 
 def _art_ranking_image(df: pd.DataFrame, diff_raw: pd.Series,
                        limit: int = _ART_RANK_DEFAULT,
-                       scale: float = 150 / 96) -> "Image.Image | None":
+                       scale: float = 150 / 96,
+                       hq_scale: float = 1.0) -> "Image.Image | None":
     """記事用⑥「差枚数ランキング」画像（渋谷新館・⑦プレビューと⑧本番で共用）。
 
     df / diff_raw : パイプラインの **補正後** データ（result["df"] / result["diff_raw"]）。
@@ -7725,9 +7742,14 @@ def _art_ranking_image(df: pd.DataFrame, diff_raw: pd.Series,
     列は ベスト / 台番 / 機種名 / ゲーム数 / BIG / REG / AT / 差枚数 の固定。
     ★差枚セルへ値に比例するバー・ゲージ・グラフは描かない（文字のみ）。
     ★描画はこの関数内で完結させる。共通の draw_table_image() は変更しない。
+    hq_scale      : >1 で **最初からその倍率の解像度で描画**する（後から resize しない）。
+                    フォント・行高・ヘッダー高・余白・最小列幅・タイトルバーの高さと
+                    文字サイズがすべて同じ倍率で決まる。既定 1.0 は従来と完全に同一。
     """
     if df is None or diff_raw is None or len(df) == 0:
         return None
+    _hq = hq_scale if hq_scale and hq_scale > 0 else 1.0
+    scale = scale * _hq
     _d = df.copy()
     _d["_rk_diff"] = pd.to_numeric(diff_raw, errors="coerce").values
     _d = _d[_d["_rk_diff"].notna()]
@@ -7754,7 +7776,7 @@ def _art_ranking_image(df: pd.DataFrame, diff_raw: pd.Series,
     _pad      = round(CELL_PAD    * scale)
     fn_data   = load_font(_font_sz)
     fn_hdr    = load_font(_font_sz)
-    fn_title  = load_font(TITLE_FONT_SZ)
+    fn_title  = load_font(round(TITLE_FONT_SZ * _hq))
 
     # ── 列幅（ヘッダー・全データの実測幅と最小幅の大きい方）─────────────
     _dummy = ImageDraw.Draw(Image.new("RGB", (1, 1)))
@@ -7765,7 +7787,8 @@ def _art_ranking_image(df: pd.DataFrame, diff_raw: pd.Series,
             _w = max(_w, _text_w(_dummy, _r[_ci], fn_data) + _pad * 2)
         col_w.append(max(_w, round(_ART_RANK_MIN_COL_W.get(str(_h), 30) * scale)))
     total_w = sum(col_w)
-    total_h = TITLE_H + _header_h + _row_h * len(rows)
+    _title_h = round(TITLE_H * _hq)
+    total_h = _title_h + _header_h + _row_h * len(rows)
 
     img  = Image.new("RGB", (total_w, total_h), "white")
     draw = ImageDraw.Draw(img)
@@ -7778,9 +7801,9 @@ def _art_ranking_image(df: pd.DataFrame, diff_raw: pd.Series,
 
     # ── 黒系タイトルバー（白文字・中央）────────────────────────────────
     y = 0
-    draw.rectangle([(0, 0), (total_w - 1, TITLE_H - 1)], fill=_ART_RANK_TITLE_BG)
-    _put(_ART_RANK_TITLE, 0, 0, total_w, TITLE_H, fn_title, _ART_RANK_TITLE_FG)
-    y += TITLE_H
+    draw.rectangle([(0, 0), (total_w - 1, _title_h - 1)], fill=_ART_RANK_TITLE_BG)
+    _put(_ART_RANK_TITLE, 0, 0, total_w, _title_h, fn_title, _ART_RANK_TITLE_FG)
+    y += _title_h
 
     # ── ヘッダー行 ────────────────────────────────────────────────────
     x = 0
@@ -15245,7 +15268,8 @@ def show_auto_article_page() -> None:
                             # 補正後の _apdf / _apdi をそのまま渡す（再計算・再取得なし）。
                             if store in _ART_RANK_STORES:
                                 _rk_img = _art_ranking_image(
-                                    _apdf, _apdi, limit=_art_ranking_limit(store))
+                                    _apdf, _apdi, limit=_art_ranking_limit(store),
+                                    hq_scale=_art_rank_hq(store))
                                 if _rk_img is not None:
                                     _art_pil.append((_ART_RANK_FN, _rk_img))
                             # ⑥ 島図（渋谷新館・ランキングの直後＝記事の最後）。
@@ -16332,12 +16356,16 @@ def show_auto_article_page() -> None:
             # ⑦プレビューと同じ _art_ranking_image() ・同じ件数を使う（別実装にしない）。
             # 差枚は result の補正後データをそのまま使う。
             if store in _ART_RANK_STORES and result["ok"]:
+                _rk_hq_e = _art_rank_hq(store)
                 _rk_img_e = _art_ranking_image(
                     result.get("df"), result.get("diff_raw"),
-                    limit=_art_ranking_limit(store))
+                    limit=_art_ranking_limit(store), hq_scale=_rk_hq_e)
                 if _rk_img_e is not None:
                     _rk_out_e = os.path.join(output_dir, _ART_RANK_FN)
-                    _save_jpeg(_rk_img_e, _rk_out_e)
+                    # 2倍描画は画素数が4倍。既定 target(250KB) では quality が
+                    # 落ちて文字・罫線が潰れるため、他のHQ画像と同じ目標へ上げる。
+                    _save_jpeg(_rk_img_e, _rk_out_e,
+                               **({"target_kb": _ART_HQ_TARGET_KB} if _rk_hq_e > 1.0 else {}))
                     result["files"].append(_rk_out_e)
                     _log(f"  ⑥ {_ART_RANK_FN}（{_art_ranking_limit(store)}位まで）")
 
@@ -16857,6 +16885,9 @@ def show_auto_article_page() -> None:
                     # ⑥差枚数ランキング / 島図（固定ファイル名）
                     _art_wp_pl["ranking"] = [_ART_RANK_FN]
                     _art_wp_pl["shimazu"] = [_ART_SHIMAZU_FN]
+                    # ジャグラー統合画像の直前へH3を入れる店舗（渋谷新館のみ）。
+                    # 実際に出すかは wp_client 側が統合画像の実在で最終判定する。
+                    _art_wp_pl["juggler_comb_h3"] = store in _ART_WP_JUG_H3_STORES
                     st.session_state[f"_art_wp_payload_{store}"] = _art_wp_pl
                 except Exception as _wpe0:
                     st.warning(f"WordPress用データの準備に失敗: {_wpe0}")

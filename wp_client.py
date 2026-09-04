@@ -116,8 +116,23 @@ H2_SHIMAZU  = "シマズをチェック！"
 # これらは payload に該当キーがある店舗でだけ出る。高田馬場は payload に無いので
 # 1ブロックも増えない（本文はバイト単位で従来と一致する）。
 H2_OSUSUME  = "オススメ機種の優秀台"
+# 差枚数ランキングと島図は **1つのH2へ統合**する（2026-09-04）。
+# `&` は raw のままだと Gutenberg のブロック検証で不一致になるため実体参照で持つ
+# （表示は「差枚数ランキング&島図」）。
+H2_RANK_SHIMAZU = "差枚数ランキング&amp;島図"
+# 旧・独立見出し。**本文へは出力しない**が、履歴として定数は残す（`_ARROW_TRI` と同じ扱い）。
 H2_RANKING  = "差枚数ランキング"
 H2_SHIMAZUZ = "島図"
+
+# ランキング画像と島図画像の間に入れる空段落の数（約5行ぶんの余白）。
+# `blk_empty_para()` を使う。**スペーサーブロック・`<br>`連続・`&nbsp;`・CSSは使わない**
+# （記事上部のX貼付用空段落と同じ方式に揃える）。
+RANK_SHIMAZU_GAP_PARAS = 5
+
+# ジャグラー統合画像の直前へ入れるH3（渋谷新館の記事用のみ）。
+# payload["juggler_comb_h3"] が真のときだけ、**統合画像が実在する場合に限り**出す。
+# 高田馬場はこのキーを持たないので1ブロックも増えない。
+H3_JUGGLER_COMB = "その他のジャグラーシリーズの優秀台"
 BUTTON_TEXT = "店舗情報・過去の結果はコチラ"
 
 # 機種H3の接頭辞（2026-08-25 追加）。**全台系と高配分だけ**に付ける。
@@ -354,6 +369,15 @@ def build_title(date_obj, store: str = WP_STORE) -> str:
 # ══════════════════════════════════════════════════════════════════
 # 縦長画像の分割（修正4・C案）— 原本には触れない
 # ══════════════════════════════════════════════════════════════════
+
+# 縦長でも **分割せず1枚のまま送る**ファイル名（2026-09-04 追加）。
+# 島図は分割すると WordPress 上で3つの別メディアになり、クリック拡大したときに
+# 「2Fの片だけ」が開いてしまう。記事では 2F+3F を含む島図全体を1枚絵として
+# 拡大できることを優先するため、島図だけ分割対象から外す。
+# **`needs_split()` 本体は変更しない**（高田馬場を含む既存の長画像分割は正式仕様のまま）。
+# トレードオフ: 1枚で送るとサイト側の長辺2560px縮小により約1361×2560になる。
+WP_NOSPLIT_FILES: "frozenset[str]" = frozenset({"島図.jpg"})
+
 
 def needs_split(w: int, h: int, max_h: int = WP_SPLIT_MAX_H) -> bool:
     """WordPress側の長辺縮小で幅が潰れるか。高さが上限超なら分割対象。"""
@@ -830,6 +854,10 @@ def plan_blocks(payload: dict) -> list[dict]:
             plan.append({"type": "image", "file": h["file"],
                          "label": ("手動高配分(ジャグ) " if h["manual"]
                                    else "自動高配分(ジャグ) ") + h["name"]})
+        # 統合画像が実在する店舗（渋谷新館）だけ、その直前へH3を入れる。
+        # **画像が無いときにH3だけ残らない**よう jug_comb を条件にする。
+        if jug_comb and payload.get("juggler_comb_h3"):
+            plan.append({"type": "h3", "text": H3_JUGGLER_COMB})
         plan.append({"type": "image", "file": FN_JUGGLER,
                      "label": "ジャグラーシリーズ優秀台", "optional": True})
 
@@ -856,23 +884,28 @@ def plan_blocks(payload: dict) -> list[dict]:
             for fn in _files:
                 plan.append({"type": "image", "file": fn, "label": f"オススメ {fn}"})
 
-    # ── 差枚数ランキング: H2 → 画像（渋谷新館の記事用のみ）──
-    rank_files = _existing_files(payload.get("ranking"), out_dir)
-    if rank_files:
-        plan.append({"type": "h2", "text": H2_RANKING})
-        for fn in rank_files:
-            plan.append({"type": "image", "file": fn, "label": f"差枚数ランキング {fn}"})
-
-    # ── 島図 / シマズ ──
-    #    島図画像がある店舗（渋谷新館）は「島図」H2 + 画像。
+    # ── 差枚数ランキング&島図: 1つのH2へ統合（渋谷新館の記事用のみ）──
+    #    ランキング画像 →（5行ぶんの空段落）→ 島図画像 の順。
+    #    **独立した「差枚数ランキング」「島図」のH2は出さない。**
+    #    どちらか片方だけでもH2を出し、両方無ければH2ごと省略する。
+    #    空段落は **両方そろっているときだけ** 入れる（片方だけなら余白が浮かない）。
     #    島図画像が無い店舗（高田馬場）は従来どおり「シマズをチェック！」の見出しのみ
     #    （画像は人間が挿入する）。**高田馬場のブロックは1つも変わらない。**
+    rank_files    = _existing_files(payload.get("ranking"), out_dir)
     shimazu_files = _existing_files(payload.get("shimazu"), out_dir)
-    if shimazu_files:
-        plan.append({"type": "h2", "text": H2_SHIMAZUZ})
+    if rank_files or shimazu_files:
+        plan.append({"type": "h2", "text": H2_RANK_SHIMAZU})
+        for fn in rank_files:
+            plan.append({"type": "image", "file": fn, "label": f"差枚数ランキング {fn}"})
+        if rank_files and shimazu_files:
+            for _ in range(RANK_SHIMAZU_GAP_PARAS):
+                plan.append({"type": "empty_para"})
         for fn in shimazu_files:
             plan.append({"type": "image", "file": fn, "label": f"島図 {fn}"})
-    else:
+    elif "ranking" not in payload and "shimazu" not in payload:
+        # ランキング/島図の**キー自体を持たない店舗**（高田馬場）だけ、
+        # 従来どおり「シマズをチェック！」の見出しを出す。
+        # 渋谷新館はキーを必ず渡すので、両方0枚なら **H2ごと出さない**。
         plan.append({"type": "h2", "text": H2_SHIMAZU})
 
     # ── 店舗情報ボタン ──
@@ -917,6 +950,9 @@ def plan_split(found: list[dict], tmp_dir: str) -> dict:
     from PIL import Image
     result: dict[str, list[dict]] = {}
     for f in found:
+        # 島図など「1枚絵のまま送る」ファイルは分割しない（needs_split は呼ばない）
+        if f["file"] in WP_NOSPLIT_FILES:
+            continue
         try:
             with Image.open(f["path"]) as im:
                 w, h = im.size

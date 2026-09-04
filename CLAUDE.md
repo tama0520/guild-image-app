@@ -7775,3 +7775,236 @@ Cloud Reboot も未実行。
 13. **HQ gate 3種（`_ART_HQ_STORES` / `_ART_ZH_HQ_STORES` / `_ART_NARABI_HQ_STORES`）を変更しない**
 14. **記事画像生成ロジック（抽出・パネル・液晶・スランプ・ZIP・JPEG）を変更しない**
 15. **無関係なリファクタ・未使用コード整理をしない**
+
+## 渋谷新館 WordPress：本文構成の見直しとランキング/島図の画質・1枚絵化（2026-09-04）
+
+**正式仕様。巻き戻し禁止。**対象は**【渋谷新館】の記事用 WordPress 本文と画像の扱いだけ**。
+正式コード commit は本節と**同一の commit**
+（`feat: 渋谷新館のWordPress本文と画像品質を改善`・2026-09-04・
+**`streamlit_app.py` / `wp_client.py` / `CLAUDE.md` の3ファイルのみ**）。
+実ページを確認したうえで確定した4点（ジャグラーH3／ランキング＆島図の統合／
+ランキングHQ／島図1枚絵）を反映したもの。
+**高田馬場のWordPress本文は本文HTMLのMD5まで完全に不変。**
+
+### ① ジャグラー統合画像の直前へH3（渋谷新館のみ）
+
+```
+H2 ジャグからも高配分機種多数！
+  ↓
+H3 その他のジャグラーシリーズの優秀台      ★渋谷新館のみ
+  ↓
+ジャグラーシリーズ優秀台.jpg
+```
+
+- 文言は **`H3_JUGGLER_COMB = "その他のジャグラーシリーズの優秀台"`**（`wp_client.py`）。
+- **`ジャグラーシリーズ優秀台.jpg` が実在するときだけ**出す
+  （`if jug_comb and payload.get("juggler_comb_h3")`）。
+  **画像が無いときにH3だけ残ることはない**（モックで実証済み）。
+- 出す店舗は `streamlit_app.py` の
+  **`_ART_WP_JUG_H3_STORES = frozenset({"渋谷新館"})`** → `payload["juggler_comb_h3"]`。
+  **高田馬場はこのキーを持たないのでH3は出ない。**
+- **`plan_blocks()` に店舗名の判定を入れない**（payload 駆動を維持）。
+
+### ② 差枚数ランキングと島図を1つのH2へ統合
+
+```
+H2 差枚数ランキング&島図
+  ↓
+差枚数ランキング.jpg
+  ↓
+空 paragraph ブロック × 5
+  ↓
+島図.jpg
+```
+
+- 定数 **`H2_RANK_SHIMAZU = "差枚数ランキング&amp;島図"`**。
+  **HTML内部は `&amp;` で保持する**。raw の `&` は Gutenberg のブロック検証で
+  「予期しない内容」エラーになるため。**WordPress上の表示は「差枚数ランキング&島図」。**
+- **独立した `H2 差枚数ランキング` / `H2 島図` / `H3 島図` は本文へ出さない。**
+  定数 `H2_RANKING` / `H2_SHIMAZUZ` は**履歴として残置・未使用**（`_ARROW_TRI` と同じ扱い）。
+- **高田馬場の `H2 シマズをチェック！` は従来どおり維持する。**
+
+### ③ 5行ぶんの余白は空 paragraph ブロック × 5
+
+```python
+RANK_SHIMAZU_GAP_PARAS = 5      # blk_empty_para() を5回
+```
+
+```html
+<!-- wp:paragraph -->
+<p class="wp-block-paragraph"></p>
+<!-- /wp:paragraph -->
+```
+
+記事上部の「X貼付用の空段落×3」と**同じ方式**。
+**スペーサーブロック・`<br>`連続・`&nbsp;`・CSS/テーマ変更は使わない**（正式仕様）。
+
+### ④ ランキング/島図の ON/OFF 4パターン（モック実証済み）
+
+| 状態 | 本文 |
+|---|---|
+| **ランキングON / 島図ON** | `H2 差枚数ランキング&島図` → ランキング画像 → **空段落×5** → 島図画像 |
+| **ランキングON / 島図OFF** | `H2 差枚数ランキング&島図` → ランキング画像のみ（**空段落0**） |
+| **ランキングOFF / 島図ON** | `H2 差枚数ランキング&島図` → 島図画像のみ（**空段落0**） |
+| **両方OFF** | **H2ごと非表示**（渋谷新館） |
+
+- **空段落は「両方そろっているときだけ」入れる**（片方だけのとき余白が浮かない）。
+- 両方OFFの判定は **`elif "ranking" not in payload and "shimazu" not in payload:`**。
+  渋谷新館はキーを必ず渡すので**H2ごと消え**、
+  **キー自体を持たない高田馬場だけ `H2 シマズをチェック！` が残る。**
+- ⑦でチェックを外して⑧が `output_dir` から削除した画像は
+  `_existing_files()` の実在判定で自然に本文から外れる（既存仕様の維持）。
+
+### ⑤ 差枚数ランキングのネイティブ2.0x描画
+
+**低解像度だった原因（2つ）**
+
+1. `_art_ranking_image(..., scale=150/96)` が**固定**で、HQ の仕組みに一度も接続されていなかった。
+2. ⑧が **`_save_jpeg` の既定 target 250KB** で保存しており、**実測 q=60 / 246KB** まで潰れていた。
+
+**採用した方式：ネイティブ2.0x（後から resize しない）**
+
+```python
+def _art_ranking_image(df, diff_raw, limit=…, scale=150/96, hq_scale=1.0):
+    _hq = hq_scale if hq_scale and hq_scale > 0 else 1.0
+    scale = scale * _hq
+    ...
+    fn_title = load_font(round(TITLE_FONT_SZ * _hq))
+    _title_h = round(TITLE_H * _hq)
+```
+
+関数は元から `scale` で font / row_h / header_h / pad / 最小列幅を決めていたため、
+**唯一スケールされていなかった `TITLE_H` / `TITLE_FONT_SZ` も `_hq` 倍**にした。
+**既定 `hq_scale=1.0` は従来と完全に同一。**
+
+| | pixel size | KB | quality | subsampling |
+|---|---|---|---|---|
+| **修正前** | **1093×2319** | **約246** | **60** | 4:4:4 |
+| **修正後** | **2181×4638** | **約2803** | **95** | 4:4:4 |
+
+**ネイティブ2倍の根拠（実測）**
+- 2x を50%縮小 → **1x とサイズ完全一致・画素差の中央値0**
+- **幅が正確な2倍にならない**（1093→**2181**／2×=2186＝**−5px**）＝列幅をフォント実測から再計算
+- **中間調（ぼけ）画素 2x実描画 4.70% ／ 1xをLANCZOS 2倍拡大 10.88%**
+
+**専用 gate**
+
+```python
+_ART_RANK_HQ_STORES = frozenset({"渋谷新館"})
+def _art_rank_hq(store) -> float          # 対象なら _ART_HQ_SCALE(2.0)
+```
+
+**`_ART_HQ_STORES` / `_ART_ZH_HQ_STORES` / `_ART_NARABI_HQ_STORES` とは統合しない。**
+⑦プレビューと⑧本番は**同じ `hq_scale=_art_rank_hq(store)`** を使う（片方だけHQは禁止）。
+⑧の保存目標は他のHQ画像と同じ `_ART_HQ_TARGET_KB` へ引き上げる。
+`_art_ranking_image()` の呼び出しは⑦/⑧の2か所だけで、いずれも `_ART_RANK_STORES`
+（＝渋谷新館）の内側なので**他店舗・通常ページへ影響しない**。
+
+### ⑥ ★ランキングはWordPressで2分割する（1枚絵化しない）
+
+2181×4638 は高さ2560超なので**既存の分割処理で2枚**になる。
+
+```
+2181×2336 ／ 2181×2302   → 各片の長辺 < 2560 → 縮小されず 幅2181px を維持
+（修正前は分割なしで 幅1093px）
+```
+
+**幅2181pxを維持して文字を高精細に見せることを優先する。ランキングを1枚絵にしない。**
+
+### ⑦ ★島図はWordPressでは1枚絵にする
+
+**2Fだけ拡大されていた直接原因**：島図が `plan_split()` で**縦3分割され、
+WordPress へ3つの別メディアとしてアップロード**されていたため。
+テーマのライトボックスはクリックしたメディアだけを開くので、1枚目（上部＝2F）しか開かなかった。
+
+```python
+# wp_client.py
+WP_NOSPLIT_FILES = frozenset({"島図.jpg"})
+
+def plan_split(found, tmp_dir):
+    for f in found:
+        if f["file"] in WP_NOSPLIT_FILES:
+            continue          # needs_split() すら呼ばない
+```
+
+| 項目 | 値 |
+|---|---|
+| 島図の元画像 | **3451×6490 ／ `_ART_SHIMAZU_TARGET_KB = 3000`（変更なし）** |
+| WordPress アップロード枚数 | **1枚** |
+| 本文の image block 数 | **1個** |
+| WordPress 側の保存サイズ（予測） | **約 1361×2560**（core の big-image しきい値2560で `-scaled.jpg` が作られ `source_url` はそれを指す） |
+
+- **クリック・拡大時に 2F＋3F を含む島図全体が1枚として表示される**ことを優先する。
+- **約1361×2560へ縮小されることは了承済みの正式仕様**。今回これを問題としない。
+- サイト設定・PHP・テーマ・サーバー設定を変えずに2560px縮小を避けつつ1枚絵にする方法は
+  現在のAPI/サイト仕様には無い（`WP_MAX_SIDE=2560` はサイト側の挙動）。
+- **`shimazu_renderer.py` / `masters/shimazu_渋谷新館.json` / 島図canvas・レイアウト・文字・色・
+  JPEG生成は変更しない。**
+
+### ⑧ 既存の分割処理は変更しない（島図だけの例外）
+
+**`needs_split()` / `split_count()` / `split_image_for_wp()` の本体はバイト一致で無変更。**
+除外は `plan_split()` の入口で `WP_NOSPLIT_FILES` を見るだけ。
+
+| 画像 | 分割 |
+|---|---|
+| ジャグラーシリーズ優秀台.jpg（1985×2971） | **2分割（従来どおり）** |
+| その他の優秀台ピックアップ.jpg（2160×8934） | **4分割（従来どおり）** |
+| 差枚数ランキング.jpg（HQ後 2181×4638） | **2分割** |
+| **島図.jpg（3451×6490）** | **分割しない（1枚絵）** |
+
+**高田馬場の分割仕様にも影響しない。**
+
+### ⑨ 高田馬場の完全非回帰（同一payloadで比較）
+
+| 項目 | before | after |
+|---|---|---|
+| **本文HTML MD5** | **`c35ac89ea13c`** | **`c35ac89ea13c`** |
+| タイトル | `9月2日(水)│エスパス高田馬場│` | 同左 |
+| 送信対象・画像順（9枚） | ポスター→全台系2→高配分2→末尾→バラエティ→ジャグ統合→その他 | 同左 |
+| `H2 シマズをチェック！` | あり | **あり（維持）** |
+| category | id=24 / slug=`espace-takadanobaba` | 同左 |
+| 分割判定・必須/任意不足 | — | 同左 |
+
+**高田馬場に `その他のジャグラーシリーズの優秀台` H3 も
+`差枚数ランキング&島図` H2 も追加しない。島図の1枚絵例外も影響しない。**
+
+### ⑩ 無変更（バイト一致を機械確認）
+
+`needs_split` / `split_count` / `split_image_for_wp` / `upload_media` / `create_draft` /
+`h3_zendai` / `h3_narabi` / `h3_retsu` / `narabi_file_name` / `build_content` /
+`collect_files` / `_existing_files` / `_resolve_high_images` ／
+`convert_narabi_pil.py` ／ `shimazu_renderer.py` ／ `masters/shimazu_渋谷新館.json`。
+
+不変の定数：
+`_ART_WP_STORES = {"高田馬場","渋谷新館"}` ／
+`WP_STORE_CATEGORY = {高田馬場:24/espace-takadanobaba, 渋谷新館:19/espace-shibuyashin}` ／
+`_ART_HQ_STORES` ／ `_ART_ZH_HQ_STORES` ／ `_ART_NARABI_HQ_STORES` ／
+`_ART_SHIMAZU_TARGET_KB = 3000` ／ `WP_MAX_SIDE = 2560` ／ `WP_STATUS = "draft"` ／
+`WP_AUTHOR_ID = 14`。
+
+**新規関数は `streamlit_app._art_rank_hq()` の1つだけ**、消失関数0。
+Pision取得／抽出条件／パネル／液晶／スランプ／ZIP／全台系・高配分HQ／並び・列HQ も無変更。
+
+### ⑪ 今回のWordPress通信
+
+**変更通信0件。** media upload / 下書き作成 / POST / PUT / PATCH / DELETE いずれも未実行。
+検証はすべてローカルのモックで行った。Cloud Reboot も未実行。
+
+### ⑫ 今後の禁止事項
+
+1. **`plan_blocks()` に店舗名の分岐を入れない**（payload 駆動を維持）
+2. **高田馬場の本文HTML MD5 `c35ac89ea13c` を壊さない**
+3. **高田馬場へ `その他のジャグラーシリーズの優秀台` / `差枚数ランキング&島図` を追加しない**
+4. **高田馬場の `シマズをチェック！` を消さない**
+5. **H2の `&` を raw に戻さない**（`&amp;` で保持）
+6. **ジャグラーH3を画像の実在チェックなしで出さない**
+7. **5行余白をスペーサーブロック・`<br>`・`&nbsp;`・CSSへ置き換えない**
+8. **`_ART_RANK_HQ_STORES` を既存3 gate へ統合しない**
+9. **ランキングを1枚絵にしない**（2分割で幅2181pxを維持する）
+10. **⑦だけHQ／⑧だけHQ の状態を作らない**
+11. **島図を再び分割対象に戻さない**（`WP_NOSPLIT_FILES` を外さない）
+12. **`needs_split()` / `split_count()` / `split_image_for_wp()` 本体を変更しない**
+13. **島図の 3451×6490 と `_ART_SHIMAZU_TARGET_KB=3000`・renderer・master を変更しない**
+14. **島図の約1361×2560縮小を理由にサイト設定・PHP・テーマ・サーバー設定を変更しない**
+15. **無関係なリファクタ・未使用コード整理をしない**

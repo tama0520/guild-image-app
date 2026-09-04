@@ -3018,6 +3018,13 @@ _ART_WP_STORES = frozenset({"高田馬場", "渋谷新館"})
 # **高田馬場は対象外**（既存のWordPress本文をバイト単位で維持するため）。
 _ART_WP_JUG_H3_STORES = frozenset({"渋谷新館"})
 
+# WordPress冒頭へ「ななこポスト」セクションを入れる店舗。
+# **高田馬場は対象外**（既存のWordPress本文をバイト単位で維持するため）。
+# 秋葉原はそもそもWordPress対象外（_ART_WP_STORES に無い）。
+_ART_NANAKO_STORES = frozenset({"渋谷新館"})
+# ヒント入力欄の数（固定6枠）。空欄の枠は本文へ出さない。
+_ART_NANAKO_HINTS = 6
+
 # 記事用の並び・列を subprocess で描くときの「何台以上でHQか」。
 # 1 にすると台数を見ずに常に HQ_SCALE が効く（スクリプト既定の10台判定を上書きする）。
 _ART_NARABI_HQ_MIN_ROWS = 1
@@ -5929,7 +5936,13 @@ def _article_input_keys(store: str) -> list[str]:
         f"art_wp_top_text_x_{store}",
         # ⑥差枚数ランキングの表示順位（渋谷新館・Excel＝日付単位。既定50位まで）
         f"art_ranking_limit_{store}",
+        # ななこポスト（渋谷新館・WordPress冒頭）: 前日のXポストURL。
+        # ヒントは下でまとめて追加する。いずれも Excel＝日付単位で保存する
+        # （9/2の記事には9/1夜のポスト＋9/2の結果から分かったヒントが入るため、
+        #   日付をまたいで値が混ざってはいけない）。
+        f"art_nanako_url_{store}",
     ]
+    keys += [f"art_nanako_hint_{_i}_{store}" for _i in range(_ART_NANAKO_HINTS)]
     for i in range(_KOJIN_PICK_COUNT):
         keys += [f"art_kojin_pick_title_{i}_{store}", f"art_kojin_pick_bans_{i}_{store}"]
     # ⑤オススメ機種の優秀台（記入式・6ブロック×6機種＝タイトル6＋機種36）。
@@ -14402,6 +14415,27 @@ def show_auto_article_page() -> None:
     st.caption("Xの投稿URLは自動挿入しません。WordPress編集画面で、ポスター下文章と"
                "Xリンク下文章の間にできる**空段落3行**へ手で貼り付けてください。")
 
+    # ── ななこポスト（渋谷新館のWordPress冒頭・Xリンク下文章の直後に入る）──
+    # 見出し・導入文・締め文はコード側の固定文（wp_client）なので入力欄は作らない。
+    # 入力するのは「前日のXポストURL」と「ヒント1〜6」だけ。
+    # 保存は既存の article_page_inputs.json（Excel＝日付単位）。②個別画像を
+    # 巻き込まないよう on_change は必ず skip_kojin=True で呼ぶ（0e7dc4c の正式仕様）。
+    if store in _ART_NANAKO_STORES:
+        st.markdown("**ななこポスト**（WordPress冒頭・「全台系」の直前に入ります）")
+        st.caption("見出し・導入文・締め文は固定です。ヒントは先頭の「■」を自動で付けるので"
+                   "本文だけ入力してください。空欄のヒントは出力しません。")
+        st.text_input("前日のななこポスト Xリンク（空欄なら「↓前日の夜に…」ごと出力しません）",
+                      key=f"art_nanako_url_{store}",
+                      on_change=_save_article_inputs, args=(store, True),
+                      placeholder="https://x.com/... ")
+        _nk_cols = st.columns(2, gap="large")
+        for _nk_i in range(_ART_NANAKO_HINTS):
+            with _nk_cols[_nk_i % 2]:
+                st.text_input(f"ヒント{_nk_i + 1}",
+                              key=f"art_nanako_hint_{_nk_i}_{store}",
+                              on_change=_save_article_inputs, args=(store, True),
+                              placeholder="例: ヒソカ→見た目がピエロ→ピエロ→北斗")
+
     # ── ② 全台系（表示のみ。抽出・生成は run_step1_main が自動で行う）──────
     # 設定UIは持たない（ON/OFFも無い）。記事の構成番号を1つ使うためだけの見出し。
     # ★渋谷新館（_art_v2）は「全台系」の独立見出しを表示しない。
@@ -16888,6 +16922,14 @@ def show_auto_article_page() -> None:
                     # ジャグラー統合画像の直前へH3を入れる店舗（渋谷新館のみ）。
                     # 実際に出すかは wp_client 側が統合画像の実在で最終判定する。
                     _art_wp_pl["juggler_comb_h3"] = store in _ART_WP_JUG_H3_STORES
+                    # ななこポスト（渋谷新館のみ）。固定文は wp_client 側が持つ。
+                    # キーを渡した店舗だけセクションが出る（高田馬場は渡さない）。
+                    if store in _ART_NANAKO_STORES:
+                        _art_wp_pl["nanako"] = {
+                            "url": st.session_state.get(f"art_nanako_url_{store}", ""),
+                            "hints": [st.session_state.get(f"art_nanako_hint_{_i}_{store}", "")
+                                      for _i in range(_ART_NANAKO_HINTS)],
+                        }
                     st.session_state[f"_art_wp_payload_{store}"] = _art_wp_pl
                 except Exception as _wpe0:
                     st.warning(f"WordPress用データの準備に失敗: {_wpe0}")

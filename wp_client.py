@@ -26,13 +26,15 @@
 
 from __future__ import annotations
 
+import html
+import json
 import math
 import os
 import re
 import tempfile
 import time
 from collections import Counter
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit
 
 # ── 投稿設定（正式仕様・変更禁止）──────────────────────────────────
 WP_STORE          = "高田馬場"
@@ -133,6 +135,22 @@ RANK_SHIMAZU_GAP_PARAS = 5
 # payload["juggler_comb_h3"] が真のときだけ、**統合画像が実在する場合に限り**出す。
 # 高田馬場はこのキーを持たないので1ブロックも増えない。
 H3_JUGGLER_COMB = "その他のジャグラーシリーズの優秀台"
+
+# ── ななこポスト（渋谷新館の記事用のみ・2026-09-04 追加）────────────────
+# 記事上部（Xリンク下文章）の直後・「全台系濃厚機種が複数」H2 の直前に入る。
+# 固定文はここで管理し、**ユーザー入力欄にはしない**。
+# 可変なのは「前日のななこポストURL」と「ヒント1〜6」だけ。
+NANAKO_H2       = "ななこポストに仕掛けのヒントを確認！"
+NANAKO_LEAD     = ("前日の夜に配信される渋谷ななこのポストには仕掛けのヒントが"
+                   "隠されていることが多く、今回もポストから仕掛けのヒントと"
+                   "思しき箇所を複数確認！")
+NANAKO_URL_LEAD = "↓前日の夜に配信されたポストがコチラ"
+NANAKO_HINT_LEAD = "今回の結果から考えると下記のヒントを確認することができました！"
+NANAKO_OUTRO    = ("このように、ななこポストからは連日仕掛けのヒントを確認できているため、"
+                   "打ちに行く際は必ずチェックしておきましょう！")
+NANAKO_HINT_MARK = "■"          # ヒント行の先頭記号。**この記号だけ赤＋太字**にする
+NANAKO_MARK_COLOR = "#e60012"   # ■ の色（インラインstyle。テーマCSSは変更しない）
+NANAKO_HINT_COUNT = 6           # ヒント入力欄の数（固定）
 BUTTON_TEXT = "店舗情報・過去の結果はコチラ"
 
 # 機種H3の接頭辞（2026-08-25 追加）。**全台系と高配分だけ**に付ける。
@@ -617,6 +635,92 @@ def blk_para(text: str) -> str:
             '<!-- /wp:paragraph -->')
 
 
+def esc(text) -> str:
+    """ユーザー入力をHTMLへ入れる前のエスケープ（& < > " ' ）。
+
+    本文へそのまま連結するとブロック検証が壊れる・リンクが崩れるため、
+    **ユーザー入力を出す新しいブロックは必ずここを通す**。
+    """
+    return html.escape(str(text if text is not None else ""), quote=True)
+
+
+def blk_para_bold(text: str) -> str:
+    """段落まるごと太字（ななこポストの「↓前日の夜に…」用）。"""
+    return ('<!-- wp:paragraph -->\n'
+            f'<p class="wp-block-paragraph"><strong>{text}</strong></p>\n'
+            '<!-- /wp:paragraph -->')
+
+
+# X（旧Twitter）投稿の埋め込み。**推測ではなく、同じサイトの既存投稿（ID 60367）の
+# content.raw を GET で読んで確認した実物の markup** に合わせている（2026-09-04）。
+#
+#   <!-- wp:embed {"url":"…","type":"rich","providerNameSlug":"x","responsive":true} -->
+#   <figure class="wp-block-embed is-type-rich is-provider-x wp-block-embed-x">
+#   <div class="wp-block-embed__wrapper">
+#   URL
+#   </div></figure>
+#   <!-- /wp:embed -->
+#
+# サイトの oEmbed プロキシは x.com / twitter.com の**どちらでも 200 を返す**ことを実測
+# 済みなので、入力されたドメインは書き換えない。
+_X_STATUS_RE = re.compile(
+    r"^https://(?:x\.com|twitter\.com)/[A-Za-z0-9_]{1,15}/status/\d+/?$", re.I)
+
+
+def normalize_x_url(url) -> str:
+    """X投稿URLとして安全なものだけを返す。該当しなければ空文字。
+
+    * `?s=20` のようなクエリ・フラグメントは落としてから判定する
+      （HTML内の `&` によるブロック検証ずれを避けるため）。
+    * `javascript:` `data:` など https 以外は**すべて弾く**。
+    * 独自のURLパーサーは作らず urllib.parse と1本の正規表現だけで判定する。
+    """
+    u = str(url or "").strip()
+    if not u:
+        return ""
+    try:
+        p = urlsplit(u)
+    except Exception:
+        return ""
+    if p.scheme.lower() != "https" or not p.netloc:
+        return ""
+    base = urlunsplit((p.scheme, p.netloc, p.path, "", ""))
+    return base if _X_STATUS_RE.match(base) else ""
+
+
+def blk_embed_x(url: str) -> str:
+    """X投稿の埋め込みブロック（Gutenberg標準の wp:embed）。
+
+    ブロック属性は JSON なので json.dumps で、figure 内のURLテキストは esc() で出す。
+    **生の文字列連結はしない。**
+    """
+    u = normalize_x_url(url)
+    if not u:
+        return ""
+    attrs = json.dumps({"url": u, "type": "rich",
+                        "providerNameSlug": "x", "responsive": True},
+                       ensure_ascii=False, separators=(",", ":"))
+    return (f'<!-- wp:embed {attrs} -->\n'
+            '<figure class="wp-block-embed is-type-rich is-provider-x wp-block-embed-x">'
+            '<div class="wp-block-embed__wrapper">\n'
+            f'{esc(u)}\n'
+            '</div></figure>\n'
+            '<!-- /wp:embed -->')
+
+
+def blk_para_hint(text: str) -> str:
+    """ヒント1行。**先頭の「■」だけ赤＋太字**で、後ろの本文は通常表示。
+
+    span のインラインstyleだけで表現する（テーマCSSは変更しない）。
+    段落全体を赤・太字にしない。
+    """
+    return ('<!-- wp:paragraph -->\n'
+            f'<p class="wp-block-paragraph">'
+            f'<strong style="color:{NANAKO_MARK_COLOR}">{NANAKO_HINT_MARK}</strong>'
+            f'{esc(text)}</p>\n'
+            '<!-- /wp:paragraph -->')
+
+
 def blk_empty_para() -> str:
     """空の段落ブロック。
 
@@ -764,6 +868,29 @@ def plan_blocks(payload: dict) -> list[dict]:
             plan.append({"type": "empty_para"})
         for _ln in _top_x:
             plan.append({"type": "para", "text": _ln})
+
+    # ── ななこポスト（渋谷新館の記事用のみ・2026-09-04 追加）──────────────
+    #    位置は **記事上部（Xリンク下文章）の直後・全台系H2の直前**で固定。
+    #    payload["nanako"] を持つ店舗だけ出る（高田馬場はキーを持たないので1ブロックも
+    #    増えない）。固定文は定数、可変は URL とヒント1〜6 だけ。
+    #    * URL が空 → 「↓前日の夜に…」とURLの **2つをセットで出さない**
+    #    * ヒントが0件 → 「今回の結果から…」・ヒント一覧・締め文章を **まとめて出さない**
+    #    * 空のヒント欄は詰めて出す（空の「■」を作らない）
+    _nanako = payload.get("nanako")
+    if _nanako is not None:
+        _nk_url   = normalize_x_url((_nanako or {}).get("url"))
+        _nk_hints = [str(h or "").strip() for h in ((_nanako or {}).get("hints") or [])]
+        _nk_hints = [h for h in _nk_hints if h]
+        plan.append({"type": "h2", "text": NANAKO_H2})
+        plan.append({"type": "para", "text": NANAKO_LEAD})
+        if _nk_url:
+            plan.append({"type": "para_bold", "text": NANAKO_URL_LEAD})
+            plan.append({"type": "embed_x", "url": _nk_url})
+        if _nk_hints:
+            plan.append({"type": "para", "text": NANAKO_HINT_LEAD})
+            for _h in _nk_hints:
+                plan.append({"type": "para_hint", "text": _h})
+            plan.append({"type": "para", "text": NANAKO_OUTRO})
 
     # ── 全台系: H2 →（H3 + 画像）× 機種数 ──
     zen = sorted(payload["zen_dai"], key=lambda x: -int(x.get("all_avg_diff", 0)))
@@ -987,6 +1114,12 @@ def build_content(plan: list[dict], media_map: dict, site: str = "",
             out.append(blk_para(item["text"]))
         elif t == "empty_para":
             out.append(blk_empty_para())
+        elif t == "para_bold":
+            out.append(blk_para_bold(item["text"]))
+        elif t == "embed_x":
+            out.append(blk_embed_x(item["url"]))
+        elif t == "para_hint":
+            out.append(blk_para_hint(item["text"]))
         elif t == "para_high":
             out.append(blk_para_high(item["lines"]))
         elif t == "para_juggler":

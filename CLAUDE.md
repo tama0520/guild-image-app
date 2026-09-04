@@ -8008,3 +8008,210 @@ Pision取得／抽出条件／パネル／液晶／スランプ／ZIP／全台�
 13. **島図の 3451×6490 と `_ART_SHIMAZU_TARGET_KB=3000`・renderer・master を変更しない**
 14. **島図の約1361×2560縮小を理由にサイト設定・PHP・テーマ・サーバー設定を変更しない**
 15. **無関係なリファクタ・未使用コード整理をしない**
+
+## 渋谷新館 WordPress：記事冒頭の「ななこポスト」セクション（2026-09-04）
+
+**正式仕様。巻き戻し禁止。**対象は**【渋谷新館】の記事用 WordPress 本文の冒頭だけ**。
+正式コード commit は本節と**同一の commit**
+（`feat: 渋谷新館の記事冒頭にななこポストを追加`・2026-09-04・
+**`streamlit_app.py` / `wp_client.py` / `CLAUDE.md` の3ファイルのみ**）。
+**高田馬場のWordPress本文は本文HTMLのMD5まで完全に不変。**
+
+### ① 挿入位置
+
+**記事上部（Xリンク下文章）の直後・`H2 全台系濃厚機種が複数` の直前**で固定。
+
+```
+既存の記事上部（見出し／ポスター／ポスター下文章／空段落×3／Xリンク下文章）
+  ↓
+H2 ななこポストに仕掛けのヒントを確認！        ★ここから
+  ↓
+固定の導入文
+  ↓
+【太字】↓前日の夜に配信されたポストがコチラ
+  ↓
+X投稿の埋め込み（Gutenberg標準 wp:embed）
+  ↓
+固定文「今回の結果から考えると下記のヒントを確認することができました！」
+  ↓
+■ヒント × 最大6件（「■」だけ赤＋太字）
+  ↓
+固定の締め文                                  ★ここまで
+  ↓
+H2 全台系濃厚機種が複数（以降は従来どおり）
+```
+
+**`plan_blocks()` に店舗名の判定は入れない。** `payload["nanako"]` を持つ店舗だけ出る
+（`streamlit_app._ART_NANAKO_STORES = frozenset({"渋谷新館"})`）。
+**高田馬場はこのキーを渡さないので1ブロックも増えない。**
+
+### ② 固定文章（`wp_client.py` の定数・入力欄にしない）
+
+| 定数 | 文言 |
+|---|---|
+| `NANAKO_H2` | ななこポストに仕掛けのヒントを確認！ |
+| `NANAKO_LEAD` | 前日の夜に配信される渋谷ななこのポストには仕掛けのヒントが隠されていることが多く、今回もポストから仕掛けのヒントと思しき箇所を複数確認！ |
+| `NANAKO_URL_LEAD` | ↓前日の夜に配信されたポストがコチラ（**太字段落**） |
+| `NANAKO_HINT_LEAD` | 今回の結果から考えると下記のヒントを確認することができました！ |
+| `NANAKO_OUTRO` | このように、ななこポストからは連日仕掛けのヒントを確認できているため、打ちに行く際は必ずチェックしておきましょう！ |
+| `NANAKO_HINT_MARK` | ■ |
+| `NANAKO_MARK_COLOR` | **#e60012** |
+| `NANAKO_HINT_COUNT` | 6 |
+
+### ③ 入力UIと保存（日付単位）
+
+記事用ページの「Xリンク下の文章」キャプションの直後に配置。**既存採番①〜⑧は変更しない。**
+
+- **前日のななこポスト Xリンク × 1**
+- **ヒント1〜6（2列×3段）**
+
+| session_state キー | 内容 |
+|---|---|
+| `art_nanako_url_渋谷新館` | 前日のXポストURL |
+| `art_nanako_hint_0_渋谷新館` 〜 `art_nanako_hint_5_渋谷新館` | ヒント1〜6 |
+
+- 保存は **既存の `article_page_inputs.json`（Excelファイル名＝日付でスコープ）**。
+  **新しい保存ファイルを作らない。**
+- `_article_input_keys(store)` へ**7キーを登録**し、既存の
+  `_save_article_inputs(store, skip_kojin=True)` / `_restore_article_inputs()` に乗せる。
+  **`on_change` は必ず `args=(store, True)`＝`skip_kojin=True`**（②個別画像を巻き込まない・`0e7dc4c`）。
+- **実UI検証（2026-09-04）**: 9/2 で入力 → **9/1 へ切替でURL・ヒント全欄が空（混入なし）** →
+  **9/2 へ戻すと完全復元**。
+- **この保存経路を変更しない。**
+
+### ④ ★X投稿はGutenberg標準の embed ブロックで出す
+
+**paragraph + `<a>` のURLリンクにしない。**
+markup は**推測せず、同じサイトの既存投稿（ID 60367）の `content.raw` を GET で読んで確認した実物**
+に合わせている。生成結果は**その既存ブロックと文字列完全一致**する。
+
+```html
+<!-- wp:embed {"url":"…","type":"rich","providerNameSlug":"x","responsive":true} -->
+<figure class="wp-block-embed is-type-rich is-provider-x wp-block-embed-x"><div class="wp-block-embed__wrapper">
+URL
+</div></figure>
+<!-- /wp:embed -->
+```
+
+- **`providerNameSlug` は `"x"`**（サイト上には旧 `"twitter"` の投稿も残るが、現行Gutenbergが
+  出すのは `"x"`）。
+- ブロック属性は **`json.dumps(..., separators=(",",":"))`**、figure内のURLテキストは **`esc()`**。
+  **生の文字列連結はしない。**
+
+### ⑤ URL の判定（`normalize_x_url()`）
+
+`urlsplit` ＋ 正規表現1本だけ。**独自URLパーサーを作らない。**
+
+| 入力 | 扱い |
+|---|---|
+| `https://x.com/<handle>/status/<数字>` | **採用** |
+| `https://twitter.com/<handle>/status/<数字>` | **採用（ドメインを書き換えない）** |
+| 末尾スラッシュあり | 採用 |
+| `?s=20&t=…` などのクエリ・フラグメント | **自動除去して採用**（HTML内の `&` によるブロック検証ずれを避ける） |
+| `http://`（https でない） | **拒否** |
+| `javascript:` / `data:` | **拒否** |
+| 他ドメイン | **拒否** |
+| `/status/` なし・status が非数値 | **拒否** |
+| 空文字・空白 | **拒否** |
+
+**`twitter.com` → `x.com` の書き換えはしない。**
+サイトの `GET /wp-json/oembed/1.0/proxy` が **x.com / twitter.com のどちらでも 200 を返す**ことを
+実測済み（どちらも canonical `x.com` を返す）。
+
+**不正URLは「Xなし」と同じ扱い**（`plan_blocks()` は `normalize_x_url()` の結果で判定する）。
+
+### ⑥ ヒント行の「■」だけ赤＋太字
+
+```html
+<!-- wp:paragraph -->
+<p class="wp-block-paragraph"><strong style="color:#e60012">■</strong>ヒソカ→見た目がピエロ→ピエロ→北斗</p>
+<!-- /wp:paragraph -->
+```
+
+- **「■」だけが `<strong style="color:#e60012">`。後ろの本文は装飾なし。**
+  **段落全体を赤・太字にしない。**
+- **入力欄へ「■」を打つ必要はない**（出力時に自動で付ける）。
+- **空欄のヒントは出力しない。**途中が空でも詰めて、入力済みのヒントだけ出す
+  （空の「■」を作らない）。
+- インラインstyleのみ。**テーマCSSは変更しない。**
+
+### ⑦ エスケープ
+
+`wp_client` に escape が無かったため **`esc()`（`html.escape(..., quote=True)`）を新設**。
+
+- **ヒント本文は必ず `esc()` を通す**（実測: `<script>` → `&lt;script&gt;`、`&` → `&amp;`、
+  `"` → `&quot;`、`'` → `&#x27;`）。
+- embed の属性は `json.dumps`、figure内URLは `esc()`。
+- **ユーザー入力を生のままHTMLへ連結しない。**
+
+### ⑧ 条件分岐（モック実証済み）
+
+| パターン | 出力 |
+|---|---|
+| **Xあり＋ヒントあり** | H2 → 導入文 → 太字 → X embed → ヒントlead → ヒント → 締め文 |
+| **Xなし＋ヒントあり** | **太字とX embed をセットで非表示**／ヒント部分は表示 |
+| **Xあり＋ヒントなし** | H2 → 導入文 → 太字 → X embed（**ヒントlead・ヒント・締め文をまとめて非表示**） |
+| **Xなし＋ヒントなし** | **H2 ＋ 固定導入文のみ** |
+| **不正URL** | **Xなしと同じ扱い** |
+| **途中空欄** | 入力済みのヒントだけ表示 |
+
+**入力が1件も無くても H2＋固定導入文までは出す**（セクションごと消さない）。
+
+### ⑨ `blk_para_link()` は削除（正式）
+
+最初 paragraph+`<a>` 方式で作った `blk_para_link()` は **ななこポスト専用**だったため、
+embed 化に伴い**削除した**（定義・使用・dispatch すべて0件を機械確認）。
+**残骸を戻さない。**
+
+### ⑩ 高田馬場の完全非回帰
+
+| 項目 | before | after |
+|---|---|---|
+| **本文HTML MD5** | **`c35ac89ea13c`** | **`c35ac89ea13c`** |
+| タイトル／画像順（9枚）／送信対象／分割判定／カテゴリ | — | すべて一致 |
+| `H2 シマズをチェック！` | あり | **あり（維持）** |
+
+**高田馬場へ「ななこポスト」セクションを追加しない。**
+
+### ⑪ 渋谷新館の既存WordPress仕様は不変
+
+ジャグラーH3「その他のジャグラーシリーズの優秀台」／`H2 差枚数ランキング&島図`／
+ランキングと島図の間の**空段落×5**／ランキングHQ（`_ART_RANK_HQ_STORES={"渋谷新館"}`・
+2181×4638・WordPressで2分割）／**島図 3451×6490・1枚絵**（`WP_NOSPLIT_FILES={"島図.jpg"}`）／
+店舗情報ボタン ── **すべて維持**。
+
+定数も不変：`_ART_WP_STORES = {"高田馬場","渋谷新館"}` ／
+`WP_STORE_CATEGORY = {高田馬場:24/espace-takadanobaba, 渋谷新館:19/espace-shibuyashin}` ／
+`_ART_HQ_STORES` ／ `_ART_ZH_HQ_STORES` ／ `_ART_NARABI_HQ_STORES` ／
+`_ART_RANK_HQ_STORES` ／ `_ART_SHIMAZU_TARGET_KB = 3000`。
+
+`convert_narabi_pil.py` / `shimazu_renderer.py` / `masters/shimazu_渋谷新館.json` も**無変更**。
+新規関数は `wp_client` の **`esc` / `blk_para_bold` / `blk_para_hint` / `normalize_x_url` /
+`blk_embed_x`** の5つだけ、消失は `blk_para_link` のみ（同セッション内で追加→削除）。
+
+### ⑫ 今回のWordPress通信
+
+**変更通信0件。** POST / PUT / PATCH / DELETE / media upload / draft作成はすべて未実行。
+行ったのは **markup 確認のための `GET /wp/v2/posts` と `GET /oembed/1.0/proxy`（参照のみ）** だけ。
+Cloud Reboot も未実行。
+
+### ⑬ 今後の禁止事項
+
+1. **X投稿を paragraph+`<a>` のURLリンクへ戻さない**（Gutenberg標準 embed を維持）
+2. **embed の markup を推測で書き換えない**（実サイトの保存形と一致させる）
+3. **`providerNameSlug` を `"twitter"` へ戻さない**
+4. **`twitter.com` → `x.com` の書き換えを足さない**
+5. **クエリ除去をやめない**（`&` がHTMLへ入るとブロック検証がずれる）
+6. **`normalize_x_url()` を通さずに embed を出さない**（javascript: / data: の混入防止）
+7. **ヒント本文の `esc()` を外さない／ユーザー入力を生でHTMLへ連結しない**
+8. **段落全体を赤・太字にしない**（赤＋太字は「■」だけ）
+9. **`NANAKO_MARK_COLOR` を理由なく変えない**
+10. **入力欄へ「■」を打たせる仕様にしない**
+11. **空欄のヒントを出さない**（空の「■」を作らない）
+12. **`plan_blocks()` に店舗名の分岐を入れない**（payload 駆動を維持）
+13. **高田馬場へ「ななこポスト」を追加しない／MD5 `c35ac89ea13c` を壊さない**
+14. **`blk_para_link()` を復活させない**
+15. **保存に新しいJSONを作らない**（`article_page_inputs.json` の日付スコープを維持）
+16. **`skip_kojin=True` を外さない**（②個別画像を巻き込む）
+17. **渋谷新館の既存WordPress仕様（ジャグラーH3・ランキング&島図・空段落×5・島図1枚絵）を変えない**
+18. **無関係なリファクタ・未使用コード整理をしない**

@@ -8215,3 +8215,194 @@ Cloud Reboot も未実行。
 16. **`skip_kojin=True` を外さない**（②個別画像を巻き込む）
 17. **渋谷新館の既存WordPress仕様（ジャグラーH3・ランキング&島図・空段落×5・島図1枚絵）を変えない**
 18. **無関係なリファクタ・未使用コード整理をしない**
+
+## 渋谷新館 ななこポスト：X埋め込みホストとヒント表示の修正（2026-09-04・実WordPress検証で確定）
+
+**正式仕様。巻き戻し禁止。**対象は**【渋谷新館】のななこポストセクションだけ**。
+正式コード commit は本節と**同一の commit**
+（`fix: 渋谷新館のX埋め込みとヒント表示を修正`・2026-09-04・
+**`wp_client.py` と `CLAUDE.md` の2ファイルのみ**。`streamlit_app.py` はバイト無変更）。
+
+直前の「渋谷新館 WordPress：記事冒頭の「ななこポスト」セクション（2026-09-04）」の
+**3点を supersede する**。**同節は削除・書き換えしない**（当時の判断の記録として残す）。
+
+### ⓪ 上書きされた3点
+
+| | 旧（同日の前ノード） | **新（本節・正式）** |
+|---|---|---|
+| 埋め込みURLのホスト | 「**入力されたドメインをそのまま使う**（x.com / twitter.com を書き換えない）」 | **`blk_embed_x()` の中だけ `twitter.com` へ正規化する** |
+| ヒントの色・太字 | 「**「■」だけ**赤＋太字」 | **「■＋ヒント本文」の1行まるごと**を赤＋太字 |
+| ヒントの段落 | **1ヒント＝1 paragraph** | **ヒント一覧全体を1 paragraph にまとめ `<br>` で改行** |
+
+---
+
+## A. X埋め込みが「プロフィール表示」になっていた件
+
+### ① 入力・保存・payload にバグは無かった（実測で確定）
+
+実際に入力された `https://x.com/espace_shibuya/status/2095096899892031838` について、
+**status ID が最後まで1箇所も変わっていない**ことを追跡で確認した。
+
+```
+入力URL → article_page_inputs.json（20260903_渋谷新館_20S.xlsx）
+        → session_state → normalize_x_url() → payload["nanako"]["url"]
+        → plan_blocks() → build_content()
+        → 実下書き ID 61889 の content.raw
+```
+
+**すべて `/status/2095096899892031838` のまま。**
+プロフィールURLへ短縮された箇所は無い。
+→ 「保存されていない」「normalizeが壊す」「payloadで置換」「embed markupが原因」は**すべて否定**。
+
+### ② ★確定原因＝WordPress oEmbed の解決結果（ホスト差）
+
+同じ status ID でホストだけ変えて `GET /wp-json/oembed/1.0/proxy` を実行した結果:
+
+| 渡したURL | status | 返る `html` | 記事上の見え方 |
+|---|---|---|---|
+| **`https://x.com/…/status/…`** | 200 | **空文字** | `author_name` / `author_url` しか無く、**「渋谷ななこ (@espace_shibuya) on X」というプロフィール相当表示**になる |
+| **`https://twitter.com/…/status/…`** | 200 | **`<blockquote class="twitter-tweet">…` に投稿本文入り** | **その投稿そのものが埋め込まれる** |
+
+**サイト上で正常に埋め込まれている既存投稿（ID 60367）も `twitter.com` で保存されている。**
+
+> 前ノードで「x.com / twitter.com どちらも 200 なので書き換え不要」と記録したのは
+> **status コードだけを見て `html` の中身を確認していなかったため**。
+> 本節は `html` まで確認したうえでの確定仕様であり、**こちらが優先する**。
+
+### ③ 正式仕様：入力URLと埋め込みURLを分ける
+
+```python
+_X_EMBED_HOST = "twitter.com"
+
+def blk_embed_x(url):
+    u = normalize_x_url(url)          # 入力の検証仕様は**変更しない**
+    ...
+    _p = urlsplit(u)
+    u = urlunsplit((_p.scheme, _X_EMBED_HOST, _p.path, "", ""))   # ホストだけ揃える
+```
+
+- **記事用UIは今までどおり `x.com` / `twitter.com` の両方を入力できる。**
+  `normalize_x_url()` の検証仕様（https限定・`/status/<数字>` 必須・クエリ/フラグメント除去・
+  `javascript:` `data:` 他ドメインは拒否）は**そのまま維持**。
+- **`blk_embed_x()` の中だけ**でホストを `twitter.com` へ置き換える。
+  **status ID・path は絶対に変更しない。**
+- **`providerNameSlug` は `"x"` のまま**（既存投稿 60367 と同じ）。
+  **URLホスト=`twitter.com` ／ providerNameSlug=`"x"` の組み合わせが正式。**
+  ここを `"twitter"` へ変えない。
+
+実測（修正後）:
+
+```
+入力 https://x.com/espace_shibuya/status/2095096899892031838
+入力 https://twitter.com/espace_shibuya/status/2095096899892031838
+  → どちらも embed URL は
+     https://twitter.com/espace_shibuya/status/2095096899892031838
+  → 属性・figure内の両方が twitter.com（x.com の出現 0）
+  → oEmbed: html 非空 ／ html に status ID あり ／ 実投稿本文（「やっほー ななこだよ🐾👊…」）を取得
+```
+
+---
+
+## B. ヒント表示（全文を赤＋太字・段落間の空きをなくす）
+
+### ④ 修正前（実下書き 61889 の content.raw）
+
+```html
+<p class="wp-block-paragraph"><strong style="color:#e60012">■</strong>神→ゴッド神々の軌跡、ゴッドイーター</p>
+<p class="wp-block-paragraph"><strong style="color:#e60012">■</strong>激闘→北斗転生2</p>
+```
+
+「■」だけ赤・本文は黒。さらに **1ヒント＝1 paragraph** だったため、
+テーマの paragraph margin でヒント同士が大きく空いていた。
+
+### ⑤ 修正後（正式）
+
+```html
+<!-- wp:paragraph -->
+<p class="wp-block-paragraph"><strong style="color:#e60012">■ヒント1<br>■ヒント2<br>■ヒント3</strong></p>
+<!-- /wp:paragraph -->
+```
+
+- **「■＋ヒント本文」の1行まるごと**を `<strong style="color:#e60012">` で包む
+  （**赤＋太字**）。`NANAKO_MARK_COLOR = #e60012` は維持。
+- **ヒント一覧全体を1つの `wp:paragraph`** にまとめ、各ヒントを **`<br>`** で改行する。
+  段落が1つなので**段落間 margin が発生しない**。
+- **`<br>` 連打・`&nbsp;`・spacer ブロック・CSS/テーマ変更は使わない。**
+- この「1 paragraph ＋ `<strong>` ＋ `<br>` で複数行」という形は、
+  **同じサイトの人手作成の既存投稿（ID 61647 / 61673）で実際に使われている**
+  Gutenberg 標準の改行（Shift+Enter）と同じ構造。これを正式根拠とする。
+- 実装は **`blk_para_hints(hints)`**（新規）。**旧 `blk_para_hint(text)` は削除**。
+  plan の項目は `{"type": "para_hints", "hints": [...]}` の**1個だけ**。
+
+### ⑥ 空欄・エスケープ（従来どおり）
+
+- 入力欄は6枠のまま。**入力されたものだけを順番どおり出力**する。
+  例: 1/3/5 のみ入力 → **`■ヒント1` / `■ヒント3` / `■ヒント5` の3行**。
+  **空の「■」は出さない。**
+- ヒント本文は**必ず `esc()`（`html.escape(..., quote=True)`）を通してから `<strong>` 内へ入れる**。
+  生のユーザー入力をHTMLへ直接連結しない（`<script>` → `&lt;script&gt;` を実測確認）。
+
+### ⑦ 実測（モック）
+
+| パターン | ヒント paragraph 数 | 行数 |
+|---|---|---|
+| 1件 | **1** | 1 |
+| 3件 | **1** | 3 |
+| 6件 | **1** | 6 |
+| 途中空欄 1/3/5 | **1** | **3** |
+
+---
+
+## C. 変更範囲と非回帰
+
+**変更したのは `wp_client.py` の1ファイルだけ**（`CLAUDE.md` を除く）。
+
+| 区分 | 関数 |
+|---|---|
+| 新規 | `blk_para_hints()` |
+| 削除 | `blk_para_hint()` |
+| 変更 | `blk_embed_x()` ／ `plan_blocks()` ／ `build_content()` |
+
+- **`streamlit_app.py` はバイト無変更。**
+  入力UI・`art_nanako_url_{store}` / `art_nanako_hint_0〜5_{store}`・
+  `_article_input_keys()`・`article_page_inputs.json` の**日付スコープ保存は一切変更していない**。
+- **高田馬場の本文HTML MD5 は `c35ac89ea13c` のまま完全一致。**
+- 渋谷新館の既存仕様は**すべて維持**:
+  ななこH2／固定導入文／X案内太字／ヒントlead／締め文／`H2 全台系濃厚機種が複数`／
+  ジャグラーH3「その他のジャグラーシリーズの優秀台」／`H2 差枚数ランキング&島図`／
+  ランキングと島図の間の**空段落×5**／ランキングHQ（2181×4638・WordPressで2分割）／
+  **島図 3451×6490・1枚絵**（`WP_NOSPLIT_FILES={"島図.jpg"}`）／店舗情報ボタン。
+- 条件分岐（Xあり＋ヒントあり／Xなし＋ヒントあり／Xあり＋ヒントなし／Xなし＋ヒントなし／
+  不正URL＝Xなし扱い／途中空欄）も**すべて従来どおり**。
+- 定数は不変: `_ART_WP_STORES` ／ `WP_STORE_CATEGORY` ／ `WP_NOSPLIT_FILES` ／
+  `_ART_HQ_STORES` ／ `_ART_ZH_HQ_STORES` ／ `_ART_NARABI_HQ_STORES` ／
+  `_ART_RANK_HQ_STORES` ／ `_ART_SHIMAZU_TARGET_KB = 3000`。
+- `convert_narabi_pil.py` / `shimazu_renderer.py` / `masters/shimazu_渋谷新館.json` も無変更。
+
+## D. 今回のWordPress通信
+
+**変更通信0件。** POST / PUT / PATCH / DELETE / media upload / draft作成はすべて未実行。
+**既存の下書き 61889 も変更していない。**
+行ったのは調査のための **GET のみ**:
+`GET /wp/v2/posts?context=edit`（既存投稿の markup と 61889 の content.raw 確認）／
+`GET /wp-json/oembed/1.0/proxy`（x.com と twitter.com の応答比較）。
+Cloud Reboot も未実行。
+
+## E. 今後の禁止事項
+
+1. **embed のホストを `x.com` に戻さない**（oEmbed の html が空になり、プロフィール表示に戻る）
+2. **`providerNameSlug` を `"twitter"` へ変えない**（`"x"` のまま）
+3. **`normalize_x_url()` の入力検証を embed 用の正規化と混同しない**
+   （入力は x.com / twitter.com 両方可・埋め込み時だけホストを揃える）
+4. **status ID / path を書き換えない**
+5. **クエリ・フラグメント除去をやめない**
+6. **「■だけ赤太字」へ戻さない**（1行まるごと赤＋太字）
+7. **1ヒント＝1 paragraph に戻さない**（段落間 margin が復活する）
+8. **`<br>` 連打・`&nbsp;`・spacer・CSS/テーマ変更で余白調整しない**
+9. **`esc()` を外さない／ユーザー入力を生でHTMLへ連結しない**
+10. **空欄ヒントを出さない**（空の「■」を作らない）
+11. **`blk_para_hint()`（単数）を復活させない**
+12. **`streamlit_app.py` のUI・保存キー・日付スコープ保存を変更しない**
+13. **高田馬場の本文HTML MD5 `c35ac89ea13c` を壊さない**
+14. **前ノードの記録を削除・改変しない**（supersede した事実を残す）
+15. **無関係なリファクタ・未使用コード整理をしない**

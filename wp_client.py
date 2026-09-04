@@ -661,8 +661,16 @@ def blk_para_bold(text: str) -> str:
 #   </div></figure>
 #   <!-- /wp:embed -->
 #
-# サイトの oEmbed プロキシは x.com / twitter.com の**どちらでも 200 を返す**ことを実測
-# 済みなので、入力されたドメインは書き換えない。
+# ★埋め込みURLのホストは **twitter.com へ揃える**（2026-09-04 実測で確定）。
+# サイトの oEmbed プロキシは x.com / twitter.com のどちらでも status 200 を返すが、
+# **返ってくる html の中身が違う**:
+#     x.com       → html が **空文字**。WordPress は author 名とプロフィールURLしか
+#                    出せず、記事上は「渋谷ななこ (@espace_shibuya) on X」という
+#                    **プロフィール表示**になってしまう（実際にこれが起きた）。
+#     twitter.com → `<blockquote class="twitter-tweet">…` に**投稿本文が入って返る**。
+# 実サイトで正常に埋め込まれている既存投稿（ID 60367）も twitter.com で保存されている。
+# **status ID は変えない。ホストだけ twitter.com にする。**
+_X_EMBED_HOST = "twitter.com"
 _X_STATUS_RE = re.compile(
     r"^https://(?:x\.com|twitter\.com)/[A-Za-z0-9_]{1,15}/status/\d+/?$", re.I)
 
@@ -697,6 +705,9 @@ def blk_embed_x(url: str) -> str:
     u = normalize_x_url(url)
     if not u:
         return ""
+    # 埋め込み時だけホストを twitter.com へ揃える（status ID・パスはそのまま）
+    _p = urlsplit(u)
+    u = urlunsplit((_p.scheme, _X_EMBED_HOST, _p.path, "", ""))
     attrs = json.dumps({"url": u, "type": "rich",
                         "providerNameSlug": "x", "responsive": True},
                        ensure_ascii=False, separators=(",", ":"))
@@ -708,16 +719,26 @@ def blk_embed_x(url: str) -> str:
             '<!-- /wp:embed -->')
 
 
-def blk_para_hint(text: str) -> str:
-    """ヒント1行。**先頭の「■」だけ赤＋太字**で、後ろの本文は通常表示。
+def blk_para_hints(hints) -> str:
+    """ヒント一覧を **1つの paragraph** にまとめて出す（2026-09-04 変更）。
 
-    span のインラインstyleだけで表現する（テーマCSSは変更しない）。
-    段落全体を赤・太字にしない。
+    * 「■＋ヒント本文」の **1行まるごと**を赤(NANAKO_MARK_COLOR)＋太字にする。
+    * 各ヒントは `<br>` で改行する。**1ヒント＝1段落にしない**。
+      段落を分けるとテーマの paragraph margin でヒント同士が大きく空くため
+      （実際にそうなっていた）。`<br>` 連打・`&nbsp;`・spacer・CSS変更は使わない。
+    * この「1段落＋`<br>`＋`<strong>` で複数行」という形は、
+      **同じサイトの人手作成の既存投稿（ID 61647 / 61673）で実際に使われている**
+      Gutenberg 標準の改行（Shift+Enter）と同じ構造。
+    * ヒント本文はユーザー入力なので必ず esc() を通す。
     """
+    items = [str(h or "").strip() for h in (hints or [])]
+    items = [h for h in items if h]
+    if not items:
+        return ""
+    body = "<br>".join(f"{esc(NANAKO_HINT_MARK)}{esc(h)}" for h in items)
     return ('<!-- wp:paragraph -->\n'
             f'<p class="wp-block-paragraph">'
-            f'<strong style="color:{NANAKO_MARK_COLOR}">{NANAKO_HINT_MARK}</strong>'
-            f'{esc(text)}</p>\n'
+            f'<strong style="color:{NANAKO_MARK_COLOR}">{body}</strong></p>\n'
             '<!-- /wp:paragraph -->')
 
 
@@ -888,8 +909,7 @@ def plan_blocks(payload: dict) -> list[dict]:
             plan.append({"type": "embed_x", "url": _nk_url})
         if _nk_hints:
             plan.append({"type": "para", "text": NANAKO_HINT_LEAD})
-            for _h in _nk_hints:
-                plan.append({"type": "para_hint", "text": _h})
+            plan.append({"type": "para_hints", "hints": _nk_hints})
             plan.append({"type": "para", "text": NANAKO_OUTRO})
 
     # ── 全台系: H2 →（H3 + 画像）× 機種数 ──
@@ -1118,8 +1138,8 @@ def build_content(plan: list[dict], media_map: dict, site: str = "",
             out.append(blk_para_bold(item["text"]))
         elif t == "embed_x":
             out.append(blk_embed_x(item["url"]))
-        elif t == "para_hint":
-            out.append(blk_para_hint(item["text"]))
+        elif t == "para_hints":
+            out.append(blk_para_hints(item["hints"]))
         elif t == "para_high":
             out.append(blk_para_high(item["lines"]))
         elif t == "para_juggler":

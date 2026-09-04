@@ -8939,3 +8939,267 @@ WP_NOSPLIT_FILES の島図例外   : 維持（高田馬場でも島図は1 media
 14. **高田馬場の本文HTML MD5 `c35ac89ea13c` を削除・上書きしない**
 15. **WordPress側の `-scaled.jpg` 生成を理由にサイト設定・PHP・テーマ・サーバー設定を変更しない**
 16. **無関係なリファクタ・未使用コード整理をしない**
+
+## 渋谷新館 記事用：WordPress投稿者の選択（2026-09-04）
+
+**正式仕様。巻き戻し禁止。**対象は**【渋谷新館】の記事用ページと、その WordPress 下書きの
+投稿者（author）だけ**。正式コード commit は本節と**同一の commit**
+（`feat: 渋谷新館のWordPress投稿者選択を追加`・2026-09-04・
+**`streamlit_app.py` / `wp_client.py` / `CLAUDE.md` の3ファイルのみ**・
+`streamlit_app.py` +60/−2・`wp_client.py` +41/−3）。
+**高田馬場は投稿者UIを持たず、従来どおり `WP_AUTHOR_ID = 14` 固定**（本文HTMLも不変）。
+
+### ① 修正前の状態
+
+`author` は **payload にも `create_takadanobaba_draft()` にも存在せず**、
+`create_draft()` の中でモジュール定数を直接参照していた（`"author": WP_AUTHOR_ID`）。
+そのため**高田馬場・渋谷新館とも user_id 14（`t.ui`）固定**だった。
+
+### ② UI（渋谷新館のみ・①冒頭部分より上）
+
+```
+WordPress投稿者
+  ○ t.ito
+  ○ r.iio
+  ○ k.furukawa
+  ○ t.ui
+  ○ m.suzuki
+  ○ m.takahashi
+① 冒頭部分
+```
+
+- **`st.radio()` の縦並び**（`horizontal` は指定しない）。**1名だけ選択可能。**
+  チェックボックス6個で排他制御する実装にはしない。
+- **初期状態は未選択**（`index=None`）。**勝手に `t.ui` 等を初期選択しない。**
+- **番号外のブロック**として `st.markdown(f"### {_sec_num()} …冒頭部分…")` の**直前**に置く。
+  `_sec_num()` はカウンタ方式なので**①〜⑦の採番はずれない**（手書きしない）。
+- 未選択のときは `⚠️ 投稿者が未選択です。選択するまで WordPress下書きは作成できません。`
+  をキャプション表示する。
+
+**店舗ゲート（既存gateと統合しない）**
+
+```python
+_ART_WP_AUTHOR_STORES = frozenset({"渋谷新館"})
+_ART_WP_AUTHORS = ("t.ito", "r.iio", "k.furukawa", "t.ui", "m.suzuki", "m.takahashi")
+```
+
+**高田馬場・秋葉原には表示しない。`_ART_WP_STORES` は変更しない**（秋葉原はWordPress対象外のまま）。
+
+### ③ username → 正式 WordPress user ID（推測禁止）
+
+**2026-09-04 に `GET /wp-json/wp/v2/users?per_page=100&page=1&context=edit` で実測**
+（参照のみ・変更通信0件・15件取得）。`username` / `slug` / `name` の3つが一致した値を採用した。
+
+```python
+# wp_client.py（store_category() の直後）
+WP_AUTHOR_MAP: "dict[str, int]" = {
+    "t.ito":       13,
+    "r.iio":        8,
+    "k.furukawa":   4,
+    "t.ui":        14,   # 既存記録（CLAUDE.md）の WP_AUTHOR_ID = 14 と一致
+    "m.suzuki":     7,
+    "m.takahashi":  2,
+}
+```
+
+- **仮ID・推測IDは1件も入れていない。**
+- **`t.ui` = 14** は既存記録（「投稿者 `t.ui` = user_id 14 を管理画面で確認」）と一致しており裏付けがある。
+- 同サイトには他にも 'i.sasaki'(1) / 'd.okazaki'(3) / 'k.nomura'(5) / 'm.oomori'(6) /
+  'r.saito'(9) / 's.yamashina'(11) / 't.hoshino'(12) / 't.yamashina'(15) / 's.azuma'(16)
+  が存在するが、**今回の対象は上記6名だけ**。**IDを推測で追記してはならない**
+  （別人の投稿になる）。追加が必要なら管理画面か GET で確認した値だけを足す。
+
+### ④ 保存・復元（日付＝Excel単位）
+
+| 項目 | 値 |
+|---|---|
+| 保存キー | **`art_wp_author_{store}`**（渋谷新館は `art_wp_author_渋谷新館`） |
+| 保存値 | **username の文字列**（例 `"t.ito"`）。**user ID は保存しない** |
+| 保存先 | 既存 **`article_page_inputs.json`**（Excelファイル名＝日付でスコープ） |
+| 保存 | 既存 **`_save_article_inputs(store, True)`**（**`skip_kojin=True` 必須**・②個別画像を巻き込まない） |
+| 復元 | 既存 **`_restore_article_inputs()`** |
+
+- `_article_input_keys(store)` へ**1行追加**しただけ。
+  **`_save_article_inputs()` / `_restore_article_inputs()` の本体は変更していない。**
+- **未保存の日付は未選択。別日付の投稿者を引き継がない。**
+- **user ID ではなく username を保存する理由**: JSONを人が読んで分かる／サイト側でIDが
+  変わっても `WP_AUTHOR_MAP` 1箇所で追従できる／未保存既定が `""` の既存文字列経路と整合する
+  （ID保存だと `0` や `""` と「未選択」の区別が曖昧になる）。
+
+### ⑤ ★初期値の解決（キーの有無で判定しない）
+
+**「session_state にキーがあるから前回値を使う」判定にしてはならない。必ず値の妥当性で判定する。**
+
+```python
+_au_key = f"art_wp_author_{store}"
+if st.session_state.get(_au_key) not in _ART_WP_AUTHORS:
+    _au_saved = _art_kojin_default(st.session_state.get("art_current_excel"),
+                                   store, _au_key)
+    st.session_state[_au_key] = _au_saved if _au_saved in _ART_WP_AUTHORS else None
+```
+
+**2つの構造的理由から、この seed は省略できない。**
+
+1. `_restore_article_inputs()` は未保存キーへ **`""`** を入れる。
+   **Streamlit の radio は session_state 値が options に無いと例外**になるため、
+   `""` → `None` の変換が必要。
+2. radio は **widget キー**なので、未描画の run を挟むと
+   **stale widget GC で session_state から消える**。session_state だけを見ると
+   GC 後に「未選択」へ化け、その `None` が保存されて**保存済み値を潰す**
+   （②個別画像 `0e7dc4c`・⑤ `39f1f1e`・⑥ランキング `39b652d` と同型の事故）。
+
+フォールバックには**新しい復元経路を作らず**、既存の**読み取り専用ヘルパー
+`_art_kojin_default()`**（該当Excelエントリを読むだけ・str用）を再利用する。
+**`""` / `None` / 未知 username は必ず未選択（`None`）へ落とす**ので、
+勝手な選択の復活は起きない。
+
+### ⑥ 送信時の author は「送信直前の選択値」
+
+**⑧実行時点では投稿者を固定しない。**
+
+```
+⑧実行 → 投稿者を変更 → WordPress下書きを作成
+  → 変更後の投稿者が author になる
+```
+
+実装は **WordPress下書きブロックの入口**（ボタン描画の直前）で
+
+```python
+if store in _ART_WP_AUTHOR_STORES:
+    _wp_author = st.session_state.get(f"art_wp_author_{store}") or ""
+    if _wp_author not in _ART_WP_AUTHORS:
+        _wp_author = ""
+    _wp_pl["author_user"] = _wp_author
+```
+
+**⑧の payload 構築（`build_payload()` 直後のブロック）へ author を入れてはならない**
+（⑧時点で凍結すると、選び直した投稿者が反映されず**古い投稿者で送る事故**になる）。
+
+### ⑦ payload 駆動（`plan_blocks` と同じ思想・店舗名を2ファイルへ重複させない）
+
+**`author_user` キーを payload へ渡した店舗だけが投稿者必須**になる。
+`wp_client.py` 側に店舗名リストを持たせない（`_ART_WP_AUTHOR_STORES` の二重管理を避ける）。
+
+```python
+# create_takadanobaba_draft() … カテゴリ検証の直後
+_author_id = WP_AUTHOR_ID
+if "author_user" in payload:
+    _au = str(payload.get("author_user") or "").strip()
+    _author_id = WP_AUTHOR_MAP.get(_au, 0)
+    if not _author_id:
+        return {"ok": False, "stage": "config", "uploaded": [], "error": …}
+```
+
+**高田馬場は `author_user` キーを渡さない**ので `WP_AUTHOR_ID`（14）のまま。
+
+### ⑧ 未選択時は下書きを作らない（二重防御・フォールバック禁止）
+
+| 層 | 実装 |
+|---|---|
+| **UI** | `st.button(..., disabled=… or _wp_no_author)` ＋ `❌ WordPress投稿者が未選択です` を表示 |
+| **wp_client** | `create_takadanobaba_draft()` の**カテゴリ検証の直後**（`plan_blocks()` / `collect_files()` / `plan_split()` / `upload_media()` より**前**）で中止 |
+
+返却は **`ok=False` / `stage="config"` / `uploaded=[]`**。
+**`WP_AUTHOR_ID`（14）へのフォールバックは禁止。**未知 username も同じく中止する。
+
+### ⑨ `create_draft()` の最小変更
+
+```python
+def create_draft(title, content, category_id=WP_CATEGORY_ID,
+                 author_id: int = WP_AUTHOR_ID) -> dict:
+    ...
+    "author": int(author_id),
+```
+
+**既定は `WP_AUTHOR_ID`（14）**なので、**引数を渡さない呼び出しは修正前と同じ POST body**。
+**`WP_AUTHOR_ID = 14` の定義は削除・変更しない**（高田馬場の非回帰の土台）。
+
+### ⑩ ローカル検証結果（2026-09-04・WordPress通信0件）
+
+`upload_media` / `create_draft` を spy へ差し替え、**実HTTPを発生させずに**確認した。
+
+| 確認 | 結果 |
+|---|---|
+| 渋谷新館の6名 | **13 / 8 / 4 / 14 / 7 / 2**（`category=[19]`・`ok=True`） |
+| 未選択（空文字・None）／未知 username | **`ok=False` / `stage="config"` / `uploaded=0` /
+`upload_media` 0回 / `create_draft` 0回 / `plan_split` 0回** |
+| 高田馬場 | **author=14 / category=[24]** |
+| `create_draft` 引数省略 | **author=14** |
+| UI表示判定 | 渋谷新館のみ True（高田馬場・秋葉原・新小岩は False） |
+
+**日付往復（実関数 `_restore_article_inputs()` / `_save_article_inputs()` /
+`_art_kojin_default()` を使用・`article_page_inputs.json` は一時ファイルへ差し替え）**
+
+```
+日付A 9/3（未保存）→ 未選択
+日付A で t.ito 選択 → JSON へ "t.ito" 保存（②個別キーを巻き込まない）
+日付B 9/2         → 未選択・t.ito の混入0（Bで保存してもAは無傷）
+日付A へ戻す      → "t.ito" 完全復元
+日付A で m.suzuki へ変更 → JSON 更新・送信直前 payload も m.suzuki → ID=7
+widget GC を挟む → 保存値 m.suzuki から復元・その後の保存で壊れない
+未知値が保存されていた場合 → 未選択へ倒す
+日付跨ぎ混入 0件
+```
+
+### ⑪ 実UIテストは commit 後に行う（誤記しないこと）
+
+**実 Streamlit UI での日付往復テストは、この commit の時点では未実施である。**
+**「実UIで確認済み」と書かない。**
+
+理由：`_git_auto_pull()` は**起動時に無条件で `git stash` を実行**する。未コミットの実装2ファイルと
+**保護対象（`wrt_machines.json` / `article_page_inputs.json`）・stash 4件**を巻き込むため、
+未コミット状態でアプリを起動しない判断とした（`55e7752` の必須ルールと同じ）。
+正式手順は **コードを commit / push → アプリ再起動 → 実UIで日付往復テスト**
+（`00a472a` と同じ順序）。
+
+### ⑫ 非回帰（本体バイト一致を機械確認）
+
+**高田馬場の本文HTMLは HEAD版と完全一致。**
+（正式基準 **`c35ac89ea13c` はそのまま維持**。検証payloadで出た `1fae8c5ddff2` /
+`158a937f4a24` を新しい正式基準へ置き換えない。）
+
+バイト一致：`plan_split()` ／ `needs_split()` ／ `split_count()` ／ `split_image_for_wp()` ／
+`collect_files()` ／ `build_content()` ／ `plan_blocks()` ／ `blk_image()` ／ `blk_embed_x()` ／
+`normalize_x_url()` ／ `blk_para_hints()` ／ `upload_media()` ／ `build_poster()` ／
+`build_payload()`。**新規関数0・消失関数0。**
+
+不変の定数：**`_ART_WP_NOSPLIT_STORES = {"渋谷新館"}`（全画像1枚絵）** ／
+`WP_NOSPLIT_FILES = {"島図.jpg"}` ／ `WP_MAX_SIDE = 2560` ／ `WP_STATUS = "draft"` ／
+`WP_AUTHOR_ID = 14` ／ `WP_STORE_CATEGORY`（高田馬場24・渋谷新館19）／
+`_ART_WP_STORES = {"高田馬場","渋谷新館"}` ／ `X_EMPTY_PARAS = 3` ／
+`RANK_SHIMAZU_GAP_PARAS = 5` ／ `_X_EMBED_HOST = "twitter.com"` ／
+`NANAKO_MARK_COLOR = "#e60012"` ／ **HQ gate 4種**（`_ART_HQ_STORES` /
+`_ART_ZH_HQ_STORES` / `_ART_NARABI_HQ_STORES` / `_ART_RANK_HQ_STORES`）／
+`_ART_SHIMAZU_TARGET_KB = 3000`。
+
+ギルドX ／ ななこX ／ `providerNameSlug="x"` ／ ランキング&島図 ／ 空段落×5 ／
+画像生成処理 ／ 島図 ／ スランプ ／ パネル ／ 液晶 も**すべて無変更**。
+`convert_narabi_pil.py` / `shimazu_renderer.py` / `masters/shimazu_渋谷新館.json` も無変更。
+
+### ⑬ 今回の通信
+
+**WordPress 変更通信0件**（POST / PUT / PATCH / DELETE / media upload / draft作成なし）。
+user ID 確認の **GET `/wp/v2/users` を1回**だけ実施（参照のみ）。**Cloud Reboot も未実行。**
+
+### ⑭ 今後の禁止事項
+
+1. **未選択時に `WP_AUTHOR_ID`（14）へフォールバックしない**
+2. **未知 username を黙って通さない**（必ず中止）
+3. **UI側の disabled だけにしない**（`wp_client` の二重防御を外さない）
+4. **停止位置を `upload_media()` の後ろへ下げない**（画像0件で止める）
+5. **⑧実行時点で author を固定しない**（送信直前の選択値を使う）
+6. **保存値を user ID へ変えない**（username を保存する）
+7. **初期値を「キーの有無」で判定しない**（値の妥当性で判定する）
+8. **widget GC 用の seed フォールバックを外さない**／`_art_kojin_default()` 以外の
+   新しい復元経路を増やさない
+9. **未保存日付に別日付の投稿者を引き継がない**
+10. **`_save_article_inputs()` の `skip_kojin=True` を外さない**
+11. **`WP_AUTHOR_ID = 14` / `create_draft()` の `author_id` 既定を変更しない**
+12. **`WP_AUTHOR_MAP` へ推測IDを追記しない**（管理画面か GET で確認した値だけ）
+13. **高田馬場へ投稿者UIを追加しない／本文HTML MD5 `c35ac89ea13c` を壊さない**
+14. **秋葉原を `_ART_WP_STORES` / `_ART_WP_AUTHOR_STORES` へ追加しない**
+15. **`_ART_WP_AUTHOR_STORES` を既存gate（`_ART_WP_NOSPLIT_STORES` / HQ gate 4種）と統合しない**
+16. **`wp_client.py` 側へ店舗名リストを持たせない**（payload 駆動を維持）
+17. **nosplit・X関連・ランキング&島図・空段落・画像生成処理を今回の理由で変更しない**
+18. **「実UIで日付往復を確認済み」と誤記しない**（commit 後に実施する）
+19. **無関係なリファクタ・未使用コード整理をしない**

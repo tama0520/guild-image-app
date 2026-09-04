@@ -67,6 +67,21 @@ def store_category(store: str) -> "dict | None":
         return None
     return c
 
+
+# ── WordPress投稿者（username → 正式 user ID）─────────────────────────
+# 2026-09-04 に GET /wp-json/wp/v2/users?per_page=100&context=edit で実測した値。
+# **user ID を推測で入れてはならない**（別人の投稿になるため）。
+# 記事用ページで選ぶのは username で、ID への変換はここだけで行う。
+# 高田馬場は投稿者を選ばず、従来どおり WP_AUTHOR_ID = 14 を使う（この表は通らない）。
+WP_AUTHOR_MAP: "dict[str, int]" = {
+    "t.ito":       13,
+    "r.iio":        8,
+    "k.furukawa":   4,
+    "t.ui":        14,   # 既存記録（CLAUDE.md）の WP_AUTHOR_ID = 14 と一致
+    "m.suzuki":     7,
+    "m.takahashi":  2,
+}
+
 # ── サイト側の画像縮小仕様（2026-08-20 実測）────────────────────────
 # slotterguild3.com は **長辺が 2560px を超える画像を 2560px へ縮小**する。
 # 縦横比は保たれるため、保存後の幅 = 2560 * w / h となり、縦長画像ほど幅が潰れる。
@@ -1271,11 +1286,14 @@ def upload_media(path: str, *, timeout: int = WP_UPLOAD_TIMEOUT) -> dict:
 
 
 def create_draft(title: str, content: str,
-                 category_id: int = WP_CATEGORY_ID) -> dict:
+                 category_id: int = WP_CATEGORY_ID,
+                 author_id: int = WP_AUTHOR_ID) -> dict:
     """POST /wp/v2/posts。status=draft 固定・publish しない。
 
     既存投稿の更新（PUT/PATCH）は実装しない。常に新規 draft のみ。
     category_id の既定は高田馬場（24）＝従来動作。
+    author_id の既定は WP_AUTHOR_ID（14）＝従来動作。
+    **引数を渡さない呼び出しは修正前と同じ POST body になる。**
     """
     import requests
     site, auth = _conf()
@@ -1284,7 +1302,7 @@ def create_draft(title: str, content: str,
         "content":    content,
         "status":     WP_STATUS,       # "draft" 固定
         "categories": [int(category_id)],
-        "author":     WP_AUTHOR_ID,
+        "author":     int(author_id),
         # tags / featured_media / excerpt / template / meta は送らない
     }
     try:
@@ -1325,6 +1343,22 @@ def create_takadanobaba_draft(payload: dict, progress=None) -> dict:
         return {"ok": False, "stage": "config", "uploaded": [],
                 "error": f"{_store} の WordPress カテゴリが未登録です"
                          "（wp_client.WP_STORE_CATEGORY へ term_id / slug を登録してください）"}
+
+    # 投稿者。**payload に "author_user" キーを渡した店舗だけ**が投稿者必須になる
+    # （カテゴリ・ギルドXと同じ payload 駆動。高田馬場はキーを渡さないので従来の 14）。
+    # 未選択・未登録の username は **WP_AUTHOR_ID(14) へフォールバックせず**、
+    # 画像を1枚もアップロードする前にここで中止する（UI側でも二重に防いでいる）。
+    _author_id = WP_AUTHOR_ID
+    if "author_user" in payload:
+        _au = str(payload.get("author_user") or "").strip()
+        _author_id = WP_AUTHOR_MAP.get(_au, 0)
+        if not _author_id:
+            return {"ok": False, "stage": "config", "uploaded": [],
+                    "error": ("WordPress投稿者が未選択のため中止しました"
+                              "（画像は1枚もアップロードしていません）"
+                              if not _au else
+                              f"WordPress投稿者 '{_au}' は未登録のため中止しました"
+                              "（wp_client.WP_AUTHOR_MAP を確認してください）")}
 
     plan = plan_blocks(payload)
     found, miss_req, miss_opt = collect_files(plan, payload["output_dir"])
@@ -1385,7 +1419,8 @@ def create_takadanobaba_draft(payload: dict, progress=None) -> dict:
     title   = build_title(payload.get("date"), _store)
     content = build_content(plan, media_map, site=site, split_map=split_map,
                             category_slug=_cat["slug"])
-    res = create_draft(title, content, category_id=_cat["id"])
+    res = create_draft(title, content, category_id=_cat["id"],
+                       author_id=_author_id)
     if not res["ok"]:
         return {"ok": False, "stage": "post", "uploaded": uploaded,
                 "missing_optional": miss_opt, "tmp_dir": tmp_dir,

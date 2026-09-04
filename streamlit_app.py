@@ -3030,6 +3030,15 @@ _ART_GUILD_X_STORES = frozenset({"渋谷新館"})
 # ヒント入力欄の数（固定6枠）。空欄の枠は本文へ出さない。
 _ART_NANAKO_HINTS = 6
 
+# 記事用①冒頭部分より上へ「WordPress投稿者」の選択UIを出す店舗。
+# **高田馬場は対象外**（従来どおり wp_client.WP_AUTHOR_ID = 14 固定）。
+# 秋葉原はそもそもWordPress対象外（_ART_WP_STORES に無い）。
+# 対象店舗では **未選択のまま下書きを作成できない**（14 へのフォールバックは禁止）。
+_ART_WP_AUTHOR_STORES = frozenset({"渋谷新館"})
+# 選択できる投稿者（表示順＝この順序・縦並び）。保存するのは user ID ではなく username。
+# username → 正式 WordPress user ID の対応は wp_client.WP_AUTHOR_MAP が持つ。
+_ART_WP_AUTHORS = ("t.ito", "r.iio", "k.furukawa", "t.ui", "m.suzuki", "m.takahashi")
+
 # 記事用の並び・列を subprocess で描くときの「何台以上でHQか」。
 # 1 にすると台数を見ずに常に HQ_SCALE が効く（スクリプト既定の10台判定を上書きする）。
 _ART_NARABI_HQ_MIN_ROWS = 1
@@ -5941,6 +5950,9 @@ def _article_input_keys(store: str) -> list[str]:
         f"art_wp_top_text_x_{store}",
         # ギルドポストのXポストURL（渋谷新館・記事上部）。Excel＝日付単位で保存する。
         f"art_guild_x_url_{store}",
+        # WordPress投稿者（渋谷新館・記事用）。**username を保存する**（user ID ではない）。
+        # Excel＝日付単位。未保存の日付は未選択（別日付の投稿者を引き継がない）。
+        f"art_wp_author_{store}",
         # ⑥差枚数ランキングの表示順位（渋谷新館・Excel＝日付単位。既定50位まで）
         f"art_ranking_limit_{store}",
         # ななこポスト（渋谷新館・WordPress冒頭）: 前日のXポストURL。
@@ -14360,6 +14372,31 @@ def show_auto_article_page() -> None:
     # （ウィジェットキーは stale widget GC で消えるため、日付を往復すると
     #   アップロード済みファイルが失われる）。
     # 画像は session_state のみ。JSON・Git へは保存しない（正式仕様）。
+    # ── WordPress投稿者（①冒頭部分より上・_ART_WP_AUTHOR_STORES のみ）──────
+    # 番号外のブロックなので _sec_num() のカウンタには影響しない（①〜⑦の採番は不変）。
+    # ★初期値の解決は「キーの有無」ではなく **値が正式な選択肢か** で判定する
+    #   （⑤ 39f1f1e・② 0e7dc4c・⑥ランキング 39b652d と同型の事故を避けるため）。
+    #   _restore_article_inputs() は未保存キーへ "" を入れ、radio は widget キーなので
+    #   未描画 run を挟むと stale widget GC で消える。どちらの場合も
+    #   session_state の値だけでは正しい選択を復元できないため、読み取り専用の既存
+    #   ヘルパー _art_kojin_default()（= 該当Excelエントリを読むだけ）で補う。
+    #   6名のいずれでもない値（"" / None / 未知）は必ず **未選択（None）** にする。
+    if store in _ART_WP_AUTHOR_STORES:
+        st.markdown("**WordPress投稿者**")
+        _au_key = f"art_wp_author_{store}"
+        if st.session_state.get(_au_key) not in _ART_WP_AUTHORS:
+            _au_saved = _art_kojin_default(
+                st.session_state.get("art_current_excel"), store, _au_key)
+            st.session_state[_au_key] = (_au_saved if _au_saved in _ART_WP_AUTHORS
+                                         else None)
+        st.radio("WordPress投稿者", _ART_WP_AUTHORS, key=_au_key, index=None,
+                 label_visibility="collapsed",
+                 help="ここで選んだ人物が WordPress 下書きの投稿者になります。"
+                      "未選択のままでは下書きを作成できません。",
+                 on_change=_save_article_inputs, args=(store, True))
+        if st.session_state.get(_au_key) not in _ART_WP_AUTHORS:
+            st.caption("⚠️ 投稿者が未選択です。選択するまで WordPress下書きは作成できません。")
+
     st.markdown(f"### {_sec_num()} {'冒頭部分' if _art_v2 else 'ポスター画像'}")
     _art_excel_now = st.session_state.get("art_current_excel") or ""
     _poster_store_key = _art_poster_key(store, _art_excel_now)
@@ -17012,6 +17049,15 @@ def show_auto_article_page() -> None:
             import wp_client as _wpc
             st.markdown("---")
             st.markdown("### 📝 WordPress下書きを作成")
+            # 投稿者は **⑧実行時点で固定しない**。ここで現在の選択値を payload へ入れる
+            # （⑧のあとに投稿者を選び直しても、下書き作成時の選択が使われる）。
+            # キーを渡した店舗だけ author 必須になる（高田馬場は渡さない＝従来の14固定）。
+            _wp_author = ""
+            if store in _ART_WP_AUTHOR_STORES:
+                _wp_author = st.session_state.get(f"art_wp_author_{store}") or ""
+                if _wp_author not in _ART_WP_AUTHORS:
+                    _wp_author = ""
+                _wp_pl["author_user"] = _wp_author
             _wp_ok, _wp_msg = _wpc.config_ready()
             _wp_cat = _wpc.store_category(store)
             if not _wp_ok:
@@ -17028,7 +17074,9 @@ def show_auto_article_page() -> None:
                 st.caption(
                     f"送信対象 {len(_wp_found)}枚 / 合計 {_wp_mb:.2f} MB　"
                     f"タイトル: {_wpc.build_title(_wp_pl.get('date'), store)}　"
-                    f"（status=draft / category={_wp_cat['id']} / author={_wpc.WP_AUTHOR_ID}）"
+                    f"（status=draft / category={_wp_cat['id']} / author="
+                    + ((_wp_author or "未選択") if store in _ART_WP_AUTHOR_STORES
+                       else str(_wpc.WP_AUTHOR_ID)) + "）"
                 )
                 if _wp_miss:
                     st.error(f"❌ 必須画像が {len(_wp_miss)} 件不足しています。"
@@ -17038,6 +17086,13 @@ def show_auto_article_page() -> None:
                 if _wp_opt:
                     st.info("ℹ️ 次の画像は見つからないため本文へ入れません: "
                             + " / ".join(_m["file"] for _m in _wp_opt))
+                # 投稿者未選択はUI側でも止める（wp_client 側でも二重に防御する）。
+                # **WP_AUTHOR_ID(14) へフォールバックしない。**
+                _wp_no_author = (store in _ART_WP_AUTHOR_STORES) and not _wp_author
+                if _wp_no_author:
+                    st.error("❌ WordPress投稿者が未選択です。"
+                             "ページ上部の「WordPress投稿者」で選んでください"
+                             "（画像は1枚も送信しません）。")
                 _wp_done_key = f"_art_wp_post_{store}_{_wp_pl['dir_stem']}"
                 _wp_done = st.session_state.get(_wp_done_key)
                 if _wp_done:
@@ -17051,7 +17106,8 @@ def show_auto_article_page() -> None:
                 _wp_busy = bool(st.session_state.get(f"_art_wp_busy_{store}", False))
                 if st.button("📝 WordPress下書きを作成", key="art_wp_draft",
                              use_container_width=True,
-                             disabled=bool(_wp_miss) or (not _wp_again) or _wp_busy):
+                             disabled=bool(_wp_miss) or (not _wp_again) or _wp_busy
+                                      or _wp_no_author):
                     st.session_state[f"_art_wp_busy_{store}"] = True
                     try:
                         with st.status("WordPressへ送信中…", expanded=True) as _wp_stat:

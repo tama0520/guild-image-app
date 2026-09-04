@@ -2961,6 +2961,8 @@ def _art_hq_scale_for(bare_fn: str, store: str, n_rows: int = 0,
     ここは pipeline の _pipeline_zh_hq() と同じ結果を返さなければならない。"""
     if store in _ART_ZH_HQ_STORES and (bare_fn.endswith("_高配分.jpg") or bare_fn in zh_fns):
         return _ART_HQ_SCALE
+    if store in _ART_NARABI_HQ_STORES and _art_is_narabi_fn(bare_fn):
+        return _ART_HQ_SCALE
     if store not in _ART_HQ_STORES:
         return 1.0
     if bare_fn in _ART_HQ_FNS:
@@ -2991,6 +2993,39 @@ _ART_ZH_HQ_STORES = frozenset({"高田馬場", "渋谷新館", "秋葉原"})
 def _art_zh_hq(store: str) -> float:
     """記事用の全台系・高配分の描画倍率（掲載台数を見ない）。対象外は 1.0。"""
     return _ART_HQ_SCALE if store in _ART_ZH_HQ_STORES else 1.0
+
+
+# ── 記事用の「並び・列」だけ 掲載台数を見ずに高解像度で描く ─────────────
+# 並び・列は ⑦プレビューがアプリ内 _build_machine_img() で、⑧本番が
+# convert_narabi_pil.py（subprocess）で描く **別経路** だが、どちらも
+# 「10台以上のときだけ2倍」判定だったため、2〜6台の並びが 1.0倍（約993px幅）
+# のままで、WordPress へ貼ると荒く見えていた。
+#
+# **_ART_HQ_STORES（既存の10台判定つきHQ）とも _ART_ZH_HQ_STORES（全台系・高配分）
+# とも別 gate**。意味を混ぜない。ジャグラーシリーズ優秀台・その他の優秀台・末尾・
+# バラエティ・⑤オススメ・差枚数ランキング・島図の既存仕様は変更しない。
+# 店舗追加はこの集合への追記だけで行う（記事用ページを持つ3店舗）。
+_ART_NARABI_HQ_STORES = frozenset({"高田馬場", "渋谷新館", "秋葉原"})
+
+# 記事用の並び・列を subprocess で描くときの「何台以上でHQか」。
+# 1 にすると台数を見ずに常に HQ_SCALE が効く（スクリプト既定の10台判定を上書きする）。
+_ART_NARABI_HQ_MIN_ROWS = 1
+
+# 並び画像 `{機種名}(N台並び).jpg` / 列画像 `{機種名}(列仕掛け).jpg` の判別。
+# 同名重複時は末尾へ `（開始～終了）` が付くので **部分一致**で見る。
+_ART_NARABI_FN_RE = re.compile(r"\(\d+台並び\)")
+_ART_RETSU_FN_MARK = "(列仕掛け)"
+
+
+def _art_is_narabi_fn(bare_fn: str) -> bool:
+    """記事用の並び画像・列画像のファイル名か（連番プレフィックス除去後を渡す）。"""
+    _b = bare_fn or ""
+    return bool(_ART_NARABI_FN_RE.search(_b)) or (_ART_RETSU_FN_MARK in _b)
+
+
+def _art_narabi_hq(store: str) -> float:
+    """記事用の並び・列の描画倍率（掲載台数を見ない）。対象外は 1.0。"""
+    return _ART_HQ_SCALE if store in _ART_NARABI_HQ_STORES else 1.0
 
 
 def _art_zh_fn_set(zen_dai_list, kojin_zentai_machines=()) -> set:
@@ -5110,18 +5145,24 @@ def ranges_to_bans(ranges: list[list[int]]) -> set[int]:
 def _patch_and_run_narabi(
     script_path: str, input_path: str, split_dir: str, ranges: list,
     no_bar: bool = False, hq_scale: float = 1.0, col_ranges: list | None = None,
+    hq_min_rows: int | None = None,
 ) -> tuple[bool, str, str]:
     """並びスクリプト専用: INPUT/SPLIT_DIR/RANGES を書き換えて実行する。
     no_bar=True のときは NO_BAR も書き換え、青タイトルバーなしで生成させる
     （記事用ページ専用。既定 False＝通常ページは従来どおり）。
-    hq_scale>1 のときは HQ_SCALE も書き換え、掲載台10台以上の並び画像を
-    最初から高解像度で描画させる（既定 1.0＝通常ページは従来どおり）。"""
+    hq_scale>1 のときは HQ_SCALE も書き換え、最初から高解像度で描画させる
+    （既定 1.0＝通常ページは従来どおり）。
+    hq_min_rows を渡すと HQ_MIN_ROWS も書き換える。記事用は 1 を渡して
+    **掲載台数に関係なく** HQ で描かせる（既定 None＝スクリプト既定の10台判定のまま）。"""
     with open(script_path, encoding="utf-8") as f:
         code = f.read()
     if no_bar:
         code = re.sub(r'^NO_BAR\s*=\s*(True|False)', 'NO_BAR = True', code, flags=re.MULTILINE)
     if hq_scale and hq_scale > 1.0:
         code = re.sub(r'^HQ_SCALE\s*=\s*[\d.]+', f'HQ_SCALE = {float(hq_scale)}',
+                      code, flags=re.MULTILINE)
+    if hq_min_rows is not None:
+        code = re.sub(r'^HQ_MIN_ROWS\s*=\s*\d+', f'HQ_MIN_ROWS = {int(hq_min_rows)}',
                       code, flags=re.MULTILINE)
 
     for var, val in [("INPUT", input_path), ("SPLIT_DIR", split_dir)]:
@@ -14981,9 +15022,10 @@ def show_auto_article_page() -> None:
                                         "total_count": len(_cgrp_a),
                                     }
                                     _art_col_map[_cfn_a] = _cbans_a
+                                    # 列画像は掲載台数に関係なく2倍で描く（WordPress掲載用）
                                     _art_pil.append((_cfn_a, _build_machine_img(
                                         _cgrp_a, _ctit_a, _cstat_a, no_bar=True,
-                                        hq_scale=_art_hq_scale_for(_cfn_a, store, len(_cgrp_a)))))
+                                        hq_scale=_art_narabi_hq(store))))
                             if narabi_ok and narabi_ranges and _apdf is not None:
                                 _anbm = {int(row["台番"]): i for i, row in _apdf.iterrows()}
                                 def _antit(nms, nn):
@@ -15010,10 +15052,11 @@ def show_auto_article_page() -> None:
                                     _nst = {"total_diff": int(_nds2.sum()), "avg_diff": int(round(_nds2.mean())),
                                             "win_count": int((_nds2 > 0).sum()), "total_count": len(_ng)}
                                     # 記事用の並び画像は青タイトルバーなし（⑧のNO_BAR出力と揃える）
+                                    # 掲載台数に関係なく2倍で描く（WordPress掲載用）
                                     _art_pil.append((f"{_fnt}.jpg",
                                                      _build_machine_img(
                                                          _ng, _nt, _nst, no_bar=True,
-                                                         hq_scale=_art_hq_scale_for(f"{_fnt}.jpg", store, len(_ng)))))
+                                                         hq_scale=_art_narabi_hq(store))))
                             if kojin_enabled and _apdf is not None and _apdi is not None:
                                 for _rt, _rts in [(kojin_narabi_ranges_text, kojin_narabi_title),
                                                    (kojin_narabi2_ranges_text, kojin_narabi2_title)]:
@@ -15937,8 +15980,9 @@ def show_auto_article_page() -> None:
                     STORE_NARABI_SCRIPT[store], excel_path, narabi_dir,
                     narabi_ranges if narabi_ok else [],
                     no_bar=True,
-                    # 掲載台10台以上の並び画像は最初から2倍解像度で描画させる
-                    hq_scale=(_ART_HQ_SCALE if store in _ART_HQ_STORES else 1.0),
+                    # 記事用の並び・列は掲載台数に関係なく最初から2倍解像度で描画させる
+                    hq_scale=_art_narabi_hq(store),
+                    hq_min_rows=_ART_NARABI_HQ_MIN_ROWS,
                     col_ranges=(retsu_ranges if retsu_ok else None),
                 )
                 narabi_result = {"ok": ok_n, "stdout": out_n, "stderr": err_n}

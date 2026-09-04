@@ -2944,7 +2944,8 @@ _ART_HQ_MIN_ROWS = 10      # 掲載台がこの数以上なら画像種別を問
 _ART_HQ_STORES = {"高田馬場", "渋谷新館"}
 
 
-def _art_hq_scale_for(bare_fn: str, store: str, n_rows: int = 0) -> float:
+def _art_hq_scale_for(bare_fn: str, store: str, n_rows: int = 0,
+                      zh_fns: "frozenset[str] | set[str]" = frozenset()) -> float:
     """記事用の高解像度倍率を返す（対象外は 1.0）。
 
     高田馬場の記事用経路からのみ呼ぶ（他店舗・通常ページは 1.0）。
@@ -2952,7 +2953,14 @@ def _art_hq_scale_for(bare_fn: str, store: str, n_rows: int = 0) -> float:
       * 掲載台が _ART_HQ_MIN_ROWS 台以上 → 2.0（画像種別は問わない）
     描画時は DataFrame の行数、合成時は ban_map の台数を n_rows へ渡す。
     両者は一致する（表に載る台＝ban_map の台）ため⑦/🔄/⑧で同じ倍率になる。
-    スランプデータ欠損で実グラフが n_rows より少なくなっても倍率は変えない（安全側）。"""
+    スランプデータ欠損で実グラフが n_rows より少なくなっても倍率は変えない（安全側）。
+
+    zh_fns: 「全台系」として2倍固定にするファイル名の集合（描画側と揃えるため
+    呼び出し側が渡す）。高配分は `_高配分.jpg` で一意に判別できるので不要。
+    合成側の倍率が描画側とズレるとスランプ・余白の比率が壊れるため、
+    ここは pipeline の _pipeline_zh_hq() と同じ結果を返さなければならない。"""
+    if store in _ART_ZH_HQ_STORES and (bare_fn.endswith("_高配分.jpg") or bare_fn in zh_fns):
+        return _ART_HQ_SCALE
     if store not in _ART_HQ_STORES:
         return 1.0
     if bare_fn in _ART_HQ_FNS:
@@ -2965,6 +2973,53 @@ def _pipeline_hq(hq_scale: float, n_rows: int) -> float:
     if not hq_scale or hq_scale <= 1.0:
         return 1.0
     return hq_scale if int(n_rows or 0) >= _ART_HQ_MIN_ROWS else 1.0
+
+
+# ── 記事用の「全台系・高配分」だけ 掲載台数を見ずに高解像度で描く ──────────
+# WordPress へ貼ったとき文字・台番・罫線が潰れて見えるのは、掲載台が
+# _ART_HQ_MIN_ROWS(10) 未満の全台系・高配分が 1.0倍（約993px幅）で描かれ、
+# さらに _save_jpeg の既定 target(250KB) で圧縮されるため。
+# サイトは長辺 2560px 超だけを縮小する（wp_client.WP_MAX_SIDE）ので、
+# 2倍描画（約1985px幅）はそのままの解像度で掲載される。
+#
+# **_ART_HQ_STORES（既存の10台判定つきHQ）とは別 gate**。ジャグラーシリーズ優秀台・
+# その他の優秀台・並び・列・末尾・バラエティ・⑤オススメの既存HQ仕様は変更しない。
+# 店舗追加はこの集合への追記だけで行う（記事用ページを持つ店舗＝高田馬場・渋谷新館・秋葉原）。
+_ART_ZH_HQ_STORES = frozenset({"高田馬場", "渋谷新館", "秋葉原"})
+
+
+def _art_zh_hq(store: str) -> float:
+    """記事用の全台系・高配分の描画倍率（掲載台数を見ない）。対象外は 1.0。"""
+    return _ART_HQ_SCALE if store in _ART_ZH_HQ_STORES else 1.0
+
+
+def _art_zh_fn_set(zen_dai_list, kojin_zentai_machines=()) -> set:
+    """記事用で「全台系」として2倍固定にする画像ファイル名の集合。
+
+    合成側（スランプ結合）は描画側と同じ倍率でなければ比率が壊れるため、
+    自動全台系（zen_dai_list）と②個別画像「全台」の機種名から作る。
+    ⑦は f"{機種名}.jpg"、⑧は _make_safe_fn() 経由の名前を使うので両方入れる。
+    高配分は `_高配分.jpg` で判別できるのでここには入れない。"""
+    fns: set = set()
+    for _it in (zen_dai_list or []):
+        _n = str((_it or {}).get("name") or "").strip()
+        if _n:
+            fns |= {f"{_n}.jpg", f"{_make_safe_fn(_n)}.jpg"}
+    for _m in (kojin_zentai_machines or []):
+        _m = str(_m or "").strip()
+        if _m:
+            fns |= {f"{_m}.jpg", f"{_make_safe_fn(_m)}.jpg"}
+    return fns
+
+
+def _pipeline_zh_hq(zh_hq_scale: float, hq_scale: float, n_rows: int) -> float:
+    """pipeline 内で「全台系・高配分」1画像ぶんの倍率を決める。
+
+    zh_hq_scale>1（記事用）なら **掲載台数を見ずに** その倍率を使う。
+    未指定（既定 1.0＝通常ページ）なら従来どおり _pipeline_hq() の10台判定へ落ちる。"""
+    if zh_hq_scale and zh_hq_scale > 1.0:
+        return zh_hq_scale
+    return _pipeline_hq(hq_scale, n_rows)
 
 
 def _build_machine_img_no_bar(df_m: pd.DataFrame, hq_scale: float = 1.0) -> Image.Image:
@@ -3197,6 +3252,7 @@ def run_step1_main(
     log,
     article_mode: bool = False,
     hq_scale: float = 1.0,
+    zh_hq_scale: float = 1.0,
     kojin_zentai_machines: set[str] = set(),
 ) -> tuple[list[str], list[dict]]:
     """Step 1: 全台系PNG + 全台プラス機種別JPG を生成する。
@@ -3279,14 +3335,16 @@ def run_step1_main(
             continue  # 条件未達・1台以下 はStep3で処理
         title = machine.replace('\uff65', '\u30fb')
         if article_mode:
-            # 記事用: 掲載台10台以上なら最初から2倍解像度で描画
+            # 記事用: 全台系は掲載台数に関係なく最初から2倍解像度で描画（zh_hq_scale）
+            _zh1 = _pipeline_zh_hq(zh_hq_scale, hq_scale, len(grp))
             img = _build_article_machine_img(grp, title, _stat_from_diff(dr_m),
-                                             hq_scale=_pipeline_hq(hq_scale, len(grp)))
+                                             hq_scale=_zh1)
         else:
+            _zh1 = 1.0
             img = _build_machine_img(grp, title, _stat_from_diff(dr_m))
         out   = os.path.join(output_dir, f"{_make_safe_fn(machine)}.jpg")
         _save_jpeg(img, out, **({"target_kb": _ART_HQ_TARGET_KB}
-                                if article_mode and _pipeline_hq(hq_scale, len(grp)) > 1.0 else {}))
+                                if article_mode and _zh1 > 1.0 else {}))
         generated.append(out)
         log(f"  {machine}（{len(dr_m)}台）")
         zen_dai_list.append({
@@ -3317,6 +3375,7 @@ def run_step2_juggler(
     rec_ban_level: bool = False,
     exclude_units: dict | None = None,
     hq_scale: float = 1.0,
+    zh_hq_scale: float = 1.0,
     osusume_bans: set[int] = frozenset(),
     retsu_bans: set[int] = frozenset(),
 ) -> tuple[list[str], pd.DataFrame | None, pd.Series | None, list[dict], list[dict]]:
@@ -3411,14 +3470,17 @@ def run_step2_juggler(
                 continue
             if article_mode:
                 # 記事用の高配分は表の上へ細い青タイトルバー「優秀台ピックアップ」を載せる
+                # 掲載台数に関係なく2倍解像度で描画（zh_hq_scale）
+                _zhj = _pipeline_zh_hq(zh_hq_scale, hq_scale, len(_img_j))
                 img = _art_high_title_bar(
-                    _build_machine_img_no_bar(_img_j, hq_scale=_pipeline_hq(hq_scale, len(_img_j))),
-                    hq_scale=_pipeline_hq(hq_scale, len(_img_j)))
+                    _build_machine_img_no_bar(_img_j, hq_scale=_zhj),
+                    hq_scale=_zhj)
             else:
+                _zhj = _pipeline_hq(hq_scale, len(_img_j))
                 img = _build_machine_img(_img_j, machine.replace('･', '・') + "（優秀台）", None)
             out   = os.path.join(output_dir, f"{_make_safe_fn(machine)}_高配分.jpg")
             _save_jpeg(img, out, **({"target_kb": _ART_HQ_TARGET_KB}
-                                    if _pipeline_hq(hq_scale, len(_img_j)) > 1.0 else {}))
+                                    if _zhj > 1.0 else {}))
             generated.append(out)
             log(f"  {machine} 高配分: {len(_img_j)}台")
             high_ratio_list.append({
@@ -3577,6 +3639,7 @@ def run_step3_other(
     sonota_exclude: set[str] = frozenset(),
     exclude_units: dict | None = None,
     hq_scale: float = 1.0,
+    zh_hq_scale: float = 1.0,
     osusume_bans: set[int] = frozenset(),
     retsu_bans: set[int] = frozenset(),
 ) -> tuple[list[str], list[dict], list[dict], list[int]]:
@@ -3739,14 +3802,17 @@ def run_step3_other(
                     continue
                 if article_mode:
                     # 記事用の高配分は表の上へ細い青タイトルバー「優秀台ピックアップ」を載せる
+                    # 掲載台数に関係なく2倍解像度で描画（zh_hq_scale）
+                    _zho = _pipeline_zh_hq(zh_hq_scale, hq_scale, len(_img_o))
                     img = _art_high_title_bar(
-                        _build_machine_img_no_bar(_img_o, hq_scale=_pipeline_hq(hq_scale, len(_img_o))),
-                        hq_scale=_pipeline_hq(hq_scale, len(_img_o)))
+                        _build_machine_img_no_bar(_img_o, hq_scale=_zho),
+                        hq_scale=_zho)
                 else:
+                    _zho = _pipeline_hq(hq_scale, len(_img_o))
                     img = _build_machine_img(_img_o, machine.replace('･', '・') + "（優秀台）", None)
                 out   = os.path.join(output_dir, f"{_make_safe_fn(machine)}_高配分.jpg")
                 _save_jpeg(img, out, **({"target_kb": _ART_HQ_TARGET_KB}
-                                        if _pipeline_hq(hq_scale, len(_img_o)) > 1.0 else {}))
+                                        if _zho > 1.0 else {}))
                 generated.append(out)
                 log(f"  {machine}: {len(_img_o)}/{total}台")
                 high_ratio_list.append({
@@ -4738,6 +4804,7 @@ def run_auto_pipeline(
     rec_ban_level: bool = False,
     exclude_units: dict | None = None,
     hq_scale: float = 1.0,
+    zh_hq_scale: float = 1.0,
     kojin_zentai_machines: set[str] = set(),
     osusume_machines: set[str] = set(),
     retsu_bans: set[int] = frozenset(),
@@ -4806,7 +4873,7 @@ def run_auto_pipeline(
         suebangai_bans |= variety_bans
 
         log("① 全台系PNG ＋ 全台プラス機種別JPG")
-        f1, zen_dai_list = run_step1_main(df, diff_raw, output_dir, stem, cfg, log, article_mode=article_mode, hq_scale=hq_scale,
+        f1, zen_dai_list = run_step1_main(df, diff_raw, output_dir, stem, cfg, log, article_mode=article_mode, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale,
                                           kojin_zentai_machines=kojin_zentai_machines)
 
         # ⑤オススメ機種の優秀台（渋谷新館の記事用）の掲載台番。
@@ -4831,10 +4898,10 @@ def run_auto_pipeline(
         log("② ジャグラーシリーズ優秀台")
         _jug_series = cfg["juggler_series"]
         _zen_dai_jug = {item["name"] for item in zen_dai_list if item["name"] in _jug_series}
-        f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df, jug_bans_all = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude, no_merge_image=jug_no_merge_image, rec_ban_level=rec_ban_level, exclude_units=exclude_units, hq_scale=hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans)
+        f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df, jug_bans_all = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude, no_merge_image=jug_no_merge_image, rec_ban_level=rec_ban_level, exclude_units=exclude_units, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans)
 
         log("③ その他の優秀台ピックアップ")
-        f3, oth_hr, sonota_excellent, sonota_bans_all = run_step3_other(df, diff_raw, output_dir, cfg, narabi_bans, ov_df, ov_diff, log, recommended_machines, suebangai_bans, article_mode=article_mode, sonota_exclude=sonota_exclude, exclude_units=exclude_units, hq_scale=hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans)
+        f3, oth_hr, sonota_excellent, sonota_bans_all = run_step3_other(df, diff_raw, output_dir, cfg, narabi_bans, ov_df, ov_diff, log, recommended_machines, suebangai_bans, article_mode=article_mode, sonota_exclude=sonota_exclude, exclude_units=exclude_units, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans)
         _ex_seen: set[tuple] = set()
         excellent_list = []
         for _ex_item in jug_excellent + sonota_excellent:
@@ -5733,6 +5800,11 @@ _ART_RANK_FN      = "差枚数ランキング.jpg"
 _ART_RANK_TITLE   = "差枚数ランキング"
 # ⑥島図の正式ファイル名（記事用に採番機構は無いので固定名。ランキングと同じ流儀）
 _ART_SHIMAZU_FN   = "島図.jpg"
+# 島図は 3451×6490（約22.4Mpx）。_save_jpeg の既定 target(250KB) は
+# quality=1 相当（0.04B/画素・PSNR 24.9dB）まで潰れるため専用の目標値を持つ。
+# 3000KB は実測 q=88（約2983KB・PSNR 44.1dB）で、台番・機種名・罫線が潰れない水準。
+# **全台系・高配分とは別の値**。島図は容量より鮮明さを優先する。
+_ART_SHIMAZU_TARGET_KB = 3000
 # ランキング専用の配色（既存の C_TITLE_BG / C_ROW_BG 等は変更しない）
 _ART_RANK_TITLE_BG = "#111111"   # 黒系タイトルバー
 _ART_RANK_TITLE_FG = "#FFFFFF"   # 白文字
@@ -14784,6 +14856,8 @@ def show_auto_article_page() -> None:
                             article_mode=True,
                             # ジャグラーシリーズ優秀台／その他の優秀台ピックアップを高解像度で描画
                             hq_scale=(_ART_HQ_SCALE if store in _ART_HQ_STORES else 1.0),
+                            # 全台系・高配分は掲載台数に関係なく高解像度（WordPress掲載用）
+                            zh_hq_scale=_art_zh_hq(store),
                             # 🎯掲載台を選ぶ（高配分／ジャグラー統合／その他）: 記事用stateの投影
                             exclude_units=_art_pipeline_exclude(_art_unit_state),
                             # ②個別画像(全台)の機種は自動全台系を作らない（同名画像の二重生成を防ぐ）
@@ -14796,6 +14870,11 @@ def show_auto_article_page() -> None:
                             # （渋谷新館の記事用のみ。他店舗は art_osusume_machines が空）
                             osusume_machines={m.strip() for m in art_osusume_machines if m.strip()},
                         )
+                        # 記事用の全台系・高配分は掲載台数に関係なく2倍で描く（合成側と共有）
+                        _art_zh_fns = _art_zh_fn_set(
+                            _art_pr.get("zen_dai_list"),
+                            kojin_zentai_machines if kojin_enabled else ())
+                        st.session_state[f"_art_zh_fns_{store}"] = _art_zh_fns
                         _art_pil: list[tuple[str, "Image.Image"]] = []
                         _art_nb_map: dict[str, list[int]] = {}
                         # 列画像（列仕掛け）: ban_map 専用。並びの再振り分けには使わない
@@ -14841,7 +14920,7 @@ def show_auto_article_page() -> None:
                                     _km, _kg, _kd = _da
                                     _art_pil.append((f"{_km}.jpg", _build_article_machine_img(
                                         _kg, _km, _stat_from_diff(_kd),
-                                        hq_scale=_art_hq_scale_for(f"{_km}.jpg", store, len(_kg)))))
+                                        hq_scale=_art_zh_hq(store))))
                             # ② 高配分（avg_diff 降順・个別優秀台を含む）
                             def _ahrk(x):
                                 return x["all_avg_diff"] if "all_avg_diff" in x else (int(round(sum(x["diffs"])/len(x["diffs"]))) if x.get("diffs") else 0)
@@ -15267,6 +15346,7 @@ def show_auto_article_page() -> None:
                                             re.sub(r"^\d{2}_", "", _fn_pv2),
                                             store,
                                             len(_bans_pv2),
+                                            zh_fns=_art_zh_fns,
                                         )
                                         for _b_pv2 in _bans_pv2:
                                             _it_pv2 = _pv_by_uid.get(str(_b_pv2))
@@ -15684,6 +15764,8 @@ def show_auto_article_page() -> None:
                                                     re.sub(r"^\d{2}_", "", _fn_u),
                                                     store,
                                                     len(_bans_u),
+                                                    zh_fns=st.session_state.get(
+                                                        f"_art_zh_fns_{store}", frozenset()),
                                                 )
                                                 for _b_u in _bans_u:
                                                     _it_u = _upd_by_uid.get(str(_b_u))
@@ -15822,6 +15904,8 @@ def show_auto_article_page() -> None:
                 article_mode=True,
                 # ジャグラーシリーズ優秀台／その他の優秀台ピックアップを高解像度で描画
                 hq_scale=(_ART_HQ_SCALE if store in _ART_HQ_STORES else 1.0),
+                # 全台系・高配分は掲載台数に関係なく高解像度（WordPress掲載用）
+                zh_hq_scale=_art_zh_hq(store),
                 # 🎯掲載台を選ぶ（高配分／ジャグラー統合／その他）: 記事用stateの投影
                 exclude_units=_art_pipeline_exclude(_art_unit_state_e),
                 # ②個別画像(全台)の機種は自動全台系を作らない（同名画像の二重生成を防ぐ）
@@ -15834,6 +15918,13 @@ def show_auto_article_page() -> None:
                 # （渋谷新館の記事用のみ。他店舗は art_osusume_machines が空）
                 osusume_machines={m.strip() for m in art_osusume_machines if m.strip()},
             )
+
+            # 記事用の全台系・高配分は掲載台数に関係なく2倍で描く（合成側と共有）。
+            # ②個別画像「全台」も result["zen_dai_list"] へ後から追加されるため、
+            # ここでは入力機種名からも作っておく（両方を含む集合）。
+            st.session_state[f"_art_zh_fns_{store}"] = _art_zh_fn_set(
+                result.get("zen_dai_list"),
+                kojin_zentai_machines if kojin_enabled else ())
 
             # ── 並び画像（subprocess）────────────────────────────────
             narabi_result: dict | None = None
@@ -15895,11 +15986,12 @@ def show_auto_article_page() -> None:
                             _log(f"  個別(全台)「{_km}」: 該当台なし")
                             continue
                         _kdr = diff_k.loc[df_k[df_k["機種名"] == _km].index].reset_index(drop=True)
+                        _kzh = _art_zh_hq(store)
                         _kimg = _build_article_machine_img(
-                            _kgrp, _km, _stat_from_diff(_kdr),
-                            hq_scale=_art_hq_scale_for(f"{_make_safe_fn(_km)}.jpg", store, len(_kgrp)))
+                            _kgrp, _km, _stat_from_diff(_kdr), hq_scale=_kzh)
                         _kout = os.path.join(output_dir, f"{_make_safe_fn(_km)}.jpg")
-                        _save_jpeg(_kimg, _kout)
+                        _save_jpeg(_kimg, _kout,
+                                   **({"target_kb": _ART_HQ_TARGET_KB} if _kzh > 1.0 else {}))
                         result["files"].append(_kout)
                         result["zen_dai_list"].append({
                             "name":         _km,
@@ -16209,7 +16301,10 @@ def show_auto_article_page() -> None:
                         import shimazu_renderer as _szr_e
                         _sz_img_e = _szr_e.render(_sz_units_e, store)
                         _sz_out_e = os.path.join(output_dir, _ART_SHIMAZU_FN)
-                        _save_jpeg(_sz_img_e, _sz_out_e)
+                        # 島図は約22.4Mpx。_save_jpeg の既定 target(250KB) では
+                        # quality=1 まで落ちて文字・罫線が潰れる（実測 PSNR 24.9dB）。
+                        # 解像度(3451×6490)は十分なので、圧縮だけを緩めて鮮明にする。
+                        _save_jpeg(_sz_img_e, _sz_out_e, target_kb=_ART_SHIMAZU_TARGET_KB)
                         result["files"].append(_sz_out_e)
                         _log(f"  ⑥ {_ART_SHIMAZU_FN}（{_szr_e.master_unit_count(store)}台）")
                         # 3555×6490 RGB は約66MB。保存後すぐ解放する
@@ -16467,7 +16562,9 @@ def show_auto_article_page() -> None:
                                         _art_missing_panels.add(_mn_sl)
                                 # 高解像度対象（その他／ジャグラー統合）はスランプも2倍で描画
                                 _hq_sl = _art_hq_scale_for(re.sub(r"^\d{2}_", "", _fp_sl), store,
-                                                           len(_bans_sl))
+                                                           len(_bans_sl),
+                                                           zh_fns=st.session_state.get(
+                                                               f"_art_zh_fns_{store}", frozenset()))
                                 for _b_sl in _bans_sl:
                                     _it_sl = _art_by_uid_sl.get(str(_b_sl))
                                     if _it_sl is None or not _it_sl.get("points"):

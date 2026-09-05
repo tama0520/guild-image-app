@@ -9735,3 +9735,147 @@ c31b860   feat: 渋谷新館のWordPress画像をすべて1枚絵に変更
 9. **draft 62014 を公開・編集・削除しない**（検証用として残す）
 10. **本節および過去節を削除・圧縮・書き換えない**（supersede は追記で記録する）
 11. **無関係なリファクタ・未使用コード整理をしない**
+
+## 渋谷新館 記事用：ポスター削除UIのコンパクト化・ななこヒント10件・②タイトル（2026-09-05）
+
+**正式仕様。巻き戻し禁止。**対象は**【渋谷新館】の記事用ページのUIと、ななこヒントの枠数だけ**。
+正式コード commit は本節と**同一の commit**
+（`feat: 渋谷新館の記事用入力を改善`・2026-09-05・
+**`streamlit_app.py` と `CLAUDE.md` の2ファイルのみ**）。
+**`wp_client.py` は変更なし（git diff 0）。**
+既存節は削除・圧縮・統合しない。
+
+### ① ポスター削除ボタンは「機能維持・見た目だけコンパクト化」
+
+**「🗑️ 削除」「すべて削除」はどちらも必要な機能なので残す。**調査で次を確認した。
+
+| ボタン | 位置 | widget key | 処理 | 実際の削除対象 |
+|---|---|---|---|---|
+| 🗑️ 削除 | `show_auto_article_page` のポスターUI | `art_poster_del_{Excel名}_{file_id}` | `_art_poster_delete(store, excel, fid)` | **session_state `_art_poster_imgs_{store}_{excel}` から該当1枚を除くだけ** |
+| すべて削除 | 同上 | `art_poster_clear_{Excel名}` | `_art_poster_clear(store, excel)` | **同キーを `[]` にするだけ** |
+
+- **どちらもファイル実体・`article_page_inputs.json`・`output_dir` には触れない。**
+- **`_art_poster_seen_*`（取り込み済み file_id）は意図的に残す。**外すと file_uploader に
+  残っている同じ `UploadedFile` が次の rerun で再取り込みされ、削除した画像が復活する。
+- キーに 店舗＋Excel名（日付）を含むため、**別日付・別店舗へ波及しない。**
+- ⑧は `_art_poster_list()` を**唯一の正**として読み、0枚なら
+  `_rm_stale_image(output_dir, POSTER_FN)` で前回の `_wp_poster.jpg` を消す。
+  **つまり「すべて削除」は「ポスターあり → ポスターなし」へ戻す唯一の手段。**
+- **削除ボタンを消してはならない。**消すと (a) 誤アップロードの取り消し不能
+  （`seen` に残るので同ファイル再追加も不可）(b) ポスターなしへ戻せない
+  (c) 2枚以上のときの順序修正ができない。
+- **`_ART_POSTER_DEL_HIDE_STORES` のような非表示ゲートは作らない**（今回不採用）。
+
+**変更したのは表示だけ。**
+
+```python
+_pv_cols = st.columns(4 if _art_v2 else min(4, len(_poster_saved)))
+...
+st.button("🗑️ 削除", ..., use_container_width=(not _art_v2))
+```
+
+- 旧実装は `st.columns(min(4, 枚数))` だったため、**ポスター1枚のとき1列＝全幅**になり、
+  `use_container_width=True` の「🗑️ 削除」が画面いっぱいに伸びていた。
+- **渋谷新館（`_art_v2`＝`_ART_STRUCT_V2_STORES`）だけ**列数を常に4に固定し、
+  ボタンをコンテナ幅いっぱいにしない。
+- **高田馬場・秋葉原は従来どおり**（`min(4, 枚数)` ＋ `use_container_width=True`）。
+- 「すべて削除」は元から通常サイズなので**変更していない**。
+- **`_art_poster_delete()` / `_art_poster_clear()` / `_art_poster_list()` /
+  `_art_poster_key()` / `_art_poster_seen_key()` は本体バイト一致（無変更）。**
+  session_state 仕様・`_art_poster_seen_*` 仕様・⑧のポスター処理・WordPress処理も無変更。
+
+### ② ななこポストのヒントを1〜6 → 1〜10 へ
+
+```python
+_ART_NANAKO_HINTS = 10      # 旧 6
+```
+
+**変更はこの1定数だけ。** 参照3か所（UI／`_article_input_keys()`／⑧payload）が
+すべて `range(_ART_NANAKO_HINTS)` なので自動的に追従する。
+
+| 項目 | 内容 |
+|---|---|
+| 画面表示 | **ヒント1〜ヒント10**（2列レイアウト） |
+| 内部index | **0〜9** |
+| 既存 logical key | **`art_nanako_hint_0_渋谷新館` 〜 `_5_` は変更しない** |
+| 追加 logical key | **`art_nanako_hint_6_渋谷新館` 〜 `_9_渋谷新館`** |
+| 保存先 | 既存 `article_page_inputs.json`（Excel＝日付単位） |
+
+- **B2（日付スコープ）を維持。**ヒント欄は共通ヘルパー `_art_txt()` 経由なので、
+  表示キーは **`_artw_{excel_stem}_{logical_key}`**、保存は logical key、
+  `_on_article_widget_change` の **`expected_excel` ガード**と
+  `_save_article_inputs()` の **`_art_restored_excel` ガード**、**`skip_kojin=True`** が
+  そのまま効く。**stable widget key を新規導入していない。**
+- **過去データ互換**：保存に無い 6〜9 は `_restore_article_inputs()` が `""` を入れるので
+  **空欄扱い**。既存1〜6はそのまま復元される。
+  **過去JSONの一括変換・一括書き換えはしない。**
+- **許容事項（承認済み）**：その日付で何か1欄でも編集して保存が走ると、
+  過去日付エントリにも `art_nanako_hint_6..9 = ""` が**追記**される。
+  値は空で挙動は同一、既存1〜6は不変、**閲覧だけでは保存は走らない**（on_change 未発火）。
+  既存キー追加時と同じ挙動なので、**これを避けるための追加ロジックは入れない。**
+
+### ③ WordPress本文仕様は不変（`wp_client.py` 無変更）
+
+- **`NANAKO_HINT_COUNT = 6` は参照0件の未使用定数。理由なく変更・削除しない。**
+- 実処理 `blk_para_hints()` / `plan_blocks()` は**リスト長非依存**
+  （`[h for h in items if h]` で非空だけ抽出）なので10件でもそのまま動く。
+- 仕様は従来どおり：**非空ヒントだけ出力／途中が空でも後ろの非空を出す／
+  「■＋本文全体」を `<strong style="color:#e60012">` で包む（赤＋太字）／
+  複数ヒントは1 Gutenberg paragraph 内で `<br>` 改行**。
+- **X URL の有無による既存条件分岐も変更しない。**
+
+### ④ ②セクションのタイトル（表示のみ）
+
+```python
+st.markdown(f"### {_sec_num()} {'全台系・高配分' if _art_v2 else '個別画像'}")
+```
+
+- **渋谷新館（`_art_v2`）だけ `高配分` → `全台系・高配分`。**
+- **高田馬場・秋葉原の `個別画像` は変更しない。**
+- この文字列は**WordPress と共有していない**（H2 は `wp_client.py` の別定数
+  `H2_ZENDAI = "全台系濃厚機種が複数"` / `H2_HIGH = "1/2系以上の高配分機種が大量"`）。
+- **全台系抽出／高配分抽出／画像ファイル名／保存キー／session_state key／
+  `article_page_inputs.json` schema／WordPress H2／WordPress本文／⑧出力／ZIP／
+  `_sec_num()` のカウンタ方式は変更していない。**
+
+### ⑤ 変更範囲（機械確認）
+
+- **`streamlit_app.py` のみ**（+14 / −5・3ハンク）。**新規関数0・消失関数0。**
+- **本体が変わった関数は `show_auto_article_page()` の1つだけ**。
+  `_art_poster_delete` / `_art_poster_clear` / `_art_poster_list` / `_art_poster_key` /
+  `_art_poster_seen_key` / `_save_article_inputs` / `_restore_article_inputs` /
+  `_art_widget_key` / `_art_saved_value` / `_on_article_widget_change` /
+  `_art_edited_key` / `_art_kojin_default` / `_on_article_kojin_enabled` /
+  `_save_article_enabled` / **`show_auto_page`（通常ページ全域）** は**すべてバイト一致**。
+- **`wp_client.py` / `convert_narabi_pil.py` / `shimazu_renderer.py` は無変更。**
+
+### ⑥ 純粋テスト結果（全PASS）
+
+ヒント10件・途中空欄（1/3/7/10のみ）→ **`■A` / `■C` / `■G` / `■J` の4行**、
+**1 paragraph・`<br>`3個・`#e60012`＋`<strong>`・空の「■」0件**。
+ヒント0件で `para_hints` を出さず H2 は出る／X URL なしで `embed_x` を出さずヒントは出る。
+既存定数の維持も確認：`NANAKO_HINT_COUNT=6` ／ 渋谷新館 category **19** /
+`espace-shibuyashin` ／ 高田馬場 **24** ／ `m.suzuki=7` ／ `WP_AUTHOR_ID=14` ／
+`_ART_WP_NOSPLIT_STORES={"渋谷新館"}` ／ `WP_NOSPLIT_FILES={"島図.jpg"}` ／
+`plan_split(store="渋谷新館")=={}`（Python split 0）／ `RANK_SHIMAZU_GAP_PARAS=5` ／
+`X_EMPTY_PARAS=3` ／ `twitter.com` 正規化 ／ `providerNameSlug="x"` ／
+`H2_ZENDAI` / `H2_HIGH` 不変。
+**高田馬場の baseline `c35ac89ea13c` は、`wp_client.py` が git diff 0 であることで維持を確認した。**
+
+### ⑦ 今後の禁止事項
+
+1. **ポスターの「🗑️ 削除」「すべて削除」を機能ごと消さない**
+2. **`_art_poster_delete()` / `_art_poster_clear()` を変更しない**
+3. **`_art_poster_seen_*` を削除時に外さない**（削除した画像が復活する）
+4. **⑧の `_art_poster_list()` 基準・`_rm_stale_image(output_dir, POSTER_FN)` を変えない**
+5. **高田馬場・秋葉原のポスターUI（全幅ボタン）を今回の理由で変更しない**
+6. **`_ART_NANAKO_HINTS` を 6 へ戻さない**
+7. **`art_nanako_hint_0〜5` の logical key を変更しない**
+8. **ヒント欄に stable widget key を導入しない**（B2 の日付スコープを維持）
+9. **過去日付JSONを一括変換・一括書き換えしない**
+10. **空キー追記を避けるための追加ロジックを入れない**（最小修正を維持）
+11. **`wp_client.NANAKO_HINT_COUNT` を理由なく変更・削除しない**
+12. **ヒント本文の仕様（非空のみ・1 paragraph・`<br>`・赤＋太字）を変えない**
+13. **②タイトルの変更を高田馬場・秋葉原へ波及させない**
+14. **②タイトルを理由に抽出ロジック・画像名・保存キー・WordPress H2 を変更しない**
+15. **無関係なリファクタ・未使用コード整理をしない**

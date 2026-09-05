@@ -3027,8 +3027,10 @@ _ART_NANAKO_STORES = frozenset({"渋谷新館"})
 # **高田馬場・秋葉原は対象外**（高田馬場の既存WordPress本文をバイト単位で維持するため）。
 # 対象店舗では手貼り用の空段落×3 を出さず、代わりにX投稿を自動で埋め込む。
 _ART_GUILD_X_STORES = frozenset({"渋谷新館"})
-# ヒント入力欄の数（固定6枠）。空欄の枠は本文へ出さない。
-_ART_NANAKO_HINTS = 6
+# ヒント入力欄の数（固定10枠）。空欄の枠は本文へ出さない。
+# ★logical key は art_nanako_hint_0〜9_{store}。既存の 0〜5 は変更しない（後方互換）。
+#   保存に無い 6〜9 は _restore_article_inputs() が "" を入れるので空欄扱いになる。
+_ART_NANAKO_HINTS = 10
 
 # 記事用①冒頭部分より上へ「WordPress投稿者」の選択UIを出す店舗。
 # **高田馬場は対象外**（従来どおり wp_client.WP_AUTHOR_ID = 14 固定）。
@@ -14526,7 +14528,14 @@ def show_auto_article_page() -> None:
         st.caption(f"🖼️ 保存済みポスター：**{len(_poster_saved)}枚**"
                    + ("（左から順に横結合して1枚として送信します）"
                       if len(_poster_saved) > 1 else ""))
-        _pv_cols = st.columns(min(4, len(_poster_saved)))
+        # ★見た目だけの分岐（_art_v2＝渋谷新館）。削除機能そのものは全店舗で維持する。
+        #   従来は st.columns(min(4, 枚数)) だったため、ポスター1枚のときに
+        #   1列＝全幅になり、use_container_width=True の「🗑️ 削除」が
+        #   画面いっぱいに伸びていた。列数を常に4に固定し、ボタンも
+        #   コンテナ幅いっぱいにしないことでコンパクトにする。
+        #   _art_poster_delete() / _art_poster_clear() / session_state /
+        #   _art_poster_seen_* / ⑧のポスター処理 / WordPress処理は変更しない。
+        _pv_cols = st.columns(4 if _art_v2 else min(4, len(_poster_saved)))
         for _pi, _pimg in enumerate(_poster_saved):
             with _pv_cols[_pi % len(_pv_cols)]:
                 st.image(_pimg["data"], width=130,
@@ -14534,7 +14543,7 @@ def show_auto_article_page() -> None:
                 st.button("🗑️ 削除", key=f"art_poster_del_{_art_excel_now}_{_pimg['fid']}",
                           on_click=_art_poster_delete,
                           args=(store, _art_excel_now, _pimg["fid"]),
-                          use_container_width=True)
+                          use_container_width=(not _art_v2))
         st.button("すべて削除", key=f"art_poster_clear_{_art_excel_now}",
                   on_click=_art_poster_clear, args=(store, _art_excel_now))
     else:
@@ -14696,7 +14705,7 @@ def show_auto_article_page() -> None:
     art_sonota_extra_text: str = ""
     art_sonota_extra_auto: str = "なし"
     art_jug_extra_auto: str = "なし"
-    st.markdown(f"### {_sec_num()} {'高配分' if _art_v2 else '個別画像'}")
+    st.markdown(f"### {_sec_num()} {'全台系・高配分' if _art_v2 else '個別画像'}")
     # ②チェックボックスの on_change は従来どおり _save_article_enabled（機種名を
     # 巻き込まない専用コールバック・0e7dc4c）。widget キーだけ日付スコープ化する。
     _kj_en_wk = _art_widget_key(_art_excel_w, "art_kojin_enabled")

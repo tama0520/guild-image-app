@@ -10053,3 +10053,195 @@ def _art_panel_max(store, bare_fn) -> int:
 14. **HQ 4ゲート・解像度・JPEG品質を変更しない**
 15. **`wp_client.py` / `convert_narabi_pil.py` / JSON schema を変更しない**
 16. **無関係なリファクタ・未使用コード整理をしない**
+
+## 渋谷新館 WordPress：記事本文の画像表示幅を統一（2026-09-05・A-2a）
+
+**正式仕様。巻き戻し禁止。**対象は**【渋谷新館】の記事用WordPress本文の画像表示幅だけ**。
+正式コード commit は本節と**同一の commit**
+（`fix: 渋谷新館のWordPress画像表示幅を統一`・2026-09-05・
+**`wp_client.py` と `CLAUDE.md` の2ファイルのみ**）。
+**`streamlit_app.py` は差分0。元JPEGの生成サイズ・画質・分割仕様は一切変更していない。**
+既存節は削除・圧縮・統合・並べ替えしない。
+
+### ① 直接原因（実測で確定）
+
+記事内で **マイジャグV_高配分 / ジャグラーシリーズ優秀台 / その他の優秀台ピックアップ /
+ネオアイム_高配分 / カバネリ海門決戦_高配分** だけが左右に余白を残して小さく表示されていた。
+因果は次の1本道で、**画像カテゴリではなく「縦横比」で決まる**。
+
+```
+① 渋谷新館は全画像 Python側 nosplit（_ART_WP_NOSPLIT_STORES・正式仕様）
+      ↓ 縦長画像がそのまま1枚で送られる
+② WordPress が長辺 2560px へ縮小して保存（-scaled ではなく本体を縮小）
+      ↓ 長辺が“高さ”なので縦長なほど幅が巻き添えで縮む
+      例 1985×7107 → 715×2560（幅 0.36倍）
+③ blk_image() は width/height/style/srcset を出さない
+      ↓ ブラウザは media の intrinsic width をそのまま採用
+④ SWELL main.css は  img{border-style:none;height:auto;max-width:100%}
+      ★width 指定が無い → max-width は縮めるだけで広げない
+⑤ intrinsic width < 本文カラム幅 の画像だけ原寸表示 → 左右に余白
+```
+
+**元JPEGの幅はどれも 1980〜2180 でほぼ同じ**（幅の違いは元画像に由来しない）。
+**幅を上げても長辺が高さである限り同じ比率で縮むため、元画像の変更は解決策にならない。**
+
+実測（draft 62065・24ブロック）では **ブロック属性・figure class・img class が全24件で完全に同一**、
+`width` / `height` / `srcset` / `sizes` / `style` は全件なし ＝ **HTML側に差は無かった**。
+
+### ② A-1（style だけ足す案）は Gutenberg 検証に失敗 — 履歴として記録
+
+最初に `img` へ `style="width:100%"` だけを足す最小案（A-1）を実装し、
+**検証用 draft 62102** を作成した。content.raw は意図どおり出力されたが、
+編集画面で画像ブロックが
+
+> **「このブロックには、想定されていないか無効なコンテンツが含まれています。」**
+
+となった。**A-1 は不採用。**（「復旧を試みる」は押していない。62102 は未編集・未公開のまま残置）
+
+原因は、Gutenberg が「属性から再生成した HTML」と「保存済み HTML」を突き合わせるため、
+**style だけでは不一致になる**こと。
+
+### ③ Gutenberg が期待する保存形（同サイトの実データから確定）
+
+**推測せず、このサイトの人手作成投稿を全走査して採取した**
+（走査 399投稿／`is-resized` を含む画像ブロック **702件**、`"width"` 属性を含む **698件**。
+`alignwide` / `aligncenter` / img の HTML `width=` は **0件**）。
+
+```html
+<!-- wp:image {"id":61649,"width":"605px","sizeSlug":"full","linkDestination":"none"} -->
+<figure class="wp-block-image size-full is-resized"><img src="…" alt="" class="wp-image-61649" style="width:605px;height:auto"/></figure>
+<!-- /wp:image -->
+```
+
+（出典 post 61647）**`605px` を `100%` に置き換えた形が A-2a。**
+
+### ④ 正式仕様（A-2a）— 3点セットで出す
+
+**`full_width=True` のときは、必ず次の3点を同時に出す。1つだけ足す中間形式を作らない。**
+
+| # | 箇所 | 出力 |
+|---|---|---|
+| 1 | ブロック属性 | **`"width":"100%"`**（`id` の直後・`sizeSlug` の前） |
+| 2 | figure class | **`wp-block-image size-full is-resized`** |
+| 3 | img style | **`style="width:100%;height:auto"`** |
+
+- **`height:auto` を省かない**（縦横比の維持と、Gutenberg の期待形との一致に必要）。
+- **`alignwide` / `alignfull` / `aligncenter` / HTML の `width=` `height=` / `srcset` / `sizes`
+  は追加しない。**
+- `id` / `sizeSlug` / `linkDestination` / `className` / `src` / `alt` / `img class` は
+  `full_width` の有無にかかわらず**変更しない**。
+
+### ⑤ 店舗限定と実装
+
+```python
+_ART_WP_FULLWIDTH_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
+```
+
+- `blk_image(media_id, src, join=False, full_width=False)`
+- `build_content(..., full_width=False)` が透過
+- `create_takadanobaba_draft()` が
+  **`full_width=(_store in _ART_WP_FULLWIDTH_STORES)`** を渡す
+- **既定は必ず `False`。** `False` のときの出力は変更前と**バイト単位で同一**。
+
+**★`_ART_WP_NOSPLIT_STORES` と統合しない。役割が別。**
+
+| 定数 | 役割 |
+|---|---|
+| `_ART_WP_NOSPLIT_STORES` | 画像を Python 側で**分割しない**店舗 |
+| **`_ART_WP_FULLWIDTH_STORES`** | WordPress 本文上の**表示幅**を100%にする店舗 |
+
+### ⑥ ファイル名・カテゴリで分岐しない
+
+小さく見えるかどうかは **WordPress保存後の intrinsic width が本文幅を下回るか**で決まるため、
+「マイジャグだけ」「その他優秀台だけ」のような**ファイル名分岐は作らない**。
+**渋谷新館の記事用画像すべてへ同じ full-width 指定を適用する。**
+元々カラム幅以上ある画像（島図1361 / ランキング1204 / ポスター1040 等）は
+`max-width:100%` により見た目が実質変わらない。
+
+### ⑦ 純粋テスト（50項目・全PASS）
+
+A-2a 出力が実例（605px→100%）と**構造完全一致**／`width` は `id` の直後／
+`is-resized` あり／`style="width:100%;height:auto"`／`sizeSlug:"full"`／
+`linkDestination:"none"`／src・media ID 不変／余計な属性0／
+**`full_width=False` は HEAD と完全一致**／**高田馬場の本文HTMLはバイト一致で
+`width` / `is-resized` / `style` の混入0**／渋谷新館は全画像ブロックに3点セット／
+画像ブロック数・本文順 不変／`build_content` の既定 False。
+
+**バイト一致（無変更）**：`plan_blocks` / `collect_files` / `plan_split` / `needs_split` /
+`split_count` / `split_image_for_wp` / `upload_media` / `create_draft` / `build_poster` /
+`build_title` / `store_category` / `normalize_x_url` / `blk_embed_x` / `blk_para_hints` /
+`h3_zendai` / `h3_narabi` / `h3_retsu` / `_resolve_high_images` / `_existing_files` / `esc` /
+`narabi_file_name` / `blk_h2` / `blk_h3` / `blk_para` / `blk_button` / `blk_empty_para`。
+**変更関数は `blk_image` / `build_content` / `create_takadanobaba_draft` の3つだけ・新規/消失関数0。**
+
+定数も不変：`WP_NOSPLIT_FILES` / `_ART_WP_NOSPLIT_STORES` / `WP_MAX_SIDE=2560` /
+`WP_STATUS="draft"` / `WP_STORE_CATEGORY` / `WP_AUTHOR_MAP` / `WP_AUTHOR_ID=14` /
+`_X_EMBED_HOST` / `NANAKO_*` / `H2_RANK_SHIMAZU` / `RANK_SHIMAZU_GAP_PARAS=5` / `H2_SHIMAZU`。
+
+### ⑧ 実機確認（検証用 draft **62118**・全PASS）
+
+| 項目 | 実測 |
+|---|---|
+| post ID / status / category / author | **62118 / `draft` / `[19]` / `2`（m.takahashi）** |
+| media | **15件**（新規アップロードのみ） |
+| **Gutenberg validation error** | **0件**。リストビューで15画像ブロックすべてが「画像」として正常認識（サムネイル表示あり）。段落・H2・H3・SWELLボタンも正常 |
+| 本文カラム幅 | **784px**（内幅 **752px**） |
+| **全15画像の表示幅** | **すべて 752px（＝本文幅いっぱい）で統一・NG 0** |
+| 縦横比 | **15枚すべて intrinsic ratio と表示 ratio が完全一致** |
+
+**対象画像（拡大されたもの）**
+
+| 画像 | intrinsic W | 表示W |
+|---|---|---|
+| マイジャグV_高配分 | 715 | **752** |
+| ジャグラーシリーズ優秀台 | 715 | **752** |
+| その他の優秀台ピックアップ | 719 | **752** |
+| ネオアイム_高配分 | 839 | **752** |
+| カバネリ海門決戦_高配分 | 840 | **752** |
+
+**正常画像の非回帰**：東京喰種_高配分(998) / ワールドダイスター(1984) / ハピジャグV(1534) /
+スマスロ北斗の拳4台並び(1760) / 北斗転生2 3台並び(2062) / 北斗転生2 列仕掛け(1559) /
+ミスジャグ_高配分(1979) / 差枚数ランキング(1204) / 島図(1361) / ポスター(1040)
+— いずれも **752px** のままで見た目に変化なし。
+
+**SWELL Luminous**：15画像すべてに `data-luminous` が付与され、`<a>` ラップは0件
+（`linkDestination:"none"` を維持）。マイジャグV_高配分をクリックすると
+**Luminous ライトボックスが開き、同じメディア（715×2560）の画像全体を表示**。
+クリック拡大先は変わっていない。
+
+**レスポンシブ**：本文カラムを 360px に狭めた状態で全15枚が **328px** へ追従し、
+**カラムはみ出し0・横スクロール0・縦横比NG 0**。
+
+### ⑨ 画質についての注記（了承済み）
+
+715px の画像は本文幅 752px へ **約1.05倍**拡大表示される（本文カラム784pxの環境）。
+**画像の再エンコード・アップスケール・リサイズは行っていない。CSS の表示幅だけ。**
+画質を落とさず幅を確保する方法は分割しかないが、**渋谷新館の全画像nosplitは正式仕様**のため
+今回は対象外とする。
+
+### ⑩ 確認状況の正確な記録（誤記しないこと）
+
+- **レスポンシブは「本文カラム幅をローカルDOM上で360pxに狭めた測定」である。**
+  ブラウザウィンドウのリサイズが当該タブのビューポートへ反映されなかったため、
+  **実スマホ幅での確認ではない。**「スマホ実機確認済み」と書かない。
+- **検証用 draft 62102（A-1・validation error あり）と 62118（A-2a・error なし）は
+  どちらも公開・編集・削除していない。**そのまま残置する。
+
+### ⑪ 今後の禁止事項
+
+1. **3点セットのうち1つでも欠いた形へ戻さない**（style だけ＝A-1 は検証エラー）
+2. **`height:auto` を省かない**
+3. **`"width"` を `id` の直後以外へ移さない／`is-resized` を外さない**
+4. **`full_width` の既定 `False` を変更しない**（高田馬場の本文HTMLが壊れる）
+5. **高田馬場・秋葉原へ `width` / `is-resized` / `style` を混入させない**
+6. **`_ART_WP_FULLWIDTH_STORES` と `_ART_WP_NOSPLIT_STORES` を統合しない**
+7. **ファイル名・画像カテゴリで分岐しない**
+8. **`alignwide` / `alignfull` / `aligncenter` / HTML `width=` `height=` / `srcset` / `sizes` を足さない**
+9. **`linkDestination:"none"` を変えない**（SWELL Luminous を壊す）
+10. **元JPEGの生成サイズ・画質・パネル・液晶・HQ・`streamlit_app.py` を変更しない**
+11. **`plan_split` / `needs_split` / `split_count` / `split_image_for_wp` / `WP_MAX_SIDE` を変更しない**
+12. **本文構成（category 19 / author / X / ななこ / ジャグラーH2H3 / ランキング&島図 /
+    空段落×5 / 店舗情報ボタン / 本文順）を変更しない**
+13. **サイト設定・PHP・テーマ・SWELL の CSS を変更しない**
+14. **draft 62102 / 62118 を公開・編集・削除しない**
+15. **無関係なリファクタ・未使用コード整理をしない**

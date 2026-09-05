@@ -420,6 +420,18 @@ WP_NOSPLIT_FILES: "frozenset[str]" = frozenset({"島図.jpg"})
 # トレードオフ: 1枚で送ると長辺2560px超はサイト側で `-scaled.jpg` が作られる（許容）。
 _ART_WP_NOSPLIT_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
 
+# 記事用WordPress本文で **画像を本文カラム幅いっぱいに表示する店舗**（2026-09-05 追加）。
+# 原因: nosplit の店舗では縦長画像がそのまま送られ、WordPress が長辺 2560px へ縮小する
+# ため、縦長なほど保存 width が小さくなる（例 1985x7107 → 715x2560）。
+# SWELL の main.css は `img{height:auto;max-width:100%}` で **width 指定が無い**ので、
+# 保存 width が本文カラム幅（実測約863px）を下回る画像だけが原寸表示になり左右に余白が出る。
+# 対策は表示側のみ。Gutenberg の core/image が「幅を変更した画像」を保存する形
+# （ブロック属性 "width" ＋ figure の is-resized ＋ img の style）へ合わせて 100% を出す。
+# height:auto を含めるので縦横比は維持される。
+# ★`_ART_WP_NOSPLIT_STORES`（分割するかどうか）とは **別仕様**。統合しない。
+# ★元JPEGの生成サイズ・画質・分割仕様は一切変更しない。
+_ART_WP_FULLWIDTH_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
+
 
 def needs_split(w: int, h: int, max_h: int = WP_SPLIT_MAX_H) -> bool:
     """WordPress側の長辺縮小で幅が潰れるか。高さが上限超なら分割対象。"""
@@ -623,20 +635,46 @@ def blk_h3(text: str) -> str:
             '<!-- /wp:heading -->')
 
 
-def blk_image(media_id: int, src: str, join: bool = False) -> str:
+def blk_image(media_id: int, src: str, join: bool = False,
+              full_width: bool = False) -> str:
     """58109 の画像ブロックと同一属性。
 
     join=True で 58963 と同じ連結クラスを付ける（分割片の最後以外）。
+
+    full_width=True（`_ART_WP_FULLWIDTH_STORES` の店舗）のときだけ、画像を本文
+    カラム幅いっぱいで表示する。**Gutenberg の core/image が「幅を変更した画像」を
+    保存するときの形と同じ3点セット**を必ず同時に出す（2026-09-05 A-2a）。
+
+      1. ブロック属性  "width":"100%"   … `id` の直後・`sizeSlug` の前
+      2. figure class  is-resized
+      3. img style     width:100%;height:auto
+
+    ★1つだけ足す中間形式にしない。style だけ足した A-1 は編集画面で
+      「このブロックには、想定されていないか無効なコンテンツが含まれています。」
+      になった（draft 62102 で実機確認）。Gutenberg は属性から再生成した HTML と
+      保存済み HTML を突き合わせるため、3点が揃っていないと必ず不一致になる。
+    ★形は同サイトの人手作成投稿の実例（post 61647 / `"width":"605px"` 系 698件）
+      から採取したもので、`605px` を `100%` に置き換えただけ。
+      alignwide / aligncenter / HTML の width= height= / srcset / sizes は足さない。
+    ★`height:auto` を省かない（縦横比の維持と、Gutenberg の期待形の一致に必要）。
+    ★既定は必ず False。False のときは変更前と**バイト単位で同一**の出力になる
+      （高田馬場の既存本文HTMLを維持するため）。
+    ★id / sizeSlug / linkDestination / className / src / alt / img class は
+      full_width の有無にかかわらず変更しない。
     """
+    _wattr = '"width":"100%",' if full_width else ""
+    _rcls  = " is-resized" if full_width else ""
+    _st    = ' style="width:100%;height:auto"' if full_width else ""
     if join:
-        return (f'<!-- wp:image {{"id":{media_id},"sizeSlug":"full",'
+        return (f'<!-- wp:image {{"id":{media_id},{_wattr}"sizeSlug":"full",'
                 f'"linkDestination":"none","className":"{SPLIT_JOIN_CLASS}"}} -->\n'
-                f'<figure class="wp-block-image size-full {SPLIT_JOIN_CLASS}">'
-                f'<img src="{src}" alt="" class="wp-image-{media_id}"/></figure>\n'
+                f'<figure class="wp-block-image size-full{_rcls} {SPLIT_JOIN_CLASS}">'
+                f'<img src="{src}" alt="" class="wp-image-{media_id}"{_st}/></figure>\n'
                 '<!-- /wp:image -->')
-    return (f'<!-- wp:image {{"id":{media_id},"sizeSlug":"full","linkDestination":"none"}} -->\n'
-            f'<figure class="wp-block-image size-full">'
-            f'<img src="{src}" alt="" class="wp-image-{media_id}"/></figure>\n'
+    return (f'<!-- wp:image {{"id":{media_id},{_wattr}"sizeSlug":"full",'
+            f'"linkDestination":"none"}} -->\n'
+            f'<figure class="wp-block-image size-full{_rcls}">'
+            f'<img src="{src}" alt="" class="wp-image-{media_id}"{_st}/></figure>\n'
             '<!-- /wp:image -->')
 
 
@@ -1159,12 +1197,16 @@ def plan_split(found: list[dict], tmp_dir: str, store: str = "") -> dict:
 
 def build_content(plan: list[dict], media_map: dict, site: str = "",
                   split_map: "dict | None" = None,
-                  category_slug: str = WP_CATEGORY_SLUG) -> str:
+                  category_slug: str = WP_CATEGORY_SLUG,
+                  full_width: bool = False) -> str:
     """plan と {ファイル名: {"id":…, "src":…}} から content.raw を組み立てる。
 
     split_map があるファイルは、その分割片を順に並べ、
     **最後の1枚以外へ連結クラスを付ける**（58963 と同じ構造）。
     media_map に無い画像はブロックごと出力しない（見出しは残す）。
+
+    full_width は blk_image() へそのまま透過する（既定 False ＝従来動作）。
+    画像ブロック以外（見出し・段落・embed・ボタン等）へは一切影響しない。
     """
     split_map = split_map or {}
     out: list[str] = []
@@ -1199,11 +1241,13 @@ def build_content(plan: list[dict], media_map: dict, site: str = "",
                         blocks.append(m)
                 for i, m in enumerate(blocks):
                     out.append(blk_image(m["id"], m["src"],
-                                         join=(i < len(blocks) - 1)))
+                                         join=(i < len(blocks) - 1),
+                                         full_width=full_width))
             else:
                 m = media_map.get(fn)
                 if m:
-                    out.append(blk_image(m["id"], m["src"]))
+                    out.append(blk_image(m["id"], m["src"],
+                                         full_width=full_width))
         elif t == "button":
             out.append(blk_button(slug=category_slug, site=site))
     return "\n\n".join(out)
@@ -1418,7 +1462,9 @@ def create_takadanobaba_draft(payload: dict, progress=None) -> dict:
 
     title   = build_title(payload.get("date"), _store)
     content = build_content(plan, media_map, site=site, split_map=split_map,
-                            category_slug=_cat["slug"])
+                            category_slug=_cat["slug"],
+                            # 対象店舗だけ本文カラム幅いっぱいで表示する（表示のみ）
+                            full_width=(_store in _ART_WP_FULLWIDTH_STORES))
     res = create_draft(title, content, category_id=_cat["id"],
                        author_id=_author_id)
     if not res["ok"]:

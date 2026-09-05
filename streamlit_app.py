@@ -15647,7 +15647,10 @@ def show_auto_article_page() -> None:
                                                 _show_mn_pv2 or _is_sue_pv2 or _is_multi_pv2,
                                                 _is_sue_pv2,
                                                 crop_bar=False,      # 記事用は元画像をcropしない
-                                                is_multi=_is_multi_pv2)
+                                                is_multi=_is_multi_pv2,
+                                                # 列仕掛けも並びと同じパネル選定ルールへ
+                                                narabi_like=_art_is_narabi_fn(_bare_pv2),
+                                                max_panels=_art_panel_max(store, _bare_pv2))
                                         # 高解像度対象（その他／ジャグラー統合）はスランプも2倍で描画
                                         _hq_pv2 = _art_hq_scale_for(
                                             re.sub(r"^\d{2}_", "", _fn_pv2),
@@ -16065,7 +16068,10 @@ def show_auto_article_page() -> None:
                                                         or _fn_u.startswith("バラエティ"),
                                                         _is_sue_u,
                                                         crop_bar=False,      # 記事用は元画像をcropしない
-                                                        is_multi=_is_multi_u)
+                                                        is_multi=_is_multi_u,
+                                                        # 列仕掛けも並びと同じパネル選定ルールへ
+                                                        narabi_like=_art_is_narabi_fn(_bare_u),
+                                                        max_panels=_art_panel_max(store, _bare_u))
                                                 # 高解像度対象（その他／ジャグラー統合）はスランプも2倍で描画
                                                 _hq_u = _art_hq_scale_for(
                                                     re.sub(r"^\d{2}_", "", _fn_u),
@@ -16875,7 +16881,10 @@ def show_auto_article_page() -> None:
                                         _art_ban2mac_sl, _art_ban2diff_sl,
                                         _show_mn_sl or _is_sue_sl or _is_multi_sl, _is_sue_sl,
                                         crop_bar=False,      # 記事用は元画像をcropしない
-                                        is_multi=_is_multi_sl)
+                                        is_multi=_is_multi_sl,
+                                        # 列仕掛けも並びと同じパネル選定ルールへ
+                                        narabi_like=_art_is_narabi_fn(_bare_sl),
+                                        max_panels=_art_panel_max(store, _bare_sl))
                                     if _mn_sl is not None and not _pok_sl:
                                         _art_missing_panels.add(_mn_sl)
                                 # 高解像度対象（その他／ジャグラー統合）はスランプも2倍で描画
@@ -21054,7 +21063,7 @@ def _vstack_images(top: "Image.Image", bottom: "Image.Image") -> "Image.Image":
 
 def _build_variety_panel_grid(
     bans: list, ban2mac: dict, ban2diff: dict, width: int,
-    order_by_min_ban: bool = False,
+    order_by_min_ban: bool = False, max_panels: int = 4,
 ) -> "Image.Image | None":
     """バラエティ画像用: 優秀台の中から差枚上位4機種のパネルを 2×2（台番昇順・上2下2）で結合。
     パネル未登録機種は飛ばして次点を繰り上げ、4機種未満・パネル不足時はある分だけ詰める。
@@ -21063,7 +21072,11 @@ def _build_variety_panel_grid(
     採用機種の選定は常に「機種ごとの最高差枚が大きい順」（変更しない）。
     order_by_min_ban=True（記事用）のときだけ、**表示順**の代表台番に
     その機種の掲載台の**最小台番**を使う（表・スランプの台番昇順と一致させる）。
-    False（既定・新宿かぶぱ）は従来どおり最高差枚の台の台番を代表にする。"""
+    False（既定・新宿かぶぱ）は従来どおり最高差枚の台の台番を代表にする。
+
+    max_panels は採用するパネルの上限枚数。**既定4は変更しない**（従来動作）。
+    2 を渡すと1行2列の横並びになる（_rows の計算はそのまま・新レイアウトは作らない）。
+    選定順位・パネル取得・未登録機種の繰り上げ・並び順は max_panels によらず不変。"""
     # 機種ごとに最高差枚とその台番、および最小台番を集計
     best: dict[str, tuple[int, int]] = {}
     min_ban: dict[str, int] = {}
@@ -21092,7 +21105,7 @@ def _build_variety_panel_grid(
             continue
         _rep = min_ban.get(_m, _ban) if order_by_min_ban else _ban
         _chosen.append((_rep, _m, _pan))
-        if len(_chosen) >= 4:
+        if len(_chosen) >= max_panels:
             break
     if not _chosen:
         return None
@@ -21182,14 +21195,30 @@ _ARTICLE_PANEL_STORES = {"高田馬場", "渋谷新館"}
 # 記事用で必ず「複数機種画像」として扱う画像（2×2パネル対象）
 _ART_MULTI_PANEL_FNS = ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
 
+# 記事用の「ジャグラーシリーズ優秀台.jpg」だけパネルを最大2機種へ絞る店舗。
+# ★高田馬場は従来どおり最大4枚（2×2）。バラエティ・末尾・その他優秀台へは波及させない。
+_ART_JUG_PANEL2_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
+
+
+def _art_panel_max(store: str, bare_fn: str) -> int:
+    """記事用の 2×2 パネルグリッドへ渡す上限枚数。
+
+    対象店舗の「ジャグラーシリーズ優秀台.jpg」だけ 2（横並び2枚）。
+    それ以外は従来どおり 4（2×2）。**この判定を他画像・他店舗へ広げない。**
+    """
+    if store in _ART_JUG_PANEL2_STORES and bare_fn == "ジャグラーシリーズ優秀台.jpg":
+        return 2
+    return 4
+
 
 def _art_is_multi_machine(bare_fn: str, bans: list, ban2mac: dict) -> bool:
     """記事用: その画像が複数機種混在か（＝2×2パネルの対象か）を判定する。
 
     既知のファイル名（ジャグラーシリーズ優秀台／その他の優秀台ピックアップ）か、
     掲載台の機種が2種類以上なら True。タイトルを変更した「その他の優秀台」も
-    掲載台から判定できる。台並びは専用ルールがあるため常に False。"""
-    if "台並び" in bare_fn:
+    掲載台から判定できる。台並び・列仕掛けは専用ルール（_narabi_panel_names）が
+    あるため常に False（列を 2×2 グリッドへ誤って入れない）。"""
+    if "台並び" in bare_fn or _art_is_narabi_fn(bare_fn):
         return False
     if bare_fn in _ART_MULTI_PANEL_FNS:
         return True
@@ -21201,6 +21230,7 @@ def _apply_panel_to_table_img(
     img: "Image.Image", bare_fn: str, bans: list,
     ban2mac: dict, ban2diff: dict, show_mn: bool, is_sue: bool,
     crop_bar: bool = True, is_multi: bool = False,
+    narabi_like: bool = False, max_panels: int = 4,
 ) -> "tuple[Image.Image, str | None, bool]":
     """表画像の上部へパネル画像を合成して返す。
 
@@ -21211,9 +21241,15 @@ def _apply_panel_to_table_img(
 
     crop_bar=False（記事用）は**元画像を一切cropせず**、パネルを上へ足すだけにする。
     記事用は表レイアウトが異なり、青バー相当の高さをcropすると表の先頭行が欠けるため。
+    narabi_like=True（記事用の列仕掛け画像）は「台並び」と同じ並び用パネル分岐へ回す。
+    ★既定は必ず False。この関数は新宿歌舞伎町かぶぱ（通常ページ）とも共用なので、
+      関数内で無条件に列＝並び扱いにすると かぶぱの列画像まで挙動が変わる。
+    max_panels は 2×2 グリッド分岐へそのまま渡す上限枚数（既定4＝従来動作）。
+
     戻り値: (加工後img, 照合した機種名 or None, パネル成否)"""
     _bar_h = round(img.width * 73 / 950) + 6  # 青バー(BAR_H)＋赤ライン(LINE_H)
-    if not show_mn and "台並び" not in bare_fn:
+    _is_narabi = ("台並び" in bare_fn) or narabi_like
+    if not show_mn and not _is_narabi:
         _mn = re.sub(r"(_高配分)?\.jpg$", "", bare_fn)          # 拡張子・_高配分 除去
         _mn = re.sub(r"[（(]優秀台[）)]\s*$", "", _mn).strip()  # タイトルの（優秀台）除去
         _mn = re.sub(r"・[23]F$", "", _mn).strip()             # 階サフィックス（・2F/・3F）除去
@@ -21232,11 +21268,12 @@ def _apply_panel_to_table_img(
     if bare_fn.startswith("バラエティ") or is_sue or is_multi:
         # 記事用（crop_bar=False）はパネルの表示順も表・スランプと同じ台番昇順にする
         _pgrid = _build_variety_panel_grid(bans, ban2mac, ban2diff, img.width,
-                                           order_by_min_ban=not crop_bar)
+                                           order_by_min_ban=not crop_bar,
+                                           max_panels=max_panels)
         if _pgrid is not None:
             img = _vstack_images(_pgrid, img)
-    # 並び画像は 1機種→その機種／2機種→2枚横／3機種以上→差枚最大の機種 のパネルを上に
-    elif "台並び" in bare_fn:
+    # 並び・列画像は 1機種→その機種／2機種→2枚横／3機種以上→差枚最大の機種 のパネルを上に
+    elif _is_narabi:
         _pnames = _narabi_panel_names(bans, ban2mac, ban2diff)
         if _pnames:
             _prow = _build_panel_row(_pnames, img.width)

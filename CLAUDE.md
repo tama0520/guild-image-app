@@ -9879,3 +9879,177 @@ st.markdown(f"### {_sec_num()} {'全台系・高配分' if _art_v2 else '個別�
 13. **②タイトルの変更を高田馬場・秋葉原へ波及させない**
 14. **②タイトルを理由に抽出ロジック・画像名・保存キー・WordPress H2 を変更しない**
 15. **無関係なリファクタ・未使用コード整理をしない**
+
+## 渋谷新館 記事用：列仕掛けのパネル欠落修正とジャグラー統合の最大2パネル（2026-09-05）
+
+**正式仕様。巻き戻し禁止。**対象は**【渋谷新館】の記事用ページのパネル表示だけ**。
+正式コード commit は本節と**同一の commit**
+（`fix: 渋谷新館の記事用パネル表示を修正`・2026-09-05・
+**`streamlit_app.py` と `CLAUDE.md` の2ファイルのみ**）。
+**`wp_client.py` / `convert_narabi_pil.py` は変更なし（git diff 0）。**
+既存節は削除・圧縮・統合しない。
+
+### ① 列仕掛け画像にパネルが付かなかった直接原因
+
+`北斗転生2(列仕掛け).jpg` の生成物は**表＋スランプは正常なのにパネルだけ無かった**。
+原因は**パネル画像の欠落でも店舗ゲートでもなく、機種名の照合失敗**である。
+
+`_apply_panel_to_table_img()` の単一機種分岐は、ファイル名から機種名を復元する際に
+**`.jpg` / `_高配分` / `（優秀台）` / `・2F・3F` の4つしか除去しない**。
+**`(列仕掛け)` を除去しないため** `北斗転生2(列仕掛け)` のまま
+`get_machine_images()` へ渡り、`machine_image_master.xlsx` の `北斗転生2` と一致せず
+`_build_panel_row()` が `None` を返して**元画像がそのまま返っていた**。
+
+```
+北斗転生2(列仕掛け).jpg  → _mn='北斗転生2(列仕掛け)'  ← ★不一致（パネルなし）
+北斗転生2(3台並び).jpg   → 「台並び」判定で並び分岐へ（正常）
+北斗転生2（優秀台）.jpg   → _mn='北斗転生2'（正常）
+```
+
+`北斗転生2 → hokutotensei2` はマスタに登録済み、`hokutotensei2_panel.png` も実在していた。
+
+**列画像は「台並び」に一致しないため並び専用分岐に入らず、単一機種分岐へ落ちていた**のが構造的な原因。
+2機種以上の列は `_art_is_multi_machine()` が True になり、**並びとは違う 2×2 グリッド**へ入っていた。
+
+### ② 正式仕様：列仕掛けは記事用で「並び」と同じパネル選定ルール
+
+**列専用のパネル処理・レイアウトは作らない。既存の並び経路へ乗せる。**
+
+| 掲載機種数 | パネル |
+|---|---|
+| 1機種 | **1枚**（`_build_panel_row` で全幅） |
+| 2機種 | **横並び2枚**（台番昇順） |
+| 3機種以上 | **差枚最大の1機種**（既存の並び仕様どおり） |
+
+実装は3点だけ。**`_narabi_panel_names()` / `_build_panel_row()` / `_art_is_narabi_fn()` は無変更で再利用。**
+
+1. **`_art_is_multi_machine()`** … `"台並び" in bare_fn or _art_is_narabi_fn(bare_fn)` で False を返す
+   （列を 2×2 グリッドへ誤って入れない）。この関数は**記事用3か所からのみ呼ばれる**ので他店舗へ波及しない。
+2. **`_apply_panel_to_table_img()`** … 引数 **`narabi_like: bool = False`** を追加し、
+   `_is_narabi = ("台並び" in bare_fn) or narabi_like` として既存の並び判定2か所を置き換える。
+3. 記事用の**⑦プレビュー／🔄その他を更新／⑧本番の3呼び出しだけ**
+   **`narabi_like=_art_is_narabi_fn(_bare)`** を渡す。
+
+### ③ ★`narabi_like` の既定は必ず False（かぶぱへ波及させない）
+
+**`_apply_panel_to_table_img()` は新宿歌舞伎町かぶぱ（通常ページ・`_PANEL_STORES`・`crop_bar=True`）
+とも共用**している。**関数内で無条件に「列＝並び扱い」にしてはならない**
+（かぶぱの列画像の挙動まで変わる）。
+**既定 `False` のまま、記事用3呼び出しだけで明示的に有効化する。**
+
+### ④ ⑦・🔄・⑧は必ず同じ結果
+
+列画像の ban_map は **⑦＝`_art_col_map` ／ ⑧＝`art_preview_col_{store}`** としてスランプ合成ループへ
+マージ済みで、**3経路とも同じ `_apply_panel_to_table_img()` を通る**。
+そのため上記修正で **⑦・🔄・⑧が自動的に一致**する。
+**「⑦だけパネルあり／⑧だけあり」を作ってはならない。**
+
+構成は `[パネル] → [表] → [スランプ]`（記事用は `NO_BAR` で青バーが無く `crop_bar=False` なので
+crop は発生しない）。
+
+### ⑤ 正式仕様：ジャグラーシリーズ優秀台のパネルは最大2機種（渋谷新館のみ）
+
+`ジャグラーシリーズ優秀台.jpg` は **`_ART_MULTI_PANEL_FNS` に固定登録**されているため
+`_art_is_multi_machine()` が常に True → `_build_variety_panel_grid()`（最大4機種・2×2）へ入る。
+3機種だと `[2枚][1枚]` になり**右下が空白**になっていた。
+
+**渋谷新館の記事用の `ジャグラーシリーズ優秀台.jpg` だけ、パネルを最大2機種にする。**
+
+| 掲載機種数 | パネル |
+|---|---|
+| 1機種 | 1枚（既存の1枚表示のまま。無理に2枚にしない） |
+| 2機種 | 横並び2枚 |
+| **3機種以上** | **上位2機種だけを横並び2枚**（2×2にしない） |
+
+実装：
+
+```python
+_ART_JUG_PANEL2_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
+
+def _art_panel_max(store, bare_fn) -> int:
+    if store in _ART_JUG_PANEL2_STORES and bare_fn == "ジャグラーシリーズ優秀台.jpg":
+        return 2
+    return 4
+```
+
+- `_build_variety_panel_grid(..., max_panels: int = 4)` を追加し、`if len(_chosen) >= 4` を
+  **`>= max_panels`** にするだけ。**既定4は必ず維持。**
+- `_apply_panel_to_table_img(..., max_panels: int = 4)` を追加してそのまま透過。
+- 記事用3呼び出しだけ **`max_panels=_art_panel_max(store, _bare)`** を渡す。
+- **2枚のとき既存の `_rows` 計算がそのまま1行2列＝横並び2枚**になる。
+  **新しい描画ロジック・新レイアウトは追加しない。**
+
+### ⑥ 選定ルール・パネル未登録・同率は既存のまま（変更禁止）
+
+- 順位は既存正式仕様の **「機種ごとの最高差枚が大きい順」を変更しない。**
+  **合計差枚／平均差枚／プラス台合計などの新しい順位ロジックを作らない。**
+- **パネル未登録の機種は `continue` で飛ばして次順位を繰り上げる**（既存）。
+  したがって「**パネルが存在する機種の中から既存順位で最大2機種**」となり、
+  1位がパネル未登録でも1枚に減らない。
+- **同率のtie-breakは追加しない**（Pythonの安定ソートのまま）。
+- 表示順は記事用の既存仕様どおり **`order_by_min_ban=True`＝掲載台の最小台番昇順**。
+
+2026/9/4 の実データ（ファンキー2 9台 / ゴージャグ3 6台 / ジャグラーガールズ 2台）では、
+**合計・プラス台合計・平均・最高差枚のどの基準でも上位2機種は
+「ファンキー2 / ゴージャグ3」で一致**することを確認済み。
+
+### ⑦ 表・スランプは絶対に減らさない
+
+**減らすのは上部のパネル枚数だけ。**
+3機種以上が掲載されていても、**表・スランプ・掲載台・抽出条件は従来どおり全機種**を維持する
+（ジャグラーガールズも表とスランプには残る）。
+`_build_variety_panel_grid()` はパネル画像だけを返す関数で、表・スランプ・`ban_map` に触れない。
+
+### ⑧ 対象外（波及させない）
+
+**最大2パネルは「渋谷新館 × ジャグラーシリーズ優秀台.jpg」だけ。**
+
+| 対象 | 挙動 |
+|---|---|
+| 渋谷新館 その他の優秀台／バラエティ／末尾 | **従来どおり最大4枚（2×2）** |
+| **高田馬場 記事用** | **従来どおり最大4枚（2×2）** |
+| **秋葉原 記事用** | 従来どおり**パネルなし**（`_ARTICLE_PANEL_STORES` に無い） |
+| 新宿歌舞伎町かぶぱ・通常ページ・他店舗 | **従来どおり** |
+
+全台系・高配分・並び・列・⑤オススメ・ランキング・島図へも波及させない。
+
+### ⑨ 無変更（バイト一致を機械確認）
+
+`show_auto_page` ／ `_narabi_panel_names` ／ `_build_panel_row` ／ `_art_is_narabi_fn` ／
+`_composite_slump_onto_images` ／ `_art_hq_scale_for` ／ `_gap_sel_key` ／ `_gap_fillable` ／
+`_gap_screen_paths_for_bans` ／ `_resolve_gap_screen` ／ `_on_gap_screen_change` ／
+`_attach_slump_to_table` ／ `run_auto_pipeline` ／ `run_step2_juggler` ／ `run_step3_other` ／
+`_build_machine_img` ／ `_build_sue_images` ／ `_art_ranking_image` ／ `_save_jpeg` ／
+`_insert_panel_into_machine_img` ／ `_vstack_images` ／ `_pipeline_hq` ／ `_art_zh_fn_set`。
+
+定数も不変：`_PANEL_STORES = {"新宿歌舞伎町"}` ／
+`_ARTICLE_PANEL_STORES = {"高田馬場", "渋谷新館"}` ／
+`_ARTICLE_GAP_FILL_STORES` ／ `_ART_HQ_STORES` ／ `_ART_ZH_HQ_STORES` ／
+`_ART_NARABI_HQ_STORES` ／ `_ART_RANK_HQ_STORES` ／ `_ART_SHIMAZU_TARGET_KB` ／
+`_ART_WP_NOSPLIT_STORES` ／ `WP_STORE_CATEGORY`。
+
+**液晶はめ込み・HQ・解像度・JPEG品質・WordPress（本文構成／category 19／author／X／ななこ／
+ランキング&島図／nosplit）・JSON schema・`article_page_inputs.json` は変更していない。**
+
+**新規関数は `_art_panel_max()` の1つだけ**、消失関数0。
+本体が変わったのは `_art_is_multi_machine` / `_apply_panel_to_table_img` /
+`_build_variety_panel_grid` / `show_auto_article_page` の4つだけ。
+
+### ⑩ 今後の禁止事項
+
+1. **`(列仕掛け)` を並び扱いにする分岐を外さない**（パネル欠落が再発する）
+2. **列専用のパネル処理・レイアウトを新設しない**（`_narabi_panel_names` を再利用する）
+3. **`narabi_like` の既定を True にしない**（かぶぱの列画像が変わる）
+4. **関数内で無条件に「列＝並び扱い」にしない**
+5. **⑦／🔄／⑧のいずれか1つだけに引数を渡さない**（3経路で必ず一致させる）
+6. **`max_panels` の既定 4 を変更しない**
+7. **`_ART_JUG_PANEL2_STORES` へ高田馬場・秋葉原・かぶぱを追加しない**
+8. **最大2パネルを その他の優秀台／バラエティ／末尾／全台系／高配分／並び／列／⑤オススメへ広げない**
+9. **選定順位（機種ごとの最高差枚）を合計・平均・プラス台合計へ変更しない**
+10. **パネル未登録機種の繰り上げ（`continue`）をやめない**
+11. **新しい同率tie-breakを追加しない**
+12. **パネルを減らすために表・スランプ・掲載台・抽出条件を減らさない**
+13. **液晶はめ込み（`_ARTICLE_GAP_FILL_STORES` / `_gap_sel_key` / `_gap_fillable`）を変更しない**
+14. **HQ 4ゲート・解像度・JPEG品質を変更しない**
+15. **`wp_client.py` / `convert_narabi_pil.py` / JSON schema を変更しない**
+16. **無関係なリファクタ・未使用コード整理をしない**

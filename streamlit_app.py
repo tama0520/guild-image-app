@@ -18109,22 +18109,11 @@ _T3_JUGGLER_MACHINES: list[str] = [
 ]
 
 # 「バーベルとらっぴ」「椅子に座るピエロ」項目用の選択肢（機種名ではなく結果表記）
+# 分母は1〜10、分子は1〜分母。既存の 1/1〜5/5 の表記・順序（分母降順→分子降順）を保つ。
 _T3_SPECIAL_OPTS: list[str] = [
-    "対象台が5/5でプラス差枚",
-    "対象台が4/5でプラス差枚",
-    "対象台が3/5でプラス差枚",
-    "対象台が2/5でプラス差枚",
-    "対象台が1/5でプラス差枚",
-    "対象台が4/4でプラス差枚",
-    "対象台が3/4でプラス差枚",
-    "対象台が2/4でプラス差枚",
-    "対象台が1/4でプラス差枚",
-    "対象台が3/3でプラス差枚",
-    "対象台が2/3でプラス差枚",
-    "対象台が1/3でプラス差枚",
-    "対象台が2/2でプラス差枚",
-    "対象台が1/2でプラス差枚",
-    "対象台が1/1でプラス差枚",
+    f"対象台が{_n}/{_d}でプラス差枚"
+    for _d in range(10, 0, -1)
+    for _n in range(_d, 0, -1)
 ]
 # 上記特殊選択肢を使う項目のキーワード（item テキストにいずれかが含まれれば適用）
 _T3_SPECIAL_ITEM_KEYS: tuple[str, ...] = ("バーベルとらっぴ", "椅子に座るピエロ")
@@ -19049,7 +19038,11 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
                     _diso = _dates[_cj2].isoformat()
                     _row = {}
                     for _ci2 in range(_WEEKLY_N_ITEMS):
-                        _sel = st.session_state.get(f"t3_ms_{store}_{_ci2}_{_cj2}", [])
+                        _msk2 = f"t3_ms_{store}_{_ci2}_{_cj2}"
+                        # キーがある→現在値／キーが無い（未描画・GC済み）→復元値を維持
+                        _sel = (st.session_state.get(_msk2, [])
+                                if _msk2 in st.session_state
+                                else _cm_dict3.get(f"{_ci2},{_cj2}", []))
                         if _sel:
                             _row[str(_ci2)] = list(_sel)
                     if _row:
@@ -19807,6 +19800,18 @@ def show_rote_page() -> None:
         _cat_inputs = [machine_inputs1, machine_inputs2, machine_inputs3,
                        machine_inputs4, machine_inputs5, machine_inputs6]
         _cat_names  = [names1, names2, names3, names4, names5, names6]
+        # 渋谷新館：週間オススメのローテ画像は「機種ごとに1枚」。
+        # 結果テキストの統合単位（北斗シリーズ1ファイル）とは別に決める。
+        _wk_img_macs: list[str] = []
+        if store == "渋谷新館":
+            for _wm0 in list(machine_inputs2 or []) + list(machine_inputs1 or []):
+                _wm0 = (_wm0 or "").strip()
+                if _wm0 and _wm0 not in _wk_img_macs:
+                    _wk_img_macs.append(_wm0)
+            _cat_inputs = ([[_wm0] for _wm0 in _wk_img_macs]
+                           + [machine_inputs3, machine_inputs4])
+            _cat_names  = ([[_wm0] for _wm0 in _wk_img_macs]
+                           + [names3, names4])
         _uo_m2 = st.session_state.get(f"weekly_machine_{store}_t2", "").strip()
         _uo_m4 = st.session_state.get(f"weekly_machine_{store}_t4", "").strip()
         _uo_m5 = st.session_state.get(f"weekly_machine_{store}_t5", "").strip()
@@ -19892,19 +19897,20 @@ def show_rote_page() -> None:
                     ]
                 else:
                     # 渋谷新館は④（月間オススメ表②）までローテ画像を作る
-                    _n_cat = 4 if store == "渋谷新館" else 3
+                    _n_cat = len(_cat_inputs) if store == "渋谷新館" else 3
                     _rote_imgs = [
                         _add_margin(generate_rote_image(df, _ci, date_label=_rote_date_label, store=store))
                         if _cn else None
                         for _ci, _cn in zip(_cat_inputs[:_n_cat], _cat_names[:_n_cat])
-                    ] + [None] * (6 - _n_cat)
-                    _rank_imgs = [None] * 6
+                    ] + [None] * max(0, 6 - _n_cat)
+                    _rank_imgs = [None] * len(_rote_imgs)
                 img1, img2, img3 = _rote_imgs[:3]
 
             # ── フォルダへ保存 ────────────────────────────────────────
             if _rote_single:
                 _r_macs = [(_ci[0].strip() if _ci else "") for _ci in _cat_inputs]
             elif store in ("上野本館", "渋谷新館"):
+                # 結果テキストのファイル名用（6機種先頭／t1／t2／t4）は従来どおり
                 _r_macs = [next((m.strip() for m in machine_inputs1 if m.strip()), ""),
                            machine_inputs2[0].strip() if machine_inputs2 else "",
                            machine_inputs3[0].strip() if machine_inputs3 else "",
@@ -19912,10 +19918,17 @@ def show_rote_page() -> None:
             else:
                 _r_macs = [""] * 6
             _r1_mac, _r2_mac, _r3_mac = _r_macs[:3]
+            # ローテ画像のファイル名用。渋谷新館の週間オススメは機種ごとに1枚
+            _img_macs = list(_r_macs)
+            if store == "渋谷新館":
+                _img_macs = (_wk_img_macs
+                             + [machine_inputs3[0].strip() if machine_inputs3 else "",
+                                machine_inputs4[0].strip() if machine_inputs4 else ""])
+                _img_macs = _img_macs + [""] * max(0, 6 - len(_img_macs))
 
             for _ci_i, (_cimg, _crank) in enumerate(zip(_rote_imgs, _rank_imgs)):
-                _mac = _r_macs[_ci_i]
-                _maru = _ROTE_MARU[_ci_i]
+                _mac = _img_macs[_ci_i] if _ci_i < len(_img_macs) else ""
+                _maru = _ROTE_MARU[_ci_i] if _ci_i < len(_ROTE_MARU) else str(_ci_i + 1)
                 if _cimg:
                     _fn = f"{_mac}ローテ.png" if _mac else f"ローテ{_maru}.png"
                     _cimg.save(os.path.join(_rote_out_dir, _fn), format="PNG", dpi=(300, 300))

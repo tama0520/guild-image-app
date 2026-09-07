@@ -17869,6 +17869,11 @@ def _generate_rote_result_text(
     return "\n".join(lines).rstrip()
 
 
+# 渋谷新館ローテ 週間オススメ統合結果テキストの系列見出し
+# （既存の「🤡ジャグラーシリーズ🤡」と同じ固定文言。機種名からは導出できないため定数）
+_SHIBUYA_WEEKLY_SERIES = "北斗シリーズ"
+
+
 def _generate_shibuyashinkan_result_texts(
     df: "pd.DataFrame",
     machine_inputs1: list[str],
@@ -17879,7 +17884,9 @@ def _generate_shibuyashinkan_result_texts(
     machine_inputs3: list[str] | None = None,
     monthly_items: list[str] | None = None,
     weekly_items2: list[str] | None = None,
-) -> tuple[str, str, str, str]:
+    machine_inputs4: list[str] | None = None,
+    monthly_items2: list[str] | None = None,
+) -> tuple[str, str, str, str, str]:
     """渋谷新館専用：結果テキスト①②③④を生成して返す。
     weekly_items  = 週間オススメ表①の項目（テキスト②に使用）
     monthly_items = 月間オススメ表の項目（テキスト③に使用）
@@ -17929,28 +17936,25 @@ def _generate_shibuyashinkan_result_texts(
             lines.append("")
         return lines
 
-    # ── テキスト① ──────────────────────────────────────────────────
-    name1   = next((n.strip() for n in machine_inputs1 if (n or "").strip()), "")
-    lines1  = [header, ""]
-    if name1:
-        lines1.append(f"🔥{name1}🔥")
-    lines1 += ["🔥週間オススメポスター🔥", ""]
-    lines1 += _tier_block(machine_inputs1)
+    # ── テキスト①（週間オススメ・複数機種を1ファイルへ統合）──────────────
+    # 掲載順は「週間オススメ表の機種（machine_inputs2）→ 6機種入力（machine_inputs1）」。
+    # 機種名はハードコードせず、現在の設定値をそのまま使う。
+    _wk_macs: list[str] = []
+    for _n in list(machine_inputs2 or []) + list(machine_inputs1 or []):
+        _n = (_n or "").strip()
+        if _n and _n not in _wk_macs:
+            _wk_macs.append(_n)
+    lines1 = [header, "", f"🔥{_SHIBUYA_WEEKLY_SERIES}🔥", "🔥週間オススメポスター🔥", ""]
+    for _wm in _wk_macs:
+        # 当日データに1台も無い機種はセクションごと出さない
+        if name_col is not None and _rote_match_sub(df, name_col, _wm).empty:
+            continue
+        lines1.append(f"👊{_wm}👊")
+        lines1 += _tier_block([_wm])
+        if lines1 and lines1[-1] != "":
+            lines1.append("")
     text1   = "\n".join(lines1).rstrip()
-
-    # ── テキスト② （週間オススメ） ────────────────────────────────────
-    name2   = next((n.strip() for n in machine_inputs2 if (n or "").strip()), "")
-    lines2  = [header, ""]
-    if name2:
-        lines2.append(f"👊{name2}👊")
-    lines2 += ["👊週間オススメポスター👊", ""]
-    lines2.append("✅毎日何かしらの仕掛けアリ!?")
-    for item in (weekly_items or []):
-        if (item or "").strip():
-            lines2.append(f"📍{item.strip()}")
-    lines2.append("")
-    lines2 += _tier_block(machine_inputs2)
-    text2   = "\n".join(lines2).rstrip()
+    text2   = ""   # 旧テキスト②（週間オススメ表①の単独ファイル）は廃止
 
     # ── テキスト③ （月間オススメ） ────────────────────────────────────
     _inputs3 = machine_inputs3 or []
@@ -17969,7 +17973,7 @@ def _generate_shibuyashinkan_result_texts(
 
     # ── テキスト④ （週間オススメ表②） ───────────────────────────────────
     lines4 = [header, ""]
-    lines4 += ["🤡ジャグラーシリーズ🤡", "🚨週間オススメポスター🚨", ""]
+    lines4 += ["🤡ジャグラーシリーズ🤡", "🚨月間オススメポスター🚨", ""]
     lines4.append("✅毎日何かしらの仕掛けアリ!?")
     for item in (weekly_items2 or []):
         _it = item.split("\n")[0].strip()
@@ -17977,7 +17981,23 @@ def _generate_shibuyashinkan_result_texts(
             lines4.append(f"📍{_it}")
     text4 = "\n".join(lines4).rstrip()
 
-    return text1, text2, text3, text4
+    # ── テキスト⑤ （月間オススメ表②） ───────────────────────────────────
+    _inputs5 = machine_inputs4 or []
+    name5    = next((n.strip() for n in _inputs5 if (n or "").strip()), "")
+    lines5   = [header, ""]
+    if name5:
+        lines5.append(f"🚂{name5}🚂")
+    lines5 += ["🚂月間オススメポスター🚂", ""]
+    lines5.append("✅毎日何かしらの仕掛けアリ!?")
+    for item in (monthly_items2 or []):
+        _it5 = (item or "").split("\n")[0].strip()
+        if _it5:
+            lines5.append(f"📍{_it5}")
+    lines5.append("")
+    lines5 += _tier_block(_inputs5)
+    text5    = "\n".join(lines5).rstrip()
+
+    return text1, text2, text3, text4, text5
 
 
 def _load_rote_machines(store: str) -> dict:
@@ -18691,7 +18711,7 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
 
     _tn = table_num  # 短縮エイリアス
     _tname        = "週間オススメ表" if _tn == 1 else ("月間オススメ表③" if _tn == 3 else ("月間オススメ表①" if _tn == 2 else ("月間オススメ表②" if _tn == 4 else "月間オススメ表③")))
-    _default_title = "週間オススメ"   if _tn in (1, 3) else "月間オススメ"
+    _default_title = "週間オススメ"   if _tn == 1 else "月間オススメ"
 
     st.markdown("---")
     st.markdown(f"### 📅 {_tname}")
@@ -19098,7 +19118,7 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
             _out_labels3 = _dlabels
             _out_cm3 = _cm3_arr
             _wimg3 = _add_margin(_draw_weekly_table_image(
-                _items, _out_labels3, [], title=_title or "週間オススメ", cell_machines=_out_cm3,
+                _items, _out_labels3, [], title=_title or _default_title, cell_machines=_out_cm3,
             ))
             _buf3 = _io.BytesIO()
             _wimg3.save(_buf3, format="PNG", dpi=(300, 300))
@@ -19737,7 +19757,10 @@ def show_rote_page() -> None:
     elif store == "渋谷新館":
         _m3 = st.session_state.get(f"weekly_machine_{store}_t2", "").strip()
         machine_inputs3: list[str] = [_m3] if _m3 else []
-        machine_inputs4 = machine_inputs5 = machine_inputs6 = []
+        # 月間オススメ表②（t4）の機種はローテ画像・結果テキストの対象にする
+        _m4 = st.session_state.get(f"weekly_machine_{store}_t4", "").strip()
+        machine_inputs4 = [_m4] if _m4 else []
+        machine_inputs5 = machine_inputs6 = []
     elif store == "上野本館":
         _uo_m5_v = st.session_state.get(f"weekly_machine_{store}_t5", "").strip()
         machine_inputs3 = [_uo_m5_v] if _uo_m5_v else []
@@ -19868,11 +19891,13 @@ def show_rote_page() -> None:
                         for _ci, _cn in zip(_cat_inputs, _cat_names)
                     ]
                 else:
+                    # 渋谷新館は④（月間オススメ表②）までローテ画像を作る
+                    _n_cat = 4 if store == "渋谷新館" else 3
                     _rote_imgs = [
                         _add_margin(generate_rote_image(df, _ci, date_label=_rote_date_label, store=store))
                         if _cn else None
-                        for _ci, _cn in zip(_cat_inputs[:3], _cat_names[:3])
-                    ] + [None, None, None]
+                        for _ci, _cn in zip(_cat_inputs[:_n_cat], _cat_names[:_n_cat])
+                    ] + [None] * (6 - _n_cat)
                     _rank_imgs = [None] * 6
                 img1, img2, img3 = _rote_imgs[:3]
 
@@ -19883,7 +19908,7 @@ def show_rote_page() -> None:
                 _r_macs = [next((m.strip() for m in machine_inputs1 if m.strip()), ""),
                            machine_inputs2[0].strip() if machine_inputs2 else "",
                            machine_inputs3[0].strip() if machine_inputs3 else "",
-                           "", "", ""]
+                           machine_inputs4[0].strip() if machine_inputs4 else "", "", ""]
             else:
                 _r_macs = [""] * 6
             _r1_mac, _r2_mac, _r3_mac = _r_macs[:3]
@@ -19900,7 +19925,8 @@ def show_rote_page() -> None:
 
             # ── 週間/月間オススメ表の保存（渋谷新館・上野本館）──────────────
             if store in ("渋谷新館", "上野本館"):
-                _wt_save_list = (1, 2, 3, 4) if store == "渋谷新館" else (2, 4, 5)
+                # 渋谷新館は旧週間詳細表（t1）画像を生成しない（UI廃止済み）
+                _wt_save_list = (2, 3, 4) if store == "渋谷新館" else (2, 4, 5)
                 for _wtn in _wt_save_list:
                     # 月間オススメ表②（t4）・③（t5）は機種名・項目がすべて空ならスキップ
                     if _wtn in (4, 5):
@@ -19934,7 +19960,7 @@ def show_rote_page() -> None:
                         _wt_dates   = [_wt_start + datetime.timedelta(days=_wj) for _wj in range(_wt_n_cols)]
                         _wt_dow     = ["月", "火", "水", "木", "金", "土", "日"]
                         _wt_dlabels = [f"{_d.month}/{_d.day}({_wt_dow[_d.weekday()]})" for _d in _wt_dates]
-                        _wt_default_title = "週間オススメ" if _wtn in (1, 3) else "月間オススメ"
+                        _wt_default_title = "週間オススメ" if _wtn == 1 else "月間オススメ"
                         if _wtn == 3:
                             # 週間オススメ表②: 機種名モード
                             _cdm3r = _load_t3_cell_date_machines(store)
@@ -20042,26 +20068,51 @@ def show_rote_page() -> None:
                     _wt_items1 = [st.session_state.get(f"weekly_item_{store}_t1_{_wi}", "") for _wi in range(_WEEKLY_N_ITEMS)]
                     _wt_items2 = [st.session_state.get(f"weekly_item_{store}_t2_{_wi}", "") for _wi in range(_WEEKLY_N_ITEMS)]
                     _wt_items3 = [st.session_state.get(f"weekly_item_{store}_t3_{_wi}", "") for _wi in range(_WEEKLY_N_ITEMS)]
-                    _rote_result, _rote_result2, _rote_result3, _rote_result4 = _generate_shibuyashinkan_result_texts(
+                    _wt_items4 = [st.session_state.get(f"weekly_item_{store}_t4_{_wi}", "") for _wi in range(_WEEKLY_N_ITEMS)]
+                    (_rote_result, _rote_result2, _rote_result3,
+                     _rote_result4, _rote_result5) = _generate_shibuyashinkan_result_texts(
                         df, machine_inputs1, machine_inputs2, _rd, _rote_store_full,
                         weekly_items=_wt_items1,
                         machine_inputs3=machine_inputs3,
                         monthly_items=_wt_items2,
                         weekly_items2=_wt_items3,
+                        machine_inputs4=machine_inputs4,
+                        monthly_items2=_wt_items4,
                     )
                     _sh_r1_fn = f"{_r1_mac}結果.txt" if _r1_mac else "ローテ①結果.txt"
-                    _sh_r2_fn = f"{_r2_mac}結果.txt" if _r2_mac else "ローテ②結果.txt"
+                    # 週間オススメは北斗シリーズとして _sh_r1_fn へ統合したため、旧テキスト②は書き出さない
                     _sh_r3_fn = f"{_r3_mac}結果.txt" if _r3_mac else "ローテ③結果.txt"
                     with open(os.path.join(_rote_out_dir, _sh_r1_fn), "w", encoding="utf-8") as _f:
                         _f.write(_rote_result)
-                    with open(os.path.join(_rote_out_dir, _sh_r2_fn), "w", encoding="utf-8") as _f:
-                        _f.write(_rote_result2)
                     with open(os.path.join(_rote_out_dir, _sh_r3_fn), "w", encoding="utf-8") as _f:
                         _f.write(_rote_result3)
                     _sh_r4_mac = st.session_state.get(f"weekly_machine_{store}_t3", "").strip()
                     _sh_r4_fn = f"{_sh_r4_mac}結果.txt" if _sh_r4_mac else "週間オススメ②結果.txt"
                     with open(os.path.join(_rote_out_dir, _sh_r4_fn), "w", encoding="utf-8") as _f:
                         _f.write(_rote_result4)
+                    _sh_r5_mac = machine_inputs4[0].strip() if machine_inputs4 else ""
+                    if _sh_r5_mac:
+                        _sh_r5_fn = f"{_sh_r5_mac}結果.txt"
+                        with open(os.path.join(_rote_out_dir, _sh_r5_fn), "w", encoding="utf-8") as _f:
+                            _f.write(_rote_result5)
+                    # UI廃止・統合により今後生成しないファイルが前回実行分として
+                    # 残っている場合だけ削除する（完全一致のみ・他ファイルには触らない）
+                    _kept_fns = {_sh_r1_fn, _sh_r3_fn, _sh_r4_fn}
+                    if _sh_r5_mac:
+                        _kept_fns.add(f"{_sh_r5_mac}結果.txt")
+                    _t1_mac_st = st.session_state.get(f"weekly_machine_{store}_t1", "").strip()
+                    _stale_fns = [f"{_t1_mac_st}表.png" if _t1_mac_st else "週間オススメ表①.png"]
+                    if _r2_mac:
+                        _stale_fns.append(f"{_r2_mac}結果.txt")
+                    for _sfn in _stale_fns:
+                        if _sfn in _kept_fns:
+                            continue
+                        _spath = os.path.join(_rote_out_dir, _sfn)
+                        if os.path.isfile(_spath):
+                            try:
+                                os.remove(_spath)
+                            except Exception:
+                                pass
                 elif store == "上野本館":
                     _re_uo, _te_uo = ROTE_EMOJI_CONFIG.get(store, ("🌌", "🔥"))
                     _dow_uo = ["月", "火", "水", "木", "金", "土", "日"][_rd.weekday()]

@@ -18664,7 +18664,7 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
     import datetime as _dt, io as _io
 
     _tn = table_num  # 短縮エイリアス
-    _tname        = "週間オススメ表①" if _tn == 1 else ("週間オススメ表②" if _tn == 3 else ("月間オススメ表①" if _tn == 2 else ("月間オススメ表②" if _tn == 4 else "月間オススメ表③")))
+    _tname        = "週間オススメ表" if _tn == 1 else ("月間オススメ表③" if _tn == 3 else ("月間オススメ表①" if _tn == 2 else ("月間オススメ表②" if _tn == 4 else "月間オススメ表③")))
     _default_title = "週間オススメ"   if _tn in (1, 3) else "月間オススメ"
 
     st.markdown("---")
@@ -18752,7 +18752,7 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
     # ── ③/④ 開始日
     _dow_names = ["月", "火", "水", "木", "金", "土", "日"]
     # 上野本館の月間オススメ表はExcel未アップロード時もdate_checks（日付キー）で読む
-    _use_excel_date = _tn in (2, 4, 5) and (excel_date is not None or store == "上野本館")
+    _use_excel_date = _tn in (2, 3, 4, 5) and (excel_date is not None or store == "上野本館")
 
     if _use_excel_date:
         st.markdown("**④ 表示期間**")
@@ -19176,7 +19176,7 @@ def show_rote_page() -> None:
         st.session_state[_rote_loaded_key] = True
 
     # 週間オススメ表の項目復元（渋谷新館・上野本館・非ウィジェットキーパターン）
-    _wt_tn_list = (1, 2, 3) if store == "渋谷新館" else ((2, 4, 5) if store == "上野本館" else ())
+    _wt_tn_list = (1, 2, 3, 4) if store == "渋谷新館" else ((2, 4, 5) if store == "上野本館" else ())
     if _wt_tn_list:
         _wt_loaded_key = f"weekly_items_loaded_{store}"
         if not st.session_state.get(_wt_loaded_key):
@@ -19565,6 +19565,18 @@ def show_rote_page() -> None:
             st.session_state[f"_rote_init_{store}_1_{_i}"] = _m1[_i]
             st.session_state[f"_rote_init_{store}_2_{_i}"] = _m2[_i]
 
+    # Excelファイル名から日付を抽出（週間/月間オススメ表の表示期間に使う）
+    import datetime as _dt_early, re as _re_early
+    _rd_early = None
+    if uploaded is not None:
+        _m_early = _re_early.search(r"(\d{4})(\d{2})(\d{2})", uploaded.name)
+        if _m_early:
+            _rd_early = _dt_early.date(int(_m_early.group(1)), int(_m_early.group(2)), int(_m_early.group(3)))
+
+    # 週間オススメ表（渋谷新館のみ・①機種名入力の前に表示）
+    if store == "渋谷新館":
+        show_weekly_table_section(store, table_num=1)
+
     # ── ①〜⑥ 各1機種セット（新宿歌舞伎町）──────────────────────────
     if _rote_single:
         machine_inputs_all: list[list[str]] = []
@@ -19626,18 +19638,12 @@ def show_rote_page() -> None:
                                                   on_change=_on_rote_name_change)
         machine_inputs2 = [st.session_state.get(f"rote2_mname_{_i}", "") for _i in range(6)]
 
-    # 渋谷新館・上野本館のみ週間/月間オススメ表セクションを表示
+    # 渋谷新館・上野本館のみ月間オススメ表セクションを表示（週間表は上で描画済み）
     if store in ("渋谷新館", "上野本館"):
-        import datetime as _dt_early, re as _re_early
-        _rd_early = None
-        if uploaded is not None:
-            _m_early = _re_early.search(r"(\d{4})(\d{2})(\d{2})", uploaded.name)
-            if _m_early:
-                _rd_early = _dt_early.date(int(_m_early.group(1)), int(_m_early.group(2)), int(_m_early.group(3)))
-        if store == "渋谷新館":
-            show_weekly_table_section(store, table_num=1)
-            show_weekly_table_section(store, table_num=3)
         show_weekly_table_section(store, table_num=2, excel_date=_rd_early)
+        if store == "渋谷新館":
+            show_weekly_table_section(store, table_num=4, excel_date=_rd_early)
+            show_weekly_table_section(store, table_num=3, excel_date=_rd_early)
         if store == "上野本館":
             with st.expander("📅 月間オススメ表②", expanded=False):
                 show_weekly_table_section(store, table_num=4, excel_date=_rd_early)
@@ -19812,7 +19818,7 @@ def show_rote_page() -> None:
 
             # ── 週間/月間オススメ表の保存（渋谷新館・上野本館）──────────────
             if store in ("渋谷新館", "上野本館"):
-                _wt_save_list = (1, 2, 3) if store == "渋谷新館" else (2, 4, 5)
+                _wt_save_list = (1, 2, 3, 4) if store == "渋谷新館" else (2, 4, 5)
                 for _wtn in _wt_save_list:
                     # 月間オススメ表②（t4）・③（t5）は機種名・項目がすべて空ならスキップ
                     if _wtn in (4, 5):
@@ -19824,7 +19830,7 @@ def show_rote_page() -> None:
                     _wt_title  = st.session_state.get(f"weekly_title_{store}_t{_wtn}", "週間オススメ")
                     # 月間オススメ表はExcel日付から自動設定
                     # Excel日付が最終日、過去7日間（上野本館・渋谷新館共通）
-                    if _wtn in (2, 4, 5):
+                    if _wtn in (2, 3, 4, 5):
                         _rd_ref = _rd if _rd is not None else datetime.date.today()
                         _ms_gen_raw = _weekly_table_data(store, _wtn).get("monthly_start")
                         _ms_gen_dt = None

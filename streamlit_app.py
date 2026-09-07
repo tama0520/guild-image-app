@@ -5852,10 +5852,33 @@ _ART_STRUCT_V2_STORES = frozenset({"渋谷新館"})
 # _kojin_yushu_filter() で優秀台抽出し、機種ごとに1枚生成する。
 # 対象機種の決定に weekly_items.json（ローテ用の月間/週間オススメ表）は使わない。
 _ART_OSUSUME_STORES = frozenset({"渋谷新館"})
-# ⑤は 6ブロック × 各6機種（3列×2段）。新小岩⑤（6ブロック×9枠）とは枠数が異なる。
+# ⑤は6ブロック。機種枠はブロック1〜4が6枠、ブロック5・6が9枠（渋谷新館）。
+# 新小岩⑤（6ブロック×9枠・store_settings 保存）とは別体系。
 # widget key: art_osusume_title_{n}_{store} / art_osusume_m_{n}_{i}_{store}
 _ART_OSUSUME_BLOCKS    = 6
 _ART_OSUSUME_PER_BLOCK = 6
+# ★ブロック5・6（0-based の 4・5）だけ機種名枠を9個にする（渋谷新館のみ）。
+#   ブロック1〜4は既定の6枠のまま。他店舗も6枠のまま（_article_input_keys は
+#   店舗非依存に⑤キーを組み立てるため、店舗ゲートを外すと高田馬場・秋葉原の
+#   JSONエントリへ空キーが増えてしまう）。
+#   UI・保存キー生成・値の収集の3か所は必ず _art_osusume_per_block() を使い、
+#   店舗・ブロック条件を個別にハードコードしない。
+_ART_OSUSUME_PER_BLOCK_EXTRA = 9
+_ART_OSUSUME_EXTRA_BLOCKS    = frozenset({4, 5})      # 0-based＝ブロック5・6
+_ART_OSUSUME_EXTRA_STORES    = frozenset({"渋谷新館"})
+
+
+def _art_osusume_per_block(store: str, n: int) -> int:
+    """記事用⑤のブロック n（0-based）の機種名枠数を返す。
+
+    渋谷新館のブロック5・6（n=4・5）だけ9枠、それ以外はすべて6枠。
+    UI・`_article_input_keys()`・`_art_osusume_collect()` が同じ値を使うことで、
+    「UIだけ9枠で収集は6件まで」というズレを構造的に防ぐ。
+    """
+    if store in _ART_OSUSUME_EXTRA_STORES and n in _ART_OSUSUME_EXTRA_BLOCKS:
+        return _ART_OSUSUME_PER_BLOCK_EXTRA
+    return _ART_OSUSUME_PER_BLOCK
+
 # ⑤の画像タイトルバー文言（③高配分の「優秀台ピックアップ」とは別文言にする）。
 # ★ブロックタイトルは画像へ描かない。画像バーは常にこの固定文言。
 _ART_OSUSUME_BAR_TEXT = "オススメ機種の優秀台"
@@ -5966,13 +5989,14 @@ def _article_input_keys(store: str) -> list[str]:
     keys += [f"art_nanako_hint_{_i}_{store}" for _i in range(_ART_NANAKO_HINTS)]
     for i in range(_KOJIN_PICK_COUNT):
         keys += [f"art_kojin_pick_title_{i}_{store}", f"art_kojin_pick_bans_{i}_{store}"]
-    # ⑤オススメ機種の優秀台（記入式・6ブロック×6機種＝タイトル6＋機種36）。
+    # ⑤オススメ機種の優秀台（記入式・6ブロック）。機種枠数は
+    # _art_osusume_per_block() が決める（渋谷新館はブロック5・6だけ9枠）。
     # 店舗suffix付きなので _ART_SHARED_KEYS へは足さない（店舗間で混ざらない）。
     # 旧9枠キー art_osusume_m_{i}_{store} は正式対象から外した（JSONに残っていても無視）。
     for _n in range(_ART_OSUSUME_BLOCKS):
         keys += [f"art_osusume_title_{_n}_{store}"]
         keys += [f"art_osusume_m_{_n}_{_i}_{store}"
-                 for _i in range(_ART_OSUSUME_PER_BLOCK)]
+                 for _i in range(_art_osusume_per_block(store, _n))]
     return keys
 
 
@@ -7771,7 +7795,7 @@ def _art_osusume_collect(store: str) -> list[dict]:
         _blocks.append({
             "title": (st.session_state.get(f"art_osusume_title_{_n}_{store}", "") or "").strip(),
             "machines": [(st.session_state.get(f"art_osusume_m_{_n}_{_i}_{store}", "") or "").strip()
-                         for _i in range(_ART_OSUSUME_PER_BLOCK)],
+                         for _i in range(_art_osusume_per_block(store, _n))],
         })
     return _blocks
 
@@ -14995,9 +15019,11 @@ def show_auto_article_page() -> None:
                     _art_txt("タイトル（記事の小見出し用・画像には描かれません）",
                              f"art_osusume_title_{_n}_{store}",
                              placeholder="例: 月間オススメ機種", skip_kojin=False)
-                    # 機種欄は 3列×2段
-                    _mrows = [st.columns(3) for _ in range(2)]
-                    for _i, _mcol in enumerate([c for r in _mrows for c in r]):
+                    # 機種欄は3列固定・段数は枠数から決める
+                    # （6枠→3列×2段 ／ 9枠→3列×3段）
+                    _cnt   = _art_osusume_per_block(store, _n)
+                    _mrows = [st.columns(3) for _ in range(math.ceil(_cnt / 3))]
+                    for _i, _mcol in enumerate([c for r in _mrows for c in r][:_cnt]):
                         with _mcol:
                             _art_mac(str(_i + 1), f"art_osusume_m_{_n}_{_i}_{store}",
                                      _osu_cands)

@@ -10245,3 +10245,154 @@ A-2a 出力が実例（605px→100%）と**構造完全一致**／`width` は `i
 13. **サイト設定・PHP・テーマ・SWELL の CSS を変更しない**
 14. **draft 62102 / 62118 を公開・編集・削除しない**
 15. **無関係なリファクタ・未使用コード整理をしない**
+
+## 渋谷新館 記事用⑤：ブロック5・6だけ機種名枠を9個へ拡張（2026-09-07）
+
+**正式仕様。巻き戻し禁止。**対象は**【渋谷新館】の記事用⑤「オススメ機種の優秀台」の
+ブロック5・6の機種名入力枠数だけ**。
+正式コード commit は本節と**同一の commit**
+（`feat: 渋谷新館のオススメ機種入力枠を拡張`・2026-09-07・
+**`streamlit_app.py` と `CLAUDE.md` の2ファイルのみ**・`streamlit_app.py` は **+33 / −7**・4ハンク）。
+**`wp_client.py` / `convert_narabi_pil.py` / `shimazu_renderer.py` は diff 0。**
+既存節は削除・圧縮・統合・並べ替えしない。
+
+### ① 正式な枠数
+
+| ブロック | 0-based index | 機種名枠 | UIレイアウト |
+|---|---|---|---|
+| ブロック1〜4 | 0〜3 | **6枠（変更なし）** | 3列×2段 |
+| **ブロック5** | **4** | **9枠** | **3列×3段** |
+| **ブロック6** | **5** | **9枠** | **3列×3段** |
+
+**他店舗（高田馬場・秋葉原ほか）は全ブロック6枠のまま。**
+タイトル欄は従来どおり各ブロック1欄（計6欄）。
+
+### ② 定数とヘルパー（店舗・ブロック条件を3か所へ個別ハードコードしない）
+
+```python
+_ART_OSUSUME_BLOCKS          = 6                     # 既存・不変
+_ART_OSUSUME_PER_BLOCK       = 6                     # 既存・既定値として残す
+_ART_OSUSUME_PER_BLOCK_EXTRA = 9
+_ART_OSUSUME_EXTRA_BLOCKS    = frozenset({4, 5})     # 0-based＝ブロック5・6
+_ART_OSUSUME_EXTRA_STORES    = frozenset({"渋谷新館"})
+
+def _art_osusume_per_block(store: str, n: int) -> int:
+    if store in _ART_OSUSUME_EXTRA_STORES and n in _ART_OSUSUME_EXTRA_BLOCKS:
+        return _ART_OSUSUME_PER_BLOCK_EXTRA
+    return _ART_OSUSUME_PER_BLOCK
+```
+
+**★店舗ゲート `_ART_OSUSUME_EXTRA_STORES` を必ず維持する。**
+`_article_input_keys()` は店舗非依存に⑤キーを組み立てるため、ゲートを外すと
+**高田馬場・秋葉原の `article_page_inputs.json` エントリへ空キー6件が増える。**
+
+### ③ 変更した3か所（すべて同じヘルパーを使う）
+
+| # | 箇所 | 変更 |
+|---|---|---|
+| 1 | `_article_input_keys()` | `range(_ART_OSUSUME_PER_BLOCK)` → **`range(_art_osusume_per_block(store, _n))`** |
+| 2 | `_art_osusume_collect()` | 同上 |
+| 3 | ⑤UI（`show_auto_article_page`） | `_mrows = [st.columns(3) for _ in range(2)]` の**固定2段を廃止** → `_cnt = _art_osusume_per_block(store, _n)` / `_mrows = [st.columns(3) for _ in range(math.ceil(_cnt / 3))]` / flatten を **`[:_cnt]`** で切る |
+
+**★UI だけ・collect だけを直してはならない。**
+旧実装は UI が 3列×2段の直書き、`_article_input_keys()` と `_art_osusume_collect()` が
+定数参照という**2系統**だったため、片方だけ直すと
+「UIは9枠なのに収集は6件まで」＝**7〜9欄目が黙って無視される**状態になる。
+**`range(_ART_OSUSUME_PER_BLOCK)` の直接参照は残さない**（現在0件）。
+
+### ④ 保存キー（既存命名規則をそのまま延長・別形式を作らない）
+
+```
+logical  : art_osusume_m_{_n}_{_i}_{store}
+追加分   : art_osusume_m_4_6/_7/_8_渋谷新館 ／ art_osusume_m_5_6/_7/_8_渋谷新館
+display  : _artw_{excel_stem}_{logical_key}
+編集記録 : _artw_edited_{widget_key}（session_state 専用・JSON へ保存しない）
+```
+
+`_article_input_keys("渋谷新館")` の⑤部分は **タイトル6 ＋ 機種42 ＝ 48キー**
+（旧42キー）。`_article_input_keys("高田馬場")` / `("秋葉原")` は **42キーで順序まで従来と一致**。
+
+旧廃止キー `art_osusume_m_{i}_{store}`（index 1個の9枠形式・8/27 エントリに9件残置）とは
+**形が違うので衝突しない**。現行コードは読まない。**削除もしない。**
+
+### ⑤ 保存・復元は既存正式仕様をそのまま踏襲（新関数・新JSONを作らない）
+
+追加欄も既存 **`_art_mac()`** で描くため、次がすべて自動的に効く：
+
+`_art_widget_key()` の日付スコープ display key ／ `_on_article_widget_change` ／
+**`expected_excel` ガード** ／ **`_art_restored_excel` ガード** ／ `_art_prev_store` 店舗ガード ／
+display→logical bridge ／ `_artw_edited_*` ／ `_restore_article_inputs()` ／
+`_save_article_inputs()`（マージ方式）／ 初期値は `_art_kojin_default()` → `value=`。
+
+**stable widget key へ戻さない。保存用の新関数・新JSONを作らない。**
+追加欄は `empty_default` を持たないので、`7d6cdfa` の「表示 default が raw へ焼き付く」
+副作用には該当しない。
+
+### ⑥ 過去データ
+
+**`article_page_inputs.json` の一括 migration は不要・実施しない。**
+保存に無いキーは `_restore_article_inputs()` が `""` を入れ、`_art_kojin_default()` も `""`
+を返すので**過去日付では空欄表示**。
+実データ確認時点で**ブロック5・6の機種名に値のあるエントリは0件**（⑤に値があるのは
+8/27 渋谷新館＝ブロック1・2、9/5 渋谷新館＝ブロック1・2＋タイトル1〜3のみ）。
+
+**既知の許容事項**：対象日付で何か1欄でも編集して保存が走ると、そのエントリへ
+`art_osusume_m_4_6..8 / m_5_6..8 = ""` が**空値で追記**される（`_ART_NANAKO_HINTS` を
+6→10 にしたときと同種）。**ページ表示・日付切替だけでは保存は走らない**
+（保存は `on_change` 発火時のみ）。**これを避けるための追加ロジックは入れない。**
+
+### ⑦ 画像生成・⑦・⑧・ZIP・WordPress は件数非依存（無変更）
+
+**⑤は「1機種＝1画像」の既存仕様を維持する。9機種を1枚に統合しない。**
+ブロック5に9機種入れれば最大9枚、ブロック6も最大9枚。
+
+本体を**変更していない**関数：
+`_art_osusume_images()` ／ `_art_osusume_flat()` ／ `_art_osusume_plan()` ／
+`filter_recommended_machines()` ／ `_kojin_yushu_filter()` ／ `_pipeline_hq()` ／
+`_make_safe_fn()` ／ `_build_machine_img_no_bar()` ／ `_art_high_title_bar()` ／
+`show_auto_page()`（通常ページ全域）。
+
+- ⑦プレビューと⑧本番は**同じ `art_osusume_machines`・同じ `_art_osusume_images()`** を使う
+- ZIP は `output_dir` を丸ごと固めるので `{機種名}_オススメ優秀台.jpg` が増えれば自動で入る
+- WordPress は `payload["osusume"]`（`_art_osu_plan_{store}`）→ `plan_blocks()` が
+  ブロック単位ループ＋`_existing_files()` 実在判定で**件数非依存**
+- パネル・スランプ・液晶・HQ は1画像単位処理のため**枠数増で影響なし**
+
+**`wp_client.py` は変更禁止（diff 0 を維持）。**
+`_ART_WP_FULLWIDTH_STORES` ／ Gutenberg `width:"100%"` ／ `is-resized` ／
+`style="width:100%;height:auto"` ／ `_ART_WP_NOSPLIT_STORES`（全画像nosplit）／
+category 19 ／ author ／ Guild X ／ ななこ ／ ランキング&島図 ／ Luminous は**完全非対象**。
+
+### ⑧ 純粋テスト結果（45 PASS / 0 FAIL）
+
+`_art_osusume_per_block` が渋谷新館 `[6,6,6,6,9,9]`・他店舗（高田馬場/秋葉原/新小岩/西武新宿/稲毛）
+`[6]*6` ／ `_article_input_keys("渋谷新館")` の⑤が title6＋機種42＝48キー・ブロック別
+`{0..3}=6 {4,5}=9`・追加6キー存在・重複なし ／ **他店舗の⑤キーは42キーで順序まで完全一致・
+`art_osusume_m_[45]_[678]_` の混入0** ／ `_art_osusume_collect()` が `[6,6,6,6,9,9]`
+（高田馬場は `[6]*6`）／ `_art_osusume_flat()` の順序（ブロック1→6・枠1→n）と
+7〜9欄目の取り込み・件数24 ／ `_art_osusume_plan()` がブロック5の9枚を引き当て・
+7〜9欄目の画像を含む・全18枚 ／ `_artw_*` の保存キー混入0 ／
+display key が `_artw_20260905_渋谷新館_20S_art_osusume_m_4_6_渋谷新館` 形式・日付違いで別キー ／
+6枠→2段・9枠→3段 ／ 3か所すべてヘルパー使用・`range(_ART_OSUSUME_PER_BLOCK)` 直参照0 ／
+`_art_osusume_images()` に件数スライス・上限なし・1機種1画像維持。
+
+### ⑨ 今後の禁止事項
+
+1. **ブロック1〜4を9枠にしない**（6枠のまま）
+2. **`_ART_OSUSUME_EXTRA_STORES` の店舗ゲートを外さない**（他店舗JSONへ空キーが増える）
+3. **他店舗を `_ART_OSUSUME_EXTRA_STORES` へ追加しない**
+4. **`_ART_OSUSUME_PER_BLOCK = 6` の既定値を9へ変えない**
+5. **UI・保存キー生成・collect のどれか1か所だけ直さない**（3か所で同じヘルパーを使う）
+6. **UIの段数を再び固定 `range(2)` へ戻さない**
+7. **`range(_ART_OSUSUME_PER_BLOCK)` の直接参照を復活させない**
+8. **`_art_mac()` 以外の入力widget関数を新設しない／stable widget key へ戻さない**
+9. **保存用の新関数・新JSONを作らない**
+10. **logical key の命名規則を変えない**（`art_osusume_m_{n}_{i}_{store}` の延長のみ）
+11. **旧廃止キー `art_osusume_m_{i}_{store}` を読み込まない／削除しない**
+12. **過去JSONへ空キーを事前追加しない／一括 migration しない**
+13. **⑤の「1機種＝1画像」をブロック単位1枚統合へ変えない**
+14. **`_art_osusume_images()` / `_art_osusume_plan()` / `_art_osusume_flat()` /
+    `filter_recommended_machines()` / `_kojin_yushu_filter()` に件数上限を入れない**
+15. **`wp_client.py` を変更しない（diff 0）／WordPress本文仕様を変更しない**
+16. **通常ページ（`show_auto_page`）を変更しない**
+17. **無関係なリファクタ・未使用コード整理をしない**

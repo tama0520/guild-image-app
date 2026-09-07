@@ -11093,3 +11093,20 @@ full-width・nosplit・Luminous・category/author/status/WP_MAX_SIDE 不変／
 21. **高田馬場・秋葉原・新小岩・通常ページへ波及させない**
 22. **9枠仕様（B1〜4=6 / B5〜6=9・`_art_osusume_per_block()`）を巻き戻さない**
 23. **無関係なリファクタ・未使用コード整理をしない**
+
+### G. 追記：`_ART_OSU_F_OPTS` の定義位置（2026-09-07・同日修正）
+
+**`_ART_OSU_F_OPTS: list[str] = list(_REC_F_OPTS)` は `_REC_F_OPTS` の定義より後
+（`_REC_F_DEFAULT` の直後）に置く。**
+
+初回実装で⑤ヘルパー群と一緒に `_REC_F_OPTS` より前へ置いてしまい、
+アプリ起動時に **`NameError: name '_REC_F_OPTS' is not defined`（module 直下）** で
+記事用ページが表示できなくなった（ローカル実機で検出・同日修正）。
+`_art_osu_thr()` / `_ART_OSU_F_THR` / `_ART_OSU_F_DEFAULT` も同じ位置へ移した。
+⑤の他のヘルパー（`_art_osu_settings` / `_save_art_osusume` / `_art_osu_f_index` など）は
+`_ART_OSU_F_OPTS` を**関数の中でしか参照しない**ので元の位置のままでよい。
+
+**再発防止**：純粋テストに
+**「`python -c "import streamlit_app"` が returncode 0」**と
+**「`_REC_F_OPTS` の定義位置が `_ART_OSU_F_OPTS` より前」**の2項目を追加した。
+module 直下の定数を追加・移動するときは、**構文チェックだけでなく実 import を必ず通すこと。**

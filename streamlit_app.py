@@ -5887,15 +5887,8 @@ _ART_OSUSUME_BAR_TEXT = "オススメ機種の優秀台"
 #   プラス台 → 差枚 >= 1（★±0枚は含めない）／+1,000枚以上 → >= 1000／+2,000枚以上 → >= 2000
 # ★⑤の最終抽出はこの差枚閾値方式が正本。_kojin_yushu_filter() は⑤では使わない
 #   （関数本体は他ページ・高配分・その他優秀台が使うので削除・変更しない）。
-_ART_OSU_F_OPTS: list[str] = list(_REC_F_OPTS)
-_ART_OSU_F_THR: dict = {"プラス台": 1, "+1,000枚以上": 1000, "+2,000枚以上": 2000}
-_ART_OSU_F_DEFAULT = "プラス台"
-
-
-def _art_osu_thr(filter_value: str) -> int:
-    """⑤ブロックの抽出条件 → min_diff（不正値は既定「プラス台」＝1）。"""
-    return _ART_OSU_F_THR.get(str(filter_value or ""),
-                              _ART_OSU_F_THR[_ART_OSU_F_DEFAULT])
+# 定数と _art_osu_thr() の実体は _REC_F_OPTS の直後で定義する
+# （_ART_OSU_F_OPTS が _REC_F_OPTS を再利用するため、定義順を守る必要がある）。
 
 
 # ── 記事用⑤の設定は **店舗単位** で永続化する（日付・Excelをまたいで保持）──
@@ -6426,6 +6419,21 @@ def _init_recommended_settings(store: str) -> dict:
 _REC_F_OPTS: list[str] = ["プラス台", "+1,000枚以上", "+2,000枚以上"]
 _REC_F_DEFAULT: dict = {1: "+1,000枚以上", 2: "プラス台", 3: "プラス台",
                         4: "プラス台", 5: "プラス台", 6: "プラス台"}
+
+# ── 記事用⑤（渋谷新館）の抽出条件。選択肢は新小岩⑤の _REC_F_OPTS を再利用する。
+#   ★_REC_F_OPTS より後で定義しないと import 時に NameError になる（定義順を変えない）。
+#   閾値の意味も新小岩と同一: プラス台→>=1（±0枚は含めない）／+1,000→>=1000／+2,000→>=2000
+_ART_OSU_F_OPTS: list[str] = list(_REC_F_OPTS)
+_ART_OSU_F_THR: dict = {"プラス台": 1, "+1,000枚以上": 1000, "+2,000枚以上": 2000}
+_ART_OSU_F_DEFAULT = "プラス台"
+
+
+def _art_osu_thr(filter_value: str) -> int:
+    """⑤ブロックの抽出条件 → min_diff（不正値は既定「プラス台」＝1）。"""
+    return _ART_OSU_F_THR.get(str(filter_value or ""),
+                              _ART_OSU_F_THR[_ART_OSU_F_DEFAULT])
+
+
 
 
 def _rec_f_index(store: str, n: int) -> int:

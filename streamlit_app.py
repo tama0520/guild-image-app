@@ -5900,6 +5900,28 @@ def _art_is_osusume_fn(bare_fn: str) -> bool:
     """
     return str(bare_fn or "").startswith("オススメ優秀台_ブロック")
 
+
+def _art_osusume_panel_fn(bare_fn: str, bans: list, ban2mac: dict) -> str:
+    """⑤ブロック画像のパネル合成へ渡すファイル名を返す。
+
+    最終掲載機種が **1機種だけ** のブロックは、高配分などの単一機種画像と同じ
+    「{機種名}.jpg」として `_apply_panel_to_table_img()` の単一機種経路へ入れる。
+    そこでは `_build_panel_row([機種名], img.width)` が使われ、
+    パネルが **表と同じ横幅いっぱい** になる（2×2グリッドの左半分＋右半分白にならない）。
+
+    ★機種名は**ファイル名から復元しない**。ブロック画像のファイル名は
+      `オススメ優秀台_ブロックN.jpg` で機種名を含まないため、
+      **bans → ban2mac** から実際に掲載された機種名を取る。
+    ★2機種以上・⑤以外のファイル名はそのまま返す（＝従来の分岐を一切変えない）。
+    """
+    if not _art_is_osusume_fn(bare_fn):
+        return bare_fn
+    _macs = {ban2mac.get(str(_b)) for _b in (bans or [])}
+    _macs = {str(_m).strip() for _m in _macs if _m and str(_m).strip()}
+    if len(_macs) != 1:
+        return bare_fn
+    return f"{_make_safe_fn(next(iter(_macs)))}.jpg"
+
 # ── 記事用⑥「差枚数ランキング」（渋谷新館のみ）─────────────────────────
 # 全台を補正後差枚の降順（同値は台番昇順）に並べ、1位〜指定順位までを1枚にする。
 # 描画は専用の _art_ranking_image() 内で完結させる。**共通の draw_table_image()
@@ -15692,8 +15714,9 @@ def show_auto_article_page() -> None:
                                         _g_imgs_pv2: list["Image.Image"] = []
                                         _show_mn_pv2 = (_fn_pv2 in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
                                                         or _fn_pv2.startswith("末尾") or _fn_pv2.startswith("バラエティ"))
-                                        # ⑤ブロック画像: パネルは常にグリッド経路（1機種でも1枚出す）。
-                                        # スランプ内の機種名は **実際に2機種以上のときだけ** 出す。
+                                        # ⑤ブロック画像: 最終掲載が1機種なら単一機種パネル（全幅）、
+                                        # 2機種以上ならグリッド経路。スランプ内の機種名も
+                                        # **実際に2機種以上のときだけ** 出す（判定は別式）。
                                         _is_osu_pv2 = _art_is_osusume_fn(re.sub(r"^\d{2}_", "", _fn_pv2))
                                         _osu_multi_pv2 = _is_osu_pv2 and _art_is_multi_machine(
                                             re.sub(r"^\d{2}_", "", _fn_pv2), _bans_pv2, _pv_ban2mac)
@@ -15708,13 +15731,17 @@ def show_auto_article_page() -> None:
                                             _bare_pv2 = re.sub(r"^\d{2}_", "", _fn_pv2)
                                             _is_multi_pv2 = _art_is_multi_machine(
                                                 _bare_pv2, _bans_pv2, _pv_ban2mac)
+                                            # ⑤で最終1機種のときだけ「{機種名}.jpg」として渡し、
+                                            # 単一機種パネル（全幅）経路へ入れる（機種名は bans→ban2mac）。
+                                            _pfn_pv2 = _art_osusume_panel_fn(
+                                                _bare_pv2, _bans_pv2, _pv_ban2mac)
                                             _img_pv2, _, _ = _apply_panel_to_table_img(
-                                                _img_pv2, _bare_pv2, _bans_pv2,
+                                                _img_pv2, _pfn_pv2, _bans_pv2,
                                                 _pv_ban2mac, _pv_ban2diff,
-                                                _show_mn_pv2 or _is_sue_pv2 or _is_multi_pv2 or _is_osu_pv2,
+                                                _show_mn_pv2 or _is_sue_pv2 or _is_multi_pv2 or _osu_multi_pv2,
                                                 _is_sue_pv2,
                                                 crop_bar=False,      # 記事用は元画像をcropしない
-                                                is_multi=_is_multi_pv2 or _is_osu_pv2,
+                                                is_multi=_is_multi_pv2 or _osu_multi_pv2,
                                                 # 列仕掛けも並びと同じパネル選定ルールへ
                                                 narabi_like=_art_is_narabi_fn(_bare_pv2),
                                                 max_panels=_art_panel_max(store, _bare_pv2))
@@ -16955,8 +16982,9 @@ def show_auto_article_page() -> None:
                                 _g_imgs_sl: list["Image.Image"] = []
                                 _show_mn_sl = (_fp_sl in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
                                                or _fp_sl.startswith("末尾") or _fp_sl.startswith("バラエティ"))
-                                # ⑤ブロック画像: パネルは常にグリッド経路（1機種でも1枚出す）。
-                                # スランプ内の機種名は **実際に2機種以上のときだけ** 出す。
+                                # ⑤ブロック画像: 最終掲載が1機種なら単一機種パネル（全幅）、
+                                # 2機種以上ならグリッド経路。スランプ内の機種名も
+                                # **実際に2機種以上のときだけ** 出す（判定は別式）。
                                 _is_osu_sl = _art_is_osusume_fn(re.sub(r"^\d{2}_", "", _fp_sl))
                                 _osu_multi_sl = _is_osu_sl and _art_is_multi_machine(
                                     re.sub(r"^\d{2}_", "", _fp_sl), _bans_sl, _art_ban2mac_sl)
@@ -16971,13 +16999,17 @@ def show_auto_article_page() -> None:
                                     _bare_sl = re.sub(r"^\d{2}_", "", _fp_sl)
                                     _is_multi_sl = _art_is_multi_machine(
                                         _bare_sl, _bans_sl, _art_ban2mac_sl)
+                                    # ⑤で最終1機種のときだけ「{機種名}.jpg」として渡し、
+                                    # 単一機種パネル（全幅）経路へ入れる（機種名は bans→ban2mac）。
+                                    _pfn_sl = _art_osusume_panel_fn(
+                                        _bare_sl, _bans_sl, _art_ban2mac_sl)
                                     _t_img_sl, _mn_sl, _pok_sl = _apply_panel_to_table_img(
-                                        _t_img_sl, _bare_sl, _bans_sl,
+                                        _t_img_sl, _pfn_sl, _bans_sl,
                                         _art_ban2mac_sl, _art_ban2diff_sl,
-                                        _show_mn_sl or _is_sue_sl or _is_multi_sl or _is_osu_sl,
+                                        _show_mn_sl or _is_sue_sl or _is_multi_sl or _osu_multi_sl,
                                         _is_sue_sl,
                                         crop_bar=False,      # 記事用は元画像をcropしない
-                                        is_multi=_is_multi_sl or _is_osu_sl,
+                                        is_multi=_is_multi_sl or _osu_multi_sl,
                                         # 列仕掛けも並びと同じパネル選定ルールへ
                                         narabi_like=_art_is_narabi_fn(_bare_sl),
                                         max_panels=_art_panel_max(store, _bare_sl))

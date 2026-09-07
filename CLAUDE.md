@@ -10665,3 +10665,143 @@ plan 1ブロック1画像・空ブロック非掲載・タイトル空は `title
 23. **高田馬場・秋葉原・新小岩・通常ページへ波及させない**
     （通常ページの `_show_mn` の `startswith("オススメ")` も無変更）
 24. **無関係なリファクタ・未使用コード整理をしない**
+
+## 渋谷新館 記事用⑤：最終1機種ブロックのパネルを全幅にする（2026-09-07）
+
+**正式仕様。巻き戻し禁止。**直前の
+「## 渋谷新館 記事用⑤：オススメ優秀台を1ブロック＝1画像へ（2026-09-07）」の**追加修正**であり、
+同節は削除・書き換えしない（同節⑥の「⑤は1機種でもグリッド経路へ固定する」だけを本節が上書きする）。
+正式コード commit は本節と**同一の commit**
+（`fix: オススメ優秀台の単一機種パネル表示を修正`・2026-09-07・
+**`streamlit_app.py` と `CLAUDE.md` の2ファイルのみ**）。
+**`wp_client.py` / `convert_narabi_pil.py` / `shimazu_renderer.py` は diff 0。**
+
+### ⓪ 症状と原因
+
+9/5 の⑦プレビューで、⑤ブロック画像が最終的に「北斗転生2」1機種だけになったとき、
+**パネルが画像上部の左半分だけに表示され、右半分が大きく白く空いていた。**
+
+原因は、直前実装が **⑤なら1機種でも `is_multi=True` を渡してグリッド経路へ固定**していたこと。
+`_build_variety_panel_grid()` は **2列固定（`_cell_w = max(1, width // 2)`）** なので、
+パネル1枚だと**左半分だけ埋まり右半分が白**になる。
+（`_apply_panel_to_table_img` の単一機種経路は `_build_panel_row([機種名], img.width)` を使い、
+`_cell_w = width // len(panels)` ＝ **全幅**になる。）
+
+### ① 正式仕様
+
+| ⑤ブロックの**最終掲載機種数** | パネル |
+|---|---|
+| **1機種** | **高配分などの単一機種画像と同じ経路**。パネルを**表と同じ横幅いっぱい**に表示 |
+| **2機種以上** | 従来どおり `_build_variety_panel_grid()`（2列グリッド・`_art_panel_max()`＝⑤は4） |
+
+**判定は「⑤に入力された機種数」ではなく、**
+**②全台系・②高配分などの既存除外 ＋ `_kojin_yushu_filter()` を通過して
+その画像の表へ実際に掲載された機種数**（＝`bans` → `ban2mac` の一意機種数）で行う。
+入力3機種でも除外後に1機種だけ残れば**1機種ブロック**として全幅パネルにする。
+
+### ② 実装（呼び出し側だけ・共通関数は本体無変更）
+
+新設ヘルパー1本のみ：
+
+```python
+def _art_osusume_panel_fn(bare_fn: str, bans: list, ban2mac: dict) -> str:
+    """⑤ブロック画像のパネル合成へ渡すファイル名を返す。
+    最終掲載が1機種だけなら「{機種名}.jpg」を返し、単一機種パネル（全幅）経路へ入れる。
+    2機種以上・⑤以外は bare_fn をそのまま返す（従来の分岐を一切変えない）。"""
+    if not _art_is_osusume_fn(bare_fn):
+        return bare_fn
+    _macs = {ban2mac.get(str(_b)) for _b in (bans or [])}
+    _macs = {str(_m).strip() for _m in _macs if _m and str(_m).strip()}
+    if len(_macs) != 1:
+        return bare_fn
+    return f"{_make_safe_fn(next(iter(_macs)))}.jpg"
+```
+
+⑦プレビュー・⑧本番の**2か所**で、パネル呼び出しを次のように変える（それ以外は不変）：
+
+```python
+_pfn = _art_osusume_panel_fn(_bare, _bans, ban2mac)      # ⑤1機種なら「{機種名}.jpg」
+_apply_panel_to_table_img(
+    img, _pfn, _bans, ban2mac, ban2diff,
+    _show_mn or _is_sue or _is_multi or _osu_multi,       # ← _is_osu ではなく _osu_multi
+    _is_sue, crop_bar=False,
+    is_multi=_is_multi or _osu_multi,                    # ← 同上
+    narabi_like=_art_is_narabi_fn(_bare),                # 判定は**実ファイル名**で行う
+    max_panels=_art_panel_max(store, _bare))             # 同上
+```
+
+- **`_apply_panel_to_table_img()` / `_build_variety_panel_grid()` / `_build_panel_row()` /
+  `_insert_panel_into_machine_img()` / `_narabi_panel_names()` は本体バイト無変更**
+  （かぶぱ・他記事用画像へ影響を出さないため）。
+- **`narabi_like` と `max_panels` は必ず実ファイル名 `_bare` で判定する。**
+  `_pfn`（合成用の擬似名）で判定しないこと。
+- **`_is_osu_*` をパネル引数へ渡さない**（1機種でグリッドへ入ってしまう）。
+  使うのは **`_osu_multi_*`＝`_is_osu and _art_is_multi_machine(...)`（＝2機種以上）**。
+
+### ③ ★ファイル名から機種名を復元しない
+
+⑤のファイル名は `オススメ優秀台_ブロックN.jpg` で**機種名を含まない**ため、
+通常の単一機種画像のような**ファイル名からの機種名復元はできない**。
+機種名は必ず **`bans` → `ban2mac`** から取る。
+**出力ファイル名 `オススメ優秀台_ブロックN.jpg` は変更しない**
+（`_pfn` は `_apply_panel_to_table_img()` へ渡すだけの合成用で、保存名・plan・ban_map には使わない）。
+
+### ④ スランプ内機種名は別判定（変更なし）
+
+| 最終掲載機種数 | スランプ内 `machine_name` |
+|---|---|
+| 1機種 | **なし（None）** |
+| 2機種以上 | **あり** |
+
+**単一機種パネル対応のために `machine_name` を出す変更は禁止。**
+`draw_slump_graph()` 本体・`machine_name` 条件式は今回変更していない。
+
+### ⑤ 画像全体仕様は維持
+
+`パネル → 表 → スランプ` の構成 ／ **水色タイトルバーなし** ／ **液晶なし**（⑤専用例外）／
+表掲載台＝`bans`＝スランプ対象台 ／ ファイル名 ／ 除外・優秀台抽出
+（`filter_recommended_machines()` / `_kojin_yushu_filter()` / フラット1回＋最初のブロックのみ採用）／
+`_art_osusume_block_images()` の生成結果 ／ 9枠仕様 ／ HQ ／ 保存target ／
+`_art_osusume_plan()` ／ WordPress（payload・H2/H3・full-width・nosplit）── **すべて無変更**。
+
+🔄「その他を更新」は `_upd_bm` が「その他の優秀台」「ジャグラー統合」の2つだけを持つため、
+⑤は**素通し**（二重パネル合成なし）。今回も触っていない。
+
+### ⑥ 純粋テスト結果（81 PASS / 0 FAIL）
+
+⑤1機種 → 単一機種経路（機種名が返る・`_pfn = M1.jpg`）／**パネル高さが全幅スケール
+（幅400・パネル200×100 → 高さ200）**／**右半分に白余白なし（左右のピクセルが同一）**／
+**旧実装では右半分が白だったことを同一入力で再現**／⑤1機種は
+`_art_is_multi_machine=False`＝`machine_name None`／
+⑤2機種→2枚(1段)・3機種→3枚(2段)・4機種→4枚(2段)・5機種→4枚・9機種→4枚（すべて
+`_pfn` はブロック名のまま・`multi=True`＝機種名あり）／
+**非⑤8種 × 3店舗＝24ケースで変更前後の画像バイト・戻り値が完全一致**
+（`M1_高配分.jpg` / `M1.jpg` / その他の優秀台 / ジャグラー統合 / `M1(3台並び).jpg` /
+`M1(列仕掛け).jpg` / 末尾 / バラエティ）／`_art_panel_max` は⑤=4・ジャグラー統合=2 維持／
+**26関数の本体バイト一致**（上記パネル5関数・`draw_slump_graph`・`_attach_slump_to_table`・
+`_art_osusume_block_images`・`_art_osusume_plan`・`filter_recommended_machines`・
+`_kojin_yushu_filter`・`generate_recommended_block_image`・`show_auto_page` 等）／
+⑤の液晶なし分岐・水色バーなし・ファイル名規則・`bans` 仕様・9枠仕様 維持／
+`wp_client.py` / `convert_narabi_pil.py` / `shimazu_renderer.py` は git 基準で diff 0／
+`_art_osusume_panel_fn(` の出現は定義1＋⑦1＋⑧1＝3。
+
+### ⑦ 今後の禁止事項
+
+1. **⑤で1機種でもグリッド経路へ固定する実装へ戻さない**（`is_multi=... or _is_osu` は禁止）
+2. **パネル引数に `_is_osu_*` を渡さない**（使うのは `_osu_multi_*`＝2機種以上）
+3. **判定を「⑤に入力した機種数」にしない**（除外・優秀台抽出後の**表掲載機種数**で判定）
+4. **機種名をファイル名から復元しない**（`bans` → `ban2mac` から取る）
+5. **`オススメ優秀台_ブロックN.jpg` の出力ファイル名を変えない**／`_pfn` を保存名・plan・ban_map へ使わない
+6. **`narabi_like` / `max_panels` を `_pfn` で判定しない**（必ず実ファイル名 `_bare`）
+7. **`_apply_panel_to_table_img()` / `_build_variety_panel_grid()` / `_build_panel_row()` /
+   `_insert_panel_into_machine_img()` / `_narabi_panel_names()` の本体を変更しない**
+8. **2機種以上のパネル仕様（2→2 / 3→3 / 4→4 / 5〜9→上位4・最高差枚順・未登録繰り上げ・
+   表示は台番昇順）を変更しない**
+9. **ジャグラー統合の最大2（`_ART_JUG_PANEL2_STORES`）を変更しない**
+10. **単一機種パネル対応のために `machine_name` を表示する変更をしない**
+11. **⑦だけ／⑧だけ直さない**（両方 `_art_osusume_panel_fn()` を通す）
+12. **⑤を 🔄 の `_upd_bm` へ追加しない**（二重パネル合成になる）
+13. **除外・優秀台抽出・9枠・HQ・保存target・液晶なし・水色バーなし・WordPress を変更しない**
+14. **高配分・全台系・その他優秀台・ジャグラー・末尾・並び・列・ランキング・島図・
+    新小岩・高田馬場・秋葉原へ波及させない**
+15. **無関係なリファクタ・未使用コード整理をしない**

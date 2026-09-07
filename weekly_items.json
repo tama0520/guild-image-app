@@ -251,8 +251,8 @@
           false,
           false,
           true,
-          false,
-          false,
+          true,
+          true,
           true,
           false,
           false
@@ -452,8 +452,11 @@
           ]
         },
         "2026-09-07": {
-          "3": [
-            "ファンキー2"
+          "2": [
+            "ネオアイム"
+          ],
+          "4": [
+            "ネオアイム"
           ]
         }
       }
@@ -537,7 +540,7 @@
           false,
           true,
           false,
-          false,
+          true,
           false,
           false,
           false

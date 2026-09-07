@@ -10805,3 +10805,291 @@ _apply_panel_to_table_img(
 14. **高配分・全台系・その他優秀台・ジャグラー・末尾・並び・列・ランキング・島図・
     新小岩・高田馬場・秋葉原へ波及させない**
 15. **無関係なリファクタ・未使用コード整理をしない**
+
+## 渋谷新館 記事用⑤：店舗単位永続化・抽出条件・ジャグラー統合画像のWP plan（2026-09-07）
+
+**正式仕様。巻き戻し禁止。**対象は**【渋谷新館】の記事用⑤「オススメ機種の優秀台」と、
+WordPress plan のジャグラー統合画像だけ**。
+正式コード commit は本節と**同一の commit**
+（`feat: 渋谷新館のオススメ条件と設定保存を拡張`・2026-09-07・
+**`streamlit_app.py` / `wp_client.py` / `store_settings/渋谷新館.json` / `CLAUDE.md` の4ファイル**）。
+既存節は削除・圧縮・統合・並べ替えしない（本節は⑤の
+「1ブロック＝1画像」「単一機種パネル全幅」の各節を**上書きせず補う**）。
+
+### ⓪ 変更点3つ
+
+| | 旧 | **新（正式）** |
+|---|---|---|
+| ⑤の保存 | `article_page_inputs.json` の**日付（Excel）単位** | **`store_settings/{store}.json` の店舗単位**（日付をまたいで保持） |
+| ⑤の最終抽出 | `_kojin_yushu_filter()`（機種種別の複合条件） | **ブロックごとの抽出条件（差枚閾値）**＝新小岩⑤と同じ |
+| WP plan のジャグラー統合画像 | `FN_JUGGLER` を**無条件**に append（`optional=True`） | **実ファイルがあるときだけ** append |
+
+---
+
+## A. ⑤設定の店舗単位永続化
+
+### ① 保存先と新規キー
+
+**`store_settings/{store}.json`**（`load_store_settings` / `save_store_settings` を再利用。
+**新しいJSONは作らない**）。
+
+```json
+"art_osusume_titles":   [str×6],
+"art_osusume_machines": [[B1の6枠],[B2の6枠],[B3の6枠],[B4の6枠],[B5の9枠],[B6の9枠]],
+"art_osusume_filters":  [str×6]
+```
+
+**★通常ページ⑤の `recommended_title_*` / `recommended_machines_*` /
+`recommended_filter_*` / `rec_enabled` とは絶対に共用しない。**
+渋谷新館の `store_settings` には**通常ページ⑤の `recommended_*` が既に実在**するため、
+共用すると通常ページと記事用が混ざる。
+
+### ② session_state キー（日付スコープに乗せない）
+
+```
+art_osu_title_{n}_{store}      n=0..5
+art_osu_m_{n}_{i}_{store}      n=0..5, i=0..枠数-1
+art_osu_f_{n}_{store}          n=0..5
+```
+
+**★`_art_widget_key()`（`_artw_{excel_stem}_…`）／`_art_txt()`／`_art_mac()` は⑤で使わない。**
+店舗suffixのみのキーにすることで、日付を変えても widget identity が変わらず値が残る。
+**②その他の記事用入力（②個別画像・ななこ・バラエティ・ランキング・記事上部など）は
+従来どおり日付単位**。日付スコープの正式仕様
+（display key / `expected_excel` ガード / `_art_restored_excel` ガード / `_artw_edited_*`）は
+**そのまま維持**する。**日付スコープ全体の解除は禁止。**
+
+### ③ 新設ヘルパー
+
+```python
+_ART_OSU_TITLES_KEY / _ART_OSU_MACHINES_KEY / _ART_OSU_FILTERS_KEY
+def _art_osu_title_key(store, n) / _art_osu_mac_key(store, n, i) / _art_osu_f_key(store, n)
+def _art_osu_settings(store) -> {"titles": […], "machines": [[…]], "filters": […]}   # 読み取り専用
+def _art_osu_f_index(store, n) -> int      # session_state → 保存値 → 既定「プラス台」
+def _save_art_osusume(store) -> None       # on_change 即保存
+```
+
+### ④ ★保存の存在ガード（新小岩と同一思想）
+
+```
+session_state にキーが ある  → 現在値を保存（**空欄も意図的クリアとして保存**）
+キーが ない（未描画）        → 既存の保存値を維持（空で潰さない）
+```
+
+これにより **1枠クリア・全枠クリア・タイトル削除が最新設定として保存され、
+日付を変えても古い値が復活しない**。
+**「空欄だから過去値を復活」する実装へ戻さない**（削除できなくなる）。
+
+### ⑤ 初期値の渡し方
+
+- タイトル：`st.text_input(key=…, value=_osu_saved["titles"][n])`
+- 機種名：**`render_machine_autocomplete_input(..., default=…)`**（＝`st.text_input(value=default)`。
+  ⑤ `39f1f1e` の「seed だけで `value=` を渡さない実装へ戻さない」に準拠）
+- 抽出条件：`st.radio(..., index=_art_osu_f_index(store, n))`
+  （未描画 run で key が破棄されても保存値がラジオ先頭へ落ちない。新小岩 `_rec_f_index()` と同じ思想）
+
+`on_change` は3ウィジェットすべて **`_save_art_osusume`**。
+
+### ⑥ 日付単位保存の対象から⑤を外す
+
+`_article_input_keys()` から**⑤の48キー（title 6＋機種 42）を削除**した。
+**②その他のキーは1つも変更していない**（純粋テストで「⑤以外のキー列が変更前と完全一致」を確認）。
+**`_save_article_inputs()` / `_restore_article_inputs()` は本体バイト無変更。**
+
+### ⑦ 9/5 設定の初期移行（1回だけ・実施済み）
+
+`article_page_inputs.json` の **`20260905_渋谷新館_20S.xlsx`** の⑤実値を読み取り、
+`store_settings/渋谷新館.json` の `art_osusume_titles` / `art_osusume_machines` へ**1回だけ**反映した。
+**推測で機種名を書かず、JSON実値のみを移行。**
+
+| ブロック | タイトル | 機種（非空） |
+|---|---|---|
+| B1 | 週間オススメ北斗シリーズ | スマスロ北斗の拳 / 北斗転生2 |
+| B2 | 月間オススメ東京喰種 | 東京喰種 |
+| B3 | 月間オススメカバネリ海門決戦 | カバネリ海門決戦 |
+| B4 | 3Fオススメ | ゴッド神々の軌跡 / 戦国乙女5 |
+| B5 | 月間オススメジャグラーシリーズ | マイジャグV / ネオアイム / ファンキー2 / ゴージャグ3 / ハピジャグV / ジャグラーガールズ / ミスジャグ / ウルトラミラジャグ |
+| B6 | （空） | （空） |
+
+**機種合計 14件**。`art_osusume_filters` は**6ブロックすべて「プラス台」**（新規のため既定値）。
+**ランタイムの自動 migration 処理は作らない**（今回1回の反映のみ）。
+
+### ⑧ 過去 `article_page_inputs.json` の⑤キー
+
+**削除・移動・掃除しない。**`art_osusume_title_*` / `art_osusume_m_*` は各日付エントリに残置し、
+**以後参照しないだけ**（`kojin_y_8_秋葉原`・新小岩②の前例と同じ扱い）。
+9/5 エントリの⑤48キーが残っていることを純粋テストで確認済み。
+
+### ⑨ Cloud での制約（新小岩⑤と同じ）
+
+**`store_settings` には Cloud→GitHub の同期経路が無い**（正式運用ルール 2026-08-10）。
+⑤設定は**ローカルで編集 → commit/push → Cloud は再デプロイ/Reboot で受け取る**運用。
+**今回 GitHub 同期機能は作らない。**
+
+---
+
+## B. ⑤の抽出条件（ブロック単位）
+
+### ⑩ UI
+
+各ブロックの機種名入力欄の**下**に
+**`st.radio("抽出条件", _ART_OSU_F_OPTS, horizontal=True)`**。
+
+| 表示＝内部値 | min_diff | 意味 |
+|---|---|---|
+| **プラス台** | **1** | **差枚 >= 1（★±0枚は含めない）** |
+| **+1,000枚以上** | **1000** | 差枚 >= 1000 |
+| **+2,000枚以上** | **2000** | 差枚 >= 2000 |
+
+```python
+_ART_OSU_F_OPTS: list[str] = list(_REC_F_OPTS)   # 新小岩の選択肢を再利用（本体は変更しない）
+_ART_OSU_F_THR = {"プラス台": 1, "+1,000枚以上": 1000, "+2,000枚以上": 2000}
+_ART_OSU_F_DEFAULT = "プラス台"
+def _art_osu_thr(filter_value) -> int            # 不正値・未設定は「プラス台」＝1
+```
+
+**★`_rec_f_index()` は共用しない**（読むキーが `recommended_filter_{n}` で別体系）。
+記事用は `_art_osu_f_index()`。
+
+### ⑪ ★⑤の最終抽出は差枚閾値方式（`_kojin_yushu_filter` を使わない）
+
+```python
+_thr   = _art_osu_thr(_b.get("filter"))
+_sel_m = _grp[(_dr >= _thr).values].copy()      # 新小岩⑤と同じ一本道
+```
+
+**`_kojin_yushu_filter()` 本体は変更・削除しない**（他ページ・高配分・その他優秀台・
+②個別・pipeline が使用中。本体バイト一致を確認済み）。**⑤の新経路から外すだけ。**
+
+### ⑫ 抽出順序（機種単位除外は必ず先）
+
+```
+1. ⑤全ブロックをフラット化（_art_osusume_flat）
+2. filter_recommended_machines(..., ban_level=False) を **1回だけ**
+   （空白・重複・②全台系・②高配分・②手入力済み・Excel未存在を除外）
+3. 同一機種は最初のブロックだけ採用（_used）
+4. 各ブロックで機種ごとの全台 DataFrame を取得
+5. **そのブロックの抽出条件で差枚フィルタ**
+6. concat
+7. 機種グループ＝最小台番昇順／グループ内＝台番昇順
+8. 画像生成（_build_machine_img_no_bar）
+```
+
+**`filter_recommended_machines()` をブロックごとに呼ばない**（全体重複除去が壊れる）。
+
+### ⑬ 9/5 の 2252番台 ±0枚
+
+新仕様では「プラス台＝差枚 >= 1」なので **9/5 ブロック1の `2252番台 ±0枚` は掲載対象外**。
+以前の6台から5台になるのは**意図した正しい挙動**で、**不具合ではない**。
+
+---
+
+## C. 画像仕様（既存正式仕様をすべて維持）
+
+- **表掲載台 ＝ `bans` ＝ スランプ対象台**（`_sel` を唯一の正とする）。新抽出条件で台が減れば
+  表・スランプも同じ台だけになる。
+- **最終掲載機種数が1機種 → 単一機種パネル全幅／2機種以上 → 複数機種パネルグリッド（最大4）**。
+  判定は**入力機種数ではなく新抽出条件後の最終掲載機種数**（`_art_osusume_panel_fn()` /
+  `_art_is_multi_machine()` が `bans`→`ban2mac` から判定するので自動追従）。
+- **1機種 → スランプ内 `machine_name` なし／2機種以上 → あり。**
+- **水色タイトルバーなし ／ ⑤は液晶なし。**
+- **ファイル名 `オススメ優秀台_ブロック1〜6.jpg` は不変。**
+- ⑦プレビューと⑧本番は**同じ `_art_osusume_collect()` / `_art_osusume_block_images()`**
+  を使い、抽出条件も同じ店舗単位保存値から渡すので**条件がズレない**。
+
+---
+
+## D. ジャグラー統合画像の WordPress plan
+
+### ⑭ 画像生成ロジックは変更しない
+
+⑤へジャグラーが実掲載された日は、**既存の `run_step2_juggler()` が台番単位の除外
+（`_jug_pool_osu = osusume_bans ∩ jug_bans_all`）で統合画像を作らない**（`d477a91`）。
+**`run_step2_juggler` / `juggler_jobs` / `osusume_bans` / `_jug_pool_osu` は本体バイト無変更。**
+**新しい「ジャグラー」文字列判定は追加しない**（`cfg["juggler_series"]` が正）。
+
+### ⑮ 直した箇所（`wp_client.plan_blocks()` の1か所だけ）
+
+```python
+if jug_comb:
+    if payload.get("juggler_comb_h3"):
+        plan.append({"type": "h3", "text": H3_JUGGLER_COMB})
+    plan.append({"type": "image", "file": FN_JUGGLER,
+                 "label": "ジャグラーシリーズ優秀台", "optional": True})
+```
+
+旧実装は `FN_JUGGLER` の image 項目を**無条件**に append していたため、
+統合画像を作らない日は `collect_files()` の `missing_optional` に入り
+**「ℹ️ 次の画像は見つからないため本文へ入れません: ジャグラーシリーズ優秀台.jpg」**が毎回出ていた。
+
+- **統合画像が実在する日の plan は旧実装と完全一致**（純粋テストで dict 一致を確認）。
+- **個別ジャグラー高配分画像（`jug_imgs`）が実在する日は H2／H3／個別画像を従来どおり維持。**
+- `build_payload` / `collect_files` / `build_content` / full-width / nosplit /
+  Luminous（`linkDestination:"none"`）/ category / author / `WP_STATUS` / `WP_MAX_SIDE` は**無変更**。
+- **`wp_client.py` で本体が変わったのは `plan_blocks` のみ**・新規/消失関数0。
+
+---
+
+## E. 純粋テスト結果（105 PASS / 0 FAIL）
+
+**永続化**：9/5設定の移行一致（machines/titles とも元JSONと完全一致・14件）／B1〜4=6枠・B5〜6=9枠／
+filters 6件=プラス台／`recommended_*` を壊していない／新キー3種が存在／
+保存直後の値／**session_state を空にしても保存値から復元（＝日付切替後も同じ設定）**／
+collect も同値／変更後が以後の最新設定／**1枠クリア・全枠クリア・タイトル空欄が保存され復活しない**／
+filter が日付越しに保持／未描画枠は既存値を維持／index 解決順。
+
+**日付scope非回帰**：**32関数の本体バイト一致**（`_save_article_inputs` / `_restore_article_inputs` /
+`_art_widget_key` / `_art_saved_value` / `_on_article_widget_change` / `_art_kojin_default` /
+`_kojin_yushu_filter` / `filter_recommended_machines` / `generate_recommended_block_image` /
+`_save_rec_machines` / `_save_rec_titles` / `_save_rec_enabled` / `_rec_f_index` /
+`run_step2_juggler` / `run_step3_other` / `run_auto_pipeline` / パネル系5関数 /
+`draw_slump_graph` / `_attach_slump_to_table` / `_art_high_title_bar` / `_save_jpeg` /
+**`show_auto_page`** ほか）／⑤48キーだけ `_article_input_keys` から消え、
+**⑤以外のキー列は3店舗すべてで変更前と完全一致**／過去 `article_page_inputs.json` の⑤48キーは残置。
+
+**抽出条件**：閾値 1/1000/2000・不正値は1／プラス台で **±0枚（104）を除外**／
+負差枚は全条件で除外／②全台系・②高配分の除外が先／同一機種は最初のブロックのみ／
+表掲載台==bans／並び順（機種最小台番昇順＋台番昇順）。
+
+**画像**：1機種 multi=False（全幅・machine_name None）／2機種 multi=True（grid・あり）／
+最大4パネル／水色バーなし／**⑤生成が `_kojin_yushu_filter(_m` を呼ばない**／液晶なし分岐／
+ファイル名不変／plan は1ブロック1画像。
+
+**ジャグラー/WP**：統合画像なしで `missing_optional` に `FN_JUGGLER` が入らない／
+plan に `FN_JUGGLER` が入らない／**旧実装では入っていたことを同一 payload で再現**／
+H2 は従来どおり出る／画像なしなら H3 統合も出ない／**統合画像実在時は plan が旧実装と完全一致**／
+個別 `jug_imgs` のみでも H2＋H3＋個別画像を維持／`run_step2_juggler` 本体一致／
+**`wp_client` の変更関数は `plan_blocks` のみ**／**高田馬場の本文HTMLが旧実装と完全一致**／
+full-width・nosplit・Luminous・category/author/status/WP_MAX_SIDE 不変／
+`convert_narabi_pil.py` / `shimazu_renderer.py` diff 0／9枠仕様維持。
+
+---
+
+## F. 今後の禁止事項
+
+1. **⑤を日付単位保存（`article_page_inputs.json`）へ戻さない**
+2. **⑤のキーを通常ページ⑤の `recommended_*` と共用しない**
+3. **⑤に `_art_widget_key()` / `_art_txt()` / `_art_mac()` の日付スコープを再適用しない**
+4. **②その他の記事用入力を店舗単位へ変えない／日付スコープ全体を解除しない**
+5. **保存の存在ガード（キーあり→現在値・空も保存／キーなし→既存維持）を崩さない**
+6. **「空欄だから過去値を復活」する実装にしない**
+7. **`render_machine_autocomplete_input(default=)` → `value=` を外さない**（⑤ `39f1f1e`）
+8. **`st.radio(index=_art_osu_f_index(...))` を外さない**（保存値が先頭へ落ちる）
+9. **`_rec_f_index()` / `_save_rec_*` / `_REC_F_OPTS` / `_REC_F_DEFAULT` /
+   `generate_recommended_block_image()` を変更しない**（新小岩は参考実装として読むだけ）
+10. **⑤の最終抽出へ `_kojin_yushu_filter()` を戻さない／`_kojin_yushu_filter()` 本体を変更・削除しない**
+11. **「プラス台」を `>= 0` にしない**（`>= 1`。±0枚は含めない）
+12. **`filter_recommended_machines()` をブロックごとに呼ばない／機種単位除外を抽出条件より後にしない**
+13. **表掲載台＝bans＝スランプ対象台をズラさない**
+14. **単一機種パネル全幅・machine_name条件・水色バーなし・液晶なし・ファイル名を変えない**
+15. **`run_step2_juggler` / `osusume_bans` / `_jug_pool_osu` を変更しない／
+    「ジャグラー」文字列判定を追加しない**
+16. **`FN_JUGGLER` を実ファイルの有無に関係なく plan へ append する実装へ戻さない**
+17. **`wp_client.py` の `plan_blocks` 以外を変更しない**（build_payload / collect_files /
+    build_content / full-width / nosplit / Luminous / category / author）
+18. **`store_settings` へ GitHub 同期機能を作らない**（既存運用ルールを維持）
+19. **過去 `article_page_inputs.json` の⑤キーを削除・移動・掃除しない**
+20. **ランタイムの自動 migration を作らない**
+21. **高田馬場・秋葉原・新小岩・通常ページへ波及させない**
+22. **9枠仕様（B1〜4=6 / B5〜6=9・`_art_osusume_per_block()`）を巻き戻さない**
+23. **無関係なリファクタ・未使用コード整理をしない**

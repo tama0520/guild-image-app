@@ -5882,6 +5882,116 @@ def _art_osusume_per_block(store: str, n: int) -> int:
 # ⑤の画像タイトルバー文言（③高配分の「優秀台ピックアップ」とは別文言にする）。
 # ★ブロックタイトルは画像へ描かない。画像バーは常にこの固定文言。
 _ART_OSUSUME_BAR_TEXT = "オススメ機種の優秀台"
+# ⑤の抽出条件（ブロック単位）。表示選択肢は新小岩⑤と同じ文字列を再利用する
+# （_REC_F_OPTS 本体は変更しない）。閾値の意味も新小岩と同一で、
+#   プラス台 → 差枚 >= 1（★±0枚は含めない）／+1,000枚以上 → >= 1000／+2,000枚以上 → >= 2000
+# ★⑤の最終抽出はこの差枚閾値方式が正本。_kojin_yushu_filter() は⑤では使わない
+#   （関数本体は他ページ・高配分・その他優秀台が使うので削除・変更しない）。
+_ART_OSU_F_OPTS: list[str] = list(_REC_F_OPTS)
+_ART_OSU_F_THR: dict = {"プラス台": 1, "+1,000枚以上": 1000, "+2,000枚以上": 2000}
+_ART_OSU_F_DEFAULT = "プラス台"
+
+
+def _art_osu_thr(filter_value: str) -> int:
+    """⑤ブロックの抽出条件 → min_diff（不正値は既定「プラス台」＝1）。"""
+    return _ART_OSU_F_THR.get(str(filter_value or ""),
+                              _ART_OSU_F_THR[_ART_OSU_F_DEFAULT])
+
+
+# ── 記事用⑤の設定は **店舗単位** で永続化する（日付・Excelをまたいで保持）──
+# 保存先は store_settings/{store}.json。**通常ページ⑤の recommended_* とは
+# 別キー**にする（渋谷新館には通常ページ⑤の recommended_* が既に実在するため、
+# 共用すると通常ページと記事用が混ざる）。
+# ★session_state キーは店舗suffixのみ（_artw_{excel_stem}_… の日付スコープに乗せない）。
+_ART_OSU_TITLES_KEY   = "art_osusume_titles"
+_ART_OSU_MACHINES_KEY = "art_osusume_machines"
+_ART_OSU_FILTERS_KEY  = "art_osusume_filters"
+
+
+def _art_osu_title_key(store: str, n: int) -> str:
+    return f"art_osu_title_{n}_{store}"
+
+
+def _art_osu_mac_key(store: str, n: int, i: int) -> str:
+    return f"art_osu_m_{n}_{i}_{store}"
+
+
+def _art_osu_f_key(store: str, n: int) -> str:
+    return f"art_osu_f_{n}_{store}"
+
+
+def _art_osu_settings(store: str) -> dict:
+    """記事用⑤の店舗単位設定を store_settings から読む（読み取り専用）。
+
+    戻り値: {"titles": [str×6], "machines": [[str×枠数]×6], "filters": [str×6]}
+    保存が無い枠は "" / 既定条件で埋める。枠数は _art_osusume_per_block() に従う。
+    """
+    _saved = load_store_settings(store)
+    _t_raw = _saved.get(_ART_OSU_TITLES_KEY) or []
+    _m_raw = _saved.get(_ART_OSU_MACHINES_KEY) or []
+    _f_raw = _saved.get(_ART_OSU_FILTERS_KEY) or []
+    _titles, _machines, _filters = [], [], []
+    for _n in range(_ART_OSUSUME_BLOCKS):
+        _cnt = _art_osusume_per_block(store, _n)
+        _tv = _t_raw[_n] if _n < len(_t_raw) else ""
+        _titles.append(str(_tv) if isinstance(_tv, str) else "")
+        _mv = _m_raw[_n] if _n < len(_m_raw) else []
+        _mv = list(_mv) if isinstance(_mv, list) else []
+        _machines.append([(str(_mv[_i]) if _i < len(_mv) and isinstance(_mv[_i], str) else "")
+                          for _i in range(_cnt)])
+        _fv = _f_raw[_n] if _n < len(_f_raw) else ""
+        _filters.append(_fv if _fv in _ART_OSU_F_OPTS else _ART_OSU_F_DEFAULT)
+    return {"titles": _titles, "machines": _machines, "filters": _filters}
+
+
+def _art_osu_f_index(store: str, n: int) -> int:
+    """⑤ブロック n の抽出条件ラジオの index。
+
+    session_state → store_settings の保存値 → 既定「プラス台」の順で解決する。
+    新小岩の _rec_f_index() と同じ思想（未描画 run で key が破棄されても
+    保存値がラジオ先頭へ落ちない）。**_rec_f_index() 本体は共用しない**
+    （読むキーが recommended_filter_{n} で別体系のため）。
+    """
+    _val = st.session_state.get(_art_osu_f_key(store, n))
+    if _val not in _ART_OSU_F_OPTS:
+        _val = (load_store_settings(store).get(_ART_OSU_FILTERS_KEY) or [None] * 6)
+        _val = _val[n] if n < len(_val) else None
+    if _val not in _ART_OSU_F_OPTS:
+        _val = _ART_OSU_F_DEFAULT
+    return _ART_OSU_F_OPTS.index(_val)
+
+
+def _save_art_osusume(store: str) -> None:
+    """記事用⑤（タイトル・機種名・抽出条件）を store_settings へ即保存する。
+
+    ★新小岩 _save_rec_machines() / _save_rec_titles() と同じ存在ガード:
+      session_state にキーが **ある** → 現在値を保存（**空欄も意図的クリアとして保存**）
+      キーが **ない**（未描画）      → 既存の保存値を維持（空で潰さない）
+    これにより「1枠クリア」「タイトル削除」が最新設定として保存され、
+    日付を変えても古い値が復活しない。
+    """
+    _prev = load_store_settings(store)
+    _cur = _art_osu_settings(store)          # 既存保存値（枠数そろえ済み）
+    _titles, _machines, _filters = [], [], []
+    for _n in range(_ART_OSUSUME_BLOCKS):
+        _tk = _art_osu_title_key(store, _n)
+        _titles.append(st.session_state[_tk] if _tk in st.session_state
+                       else _cur["titles"][_n])
+        _row = []
+        for _i in range(_art_osusume_per_block(store, _n)):
+            _mk = _art_osu_mac_key(store, _n, _i)
+            _row.append(st.session_state[_mk] if _mk in st.session_state
+                        else _cur["machines"][_n][_i])
+        _machines.append(_row)
+        _fk = _art_osu_f_key(store, _n)
+        _fv = st.session_state.get(_fk) if _fk in st.session_state else _cur["filters"][_n]
+        _filters.append(_fv if _fv in _ART_OSU_F_OPTS else _ART_OSU_F_DEFAULT)
+    _prev[_ART_OSU_TITLES_KEY]   = _titles
+    _prev[_ART_OSU_MACHINES_KEY] = _machines
+    _prev[_ART_OSU_FILTERS_KEY]  = _filters
+    save_store_settings(store, _prev)
+
+
 # ⑤は **1ブロック＝1画像**（1機種1画像ではない）。ファイル名はブロック番号固定で、
 # ブロックタイトル・機種名を含めない（タイトルを変えても過去参照が壊れない）。
 # 生成・⑦・⑧・plan・stale削除はすべてこの1か所を命名元にする。
@@ -6028,14 +6138,11 @@ def _article_input_keys(store: str) -> list[str]:
     keys += [f"art_nanako_hint_{_i}_{store}" for _i in range(_ART_NANAKO_HINTS)]
     for i in range(_KOJIN_PICK_COUNT):
         keys += [f"art_kojin_pick_title_{i}_{store}", f"art_kojin_pick_bans_{i}_{store}"]
-    # ⑤オススメ機種の優秀台（記入式・6ブロック）。機種枠数は
-    # _art_osusume_per_block() が決める（渋谷新館はブロック5・6だけ9枠）。
-    # 店舗suffix付きなので _ART_SHARED_KEYS へは足さない（店舗間で混ざらない）。
-    # 旧9枠キー art_osusume_m_{i}_{store} は正式対象から外した（JSONに残っていても無視）。
-    for _n in range(_ART_OSUSUME_BLOCKS):
-        keys += [f"art_osusume_title_{_n}_{store}"]
-        keys += [f"art_osusume_m_{_n}_{_i}_{store}"
-                 for _i in range(_art_osusume_per_block(store, _n))]
+    # ★⑤オススメ機種の優秀台（タイトル・機種名・抽出条件）は **店舗単位** で
+    #   store_settings/{store}.json へ保存するため、日付単位保存の対象に**しない**。
+    #   （旧キー art_osusume_title_* / art_osusume_m_* は過去の
+    #    article_page_inputs.json に残るが、以後参照しない。削除もしない。）
+    #   保存・復元は _save_art_osusume() / _art_osu_settings() が担当する。
     return keys
 
 
@@ -7823,18 +7930,31 @@ def _art_sue_mode_label(v: str) -> str:
 
 
 def _art_osusume_collect(store: str) -> list[dict]:
-    """⑤オススメの入力を [{"title": str, "machines": [str×6]}, …×6] で返す。
+    """⑤オススメの設定を [{"title", "machines", "filter"}, …×6] で返す。
 
-    session_state を読むだけ（保存はしない）。表示枠数と無関係に
-    常に 6ブロック × 6機種を読むので、折りたたみ等があっても値は落ちない。
-    ★ブロックタイトルは画像描画関数へ渡さない。将来のWordPress小見出し用。
+    ★⑤は **店舗単位** の設定（store_settings）。日付・Excelには紐づかない。
+      解決順は session_state（描画済みの現在値）→ store_settings の保存値。
+      未描画の枠は保存値を使うので、折りたたみ・rerun で値が落ちない。
+    ★ブロックタイトルは画像描画関数へ渡さない（WordPress小見出し用）。
+    ★filter は抽出条件の文字列（"プラス台" / "+1,000枚以上" / "+2,000枚以上"）。
     """
+    _saved = _art_osu_settings(store)
     _blocks: list[dict] = []
     for _n in range(_ART_OSUSUME_BLOCKS):
+        _tk = _art_osu_title_key(store, _n)
+        _title = st.session_state.get(_tk) if _tk in st.session_state else _saved["titles"][_n]
+        _macs = []
+        for _i in range(_art_osusume_per_block(store, _n)):
+            _mk = _art_osu_mac_key(store, _n, _i)
+            _mv = (st.session_state.get(_mk) if _mk in st.session_state
+                   else _saved["machines"][_n][_i])
+            _macs.append((str(_mv or "")).strip())
+        _fk = _art_osu_f_key(store, _n)
+        _fv = st.session_state.get(_fk) if _fk in st.session_state else _saved["filters"][_n]
         _blocks.append({
-            "title": (st.session_state.get(f"art_osusume_title_{_n}_{store}", "") or "").strip(),
-            "machines": [(st.session_state.get(f"art_osusume_m_{_n}_{_i}_{store}", "") or "").strip()
-                         for _i in range(_art_osusume_per_block(store, _n))],
+            "title": (str(_title or "")).strip(),
+            "machines": _macs,
+            "filter": _fv if _fv in _ART_OSU_F_OPTS else _ART_OSU_F_DEFAULT,
         })
     return _blocks
 
@@ -7880,7 +8000,9 @@ def _art_osusume_block_images(blocks: list[dict], df, diff_raw, store: str,
       **全ブロックをフラット化して1回だけ**呼ぶ（ブロックごとに呼ぶと seen による
       全体重複除去が効かず、同一機種が複数ブロックへ重複掲載される）。
       同一機種が複数ブロックにあるときは **最初のブロックだけ採用**する（従来と同じ）。
-    ★優秀台の抽出は既存の _kojin_yushu_filter()。新しい条件は作らない。
+    ★最終抽出は **ブロックごとの抽出条件（差枚閾値）**。新小岩⑤と同じ
+      `diff_raw >= min_diff` の一本道で、プラス台=1 / +1,000=1000 / +2,000=2000。
+      **_kojin_yushu_filter() は⑤では使わない**（関数本体は他用途のため変更しない）。
     ★並び順は「機種グループ＝その機種の最小台番昇順／グループ内＝台番昇順」。
     ★水色タイトルバーは付けない（_art_high_title_bar は呼ばない）。パネル・スランプは
       呼び出し側の記事用共通合成（ban_map 経由）が付ける。
@@ -7895,8 +8017,8 @@ def _art_osusume_block_images(blocks: list[dict], df, diff_raw, store: str,
         _art_osusume_flat(blocks), df, zen_names, high_names, ban_level=False)
     _valid_set = set(_valid)
     _used: set[str] = set()                # 同一機種は最初のブロックだけ
-    _cfg = get_store_config(store)
     for _n, _b in enumerate(blocks):
+        _thr = _art_osu_thr(_b.get("filter"))     # プラス台=1 / +1,000=1000 / +2,000=2000
         _parts: list[pd.DataFrame] = []
         for _m in (_b.get("machines") or []):
             _m = (_m or "").strip()
@@ -7907,9 +8029,9 @@ def _art_osusume_block_images(blocks: list[dict], df, diff_raw, store: str,
             if _grp.empty:
                 continue
             _dr = diff_raw.loc[_grp.index]
-            _sel_m = _kojin_yushu_filter(_m, _grp, _dr, _cfg)
+            _sel_m = _grp[(_dr >= _thr).values].copy()   # 差枚閾値のみ（新小岩と同一）
             if _sel_m.empty:
-                continue                   # 優秀台0台 → この機種は載せない
+                continue                   # 該当0台 → この機種は載せない
             _parts.append(_sel_m.reset_index(drop=True))
         if not _parts:
             continue                       # 空ブロック → 画像なし
@@ -15047,8 +15169,11 @@ def show_auto_article_page() -> None:
                 on_change=_save_art_variety, args=(store,),
             )
 
-    # ── ⑥ オススメ機種の優秀台（記入式・9枠）────────────────────────
-    # 入力値は article_page_inputs.json の日付単位保存（_article_input_keys へ登録済み）。
+    # ── ⑤ オススメ機種の優秀台（記入式）────────────────────────────
+    # ★入力は **店舗単位** の設定（store_settings/{store}.json の art_osusume_*）。
+    #   日付（Excel）をまたいでも保持し、新しく入力するまで前回設定を表示する。
+    #   日付スコープ（_artw_{excel_stem}_… / _art_txt / _art_mac）には乗せない。
+    #   ②その他の記事用入力は従来どおり日付単位のまま（変更しない）。
     # ②全台系・③高配分で画像化された機種は filter_recommended_machines() が
     # 機種単位で除外する（判定は⑦プレビュー・⑧本番で pipeline の結果を見て行う）。
     art_osusume_blocks: list[dict] = []
@@ -15056,9 +15181,10 @@ def show_auto_article_page() -> None:
     if _art_v2 and store in _ART_OSUSUME_STORES:
         st.markdown(f"### {_sec_num()} オススメ機種の優秀台")
         st.caption("高配分で掲載された機種は自動で除外します。"
-                   "　ブロックタイトルは画像には描かれません（記事の小見出し用）。")
+                   "　ブロックタイトルは画像には描かれません（記事の小見出し用）。"
+                   "　この設定は店舗単位で保存され、日付を変えても保持されます。")
         _osu_cands = load_machine_candidates()
-        _osu_excel = st.session_state.get("art_current_excel")
+        _osu_saved = _art_osu_settings(store)     # store_settings の保存値（初期値用）
         # 2列 × 3段でブロックを並べる（ブロック1・2／3・4／5・6）
         for _row_top in range(0, _ART_OSUSUME_BLOCKS, 2):
             _bcols = st.columns(2, gap="large")
@@ -15068,17 +15194,28 @@ def show_auto_article_page() -> None:
                     continue
                 with _bcol:
                     st.markdown(f"**ブロック{_n + 1}**")
-                    _art_txt("タイトル（記事の小見出し用・画像には描かれません）",
-                             f"art_osusume_title_{_n}_{store}",
-                             placeholder="例: 月間オススメ機種", skip_kojin=False)
+                    st.text_input(
+                        "タイトル（記事の小見出し用・画像には描かれません）",
+                        key=_art_osu_title_key(store, _n),
+                        value=_osu_saved["titles"][_n],
+                        placeholder="例: 月間オススメ機種",
+                        on_change=_save_art_osusume, args=(store,))
                     # 機種欄は3列固定・段数は枠数から決める
                     # （6枠→3列×2段 ／ 9枠→3列×3段）
                     _cnt   = _art_osusume_per_block(store, _n)
                     _mrows = [st.columns(3) for _ in range(math.ceil(_cnt / 3))]
                     for _i, _mcol in enumerate([c for r in _mrows for c in r][:_cnt]):
                         with _mcol:
-                            _art_mac(str(_i + 1), f"art_osusume_m_{_n}_{_i}_{store}",
-                                     _osu_cands)
+                            # 初期値は必ず value= でブラウザまで渡す（⑤ 39f1f1e の正式仕様）
+                            render_machine_autocomplete_input(
+                                str(_i + 1), _art_osu_mac_key(store, _n, _i), _osu_cands,
+                                default=_osu_saved["machines"][_n][_i],
+                                on_change=_save_art_osusume, on_change_args=(store,))
+                    # 抽出条件（ブロック単位・新小岩⑤と同じ選択肢／同じ意味）
+                    st.radio("抽出条件", _ART_OSU_F_OPTS,
+                             index=_art_osu_f_index(store, _n),
+                             key=_art_osu_f_key(store, _n), horizontal=True,
+                             on_change=_save_art_osusume, args=(store,))
         art_osusume_blocks = _art_osusume_collect(store)
         art_osusume_machines = _art_osusume_flat(art_osusume_blocks)
 

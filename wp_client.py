@@ -1079,10 +1079,17 @@ def plan_blocks(payload: dict) -> list[dict]:
                                    else "自動高配分(ジャグ) ") + h["name"]})
         # 統合画像が実在する店舗（渋谷新館）だけ、その直前へH3を入れる。
         # **画像が無いときにH3だけ残らない**よう jug_comb を条件にする。
-        if jug_comb and payload.get("juggler_comb_h3"):
-            plan.append({"type": "h3", "text": H3_JUGGLER_COMB})
-        plan.append({"type": "image", "file": FN_JUGGLER,
-                     "label": "ジャグラーシリーズ優秀台", "optional": True})
+        # ★統合画像そのものも **実在するときだけ** plan へ入れる。
+        #   ⑤オススメへジャグラーが掲載された日は run_step2_juggler() が
+        #   台番単位の除外（_jug_pool_osu）で統合画像を作らないため、
+        #   無条件に append すると collect_files() の missing_optional へ入り
+        #   「次の画像は見つからないため本文へ入れません」が毎回出てしまう。
+        #   実在する日の本文は従来と完全に同一（optional のままで挙動不変）。
+        if jug_comb:
+            if payload.get("juggler_comb_h3"):
+                plan.append({"type": "h3", "text": H3_JUGGLER_COMB})
+            plan.append({"type": "image", "file": FN_JUGGLER,
+                         "label": "ジャグラーシリーズ優秀台", "optional": True})
 
     # ── その他単品: H2 → 画像1枚 ──
     plan.append({"type": "h2", "text": H2_SONOTA})

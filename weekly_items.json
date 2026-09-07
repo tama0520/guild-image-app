@@ -474,10 +474,10 @@
       "date_checks": {
         "2026-09-01": [
           false,
+          false,
           true,
           false,
-          false,
-          false,
+          true,
           false,
           false,
           false
@@ -487,7 +487,7 @@
           false,
           false,
           false,
-          false,
+          true,
           false,
           false,
           false
@@ -497,7 +497,7 @@
           false,
           false,
           false,
-          false,
+          true,
           false,
           false,
           false
@@ -535,7 +535,7 @@
         "2026-09-07": [
           false,
           false,
-          false,
+          true,
           false,
           false,
           false,
@@ -547,9 +547,9 @@
         "2026-09-01": false,
         "2026-09-02": false,
         "2026-09-03": false,
-        "2026-09-04": false,
-        "2026-09-05": false,
-        "2026-09-06": false,
+        "2026-09-04": true,
+        "2026-09-05": true,
+        "2026-09-06": true,
         "2026-09-07": false
       }
     }

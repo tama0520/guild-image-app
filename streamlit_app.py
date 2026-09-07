@@ -5882,6 +5882,23 @@ def _art_osusume_per_block(store: str, n: int) -> int:
 # ⑤の画像タイトルバー文言（③高配分の「優秀台ピックアップ」とは別文言にする）。
 # ★ブロックタイトルは画像へ描かない。画像バーは常にこの固定文言。
 _ART_OSUSUME_BAR_TEXT = "オススメ機種の優秀台"
+# ⑤は **1ブロック＝1画像**（1機種1画像ではない）。ファイル名はブロック番号固定で、
+# ブロックタイトル・機種名を含めない（タイトルを変えても過去参照が壊れない）。
+# 生成・⑦・⑧・plan・stale削除はすべてこの1か所を命名元にする。
+_ART_OSUSUME_FN_FMT = "オススメ優秀台_ブロック{n}.jpg"
+
+
+def _art_osusume_fn(n: int) -> str:
+    """⑤ブロック画像のファイル名（n は 0-based ブロックindex → 表示は1-based）。"""
+    return _ART_OSUSUME_FN_FMT.format(n=int(n) + 1)
+
+
+def _art_is_osusume_fn(bare_fn: str) -> bool:
+    """⑤ブロック画像か（記事用スランプ合成の⑦・⑧で同じ判定を使う）。
+
+    ★⑦と⑧で条件がズレないよう、判定はこの関数1本に集約する。
+    """
+    return str(bare_fn or "").startswith("オススメ優秀台_ブロック")
 
 # ── 記事用⑥「差枚数ランキング」（渋谷新館のみ）─────────────────────────
 # 全台を補正後差枚の降順（同値は台番昇順）に並べ、1位〜指定順位までを1枚にする。
@@ -7808,68 +7825,81 @@ def _art_osusume_flat(blocks: list[dict]) -> list[str]:
     return [_m for _b in blocks for _m in _b.get("machines", []) if (_m or "").strip()]
 
 
-def _art_osusume_plan(blocks: list[dict], gen_fns: list[str]) -> list[dict]:
-    """生成された⑤画像を入力ブロックへ引き当てる（将来のWordPress payload用）。
+def _art_osusume_plan(blocks: list[dict], gen_map: dict) -> list[dict]:
+    """生成された⑤ブロック画像を入力ブロックへ引き当てる（WordPress payload用）。
 
-    gen_fns : 実際に生成できた画像のファイル名（_art_osusume_images の戻り値）
-    戻り値  : [{"title": str, "images": [ファイル名, …]}, …]
-      ・画像が1枚も無いブロックは含めない（全空欄ブロック＝完全無視）
-      ・タイトル空欄で機種ありのブロックは title="" のまま残す（H3なしで画像だけ）
-      ・同一機種が複数ブロックにあるときは最初のブロックにだけ入る
+    gen_map : {ブロックindex(0-based): ファイル名} ＝ _art_osusume_block_images の生成結果
+    戻り値  : [{"title": str, "images": [ファイル名]}, …]（payload構造は従来と同一）
+      ・画像が無いブロックは含めない（空ブロック＝H3も画像も出ない）
+      ・タイトル空欄で画像ありのブロックは title="" のまま残す（H3なしで画像だけ）
+    ★1ブロック＝1画像なので images は必ず1枚。機種名からファイル名を再構成しない。
     ※ここではファイル名を保持するだけで、送信・本文生成は行わない。
     """
-    _left = list(gen_fns)
     _plan: list[dict] = []
-    for _b in blocks:
-        _imgs: list[str] = []
-        for _m in _b.get("machines", []):
-            if not (_m or "").strip():
-                continue
-            _fn = f"{_make_safe_fn(_m.strip())}_オススメ優秀台.jpg"
-            if _fn in _left:                 # 後続ブロックの重複は引き当てない
-                _left.remove(_fn)
-                _imgs.append(_fn)
-        if _imgs:
-            _plan.append({"title": _b.get("title", ""), "images": _imgs})
+    for _n, _b in enumerate(blocks):
+        _fn = (gen_map or {}).get(_n)
+        if not _fn:
+            continue
+        _plan.append({"title": _b.get("title", ""), "images": [_fn]})
     return _plan
 
 
-def _art_osusume_images(machines, df, diff_raw, store: str,
-                        zen_names: set[str], high_names: set[str],
-                        hq_scale: float = 1.0):
-    """記事用⑥「オススメ機種の優秀台」の画像を作る（⑦プレビュー・⑧本番で共用）。
+def _art_osusume_block_images(blocks: list[dict], df, diff_raw, store: str,
+                              zen_names: set[str], high_names: set[str],
+                              hq_scale: float = 1.0):
+    """記事用⑤「オススメ機種の優秀台」を **1ブロック＝1画像** で作る（⑦・⑧共用）。
 
-    machines   : ⑥へ入力された機種名（入力順・空欄や重複を含んでよい）
+    blocks     : _art_osusume_collect() の戻り値（[{"title","machines"}, …×6]）
     zen_names  : ②全台系で画像化された機種名（zen_dai_list[].name ＋ ②個別「全台」）
     high_names : ③高配分で画像化された機種名
                  （high_ratio_list の **has_image=True のみ** ＋ ②個別「優秀台」）
 
-    ★機種単位のスキップは既存の filter_recommended_machines(ban_level=False) に任せる
-      （空欄・重複・Excel未存在・②③掲載済みをまとめて除外し、入力順を保つ）。
+    ★除外は既存の filter_recommended_machines(ban_level=False) に任せる。
+      **全ブロックをフラット化して1回だけ**呼ぶ（ブロックごとに呼ぶと seen による
+      全体重複除去が効かず、同一機種が複数ブロックへ重複掲載される）。
+      同一機種が複数ブロックにあるときは **最初のブロックだけ採用**する（従来と同じ）。
     ★優秀台の抽出は既存の _kojin_yushu_filter()。新しい条件は作らない。
-    ★優秀台0台の機種は画像を作らない。
-    戻り値: ([(ファイル名, PIL画像)], {ファイル名: 掲載台番}, 除外ログ)
+    ★並び順は「機種グループ＝その機種の最小台番昇順／グループ内＝台番昇順」。
+    ★水色タイトルバーは付けない（_art_high_title_bar は呼ばない）。パネル・スランプは
+      呼び出し側の記事用共通合成（ban_map 経由）が付ける。
+    ★掲載台0のブロックは画像を作らない（空ブロック＝⑦⑧・ZIP・plan・H3すべてに出ない）。
+    戻り値: ([(ファイル名, PIL画像, ブロックindex)], {ファイル名: 掲載台番}, 除外ログ)
     """
-    _imgs: list[tuple[str, "Image.Image"]] = []
+    _imgs: list[tuple[str, "Image.Image", int]] = []
     _bans: dict[str, list[int]] = {}
     if df is None or diff_raw is None:
         return _imgs, _bans, []
     _valid, _logs = filter_recommended_machines(
-        list(machines), df, zen_names, high_names, ban_level=False)
+        _art_osusume_flat(blocks), df, zen_names, high_names, ban_level=False)
+    _valid_set = set(_valid)
+    _used: set[str] = set()                # 同一機種は最初のブロックだけ
     _cfg = get_store_config(store)
-    for _m in _valid:                      # filter_recommended_machines が入力順を維持する
-        _grp = df[df["機種名"] == _m].copy()
-        if _grp.empty:
-            continue
-        _dr = diff_raw.loc[_grp.index]
-        _sel = _kojin_yushu_filter(_m, _grp, _dr, _cfg).reset_index(drop=True)
-        if _sel.empty:
-            continue                       # 優秀台0台 → 画像を作らない
+    for _n, _b in enumerate(blocks):
+        _parts: list[pd.DataFrame] = []
+        for _m in (_b.get("machines") or []):
+            _m = (_m or "").strip()
+            if not _m or _m in _used or _m not in _valid_set:
+                continue
+            _used.add(_m)
+            _grp = df[df["機種名"] == _m].copy()
+            if _grp.empty:
+                continue
+            _dr = diff_raw.loc[_grp.index]
+            _sel_m = _kojin_yushu_filter(_m, _grp, _dr, _cfg)
+            if _sel_m.empty:
+                continue                   # 優秀台0台 → この機種は載せない
+            _parts.append(_sel_m.reset_index(drop=True))
+        if not _parts:
+            continue                       # 空ブロック → 画像なし
+        _sel = pd.concat(_parts, ignore_index=True)
+        # 機種グループ順＝その機種の最小台番、グループ内＝台番昇順
+        _sel["_grp_order"] = _sel.groupby("機種名")["台番"].transform("min")
+        _sel = (_sel.sort_values(["_grp_order", "台番"])
+                    .drop(columns=["_grp_order"])
+                    .reset_index(drop=True))
         _hq = _pipeline_hq(hq_scale, len(_sel))
-        _fn = f"{_make_safe_fn(_m)}_オススメ優秀台.jpg"
-        _imgs.append((_fn, _art_high_title_bar(
-            _build_machine_img_no_bar(_sel, hq_scale=_hq),
-            hq_scale=_hq, text=_ART_OSUSUME_BAR_TEXT)))
+        _fn = _art_osusume_fn(_n)
+        _imgs.append((_fn, _build_machine_img_no_bar(_sel, hq_scale=_hq), _n))
         _bans[_fn] = [int(b) for b in _sel["台番"].dropna()
                       if str(b).split(".")[0].lstrip("-").isdigit()]
     return _imgs, _bans, _logs
@@ -15389,14 +15419,14 @@ def show_auto_article_page() -> None:
                                 if kojin_enabled:
                                     _osu_zen  |= {m.strip() for m in kojin_zentai_machines if m.strip()}
                                     _osu_high |= {m.strip() for m in kojin_yushu_machines if m.strip()}
-                                _osu_imgs, _art_osu_bans, _osu_logs = _art_osusume_images(
-                                    art_osusume_machines, _apdf, _apdi, store, _osu_zen, _osu_high,
+                                _osu_imgs, _art_osu_bans, _osu_logs = _art_osusume_block_images(
+                                    art_osusume_blocks, _apdf, _apdi, store, _osu_zen, _osu_high,
                                     hq_scale=(_ART_HQ_SCALE if store in _ART_HQ_STORES else 1.0))
-                                for _ofn, _oimg in _osu_imgs:
+                                for _ofn, _oimg, _ in _osu_imgs:
                                     _art_pil.append((_ofn, _oimg))
-                                # ブロック→画像の対応（将来のWordPress H3用・送信はしない）
+                                # ブロック→画像の対応（WordPress H3用・1ブロック1画像）
                                 _art_osu_plan = _art_osusume_plan(
-                                    art_osusume_blocks, [_f for _f, _ in _osu_imgs])
+                                    art_osusume_blocks, {_n: _f for _f, _, _n in _osu_imgs})
                                 st.session_state[f"_art_osu_plan_{store}"] = _art_osu_plan
                                 for _olog in _osu_logs:
                                     st.caption(f"⑤ {_olog}")
@@ -15610,6 +15640,12 @@ def show_auto_article_page() -> None:
                         # バラエティ画像（生成成功時のみ・掲載された最終台番）
                         if _art_var_fn and _art_var_bans:
                             _pv_bm_sl[_art_var_fn] = _art_var_bans
+                        # ⑤オススメ機種の優秀台（ブロック画像）: 表へ載った台だけを登録する。
+                        # ★⑧と同じく ban_map へ入れることで、⑦でもパネル＋表＋スランプの
+                        #   完成形が表示される（⑦だけ表のみ、という不一致を作らない）。
+                        for _fn_os_pv, _bns_os_pv in (_art_osu_bans or {}).items():
+                            if _bns_os_pv:
+                                _pv_bm_sl[_fn_os_pv] = _bns_os_pv
                         try:
                             _pv_rt_cached = st.session_state.get(f"_art_tb_rt_items_{store}")
                             _pv_rt_date   = st.session_state.get(f"_art_tb_rt_items_date_{store}", "")
@@ -15656,6 +15692,11 @@ def show_auto_article_page() -> None:
                                         _g_imgs_pv2: list["Image.Image"] = []
                                         _show_mn_pv2 = (_fn_pv2 in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
                                                         or _fn_pv2.startswith("末尾") or _fn_pv2.startswith("バラエティ"))
+                                        # ⑤ブロック画像: パネルは常にグリッド経路（1機種でも1枚出す）。
+                                        # スランプ内の機種名は **実際に2機種以上のときだけ** 出す。
+                                        _is_osu_pv2 = _art_is_osusume_fn(re.sub(r"^\d{2}_", "", _fn_pv2))
+                                        _osu_multi_pv2 = _is_osu_pv2 and _art_is_multi_machine(
+                                            re.sub(r"^\d{2}_", "", _fn_pv2), _bans_pv2, _pv_ban2mac)
                                         _is_zentai_pv2 = (
                                             not _fn_pv2.endswith("_高配分.jpg") and
                                             not _fn_pv2.endswith("（優秀台）.jpg") and
@@ -15670,10 +15711,10 @@ def show_auto_article_page() -> None:
                                             _img_pv2, _, _ = _apply_panel_to_table_img(
                                                 _img_pv2, _bare_pv2, _bans_pv2,
                                                 _pv_ban2mac, _pv_ban2diff,
-                                                _show_mn_pv2 or _is_sue_pv2 or _is_multi_pv2,
+                                                _show_mn_pv2 or _is_sue_pv2 or _is_multi_pv2 or _is_osu_pv2,
                                                 _is_sue_pv2,
                                                 crop_bar=False,      # 記事用は元画像をcropしない
-                                                is_multi=_is_multi_pv2,
+                                                is_multi=_is_multi_pv2 or _is_osu_pv2,
                                                 # 列仕掛けも並びと同じパネル選定ルールへ
                                                 narabi_like=_art_is_narabi_fn(_bare_pv2),
                                                 max_panels=_art_panel_max(store, _bare_pv2))
@@ -15696,13 +15737,18 @@ def show_auto_article_page() -> None:
                                                 _g_imgs_pv2.append(draw_slump_graph(
                                                     _pv_tmpl_sl, str(_b_pv2), _dn_pv2,
                                                     _it_pv2["points"], diff=_it_pv2.get("diff"),
-                                                    machine_name=_dn_pv2 if _show_mn_pv2 else None,
+                                                    machine_name=(_dn_pv2 if (_show_mn_pv2 or _osu_multi_pv2)
+                                                                  else None),
                                                     show_diff=_sd_pv2, out_scale=_hq_pv2,
                                                 ))
                                             except Exception:
                                                 pass
                                         if _g_imgs_pv2:
-                                            if store in _GAP_FILL_STORES or store in _ARTICLE_GAP_FILL_STORES:
+                                            if _is_osu_pv2:
+                                                # ⑤ブロック画像は「パネル＋表＋スランプ」だけ。
+                                                # 液晶はめ込みは付けない（メタも登録せずセレクタも出さない）。
+                                                _gap_img_pv2 = None
+                                            elif store in _GAP_FILL_STORES or store in _ARTICLE_GAP_FILL_STORES:
                                                 _gm_pv2, _gp_pv2 = _gap_screen_paths_for_bans(_bans_pv2, _pv_ban2diff, _pv_ban2mac)
                                                 _gsel_pv2 = st.session_state.get(_gap_sel_key(store, _bans_pv2, _gm_pv2), 0)
                                                 _gap_img_pv2 = _resolve_gap_screen(_gp_pv2, _gsel_pv2)
@@ -16075,6 +16121,10 @@ def show_auto_article_page() -> None:
                                         if _upd_tmpl is not None:
                                             _merged_anp: list[tuple[str, "Image.Image"]] = []
                                             for (_fn_u, _img_u) in _anp:
+                                                # _upd_bm は 🔄 が作り直した「その他の優秀台」
+                                                # 「ジャグラーシリーズ優秀台」だけを持つ。
+                                                # ⑤ブロック画像は入らないので、ここでは
+                                                # 合成済みのまま素通しになる（二重合成しない）。
                                                 _bans_u = _upd_bm.get(_fn_u, [])
                                                 if not _bans_u:
                                                     _merged_anp.append((_fn_u, _img_u))
@@ -16597,9 +16647,10 @@ def show_auto_article_page() -> None:
             _art_sue_done_t  = [_t for _t in _a_st_e if _t in set(_art_sue_done_t)]
             _art_sue_done_jt = [_t for _t in _a_jt_e if _t in set(_art_sue_done_jt)]
 
-            # ── ⑤ オススメ機種の優秀台（記事用・記入式）────────────────────
-            # ⑦プレビューと同じ _art_osusume_images() を使う（判定・順序・画像仕様を共通化）。
-            # ⑦その他の優秀台・ジャグラー統合の既存生成は変更しない（Step 10で扱う）。
+            # ── ⑤ オススメ機種の優秀台（記事用・記入式・1ブロック＝1画像）──────
+            # ⑦プレビューと同じ _art_osusume_block_images() を使う（対象機種・台番・
+            # 機種順・台順・パネル・スランプ・機種名条件・ファイル名を⑦と一致させる）。
+            # ⑦その他の優秀台・ジャグラー統合の既存生成は変更しない。
             _art_osu_bans_e: dict[str, list[int]] = {}
             if (result["ok"] and art_osusume_machines
                     and any(m.strip() for m in art_osusume_machines)):
@@ -16609,20 +16660,33 @@ def show_auto_article_page() -> None:
                 if kojin_enabled:
                     _osu_zen_e  |= {m.strip() for m in kojin_zentai_machines if m.strip()}
                     _osu_high_e |= {m.strip() for m in kojin_yushu_machines if m.strip()}
-                _osu_imgs_e, _art_osu_bans_e, _osu_logs_e = _art_osusume_images(
-                    art_osusume_machines, result.get("df"), result.get("diff_raw"),
+                _osu_imgs_e, _art_osu_bans_e, _osu_logs_e = _art_osusume_block_images(
+                    art_osusume_blocks, result.get("df"), result.get("diff_raw"),
                     store, _osu_zen_e, _osu_high_e,
                     hq_scale=(_ART_HQ_SCALE if store in _ART_HQ_STORES else 1.0))
-                for _ofn_e, _oimg_e in _osu_imgs_e:
+                _osu_hq_e = _ART_HQ_SCALE if store in _ART_HQ_STORES else 1.0
+                for _ofn_e, _oimg_e, _ in _osu_imgs_e:
                     _oout_e = os.path.join(output_dir, _ofn_e)
-                    _save_jpeg(_oimg_e, _oout_e)
+                    # 2倍描画のときだけ保存targetを上げる（250KBへ潰さない）。
+                    # 判定は描画側と同じ _pipeline_hq（掲載台数ベース）。
+                    _ohq_e = _pipeline_hq(_osu_hq_e, len(_art_osu_bans_e.get(_ofn_e) or []))
+                    _save_jpeg(_oimg_e, _oout_e,
+                               target_kb=(_ART_HQ_TARGET_KB if _ohq_e > 1.0 else 250))
                     result["files"].append(_oout_e)
                     _log(f"  ⑤ {_ofn_e}（{len(_art_osu_bans_e.get(_ofn_e) or [])}台）")
-                # ブロック→画像の対応（将来のWordPress H3用・送信はしない）
+                # ブロック→画像の対応（WordPress H3用・1ブロック1画像）
                 st.session_state[f"_art_osu_plan_{store}"] = _art_osusume_plan(
-                    art_osusume_blocks, [_f for _f, _ in _osu_imgs_e])
+                    art_osusume_blocks, {_n: _f for _f, _, _n in _osu_imgs_e})
                 for _olog_e in _osu_logs_e:
                     _log(f"  ⑤ {_olog_e}")
+            # 掲載0のブロック（＝画像を作らなかったブロック）は、前回実行の同名画像を消す。
+            # ★削除するのは **固定6ファイル名の完全一致だけ**。旧仕様の
+            #   {機種名}_オススメ優秀台.jpg を glob で無差別削除してはならない。
+            if store in _ART_OSUSUME_STORES and result["ok"]:
+                for _osn_e in range(_ART_OSUSUME_BLOCKS):
+                    _osfn_e = _art_osusume_fn(_osn_e)
+                    if _osfn_e not in _art_osu_bans_e:
+                        _rm_stale_image(output_dir, _osfn_e, _log)
 
             # ── ⑥ 差枚数ランキング（記事用・渋谷新館）───────────────
             # ⑦プレビューと同じ _art_ranking_image() ・同じ件数を使う（別実装にしない）。
@@ -16803,7 +16867,7 @@ def show_auto_article_page() -> None:
                 for _fn_ky_sl, _bns_ky_sl in _art_ky_bans_e.items():
                     if _bns_ky_sl and os.path.exists(os.path.join(output_dir, _fn_ky_sl)):
                         _art_bm_sl[_fn_ky_sl] = _bns_ky_sl
-                # ⑥オススメ機種の優秀台 → {machine}_オススメ優秀台.jpg
+                # ⑤オススメ機種の優秀台 → オススメ優秀台_ブロックN.jpg（1ブロック1画像）
                 # 画像生成時に確定した掲載台番をそのまま使う（再計算しない）。
                 for _fn_os_sl, _bns_os_sl in _art_osu_bans_e.items():
                     if _bns_os_sl and os.path.exists(os.path.join(output_dir, _fn_os_sl)):
@@ -16891,6 +16955,11 @@ def show_auto_article_page() -> None:
                                 _g_imgs_sl: list["Image.Image"] = []
                                 _show_mn_sl = (_fp_sl in ("ジャグラーシリーズ優秀台.jpg", "その他の優秀台ピックアップ.jpg")
                                                or _fp_sl.startswith("末尾") or _fp_sl.startswith("バラエティ"))
+                                # ⑤ブロック画像: パネルは常にグリッド経路（1機種でも1枚出す）。
+                                # スランプ内の機種名は **実際に2機種以上のときだけ** 出す。
+                                _is_osu_sl = _art_is_osusume_fn(re.sub(r"^\d{2}_", "", _fp_sl))
+                                _osu_multi_sl = _is_osu_sl and _art_is_multi_machine(
+                                    re.sub(r"^\d{2}_", "", _fp_sl), _bans_sl, _art_ban2mac_sl)
                                 _is_zentai_sl = (
                                     not _fp_sl.endswith("_高配分.jpg") and
                                     not _fp_sl.endswith("（優秀台）.jpg") and
@@ -16905,9 +16974,10 @@ def show_auto_article_page() -> None:
                                     _t_img_sl, _mn_sl, _pok_sl = _apply_panel_to_table_img(
                                         _t_img_sl, _bare_sl, _bans_sl,
                                         _art_ban2mac_sl, _art_ban2diff_sl,
-                                        _show_mn_sl or _is_sue_sl or _is_multi_sl, _is_sue_sl,
+                                        _show_mn_sl or _is_sue_sl or _is_multi_sl or _is_osu_sl,
+                                        _is_sue_sl,
                                         crop_bar=False,      # 記事用は元画像をcropしない
-                                        is_multi=_is_multi_sl,
+                                        is_multi=_is_multi_sl or _is_osu_sl,
                                         # 列仕掛けも並びと同じパネル選定ルールへ
                                         narabi_like=_art_is_narabi_fn(_bare_sl),
                                         max_panels=_art_panel_max(store, _bare_sl))
@@ -16930,14 +17000,19 @@ def show_auto_article_page() -> None:
                                         _g_imgs_sl.append(draw_slump_graph(
                                             _art_tmpl_sl, str(_b_sl), _dn_sl,
                                             _it_sl["points"], diff=_it_sl.get("diff"),
-                                            machine_name=_dn_sl if _show_mn_sl else None,
+                                            machine_name=(_dn_sl if (_show_mn_sl or _osu_multi_sl)
+                                                          else None),
                                             show_diff=_sd_sl, out_scale=_hq_sl,
                                         ))
                                     except Exception:
                                         pass
                                 if not _g_imgs_sl:
                                     continue
-                                if store == "新宿歌舞伎町" or store in _ARTICLE_GAP_FILL_STORES:
+                                if _is_osu_sl:
+                                    # ⑤ブロック画像は「パネル＋表＋スランプ」だけ。
+                                    # 液晶はめ込みは付けない（既存の液晶仕様自体は変更しない）。
+                                    _gap_img_sl = None
+                                elif store == "新宿歌舞伎町" or store in _ARTICLE_GAP_FILL_STORES:
                                     _gm_sl, _gp_sl = _gap_screen_paths_for_bans(_bans_sl, _art_ban2diff_sl, _art_ban2mac_sl)
                                     _gsel_sl = st.session_state.get(_gap_sel_key(store, _bans_sl, _gm_sl), 0)
                                     _gap_img_sl = _resolve_gap_screen(_gp_sl, _gsel_sl)

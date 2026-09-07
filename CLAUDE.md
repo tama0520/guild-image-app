@@ -10396,3 +10396,272 @@ display key が `_artw_20260905_渋谷新館_20S_art_osusume_m_4_6_渋谷新館`
 15. **`wp_client.py` を変更しない（diff 0）／WordPress本文仕様を変更しない**
 16. **通常ページ（`show_auto_page`）を変更しない**
 17. **無関係なリファクタ・未使用コード整理をしない**
+
+## 渋谷新館 記事用⑤：オススメ優秀台を1ブロック＝1画像へ（2026-09-07）
+
+**正式仕様。巻き戻し禁止。**対象は**【渋谷新館】の記事用⑤「オススメ機種の優秀台」の
+画像化方法だけ**。正式コード commit は本節と**同一の commit**
+（`feat: 渋谷新館のオススメ優秀台をブロック画像化`・2026-09-07・
+**`streamlit_app.py` と `CLAUDE.md` の2ファイルのみ**）。
+**`wp_client.py` / `convert_narabi_pil.py` / `shimazu_renderer.py` は diff 0。**
+既存節は削除・圧縮・統合・並べ替えしない。
+
+### ⓪ 何を変えたか（変えていないもの）
+
+| | 旧 | **新（正式）** |
+|---|---|---|
+| 画像の粒度 | **1機種＝1画像**（`{機種名}_オススメ優秀台.jpg`） | **1ブロック＝1画像**（`オススメ優秀台_ブロックN.jpg`） |
+| 水色タイトルバー | `_art_high_title_bar(text=_ART_OSUSUME_BAR_TEXT)` を付ける | **付けない** |
+| ⑦プレビュー | ban_map 未登録＝**表だけ**（パネル・スランプなし） | **ban_map 登録＝パネル＋表＋スランプの完成形** |
+| 液晶はめ込み | ⑧では入り得た | **⑤だけ付けない**（専用例外） |
+| スランプ内機種名 | なし | **複数機種のブロックだけ表示** |
+
+**変えていないもの（絶対に変更しない）**：
+`filter_recommended_machines()`（空白除去・重複除去・②全台系除外・②高配分除外・
+②手入力機種の除外・自動生成機種の除外・Excel未存在の除外）／
+`_kojin_yushu_filter()` の優秀台抽出条件／⑤の9枠仕様／入力保存・日付スコープ。
+**今回変えたのは「抽出後の DataFrame をどう画像化するか」だけ。**
+
+### ① 新関数（⑦⑧共用・1本だけ）
+
+```python
+_ART_OSUSUME_FN_FMT = "オススメ優秀台_ブロック{n}.jpg"
+
+def _art_osusume_fn(n: int) -> str              # n は0-based → 表示は1-based
+def _art_is_osusume_fn(bare_fn: str) -> bool    # ⑦⑧で同じ判定を使う
+def _art_osusume_block_images(blocks, df, diff_raw, store,
+                              zen_names, high_names, hq_scale=1.0)
+    # 戻り値: ([(ファイル名, PIL画像, ブロックindex)], {ファイル名: 掲載台番}, 除外ログ)
+```
+
+**⑦と⑧で別々のブロック生成ロジックを作らない**（`_art_osusume_images()` は廃止・削除済み）。
+判定は **`_art_is_osusume_fn()` の1本に集約**し、⑦・⑧で条件をズラさない。
+
+### ② 除外＝フラット1回（重複機種は最初のブロックだけ）
+
+**`filter_recommended_machines()` はブロックごとに呼んではならない。**
+ブロックごとに呼ぶと `seen` による**全体重複除去が効かず**、同一機種を複数ブロックへ
+入力したときに重複掲載される（現行仕様の破壊）。
+
+正式手順：
+1. `_art_osusume_flat(blocks)` で全ブロックをフラット化
+2. **`filter_recommended_machines(..., ban_level=False)` を1回だけ**呼ぶ
+3. `_valid` を集合化し、ブロックを回して所属へ戻す
+4. 関数内ローカル `_used` で **同一機種は最初のブロックだけ採用**
+
+### ③ ブロック単位の表
+
+各ブロックで、`_valid` に残った機種だけを既存 **`_kojin_yushu_filter(_m, _grp, _dr, _cfg)`**
+（引数は従来と同一）へ通し、空 DataFrame を除いて `pd.concat` する。
+
+並び順は**新小岩⑤（`generate_recommended_block_image`）と同じ考え方**を流用：
+
+```python
+_sel["_grp_order"] = _sel.groupby("機種名")["台番"].transform("min")
+_sel = _sel.sort_values(["_grp_order", "台番"]).drop(columns=["_grp_order"]).reset_index(drop=True)
+```
+
+＝**機種グループ＝その機種の最小台番昇順／グループ内＝台番昇順**。
+**`generate_recommended_block_image()` 本体は呼ばない・変更しない**（抽出が
+`差枚 >= min_diff` の一本道で、記事用⑤の `_kojin_yushu_filter` と条件が違う）。
+
+### ④ 水色タイトルバーなし
+
+⑤は **`_build_machine_img_no_bar(_sel, hq_scale=_hq)`** の表本体だけを使う。
+**`_art_high_title_bar()` は呼ばない。**
+ただし **`_art_high_title_bar()` と `_ART_OSUSUME_BAR_TEXT` の定義は削除しない**
+（前者は記事用高配分の4か所が使用中。後者は参照0になるが履歴として残置）。
+
+### ⑤ 完成画像は「パネル → 表 → スランプ」
+
+合成は既存の記事用共通処理（`_apply_panel_to_table_img` → `draw_slump_graph` →
+`_attach_slump_to_table`）で行う。**新しい画像合成システムを作らない。**
+
+### ⑥ パネル（既存関数のみ・最大4）
+
+- `_apply_panel_to_table_img(..., show_mn=True相当, is_multi=True相当, max_panels=_art_panel_max(store, bare))`
+- **⑤は 1機種でも `_build_variety_panel_grid()` のグリッド経路へ入れる。**
+  理由：`_apply_panel_to_table_img` の先頭 `if not show_mn and not _is_narabi:` は
+  **ファイル名から機種名を復元する単一機種経路**で、ブロック単位ファイル名では
+  機種名が復元できず**1機種ブロックのパネルが消える**。
+  そのため ⑤ は `_show_mn or _is_sue or _is_multi or _is_osu` / `is_multi=_is_multi or _is_osu`
+  を渡してグリッド経路へ固定する。**関数本体は変更しない。**
+- 枚数は既存 **`_art_panel_max()`（⑤は4）**。**⑤専用の最大値を作らない。**
+
+| 残機種数 | 1 | 2 | 3 | 4 | 5〜9 |
+|---|---|---|---|---|---|
+| パネル | 1 | 2 | 3 | 4 | **上位4機種** |
+
+選定順位（機種ごとの最高差枚降順）・パネル未登録機種の繰り上げ・表示は台番昇順
+（`order_by_min_ban=True`）は**すべて既存のまま**。
+**ジャグラー統合だけ最大2（`_ART_JUG_PANEL2_STORES`）という既存別仕様にも触らない。**
+
+### ⑦ ★パネル判定と機種名判定は別物（同じ boolean で雑に処理しない）
+
+| | 条件 |
+|---|---|
+| **パネル** | ⑤なら**常に**グリッド経路（1機種でも1枚） |
+| **スランプ内機種名** | **実際に2機種以上のときだけ**表示 |
+
+```python
+_is_osu    = _art_is_osusume_fn(bare)
+_osu_multi = _is_osu and _art_is_multi_machine(bare, bans, ban2mac)   # ＝2機種以上
+...
+machine_name = _dn if (_show_mn or _osu_multi) else None
+```
+
+`_art_is_multi_machine()` は非既知ファイル名なら「掲載台の機種が2種類以上」を返すので、
+**1機種ブロック → `machine_name=None` ／ 複数機種ブロック → 機種名あり**になる。
+**「⑤だから常に machine_name を表示」する実装は禁止。**
+**⑤ファイル名を `_ART_MULTI_PANEL_FNS` へ追加してはならない**（常に True になる）。
+描画は既存 `draw_slump_graph()` の**黄色文字＋黒縁取り**。**新しい文字描画処理を作らない。**
+
+### ⑧ 液晶は⑤だけ付けない
+
+⑦・⑧のスランプ合成ループで、**⑤ブロック画像のときだけ**
+
+```python
+if _is_osu_XX:
+    _gap_img_XX = None      # 液晶なし・メタも登録しない（⑦のセレクタも出ない）
+elif <既存の液晶分岐>:
+    ...
+```
+
+**`_ARTICLE_GAP_FILL_STORES` / `_gap_screen_paths_for_bans()` / `_gap_fillable()` /
+`_gap_sel_key()` / `_resolve_gap_screen()` そのものは変更しない。**⑤を対象外にする最小分岐だけ。
+
+### ⑨ 表掲載台＝bans＝スランプ対象台
+
+`_bans[fn]` には **`_sel["台番"]`（＝表の行）だけ**を入れる。
+入力しただけで `_kojin_yushu_filter` を通らなかった台はスランプに入らない。
+②全台系・②高配分で除外された機種は**表・パネル・スランプすべてに出ない**。
+
+### ⑩ ファイル名（固定・タイトル非依存）
+
+```
+オススメ優秀台_ブロック1.jpg 〜 オススメ優秀台_ブロック6.jpg
+```
+
+**ブロックタイトルも機種名もファイル名へ入れない**（タイトルを変えても過去参照が壊れない）。
+命名元は **`_ART_OSUSUME_FN_FMT` / `_art_osusume_fn()` の1か所**で、
+生成・⑦・⑧・plan・stale削除がすべてこれを使う。
+
+### ⑪ 空ブロック
+
+掲載0のブロックは **画像を作らない**（⑦表示なし・⑧保存なし・ZIP対象外・plan なし・H3 なし）。
+⑧では**固定6ファイル名のうち生成しなかったものだけ** `_rm_stale_image()` で削除する。
+
+**★旧仕様 `{機種名}_オススメ優秀台.jpg` は自動削除しない。**
+`glob("*_オススメ優秀台.jpg")` 等の**無差別削除は禁止**（他日付・他処理への影響を避ける）。
+旧ファイルが `output_dir` に残った場合は **ZIP に混入し得る**が、WordPress 本文へは
+payload 経由でしか載らないので出ない。
+
+### ⑫ `_art_osusume_plan()`
+
+機種名からファイル名を再構成する方式を**廃止**し、**ブロックindex → 画像1枚**にした。
+
+```python
+_art_osusume_plan(blocks, {ブロックindex: ファイル名})
+  → [{"title": ブロックタイトル, "images": [1枚]}, …]
+```
+
+**payload 構造 `[{"title","images"}]` は不変。**画像が無いブロックは含めない。
+ブロックタイトルの **UI・保存・復元・WordPress H3 は従来どおり維持**
+（画像には描かれない＝`d121e54` の正式仕様のまま）。
+
+### ⑬ WordPress（`wp_client.py` は変更禁止・diff 0）
+
+`plan_blocks()` / `collect_files()` / `_existing_files()` / `build_content()` は
+**1機種1画像を前提としていない**ので、そのまま動く。最終構造：
+
+```
+H2 オススメ機種の優秀台
+H3 ブロック1タイトル      （空タイトルならH3なし）
+   オススメ優秀台_ブロック1.jpg
+H3 ブロック2タイトル
+   オススメ優秀台_ブロック2.jpg
+…
+```
+
+空ブロックは画像もH3も出ない（`_art_osusume_plan` と `_existing_files` の二重防御）。
+**full-width（`_ART_WP_FULLWIDTH_STORES` / `"width":"100%"` /
+`wp-block-image size-full is-resized` / `style="width:100%;height:auto"`）と
+nosplit（`_ART_WP_NOSPLIT_STORES`）は完全非対象**で、⑤ブロック画像も自動的に乗る。
+
+### ⑭ ⑦・🔄・⑧
+
+- **⑦**：`_art_osusume_block_images()` の bans を **`_pv_bm_sl` へ登録**する。
+  これにより⑦時点で「パネル＋表＋スランプ」の完成形が表示される。
+  **⑦だけ表のみ、という不一致を作らない。**
+- **⑧**：同じ関数・同じ ban_map（`_art_bm_sl`）。⑦と
+  対象機種・対象台番・機種順・台順・表・パネル・スランプ・機種名条件・ファイル名が一致する。
+- **🔄「その他を更新」**：`_upd_bm` は 🔄 が作り直す
+  「その他の優秀台ピックアップ.jpg」「ジャグラーシリーズ優秀台.jpg」の**2つだけ**を持つ。
+  ⑤ブロック画像は入らないため**合成済みのまま素通し**になる（二重合成しない）。
+  **⑤を `_upd_bm` へ追加してはならない。**
+
+### ⑮ HQ・保存target
+
+**新しいHQゲートは作らない。**
+`_ART_HQ_STORES` / `_ART_ZH_HQ_STORES` / `_ART_NARABI_HQ_STORES` / `_ART_RANK_HQ_STORES`
+は**役割が別なので統合禁止**・値も不変。
+
+⑤は従来どおり `_pipeline_hq(hq_scale, len(_sel))`（渋谷新館は**掲載台10台以上で2倍**）。
+⑧の保存だけ、**2倍描画のときに250KBへ潰さない**よう次を適用する：
+
+```python
+target_kb=(_ART_HQ_TARGET_KB if _pipeline_hq(...) > 1.0 else 250)
+```
+
+**新しいHQ定数は作らず `_ART_HQ_TARGET_KB` を再利用する。他画像の保存targetは変更しない。**
+
+### ⑯ 純粋テスト結果（83 PASS / 0 FAIL）
+
+1ブロック2機種→1画像 ／ 2ブロック→2画像 ／ 空ブロック→画像なし ／ 全空→0画像 ／
+②全台系・②高配分の台が bans に無い・除外ログ ／ **新旧で掲載台集合が完全一致**
+（旧3画像→新2画像で台番集合は同じ＝抽出条件不変の証明）／ 表掲載台番==bans ／
+機種最小台番昇順＋台番昇順 ／ `_art_high_title_bar(` 呼び出し0・定義は残存・
+`_ART_OSUSUME_BAR_TEXT` 参照は定義1のみ ／ 1機種 multi False・2機種 multi True・
+⑤名は `_ART_MULTI_PANEL_FNS` 外 ／ **23関数の本体バイト一致**
+（`draw_slump_graph` / `_apply_panel_to_table_img` / `_build_variety_panel_grid` /
+`_build_panel_row` / `_art_panel_max` / `_art_is_multi_machine` / `_attach_slump_to_table` /
+`filter_recommended_machines` / `_kojin_yushu_filter` / `generate_recommended_block_image` /
+`_art_osusume_collect` / `_art_osusume_flat` / `_art_hq_scale_for` / `_pipeline_hq` /
+`_art_high_title_bar` / `_build_machine_img_no_bar` / `_gap_fillable` / `_gap_sel_key` /
+`_article_input_keys` / `_art_osusume_per_block` / `_rm_stale_image` / `_save_jpeg` /
+**`show_auto_page`**）／ パネル 1→1・2→2・3→3・4→4・5→4・9→4 ／
+`_art_panel_max` は⑤=4・ジャグラー統合=2 ／ ファイル名固定・タイトル変更で不変 ／
+plan 1ブロック1画像・空ブロック非掲載・タイトル空は `title=""` ／
+**`wp_client.py` / `convert_narabi_pil.py` / `shimazu_renderer.py` は git 基準で diff 0** ／
+⑤入力キー48維持 ／ `per_block [6,6,6,6,9,9]` 維持・他店舗全6 ／
+高田馬場・秋葉原の⑤キーは42のまま ／ HQ4ゲート不変。
+
+### ⑰ 今後の禁止事項
+
+1. **1機種＝1画像へ戻さない**
+2. **`filter_recommended_machines()` をブロックごとに呼ばない**（全体重複除去が壊れる）
+3. **同一機種が複数ブロックへ重複掲載される実装にしない**
+4. **`_kojin_yushu_filter()` の抽出条件を変えない／⑤専用条件を作らない**
+5. **`generate_recommended_block_image()` を呼ばない・変更しない**（新小岩の⑤仕様）
+6. **⑤へ水色タイトルバーを戻さない**／`_art_high_title_bar()`・`_ART_OSUSUME_BAR_TEXT` の**定義を削除しない**
+7. **⑤専用のパネル生成処理・最大パネル数を新設しない**（`_art_panel_max` の4を使う）
+8. **⑤ファイル名を `_ART_MULTI_PANEL_FNS` へ追加しない**
+9. **パネル判定とスランプ機種名判定を同じ boolean にまとめない**
+10. **1機種ブロックで機種名を表示しない／複数機種ブロックで表示を止めない**
+11. **`draw_slump_graph()` に新しい文字描画処理を足さない**
+12. **⑤へ液晶はめ込みを付けない／液晶の共通仕様（`_ARTICLE_GAP_FILL_STORES` ほか）を変更しない**
+13. **表掲載台と bans・スランプ対象台をズラさない**
+14. **ファイル名へブロックタイトル・機種名を入れない／命名元を増やさない**
+15. **旧 `{機種名}_オススメ優秀台.jpg` を glob で無差別削除しない**
+16. **空ブロックで画像・plan・H3 を出さない**
+17. **⑦の ban_map 登録を外さない**（⑦だけ表のみに戻さない）
+18. **⑤を 🔄 の `_upd_bm` へ追加しない**（二重合成になる）
+19. **`wp_client.py` を変更しない（diff 0）／payload 構造・full-width・nosplit を変更しない**
+20. **HQ4ゲートを統合・変更しない／新しいHQ定数を作らない**
+21. **⑤の9枠仕様（`_ART_OSUSUME_PER_BLOCK` 6 ／ `_EXTRA` 9 ／ `_EXTRA_BLOCKS {4,5}` ／
+    `_EXTRA_STORES {"渋谷新館"}` ／ `_art_osusume_per_block()`）を巻き戻さない**
+22. **入力保存・復元・日付スコープ（display key / `expected_excel` / `_art_restored_excel` /
+    `_artw_edited_*`）を変更しない**
+23. **高田馬場・秋葉原・新小岩・通常ページへ波及させない**
+    （通常ページの `_show_mn` の `startswith("オススメ")` も無変更）
+24. **無関係なリファクタ・未使用コード整理をしない**

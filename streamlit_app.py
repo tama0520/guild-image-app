@@ -18162,6 +18162,29 @@ def _load_t3_cell_machines(store: str) -> dict:
     return _weekly_table_data(store, 3).get("cell_machines", {})
 
 
+def _load_t3_cell_date_machines(store: str) -> dict:
+    """t3 の日付キー版 cell_machines: {date_iso: {"i": ["m1", ...]}} を返す。
+    cell_date_machines が空の場合、位置キー cell_machines + start_date から変換して
+    フォールバックする（_load_weekly_date_checks と同じ思想）。旧値は削除しない。"""
+    import datetime as _dt_t3
+    _t = _weekly_table_data(store, 3)
+    _cdm = _t.get("cell_date_machines", {})
+    if not _cdm:
+        _cm = _t.get("cell_machines", {})
+        _ss = _t.get("start_date", "")
+        if _cm and _ss:
+            try:
+                _s = _dt_t3.date.fromisoformat(_ss)
+                _cdm = {}
+                for _k, _v in _cm.items():
+                    _i_s, _j_s = str(_k).split(",")
+                    _d = (_s + _dt_t3.timedelta(days=int(_j_s))).isoformat()
+                    _cdm.setdefault(_d, {})[str(int(_i_s))] = [m for m in (_v or []) if m]
+            except Exception:
+                _cdm = {}
+    return _cdm
+
+
 def _load_weekly_date_checks(store: str, table_num: int = 2) -> dict:
     """date_checks dict: {date_iso: [bool×N_ITEMS]} を返す（月間オススメ表用）。
     date_checks が空の場合、checks + start_date から変換してフォールバック。"""
@@ -18192,6 +18215,7 @@ def _save_weekly_items(
     table_num: int = 1, machine_name: str | None = None,
     date_checks: dict | None = None,
     cell_machines: dict | None = None,
+    cell_date_machines: dict | None = None,
     blank_days: list[bool] | None = None,
     blank_date_checks: dict | None = None,
     monthly_start_date: str | None = None,
@@ -18224,6 +18248,8 @@ def _save_weekly_items(
         _cur["date_checks"] = date_checks
     if cell_machines is not None:
         _cur["cell_machines"] = cell_machines
+    if cell_date_machines is not None:
+        _cur["cell_date_machines"] = cell_date_machines
     if blank_days is not None:
         _cur["blank_days"] = blank_days
     if blank_date_checks is not None:
@@ -18899,7 +18925,18 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
     if _tn == 3:
         # ── t3（週間オススメ表②）: multiselect で機種名選択 ────────────
         _cands3 = _T3_JUGGLER_MACHINES
-        _cm_dict3 = _load_t3_cell_machines(store)
+        # 月間オススメ表③（Excel日付基準）では日付キーで復元する。
+        # 位置キーのまま読むと表示期間がずれた日付へ旧チェックが出てしまうため。
+        _cdm3 = _load_t3_cell_date_machines(store) if _use_excel_date else {}
+        if _use_excel_date:
+            _cm_dict3 = {}
+            for _ci0 in range(_WEEKLY_N_ITEMS):
+                for _cj0 in range(len(_dates)):
+                    _sel0 = _cdm3.get(_dates[_cj0].isoformat(), {}).get(str(_ci0), [])
+                    if _sel0:
+                        _cm_dict3[f"{_ci0},{_cj0}"] = list(_sel0)
+        else:
+            _cm_dict3 = _load_t3_cell_machines(store)
 
         # ── 台番ルックアップ ─────────────────────────────────────────────
         _ban_map3 = st.session_state.get(f"ban_map_{store}", {})
@@ -18984,6 +19021,27 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
                     if _sel:
                         _new_cm[f"{_ci2},{_cj2}"] = list(_sel)
             _bdays3 = [st.session_state.get(f"weekly_blank_{store}_t{_tn}_{_j2}", False) for _j2 in range(7)]
+            if _use_excel_date:
+                # 表示期間内の日付だけを日付キーで更新（期間外の既存日付は保持）。
+                # 旧 cell_machines（位置キー）は削除せず残置し、以後参照しない。
+                _cdm_new = {_k: dict(_v) for _k, _v in _load_t3_cell_date_machines(store).items()}
+                for _cj2 in range(len(_dates)):
+                    _diso = _dates[_cj2].isoformat()
+                    _row = {}
+                    for _ci2 in range(_WEEKLY_N_ITEMS):
+                        _sel = st.session_state.get(f"t3_ms_{store}_{_ci2}_{_cj2}", [])
+                        if _sel:
+                            _row[str(_ci2)] = list(_sel)
+                    if _row:
+                        _cdm_new[_diso] = _row
+                    else:
+                        _cdm_new.pop(_diso, None)
+                _save_weekly_items(
+                    store,
+                    [st.session_state.get(f"weekly_item_{store}_t3_{_j2}", "") for _j2 in range(_WEEKLY_N_ITEMS)],
+                    table_num=3, cell_date_machines=_cdm_new, blank_days=_bdays3,
+                )
+                return
             _save_weekly_items(
                 store,
                 [st.session_state.get(f"weekly_item_{store}_t3_{_j2}", "") for _j2 in range(_WEEKLY_N_ITEMS)],
@@ -19030,7 +19088,8 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
         # ── t3 PNG出力
         st.markdown("---")
         if st.button(f"💾 {_tname}をPNGで保存", key=f"weekly_png_btn_{store}_t{_tn}"):
-            _cm3 = _load_t3_cell_machines(store)
+            # UI表入力と同じ復元結果（_cm_dict3＝日付キー基準）を使う
+            _cm3 = _cm_dict3
             _bdays3s = [st.session_state.get(f"weekly_blank_{store}_t{_tn}_{_j3s}", False) for _j3s in range(7)]
             _cm3_arr = [[
                 [] if _bdays3s[_wj3] else [m for m in _cm3.get(f"{_wi3},{_wj3}", []) if m]
@@ -19574,8 +19633,31 @@ def show_rote_page() -> None:
             _rd_early = _dt_early.date(int(_m_early.group(1)), int(_m_early.group(2)), int(_m_early.group(3)))
 
     # 週間オススメ表（渋谷新館のみ・①機種名入力の前に表示）
+    # 旧週間表の詳細UI（①機種名／②タイトル／③項目／④開始日／⑤表入力／PNG保存）は非表示。
+    # 保存値（weekly_items.json の t1）は削除せず、画像生成・結果テキスト・ローテ②の機種名が
+    # 従来どおり動くよう session_state へ復元するだけにする。
     if store == "渋谷新館":
-        show_weekly_table_section(store, table_num=1)
+        st.markdown("---")
+        st.markdown("### 📅 週間オススメ表")
+        _wt1_seeded = f"_weekly_t1_seeded_{store}"
+        if not st.session_state.get(_wt1_seeded):
+            st.session_state[f"weekly_machine_{store}_t1"] = st.session_state.get(
+                f"_weekly_init_machine_{store}_t1", "")
+            st.session_state[f"weekly_title_{store}_t1"] = st.session_state.get(
+                f"_weekly_init_title_{store}_t1", "週間オススメ")
+            for _i1 in range(_WEEKLY_N_ITEMS):
+                st.session_state[f"weekly_item_{store}_t1_{_i1}"] = st.session_state.get(
+                    f"_weekly_init_{store}_t1_{_i1}", "")
+                for _j1 in range(7):
+                    st.session_state[f"weekly_ck_{store}_t1_{_i1}_{_j1}"] = st.session_state.get(
+                        f"_weekly_init_ck_{store}_t1_{_i1}_{_j1}", False)
+            _s1_iso = st.session_state.get(f"_weekly_init_start_{store}_t1", "")
+            if _s1_iso:
+                try:
+                    st.session_state[f"weekly_start_{store}_t1"] = _dt_early.date.fromisoformat(_s1_iso)
+                except Exception:
+                    pass
+            st.session_state[_wt1_seeded] = True
 
     # ── ①〜⑥ 各1機種セット（新宿歌舞伎町）──────────────────────────
     if _rote_single:
@@ -19855,10 +19937,19 @@ def show_rote_page() -> None:
                         _wt_default_title = "週間オススメ" if _wtn in (1, 3) else "月間オススメ"
                         if _wtn == 3:
                             # 週間オススメ表②: 機種名モード
+                            _cdm3r = _load_t3_cell_date_machines(store)
                             _cm3r = _load_t3_cell_machines(store)
                             _wt_blank3 = _load_weekly_blank_days(store, 3)
+
+                            def _cm3_cell(_wi, _wj):
+                                # 月間オススメ表③は日付キーを正とする（無い場合のみ旧位置キー）
+                                if _cdm3r:
+                                    _d3 = (_wt_start + datetime.timedelta(days=_wj)).isoformat()
+                                    return [m for m in _cdm3r.get(_d3, {}).get(str(_wi), []) if m]
+                                return [m for m in _cm3r.get(f"{_wi},{_wj}", []) if m]
+
                             _cm3_arr = [[
-                                [] if _wt_blank3[_wj] else [m for m in _cm3r.get(f"{_wi},{_wj}", []) if m]
+                                [] if _wt_blank3[_wj] else _cm3_cell(_wi, _wj)
                                 for _wj in range(7)
                             ] for _wi in range(_WEEKLY_N_ITEMS)]
                             _wt_last_col = -1

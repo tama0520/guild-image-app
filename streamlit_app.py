@@ -17521,9 +17521,6 @@ def show_auto_article_page() -> None:
                                    if _sec == "D" else
                                    "この日は対象データが無いため候補を作れません"
                                    "（コメントなしで問題ありません）。")
-                    elif _sec == "D" and not _has:
-                        st.caption("この日は⑤オススメの画像が無いため、"
-                                   "コメントは不要です。")
                     if _reco:
                         st.markdown(f"★おすすめ：**{_ART_CMT_LABELS[_sec][_reco - 1]}**"
                                     "　（表示のみ・自動では選ばれません）")

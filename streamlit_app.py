@@ -6070,6 +6070,95 @@ _ART_RANK_MIN_COL_W: dict[str, int] = {
     "BIG": 56, "REG": 56, "AT": 56, "差枚数": 116,
 }
 
+# ── ⑥「全台データ」（渋谷新館の記事用のみ・2026-09-08）─────────────────
+# 差枚数ランキングの直後に入れる小型サマリー画像（勝率／総差枚／平均）。
+# ★集計は既存 `_stat_from_diff()` をそのまま使う（勝率=差枚>0の台数/全台数・
+#   総差枚=合計・平均=int(round(mean))）。**同じ指標を別ロジックで二重実装しない。**
+# ★入力は差枚数ランキングと同じ **パイプラインの補正後差枚**
+#   （⑦=`_apdi` / ⑧=`result["diff_raw"]`）。`_pipeline_calc_d` を再適用しない。
+#   同じ記事の中でランキングと数値が食い違わないことを優先する。
+# ★平均差枚（＝画面表示と同じ丸め後の int）が `_ART_ZENDAI_MIN_AVG` 以上のときだけ
+#   生成する。未達・データ欠損なら画像自体を作らない（upload / 本文 / ZIP へも入らない）。
+_ART_ZENDAI_STORES  = frozenset({"渋谷新館"})
+_ART_ZENDAI_FN      = "全台データ.jpg"
+_ART_ZENDAI_TITLE   = "全台データ"
+_ART_ZENDAI_MIN_AVG = 50
+# 全台データ専用の配色（既存の C_* / _ART_RANK_* は変更しない）
+_ART_ZENDAI_TITLE_BG = (147, 39, 143)     # 紫のタイトルバー
+_ART_ZENDAI_TITLE_FG = (255, 255, 255)    # 白文字
+_ART_ZENDAI_BODY_BG  = (255, 244, 204)    # クリーム色の本文
+_ART_ZENDAI_LABEL_FG = (102, 0, 153)      # 項目名（紫）
+_ART_ZENDAI_VALUE_FG = (26, 26, 92)       # 数値（濃紺）
+_ART_ZENDAI_BORDER   = (147, 39, 143)     # 外枠
+
+
+def _art_zendai_stat(diff_raw) -> "dict | None":
+    """記事用⑥「全台データ」の集計。既存 `_stat_from_diff()` をそのまま使う。
+
+    diff_raw : 差枚数ランキングと同じ **補正後** 差枚。
+    データが無い／全欠損なら None（＝0扱いで画像を作らない）。
+    """
+    if diff_raw is None:
+        return None
+    try:
+        _s = pd.to_numeric(pd.Series(diff_raw), errors="coerce").dropna()
+    except Exception:
+        return None
+    if len(_s) == 0:
+        return None
+    return _stat_from_diff(_s)
+
+
+def _art_zendai_image(diff_raw, hq_scale: float = 1.0) -> "Image.Image | None":
+    """記事用⑥「全台データ」画像（⑦プレビューと⑧本番で共用・別実装にしない）。
+
+    平均差枚が `_ART_ZENDAI_MIN_AVG` 未満、またはデータ欠損なら None を返す。
+    hq_scale : >1 で最初からその倍率で描画する（後から resize しない）。既定 1.0。
+    """
+    _st = _art_zendai_stat(diff_raw)
+    if _st is None or _st["avg_diff"] < _ART_ZENDAI_MIN_AVG:
+        return None
+    _hq = hq_scale if hq_scale and hq_scale > 0 else 1.0
+    _wr = (_st["win_count"] / _st["total_count"] * 100) if _st["total_count"] > 0 else 0.0
+    _rows = [
+        ("勝率",   f"{_wr:.1f}% ({_st['win_count']}/{_st['total_count']}台)"),
+        ("総差枚", fmt_diff(_st["total_diff"])),
+        ("平均",   fmt_diff(_st["avg_diff"])),
+    ]
+    FN_TITLE = load_font(round(30 * _hq))
+    FN_LABEL = load_font(round(28 * _hq))
+    FN_VALUE = load_font(round(32 * _hq))
+    PAD      = round(14 * _hq)
+    GAP      = round(22 * _hq)
+    TITLE_HH = round(44 * _hq)
+    ROW_HH   = round(46 * _hq)
+
+    _d0 = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    _lab_w = max(_text_w(_d0, _l, FN_LABEL) for _l, _v in _rows)
+    _val_w = max(_text_w(_d0, _v, FN_VALUE) for _l, _v in _rows)
+    _w = max(PAD + _lab_w + GAP + _val_w + PAD,
+             PAD + _text_w(_d0, _ART_ZENDAI_TITLE, FN_TITLE) + PAD)
+    _h = TITLE_HH + ROW_HH * len(_rows) + PAD
+
+    img  = Image.new("RGB", (_w, _h), _ART_ZENDAI_BODY_BG)
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([(0, 0), (_w - 1, TITLE_HH - 1)], fill=_ART_ZENDAI_TITLE_BG)
+
+    def _put(text: str, x: int, y: int, h: int, font, fill) -> None:
+        _bb = draw.textbbox((0, 0), text, font=font)
+        draw.text((x - _bb[0], y + (h - (_bb[3] - _bb[1])) // 2 - _bb[1]),
+                  text, font=font, fill=fill)
+
+    _put(_ART_ZENDAI_TITLE, PAD, 0, TITLE_HH, FN_TITLE, _ART_ZENDAI_TITLE_FG)
+    _y = TITLE_HH
+    for _l, _v in _rows:
+        _put(_l, PAD, _y, ROW_HH, FN_LABEL, _ART_ZENDAI_LABEL_FG)
+        _put(_v, PAD + _lab_w + GAP, _y, ROW_HH, FN_VALUE, _ART_ZENDAI_VALUE_FG)
+        _y += ROW_HH
+    draw.rectangle([(0, 0), (_w - 1, _h - 1)], outline=_ART_ZENDAI_BORDER,
+                   width=max(1, round(2 * _hq)))
+    return img
+
 _ART_SHARED_KEYS = (
     "art_kojin_enabled",
     "art_narabi_enabled",
@@ -15729,6 +15818,13 @@ def show_auto_article_page() -> None:
                                     hq_scale=_art_rank_hq(store))
                                 if _rk_img is not None:
                                     _art_pil.append((_ART_RANK_FN, _rk_img))
+                            # ⑥ 全台データ（渋谷新館・ランキングと島図の間）。
+                            # ⑧本番と同じ _art_zendai_image() ・同じ補正後 _apdi を使う。
+                            # 平均差枚が +50枚未満なら None → 画像も枠も出さない。
+                            if store in _ART_ZENDAI_STORES:
+                                _zd_img = _art_zendai_image(_apdi)
+                                if _zd_img is not None:
+                                    _art_pil.append((_ART_ZENDAI_FN, _zd_img))
                             # ⑥ 島図（渋谷新館・ランキングの直後＝記事の最後）。
                             # 入力は ⑥/⑧ と同じ _art_view_units（Pision再取得なし）。
                             # ban_map へは登録しない → 後段のスランプ/パネル/液晶ループを
@@ -16877,6 +16973,25 @@ def show_auto_article_page() -> None:
                     result["files"].append(_rk_out_e)
                     _log(f"  ⑥ {_ART_RANK_FN}（{_art_ranking_limit(store)}位まで）")
 
+            # ── ⑥ 全台データ（記事用・渋谷新館・ランキングと島図の間）──
+            # ⑦プレビューと同じ _art_zendai_image() ・同じ補正後 diff_raw を使う
+            # （集計を別々に計算しない）。平均差枚が +50枚未満／データ欠損なら
+            # 生成しない ＝ files / ZIP / WordPress upload / 本文のどこにも入らない。
+            # output_dir は営業日ごとに再利用されるため、作らない日は前回分を
+            # `_rm_stale_image()`（連番除去後の完全一致のみ）で消す。
+            if store in _ART_ZENDAI_STORES and result["ok"]:
+                _zd_img_e = _art_zendai_image(result.get("diff_raw"))
+                if _zd_img_e is not None:
+                    _zd_out_e = os.path.join(output_dir, _ART_ZENDAI_FN)
+                    _save_jpeg(_zd_img_e, _zd_out_e)
+                    result["files"].append(_zd_out_e)
+                    _zd_st_e = _art_zendai_stat(result.get("diff_raw")) or {}
+                    _log(f"  ⑥ {_ART_ZENDAI_FN}（平均{fmt_diff(_zd_st_e.get('avg_diff', 0))}）")
+                else:
+                    _rm_stale_image(output_dir, _ART_ZENDAI_FN, _log)
+                    _log(f"  ⑥ {_ART_ZENDAI_FN} は平均差枚が"
+                         f"+{_ART_ZENDAI_MIN_AVG}枚未満のため生成しません")
+
             # ── ⑥ 島図（記事用・渋谷新館）──────────────────────────
             # ⑦プレビューと同じ shimazu_renderer.render() ・同じ入力
             # （_art_view_units）を使う。result["df"] は補正後で色階級が変わるため使わない。
@@ -17416,6 +17531,11 @@ def show_auto_article_page() -> None:
                         st.session_state.get(f"_art_osu_plan_{store}") or [])
                     # ⑥差枚数ランキング / 島図（固定ファイル名）
                     _art_wp_pl["ranking"] = [_ART_RANK_FN]
+                    # ⑥全台データ（渋谷新館のみ・条件成立時だけ⑧が保存している）。
+                    # 実在判定は wp_client の `_existing_files()` が行うため、
+                    # 未達の日は本文にもupload対象にも入らない。
+                    _art_wp_pl["zendai_data"] = ([_ART_ZENDAI_FN]
+                                                 if store in _ART_ZENDAI_STORES else [])
                     _art_wp_pl["shimazu"] = [_ART_SHIMAZU_FN]
                     # ジャグラー統合画像の直前へH3を入れる店舗（渋谷新館のみ）。
                     # 実際に出すかは wp_client 側が統合画像の実在で最終判定する。

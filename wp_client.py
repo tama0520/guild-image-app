@@ -1122,12 +1122,19 @@ def plan_blocks(payload: dict) -> list[dict]:
     #    島図画像が無い店舗（高田馬場）は従来どおり「シマズをチェック！」の見出しのみ
     #    （画像は人間が挿入する）。**高田馬場のブロックは1つも変わらない。**
     rank_files    = _existing_files(payload.get("ranking"), out_dir)
+    # 「全台データ」はランキングと島図の**間**へ入れる（H2は増やさない）。
+    # 平均差枚が +50枚未満の日はアプリ側が画像を生成しないので `_existing_files()`
+    # が空になり、従来どおり ランキング → 島図 になる（空枠は残らない）。
+    zendai_files  = _existing_files(payload.get("zendai_data"), out_dir)
     shimazu_files = _existing_files(payload.get("shimazu"), out_dir)
-    if rank_files or shimazu_files:
+    if rank_files or zendai_files or shimazu_files:
         plan.append({"type": "h2", "text": H2_RANK_SHIMAZU})
         for fn in rank_files:
             plan.append({"type": "image", "file": fn, "label": f"差枚数ランキング {fn}"})
-        if rank_files and shimazu_files:
+        for fn in zendai_files:
+            plan.append({"type": "image", "file": fn, "label": f"全台データ {fn}"})
+        # 既存の空段落は「島図の直前に5つ」のまま。全台データを挟んでも位置と個数を変えない。
+        if (rank_files or zendai_files) and shimazu_files:
             for _ in range(RANK_SHIMAZU_GAP_PARAS):
                 plan.append({"type": "empty_para"})
         for fn in shimazu_files:

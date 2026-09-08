@@ -6211,6 +6211,703 @@ def _art_zendai_image(diff_raw, hq_scale: float = 1.0) -> "Image.Image | None":
                    width=max(1, round(2 * _hq)))
     return img
 
+
+# ══════════════════════════════════════════════════════════════════════════
+# 記事コメント候補生成（渋谷新館の記事用のみ・2026-09-08 第1段階）
+# ══════════════════════════════════════════════════════════════════════════
+# 公開14記事（2026-08-08〜09-05）の手書きコメントを分析して抽出したルールを、
+# **純粋関数のルールベース**で再現する。**LLM / 生成AI API は使わない。**
+#
+# 構造は必ず 3層に分ける（数値の母集団ミス・禁止情報の混入を防ぐため）:
+#     実データ(df / diff_raw / pipeline結果) → facts → 候補文
+# ★候補文生成関数は df / session_state を直接見ない。facts dict だけを見る。
+# ★facts を作る段階で母集団を分離する（全台系内／高配分内／並び内／その他内／
+#   ホール全体の万枚台数を**別キー**にする）。
+#
+# 公開記事の実測にもとづく禁止事項（全カテゴリ共通）:
+#   ・勝率は書かない（全115コメント中 0回）。「N/M台」も勝率の言い換えなので使わない。
+#     ただし「全台プラス」は公開記事に実例がある許可表現。
+#   ・B高配分では平均差枚を書かない（0/14）。
+#   ・C並びでは平均差枚を原則書かない（1/15。突出条件を満たす1件のみ許可）。
+#   ・E単品では平均差枚・総差枚を書かない（0/12）。
+#   ・`1/2系濃厚` `1/3系濃厚`（plus/total とも合算確率とも一意に対応せず人間判断）、
+#     `据え置き`（前日データ未保持）、`○○パネル仕掛け`（機種との紐付け不可）、
+#     取材名・イベント名・イベント評価・次回開催日・新台/復活導入・示唆演出・
+#     稼働（フル稼働）は**データから確実に判定できないため書かない**。
+_ART_COMMENT_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
+
+# セクション記号 → (見出し, 候補ラベル3種)。D は固定文方式なので候補を持たない。
+_ART_CMT_SECTIONS: "tuple[tuple[str, str], ...]" = (
+    ("A", "全台系"), ("B", "高配分"), ("C", "並び・列"),
+    ("D", "⑤オススメ機種"), ("E", "その他単品優秀台"), ("F", "まとめ"),
+)
+_ART_CMT_LABELS: "dict[str, tuple[str, str, str]]" = {
+    "A": ("候補① 仕掛け・機種構成重視", "候補② 出玉・突出結果重視", "候補③ バランス型"),
+    "B": ("候補① 機種数・構成重視", "候補② ⑤オススメとの関係重視", "候補③ 突出出玉＋全体構成"),
+    "C": ("候補① 総量重視", "候補② 並び台数・特徴重視", "候補③ ⑤オススメとの関係＋立ち回り重視"),
+    "E": ("候補① 単品の広がり重視", "候補② 万枚・大量出玉重視", "候補③ 広がり＋万枚のバランス型"),
+    "F": ("候補① 数値中心", "候補② その日の仕掛け総括", "候補③ 短め総括"),
+}
+_ART_CMT_PICK_NONE = "コメントを使用しない"
+_ART_CMT_PICK_UNSET = "選択してください"
+# D ⑤オススメの選択肢（3候補方式にしない）
+_ART_CMT_D_USE = "使用する（固定文）"
+_ART_CMT_D_SKIP = "使用しない"
+# D の固定文（公開3記事 8/25・8/23・8/22 で完全一致していた正式定型）
+_ART_CMT_D_TEXT = ("ここでは各種オススメ機種の優秀台をピックアップ。\n"
+                   "気になる機種の優秀台をチェックしておき、今後の立ち回りに活かしましょう！")
+
+# 台数規模のしきい値（公開記事の「多台数機種」「少台数機種」の実例に合わせる）
+_ART_CMT_MANY = 10        # 「多台数機種」= 10台以上（8/25「10台以上機種」・8/15「20台設置」）
+_ART_CMT_FEW = 4          # 「少台数機種」= 4台以下（8/28「3台・4台機種」・8/16「3台設置」）
+# 「万枚オーバー」= 10,000枚以上（8/29「+13650枚の万枚オーバー」ほか）
+_ART_CMT_MAN = 10000
+# 「コンプリート級 / コンプ濃厚」= 15,000枚以上（8/22「+17000枚のコンプリート級」・
+# 8/20「+18000枚オーバーのコンプ濃厚台」・8/11「+18000枚超のコンプリート級」）
+_ART_CMT_COMP = 15000
+# C並びで平均差枚を書いてよい突出条件（8/15「平均+7617枚と圧倒的な出玉」の1例のみ）
+_ART_CMT_NAMI_AVG_MIN = 7000
+
+
+# ── 数字 → 文章表記の変換（用途別に1箇所へ集約する。各文で丸めを散在させない）──
+def _cmt_n(n) -> str:
+    """台数・箇所数・機種数などの素の整数。"""
+    return f"{int(n):,}"
+
+
+def _cmt_exact(v) -> str:
+    """個別台の差枚を**実値そのまま**（公開9/5「+11,750枚」・8/29「+13650枚」）。"""
+    return f"{int(v):+,}枚".replace("+-", "-")
+
+
+def _cmt_over_k(v) -> str:
+    """個別台の差枚を千単位へ切り捨てて「超」（公開8/27「+14000枚超」）。"""
+    _k = int(abs(int(v)) // 1000) * 1000
+    return f"{'+' if int(v) >= 0 else '-'}{_k:,}枚超"
+
+
+def _cmt_avg_over(v) -> str:
+    """機種の平均差枚を百単位へ切り捨てて「超」
+    （公開8/15 +2,528→「平均+2,500枚超」／8/8 +4,125→「+4,000枚OVER」）。"""
+    _h = int(abs(int(v)) // 100) * 100
+    return f"{'+' if int(v) >= 0 else '-'}{_h:,}枚超"
+
+
+def _cmt_hall_total(v) -> str:
+    """ホール総差枚。10万枚以上は万単位（公開8/8「+10万枚OVER」・8/11「+12万枚超」）、
+    10万枚未満は実値（公開9/5「+82,900枚」）。"""
+    _v = int(v)
+    if abs(_v) >= 100000:
+        return f"{'+' if _v >= 0 else '-'}{abs(_v) // 10000}万枚超"
+    return f"{_v:+,}枚".replace("+-", "-")
+
+
+def _cmt_hall_avg(v) -> str:
+    """ホール平均差枚は**実値**（公開9/5「+191枚」・8/11「+279枚」）。"""
+    return f"{int(v):+,}枚".replace("+-", "-")
+
+
+def _cmt_join(names, sep="・", last=None) -> str:
+    _ns = [str(n) for n in names if n]
+    if not _ns:
+        return ""
+    if last and len(_ns) >= 2:
+        return sep.join(_ns[:-1]) + last + _ns[-1]
+    return sep.join(_ns)
+
+
+def _cmt_by_size(ms) -> str:
+    """設置台数が同じ機種をまとめて「3台設置のA・B、4台設置のC」の形にする。
+    公開8/28「3台設置のミスジャグとウルトラミラジャグ」と同じ言い回し。"""
+    _g: "dict[int, list[str]]" = {}
+    for _m in ms:
+        _g.setdefault(int(_m["total"]), []).append(_m["name"])
+    return _cmt_join([f"{_t}台設置の{_cmt_join(_ns)}" for _t, _ns in sorted(_g.items())],
+                     sep="、")
+
+
+# ── facts 層 ─────────────────────────────────────────────────────────────
+# 各 facts は「そのカテゴリで使ってよい事実」だけを持つ。
+# ★母集団はここで完全に分離する。万枚台数は
+#   zen["n10k"] / high["n10k"] / other["n10k"] / hall["c10k"] と**別キー**。
+# ★勝率は **どの facts にも入れない**（文章へ出しようがない構造にする）。
+
+def _cmt_machine_stat(df, diff_raw, name: str) -> "dict | None":
+    """1機種の統計（勝率は持たせない）。df / diff_raw は補正後データ。"""
+    if df is None or diff_raw is None or not name:
+        return None
+    try:
+        _g = df[df["機種名"] == name]
+    except Exception:
+        return None
+    if _g.empty:
+        return None
+    _ds = [int(v) for v in pd.to_numeric(diff_raw.loc[_g.index], errors="coerce").dropna()]
+    if not _ds:
+        return None
+    return {"name": name, "total": len(_ds), "plus": sum(1 for x in _ds if x > 0),
+            "avg": int(round(sum(_ds) / len(_ds))), "max": max(_ds),
+            "n10k": sum(1 for x in _ds if x >= _ART_CMT_MAN),
+            "n5k": sum(1 for x in _ds if x >= 5000),
+            "n3k": sum(1 for x in _ds if x >= 3000),
+            "all_plus": all(x > 0 for x in _ds)}
+
+
+def _art_cmt_facts_zendai(df, diff_raw, zen_names, kojin_zen) -> dict:
+    """A 全台系の facts。母集団＝**全台系として掲載される機種の全台だけ**。
+
+    zen_names  : 自動 Step1 の全台系機種名（result["zen_dai_list"][].name）
+    kojin_zen  : ②個別画像「全台」へ入力された機種名（記事では同じ全台系扱い）
+    """
+    _order, _seen = [], set()
+    for _n in list(kojin_zen or []) + list(zen_names or []):
+        _n = (_n or "").strip()
+        if _n and _n not in _seen:
+            _seen.add(_n)
+            _order.append(_n)
+    _ms = [m for m in (_cmt_machine_stat(df, diff_raw, n) for n in _order) if m]
+    return {
+        "n_machines": len(_ms),
+        "machines": [m["name"] for m in _ms],
+        "many": [m for m in _ms if m["total"] >= _ART_CMT_MANY],
+        "few": [m for m in _ms if m["total"] <= _ART_CMT_FEW],
+        "by_max": sorted(_ms, key=lambda m: -m["max"]),
+        "by_avg": sorted(_ms, key=lambda m: -m["avg"]),
+        "all_plus": [m for m in _ms if m["all_plus"]],
+        "has_minus": [m for m in _ms if not m["all_plus"]],
+        "n10k": sum(m["n10k"] for m in _ms),          # ★全台系内の万枚台数
+        "n5k": sum(m["n5k"] for m in _ms),
+        "man_machines": [m for m in _ms if m["n10k"]],
+        "stats": _ms,
+    }
+
+
+def _art_cmt_facts_high(df, diff_raw, high_names, zen_names, osu_names) -> dict:
+    """B 高配分の facts。母集団＝**高配分画像が作られた機種の全台だけ**。
+
+    ★A全台系と重複する機種は除く（同じ機種を2セクションで語らない）。
+    ★平均差枚は facts へ入れない（公開14記事で 0/14。文章へ出しようがなくする）。
+    """
+    _zen = {(n or "").strip() for n in (zen_names or [])}
+    _osu = {(n or "").strip() for n in (osu_names or [])}
+    _ms = []
+    for _n in (high_names or []):
+        _n = (_n or "").strip()
+        if not _n or _n in _zen:
+            continue
+        _m = _cmt_machine_stat(df, diff_raw, _n)
+        if _m:
+            _m = dict(_m)
+            _m.pop("avg", None)          # ★平均差枚は持たせない
+            _m["is_osu"] = _n in _osu
+            _ms.append(_m)
+    return {
+        "n_machines": len(_ms),
+        "machines": [m["name"] for m in _ms],
+        "osu": [m for m in _ms if m["is_osu"]],
+        "non_osu": [m for m in _ms if not m["is_osu"]],
+        "many": [m for m in _ms if m["total"] >= _ART_CMT_MANY],
+        "few": [m for m in _ms if m["total"] <= _ART_CMT_FEW],
+        "by_max": sorted(_ms, key=lambda m: -m["max"]),
+        "n10k": sum(m["n10k"] for m in _ms),          # ★高配分内の万枚台数
+        "n5k": sum(m["n5k"] for m in _ms),
+        "man_machines": [m for m in _ms if m["n10k"]],
+        "stats": _ms,
+    }
+
+
+def _art_cmt_facts_narabi(df, diff_raw, nami, retsu_bans, osu_names) -> dict:
+    """C 並び・列の facts。母集団＝**並び／列画像へ掲載された台だけ**。
+
+    nami       : result["nami_list"]（count / machine / avg_diff / bans）
+    retsu_bans : 列画像のファイル名 → 掲載台番（_art_col_map の values 相当）
+    ★ホール総差枚・ホール万枚台数は入れない（公開15コメントで 0回）。
+    """
+    _osu = {(n or "").strip() for n in (osu_names or [])}
+    _items = []
+    for _x in (nami or []):
+        try:
+            _c = int(_x.get("count") or 0)
+        except (TypeError, ValueError):
+            continue
+        _mac = (_x.get("machine") or "").strip()
+        _items.append({"count": _c, "machine": _mac,
+                       "avg": int(_x.get("avg_diff") or 0),
+                       "is_osu": _mac in _osu})
+    _by_cnt: "dict[int, int]" = {}
+    for _i in _items:
+        _by_cnt[_i["count"]] = _by_cnt.get(_i["count"], 0) + 1
+    _macs, _seen = [], set()
+    for _i in _items:
+        if _i["machine"] and _i["machine"] not in _seen:
+            _seen.add(_i["machine"])
+            _macs.append(_i["machine"])
+    _retsu = []
+    for _bs in (retsu_bans or {}).values() if isinstance(retsu_bans, dict) else (retsu_bans or []):
+        _retsu.append(list(_bs or []))
+    return {
+        "n_boxes": len(_items),
+        "by_count": dict(sorted(_by_cnt.items())),
+        "max_count": max(_by_cnt) if _by_cnt else 0,
+        "max_machines": [i["machine"] for i in _items if _by_cnt and i["count"] == max(_by_cnt)],
+        "n_big": sum(v for k, v in _by_cnt.items() if k >= 3),
+        "machines": _macs,
+        "osu_machines": [m for m in _macs if m in _osu],
+        "non_osu_machines": [m for m in _macs if m not in _osu],
+        "n_osu_boxes": sum(1 for i in _items if i["is_osu"]),
+        "n_retsu": len(_retsu),
+        # ★平均差枚は「突出条件を満たす1件」だけを候補③へ渡す（曖昧な判断をしない）
+        "top_avg": max(_items, key=lambda i: i["avg"]) if _items else None,
+        "items": _items,
+    }
+
+
+def _art_cmt_facts_osusume(osu_plan) -> dict:
+    """D ⑤オススメの facts。**固定文方式なので数値は持たない**
+    （公開4コメント中、台数・平均・勝率・万枚の言及 0回）。"""
+    _blocks = [b for b in (osu_plan or []) if (b or {}).get("images")]
+    return {"n_blocks": len(_blocks),
+            "titles": [str((b or {}).get("title") or "").strip() for b in _blocks]}
+
+
+def _art_cmt_facts_other(df, diff_raw, sonota) -> dict:
+    """E その他単品の facts。母集団＝**その他の優秀台ピックアップへ掲載された台だけ**。
+
+    ★ここで持つ n10k / n5k は「その他優秀台内」の台数。
+      ホール全体の万枚台数（hall["c10k"]）とは**別キー**で、混同しない。
+    ★平均差枚・総差枚は入れない（公開12コメントで 0回）。
+    """
+    _rows = []
+    for _e in (sonota or []):
+        try:
+            _d = int(_e.get("diff"))
+        except (TypeError, ValueError):
+            continue
+        _rows.append({"name": (_e.get("name") or "").strip(),
+                      "ban": _e.get("ban"), "diff": _d})
+    _by_m: "dict[str, int]" = {}
+    for _r in _rows:
+        _by_m[_r["name"]] = _by_m.get(_r["name"], 0) + 1
+    return {
+        "n_units": len(_rows),
+        "n_machines": len(_by_m),
+        "by_machine": dict(sorted(_by_m.items(), key=lambda kv: (-kv[1], kv[0]))),
+        "by_diff": sorted(_rows, key=lambda r: -r["diff"]),
+        "n10k": sum(1 for r in _rows if r["diff"] >= _ART_CMT_MAN),   # ★その他内のみ
+        "n5k": sum(1 for r in _rows if r["diff"] >= 5000),
+        "man_rows": [r for r in _rows if r["diff"] >= _ART_CMT_MAN],
+        "rows": _rows,
+    }
+
+
+def _art_cmt_facts_summary(diff_raw, f_zen, f_high, f_nami) -> "dict | None":
+    """F まとめの facts。母集団＝**ホール全体**。
+
+    ★総差枚・平均差枚は既存 `_zendai_total_stat()` を使う（結果テキスト・
+      全台データ画像とまったく同じ補正後 diff_raw・同じ丸め）。ここで sum/mean を書かない。
+    ★win_count は持ち込むが**文章では使わない**（候補生成側で参照しない）。
+    """
+    _st = _zendai_total_stat(diff_raw)
+    if _st is None:
+        return None
+    _dl = _zendai_diff_list(diff_raw)
+    return {
+        "total_diff": _st["total_diff"], "avg_diff": _st["avg_diff"],
+        "total_count": _st["total_count"],
+        "c1k": sum(1 for x in _dl if x >= 1000),
+        "c3k": sum(1 for x in _dl if x >= 3000),
+        "c5k": sum(1 for x in _dl if x >= 5000),
+        "c10k": sum(1 for x in _dl if x >= _ART_CMT_MAN),   # ★ホール全体の万枚台数
+        "n_zen": (f_zen or {}).get("n_machines", 0),
+        "n_high": (f_high or {}).get("n_machines", 0),
+        "n_nami": (f_nami or {}).get("n_boxes", 0),
+        "n_retsu": (f_nami or {}).get("n_retsu", 0),
+    }
+
+
+# ── 候補生成（facts だけを見る純粋関数・決定論的。random は使わない）──────
+def _cmt_size_phrase(f) -> str:
+    """台数規模の言い回し。公開記事の「多台数機種をメインに」「少台数機種から」に対応。"""
+    _many, _few = len(f.get("many") or []), len(f.get("few") or [])
+    if _many and _few:
+        return "多台数機種から少台数機種まで"
+    if _many:
+        return "多台数機種をメインに"
+    if _few:
+        return "少台数機種を中心に"
+    return ""
+
+
+def _cmt_volume_word(n: int) -> str:
+    """件数 → 量の表現（公開記事の実例のみ使う）。"""
+    if n >= 8:
+        return "大量"
+    if n >= 5:
+        return "多数"
+    if n >= 2:
+        return "複数"
+    return ""
+
+
+def _art_cmt_cands_zendai(f) -> "list[str]":
+    """A 全台系の候補①②③。平均差枚は候補②③でだけ使う（毎回は書かない）。"""
+    if not f or not f.get("n_machines"):
+        return ["", "", ""]
+    _n = f["n_machines"]
+    _macs = _cmt_join([f"「{m}」" for m in f["machines"]], sep="")
+    _size = _cmt_size_phrase(f)
+    _many_txt = _cmt_by_size(f["many"][:2])
+    _top = f["by_max"][0]
+    _tavg = f["by_avg"][0]
+
+    # 候補① 仕掛け・機種構成重視
+    _c1 = [f"今回は{_macs}の{_cmt_n(_n)}機種が全台系濃厚！"]
+    if f["many"] and f["few"]:
+        _c1.append(f"{_many_txt}といった多台数機種から、"
+                   f"{_cmt_n(min(m['total'] for m in f['few']))}台設置の少台数機種まで"
+                   f"幅広く仕掛けが用意されていました。")
+    elif f["few"]:
+        _c1.append(f"{_cmt_by_size(f['few'][:3])}"
+                   f"といった少台数機種が仕掛けの対象となっていました。")
+    elif f["many"]:
+        _c1.append(f"{_many_txt}といった多台数機種が仕掛けの対象となっていました。")
+    if f["all_plus"]:
+        _c1.append(f"{_cmt_join([m['name'] for m in f['all_plus'][:3]])}は全台プラスと"
+                   f"文句なしの結果を残していました。")
+    if f["few"]:
+        _c1.append("このように、同店は悪番対策で少台数機種にも仕掛けを用意していますので、"
+                   "朝の抽選で遅番だったとしてもチャンスは十分ありますよ！")
+
+    # 候補② 出玉・突出結果重視
+    _c2 = []
+    if f["n10k"]:
+        _c2.append("仕掛けの数だけでなく質も抜かりナシ！ "
+                   + _cmt_join([f"{m['name']}から{_cmt_exact(m['max'])}"
+                                for m in f["man_machines"][:3]])
+                   + f"と、全台系濃厚機種だけで万枚オーバー台が{_cmt_n(f['n10k'])}台出現しました。")
+    else:
+        _c2.append(f"今回は万枚オーバー台こそ出ませんでしたが、"
+                   f"{_top['name']}から{_cmt_exact(_top['max'])}と大量出玉が出現！")
+    _c2.append(f"平均差枚も{_tavg['name']}が{_cmt_avg_over(_tavg['avg'])}"
+               + (f"、{f['by_avg'][1]['name']}が{_cmt_avg_over(f['by_avg'][1]['avg'])}"
+                  if len(f["by_avg"]) >= 2 else "")
+               + "と優秀な数値を記録しており、"
+               + (f"+5,000枚オーバーの大量出玉も{_cmt_n(f['n5k'])}台と続出。"
+                  if f["n5k"] else "質の高い仕掛けとなっていました。"))
+    _c2.append("どの機種を攻めても大量出玉のチャンスがある仕掛けだったと言えるでしょう。")
+
+    # 候補③ バランス型
+    _c3 = [f"今回は{_cmt_n(_n)}機種が全台系濃厚となり、"
+           + (f"{_size}仕掛けが用意されていました。" if _size else "仕掛けが用意されていました。")]
+    if f["n10k"]:
+        _c3.append(_cmt_join([f"{m['name']}は{_cmt_exact(m['max'])}"
+                              for m in f["man_machines"][:2]])
+                   + f"の万枚オーバー台を出しており、全台系濃厚機種だけで万枚が"
+                     f"{_cmt_n(f['n10k'])}台出現する圧巻の結果に。")
+    else:
+        _c3.append(f"中でも{_tavg['name']}は平均{_cmt_avg_over(_tavg['avg'])}、"
+                   f"{_top['name']}からは{_cmt_exact(_top['max'])}の大量出玉が出現するなど、"
+                   f"濃い内容となっていました。")
+    if f["has_minus"]:
+        _c3.append("一方で不発台が混ざっている機種もありましたので、"
+                   "立ち回る際は左右の台の状況もあわせて確認するようにしましょう。")
+    else:
+        _c3.append("全台系はどの機種を攻めてもチャンスがありますので、"
+                   "データをチェックする際は台数の少ない機種も見ておきましょう。")
+    return ["\n".join(_c1), "\n".join(_c2), "\n".join(_c3)]
+
+
+def _art_cmt_cands_high(f) -> "list[str]":
+    """B 高配分の候補①②③。★平均差枚・勝率は一切使わない（facts にも無い）。"""
+    if not f or not f.get("n_machines"):
+        return ["", "", ""]
+    _n = f["n_machines"]
+    _size = _cmt_size_phrase(f)
+    _vol = _cmt_volume_word(_n)
+    _many_names = _cmt_join([m["name"] for m in f["many"]])
+    _few_txt = _cmt_join([f"{m['total']}台設置の{m['name']}" for m in f["few"][:3]])
+    _osu_names = _cmt_join([m["name"] for m in f["osu"]])
+    _non_names = _cmt_join([m["name"] for m in f["non_osu"][:4]])
+
+    # 候補① 機種数・構成重視
+    _c1 = []
+    if f["many"]:
+        _c1.append(f"この日は多台数機種をメインに高配分の仕掛けが用意されていたようで、"
+                   f"{_many_names}の{_cmt_n(len(f['many']))}機種が高配分に！")
+    else:
+        _c1.append(f"この日は{_cmt_n(_n)}機種が高配分の仕掛けとなっていました。")
+    if f["few"]:
+        _c1.append(f"また、悪番対策で{_few_txt}といった少台数機種にも"
+                   f"仕掛けが用意されていました。")
+        _c1.append("同店は悪番対策を意識していますので、"
+                   "少台数機種にもチャンスが用意されていますよ！")
+    else:
+        _c1.append("高配分機種はどこを打ってもチャンスがありますので、"
+                   "データをチェックする際は幅広く候補を持っておきましょう。")
+
+    # 候補② ⑤オススメとの関係重視
+    _c2 = []
+    if f["osu"]:
+        _c2.append(f"オススメ機種からは{_osu_names}の{_cmt_n(len(f['osu']))}機種が高配分に！")
+        if f["non_osu"]:
+            _c2.append(f"また、オススメ機種以外にも高配分の仕掛けを確認でき、"
+                       f"{_non_names}なども対象となっていました。")
+        _c2.append("このように、オススメ機種は仕掛けの対象になりやすいため、"
+                   "何を打つか迷った際はオススメ機種から選ぶのがベターとなっていますよ！")
+    else:
+        _c2.append(f"この日は{_cmt_n(_n)}機種が高配分となっており、"
+                   f"{_non_names}などが仕掛けの対象となっていました。")
+        _c2.append("高配分機種は幅広いコーナーに用意されますので、"
+                   "データをチェックする際は候補を絞り込みすぎないようにしましょう。")
+
+    # 候補③ 突出出玉＋全体構成
+    _c3 = [f"この日は{_size or '幅広い機種で'}計{_cmt_n(_n)}機種が高配分となっており、"
+           f"幅広いコーナーにお宝台が用意されていました。"]
+    if f["n10k"]:
+        _c3.append("大量出玉も続出しており、"
+                   + _cmt_join([f"{m['name']}からは{_cmt_exact(m['max'])}"
+                                for m in f["man_machines"][:2]])
+                   + "の万枚オーバー台が出現。"
+                   + (f"+5,000枚オーバーの台も{_cmt_n(f['n5k'])}台と大いに盛り上がりました。"
+                      if f["n5k"] else ""))
+    elif f["n5k"]:
+        _c3.append(f"大量出玉も飛び出しており、{f['by_max'][0]['name']}からは"
+                   f"{_cmt_exact(f['by_max'][0]['max'])}、+5,000枚オーバーの台も"
+                   f"{_cmt_n(f['n5k'])}台確認することができました。")
+    else:
+        _c3.append(f"最高は{f['by_max'][0]['name']}の{_cmt_exact(f['by_max'][0]['max'])}"
+                   f"となっていました。")
+    _c3.append("高配分機種はどこを打ってもチャンスがありますので、"
+               "データをチェックする際は幅広く候補を持っておきましょう。")
+    return ["\n".join(_c1), "\n".join(_c2), "\n".join(_c3)]
+
+
+def _art_cmt_cands_narabi(f) -> "list[str]":
+    """C 並び・列の候補①②③。平均差枚は候補③の突出1件のみ（条件を明示）。"""
+    if not f or not f.get("n_boxes"):
+        return ["", "", ""]
+    _n = f["n_boxes"]
+    _bc = f["by_count"]
+    _inner = _cmt_join([f"{k}台並びが{v}箇所" for k, v in _bc.items()], sep="、")
+    _macs4 = _cmt_join(f["machines"][:4])
+    _retsu_txt = (f"、列仕掛けも{_cmt_n(f['n_retsu'])}箇所確認！" if f["n_retsu"] else "！")
+
+    # 候補① 総量重視
+    _c1 = [f"この日はオススメ機種を中心に並び仕掛けを計{_cmt_n(_n)}箇所確認{_retsu_txt}",
+           f"{_inner}という内訳で、{_macs4}など幅広い機種から並びが登場していました。",
+           "オススメ機種には連日並び仕掛けが用意されていますので、"
+           "立ち回る際は塊での投入を意識するようにしましょう。"]
+
+    # 候補② 並び台数・特徴重視
+    _c2 = []
+    if f["max_count"] >= 5:
+        _c2.append(f"今回は3台以上の並びが{_cmt_n(f['n_big'])}箇所と大型の仕掛けが目立ち、"
+                   f"{_cmt_join(f['max_machines'][:2])}からは{f['max_count']}台並びの"
+                   f"箇所を確認！")
+    else:
+        _c2.append(f"今回は2台並びから{f['max_count']}台並びまで幅広い並び仕掛けを確認でき、"
+                   f"{f['max_count']}台並びは{_cmt_join(f['max_machines'][:3])}の"
+                   f"{_cmt_n(_bc.get(f['max_count'], 0))}箇所で登場！")
+    _c2.append(f"内訳は{_inner}となっており、塊での投入が多い1日となっていました。")
+    _c2.append("台数の多い並びはどこに出るか分かりませんので、"
+               "データをチェックする際は必ず左右の台の状況も確認しておきましょう。")
+
+    # 候補③ ⑤オススメとの関係＋立ち回り重視
+    _c3 = []
+    if f["osu_machines"]:
+        _c3.append(f"この日も例に漏れずオススメ機種から並び仕掛けを多数確認でき、"
+                   f"{_cmt_n(_n)}箇所のうち{_cmt_n(f['n_osu_boxes'])}箇所が"
+                   f"オススメ機種由来となっていました。")
+        _tail = f"{_cmt_join(f['osu_machines'])}と幅広いオススメ機種に並びが用意されていた模様。"
+        _ta = f.get("top_avg") or {}
+        if (_ta.get("avg", 0) >= _ART_CMT_NAMI_AVG_MIN
+                and _ta.get("machine") and _ta["machine"] not in f["osu_machines"]):
+            _tail += (f"オススメ機種以外では{_ta['machine']}の{_ta['count']}台並びが"
+                      f"平均{_cmt_avg_over(_ta['avg'])}と圧倒的な結果を残していました。")
+        _c3.append(_tail)
+        _c3.append("オススメ機種には連日並び仕掛けが用意されていますので、"
+                   "オススメ機種を打つ際は左右の台の状況も意識しておくようにしましょう。")
+    else:
+        _c3.append(f"この日は{_cmt_n(_n)}箇所の並び仕掛けを確認でき、"
+                   f"{_macs4}などから並びが登場していました。")
+        _c3.append("並びはどのコーナーに出るか分かりませんので、"
+                   "立ち回る際は塊での投入を意識するようにしましょう。")
+    return ["\n".join(_c1), "\n".join(_c2), "\n".join(_c3)]
+
+
+def _art_cmt_cands_other(f) -> "list[str]":
+    """E その他単品の候補①②③。★万枚は「その他優秀台内」の台数だけを使う。"""
+    if not f or not f.get("n_units"):
+        return ["", "", ""]
+    _top = list(f["by_machine"].items())[:2]
+    _top_txt = _cmt_join([f"{k}からは{_cmt_n(v)}台" for k, v in _top if v >= 2])
+    _man = _cmt_join([f"{r['name']}からは{_cmt_exact(r['diff'])}" for r in f["man_rows"][:2]])
+    _best = f["by_diff"][0]
+
+    # 候補① 単品の広がり重視
+    _c1 = [f"この日は仕掛け以外にも様々な機種から単品を確認でき、"
+           f"{_cmt_n(f['n_machines'])}機種・{_cmt_n(f['n_units'])}台から優秀台が出現！"]
+    _c1.append((f"中でも{_top_txt}の優秀台を確認でき、" if _top_txt else "")
+               + "多台数から少台数まで幅広いコーナーにお宝台が用意されていました。")
+
+    # 候補② 万枚・大量出玉重視
+    _c2 = []
+    if f["n10k"]:
+        _c2.append(f"大量出玉も飛び出しており、単品からは{_man}と"
+                   f"万枚オーバー台が{_cmt_n(f['n10k'])}台出現！")
+    else:
+        _c2.append(f"大量出玉も飛び出しており、単品からは{_best['name']}の"
+                   f"{_cmt_exact(_best['diff'])}が最高となっていました！")
+    _c2.append((f"+5,000枚オーバーの台も{_cmt_n(f['n5k'])}台確認でき、" if f["n5k"] else "")
+               + "仕掛け以外からも大量出玉のチャンスが十分にあった1日となっていました。")
+
+    # 候補③ 広がり＋万枚のバランス型
+    _c3 = [f"この日は仕掛け以外の単品も多数確認でき、"
+           f"{_cmt_n(f['n_machines'])}機種・{_cmt_n(f['n_units'])}台から優秀台が出現！"]
+    if f["n10k"]:
+        _c3.append(f"大量出玉も飛び出しており、{_man}の万枚オーバー台が"
+                   f"出現していましたよ！")
+    else:
+        _c3.append(f"大量出玉も飛び出しており、{_best['name']}からは"
+                   f"{_cmt_exact(_best['diff'])}の優秀台が出現していましたよ！")
+    return ["\n".join(_c1), "\n".join(_c2), "\n".join(_c3)]
+
+
+def _art_cmt_cands_summary(f) -> "list[str]":
+    """F まとめの候補①②③。★総差枚・平均差枚は `_zendai_total_stat()` の値のみ。
+    取材名・イベント評価・次回開催日は**書かない**（データに無い）。"""
+    if not f:
+        return ["", "", ""]
+    _td, _ad = _cmt_hall_total(f["total_diff"]), _cmt_hall_avg(f["avg_diff"])
+    _tier = _cmt_join([f"万枚オーバーが{_cmt_n(f['c10k'])}台" if f["c10k"] else "",
+                       f"+5,000枚オーバーが{_cmt_n(f['c5k'])}台" if f["c5k"] else "",
+                       f"+1,000枚オーバーが{_cmt_n(f['c1k'])}台" if f["c1k"] else ""],
+                      sep="、")
+    _grade = ("大幅プラス" if f["avg_diff"] >= 250
+              else "好成績" if f["avg_diff"] >= 150 else "プラス")
+    _mix = _cmt_join([f"全台系濃厚機種が{_cmt_n(f['n_zen'])}機種" if f["n_zen"] else "",
+                      f"高配分機種が{_cmt_n(f['n_high'])}機種" if f["n_high"] else "",
+                      f"並び仕掛けが{_cmt_n(f['n_nami'])}箇所" if f["n_nami"] else ""],
+                     sep="、")
+
+    _c1 = [f"この日の結果は総差枚{_td}、平均差枚{_ad}の{_grade}！"]
+    if _tier:
+        _c1.append(f"{_tier}と、大量出玉獲得台も多数出現していました。")
+
+    _c2 = [(f"この日は{_mix}という多彩な仕掛けが用意され、" if _mix else "この日は")
+           + f"ホール全体で総差枚{_td}、平均差枚{_ad}を記録！"]
+    if _tier:
+        _c2.append(f"{_tier}と大量出玉獲得台も続出しており、"
+                   f"どのコーナーを攻めてもチャンスがある1日となっていました。")
+
+    _c3 = [f"総差枚{_td}、平均差枚{_ad}と{_grade}を記録"
+           + (f"し、万枚オーバーも{_cmt_n(f['c10k'])}台出現！" if f["c10k"] else "！")]
+    if _mix:
+        _c3.append(f"{_mix}と、仕掛けの数が目立つ1日となっていました。")
+    return ["\n".join(_c1), "\n".join(_c2), "\n".join(_c3)]
+
+
+# ── ★おすすめ判定（**表示のみ**。自動選択はしない）────────────────────
+def _art_cmt_recommend(sec: str, f) -> int:
+    """1〜3 を返す（該当なしは 3＝バランス型）。前回9/5・9/6試作の判定を関数化。"""
+    if not f:
+        return 3
+    if sec == "A":
+        # 機種数と出玉の両方が目立つ日はバランス型、片方だけならそちらを主役に
+        _rich = f.get("n_machines", 0) >= 5
+        _big = f.get("n10k", 0) >= 2
+        if _rich and not _big:
+            return 1
+        if _big and not _rich:
+            return 2
+        return 3
+    if sec == "B":
+        # ⑤一致が多く、列挙しても長すぎない → 候補②。機種数が多すぎて
+        # 列挙が冗長になり、かつ突出出玉がある → 候補③
+        _n, _osu = f.get("n_machines", 0), len(f.get("osu") or [])
+        if _n >= 13 and (f.get("n10k") or f.get("n5k", 0) >= 10):
+            return 3
+        if _osu >= 3:
+            return 2
+        return 1
+    if sec == "C":
+        # 5台以上の大型並びがある日は台数・特徴を主役に
+        if f.get("max_count", 0) >= 5:
+            return 2
+        if len(f.get("osu_machines") or []) >= 3:
+            return 3
+        return 1
+    if sec == "E":
+        if f.get("n10k") and f.get("n_machines", 0) >= 5:
+            return 3
+        if f.get("n10k"):
+            return 2
+        return 1
+    if sec == "F":
+        # 仕掛けの内訳が語れる日は総括型
+        if (f.get("n_zen") or 0) + (f.get("n_high") or 0) + (f.get("n_nami") or 0) >= 10:
+            return 2
+        return 1
+    return 3
+
+
+def _art_cmt_facts_view(sec: str, f) -> dict:
+    """「使用データを見る」用の表示専用 dict（保存しない・文章生成には使わない）。
+
+    ★万枚台数は母集団が分かる名前で出す（その他優秀台内 / ホール全体を混同しないため）。
+    ★勝率はどの facts にも無いので表示にも出ない。
+    """
+    if not f:
+        return {}
+    if sec == "A":
+        return {"全台系機種数": f["n_machines"], "機種": f["machines"],
+                "多台数(10台以上)": [f"{m['name']}({m['total']}台)" for m in f["many"]],
+                "少台数(4台以下)": [f"{m['name']}({m['total']}台)" for m in f["few"]],
+                "全台系内の万枚台数": f["n10k"], "全台系内の+5,000枚台数": f["n5k"],
+                "最高差枚TOP3": [f"{m['name']} {m['max']:+,}" for m in f["by_max"][:3]],
+                "平均差枚TOP3": [f"{m['name']} {m['avg']:+,}" for m in f["by_avg"][:3]],
+                "全台プラス": [m["name"] for m in f["all_plus"]],
+                "不発台あり": [f"{m['name']}({m['plus']}/{m['total']}台)" for m in f["has_minus"]]}
+    if sec == "B":
+        return {"高配分機種数(全台系と重複を除く)": f["n_machines"],
+                "⑤オススメと一致": [m["name"] for m in f["osu"]],
+                "⑤以外": [m["name"] for m in f["non_osu"]],
+                "多台数(10台以上)": [f"{m['name']}({m['total']}台)" for m in f["many"]],
+                "少台数(4台以下)": [f"{m['name']}({m['total']}台)" for m in f["few"]],
+                "高配分内の万枚台数": f["n10k"], "高配分内の+5,000枚台数": f["n5k"],
+                "最高差枚TOP3": [f"{m['name']} {m['max']:+,}" for m in f["by_max"][:3]],
+                "※平均差枚・勝率": "使用しない（公開14記事で0/14）"}
+    if sec == "C":
+        return {"並び箇所数": f["n_boxes"], "列仕掛け箇所数": f["n_retsu"],
+                "台数別内訳": {f"{k}台並び": v for k, v in f["by_count"].items()},
+                "最大並び台数": f["max_count"], "最大並びの機種": f["max_machines"],
+                "3台以上の箇所数": f["n_big"],
+                "⑤オススメ由来の箇所数": f["n_osu_boxes"],
+                "⑤オススメ機種": f["osu_machines"], "⑤以外": f["non_osu_machines"],
+                "※平均差枚": f"突出条件(+{_ART_CMT_NAMI_AVG_MIN:,}枚以上)のみ候補③で使用"}
+    if sec == "D":
+        return {"⑤画像のブロック数": f["n_blocks"], "ブロックタイトル": f["titles"],
+                "※台数・平均・勝率・万枚": "使用しない（固定文方式）"}
+    if sec == "E":
+        return {"その他優秀台の掲載台数": f["n_units"], "掲載機種数": f["n_machines"],
+                "機種別掲載台数": f["by_machine"],
+                "★その他優秀台内の万枚台数": f["n10k"],
+                "その他優秀台内の+5,000枚台数": f["n5k"],
+                "最高差枚TOP3": [f"{r['name']} {r['ban']}番台 {r['diff']:+,}"
+                                for r in f["by_diff"][:3]],
+                "※平均差枚・総差枚": "使用しない（公開12記事で0/12）"}
+    if sec == "F":
+        return {"ホール総差枚": f"{f['total_diff']:+,}枚",
+                "ホール平均差枚": f"{f['avg_diff']:+,}枚",
+                "集計台数": f["total_count"],
+                "+1,000枚以上": f["c1k"], "+3,000枚以上": f["c3k"],
+                "+5,000枚以上": f["c5k"], "★ホール全体の万枚台数": f["c10k"],
+                "全台系機種数": f["n_zen"], "高配分機種数": f["n_high"],
+                "並び箇所数": f["n_nami"],
+                "※出典": "総差枚・平均差枚は _zendai_total_stat()（結果テキスト・全台データ画像と同一）"}
+    return {}
+
+
 _ART_SHARED_KEYS = (
     "art_kojin_enabled",
     "art_narabi_enabled",
@@ -6270,6 +6967,14 @@ def _article_input_keys(store: str) -> list[str]:
         f"art_nanako_url_{store}",
     ]
     keys += [f"art_nanako_hint_{_i}_{store}" for _i in range(_ART_NANAKO_HINTS)]
+    # 📝記事コメント（渋谷新館・第1段階）: 選択状態と最終文を Excel＝日付単位で保存する。
+    # ★候補①②③の本文・facts は保存しない（同じ実データから決定論的に再生成できる）。
+    # ★店舗単位（store_settings）にはしない — 日付ごとに内容が変わるため。
+    # ★店舗ゲート必須。ゲートを外すと高田馬場・秋葉原などのエントリへ
+    #   空のコメントキー12件が増える（⑤の `_ART_OSUSUME_EXTRA_STORES` と同じ理由）。
+    if store in _ART_COMMENT_STORES:
+        for _s, _ in _ART_CMT_SECTIONS:
+            keys += [f"art_comment_pick_{_s}_{store}", f"art_comment_{_s}_{store}"]
     for i in range(_KOJIN_PICK_COUNT):
         keys += [f"art_kojin_pick_title_{i}_{store}", f"art_kojin_pick_bans_{i}_{store}"]
     # ★⑤オススメ機種の優秀台（タイトル・機種名・抽出条件）は **店舗単位** で
@@ -16139,6 +16844,28 @@ def show_auto_article_page() -> None:
                     st.session_state[f"art_sue_stat_{store}"] = _art_sue_stat
                     st.session_state[_art_aprev_unit_key]     = _art_unit_src
                     st.session_state[f"_art_prev_manual_{store}"] = bool(_art_manual)
+                    # 📝記事コメントの facts 用ソース（渋谷新館のみ・session_state だけ）。
+                    # ★pipeline の結果から**そのまま**取るので、コメントの数値が
+                    #   結果テキスト・全台データ画像とズレる余地がない。
+                    # ★JSON へは保存しない（候補は同じ実データから再生成できる）。
+                    if store in _ART_COMMENT_STORES:
+                        st.session_state[f"_art_cmt_src_{store}"] = {
+                            "zen_names": [it["name"] for it in _art_pr.get("zen_dai_list", [])],
+                            "kojin_zen": ([m.strip() for m in kojin_zentai_machines if (m or "").strip()]
+                                          if kojin_enabled else []),
+                            "high_names": [h["name"] for h in _art_pr.get("high_ratio_list", [])
+                                           if h.get("has_image")],
+                            "nami": [{"machine": x.get("machine"), "count": x.get("count"),
+                                      "avg_diff": x.get("avg_diff")}
+                                     for x in _art_pr.get("nami_list", [])],
+                            "retsu": [list(_b or []) for _b in _art_col_map.values()],
+                            "sonota": [{"name": e.get("name"), "ban": e.get("ban"),
+                                        "diff": e.get("diff")}
+                                       for e in (_art_pr.get("sonota_excellent_list") or [])],
+                            "osu_plan": list(st.session_state.get(f"_art_osu_plan_{store}") or []),
+                            "osu_names": sorted({m.strip() for m in art_osusume_machines
+                                                 if (m or "").strip()}),
+                        }
                     # 「未反映」判定用スナップショット（今回のプレビューへ反映済みの内容）
                     st.session_state[_art_unit_snap_key] = _unit_ex_snapshot(_art_unit_state)
                 st.rerun()
@@ -16534,6 +17261,127 @@ def show_auto_article_page() -> None:
                     for _ci in range(len(_art_auto_previews)):
                         st.session_state.pop(f"art_prev_ck_{store}_{_ci}", None)
                     st.rerun()
+
+    # ── 📝 記事コメント（渋谷新館の記事用のみ・2026-09-08 第1段階）──────────
+    # ⑦プレビューの後・⑥実行の前に置く。番号外（記事の内容ではないため）。
+    # ★第1段階では **WordPress本文へ挿入しない**（payload / plan_blocks / body は無変更）。
+    # ★候補生成はルールベースの純粋関数（LLM / 生成AI API は使わない）。
+    # ★初期状態は必ず「選択してください」＝未選択。★おすすめは**表示だけ**で自動選択しない。
+    # ★候補を選んだイベントのときだけ最終文へコピーする。rerun では上書きしない
+    #   （最終文は日付スコープ widget キーに残るため、`value=` は初回描画だけ効く）。
+    if store in _ART_COMMENT_STORES:
+        st.markdown("### 📝 記事コメント")
+        _cmt_src = st.session_state.get(f"_art_cmt_src_{store}")
+        _cmt_df  = st.session_state.get(f"art_preview_df_{store}")
+        _cmt_di  = st.session_state.get(f"art_preview_diff_{store}")
+        if _cmt_src is None or _cmt_df is None or _cmt_di is None:
+            st.caption("🔍 プレビューを生成すると、その日の実データからコメント候補を作ります。")
+        else:
+            _f_zen = _art_cmt_facts_zendai(_cmt_df, _cmt_di,
+                                           _cmt_src.get("zen_names"), _cmt_src.get("kojin_zen"))
+            _f_high = _art_cmt_facts_high(_cmt_df, _cmt_di, _cmt_src.get("high_names"),
+                                          _f_zen["machines"], _cmt_src.get("osu_names"))
+            _f_nami = _art_cmt_facts_narabi(_cmt_df, _cmt_di, _cmt_src.get("nami"),
+                                            _cmt_src.get("retsu"), _cmt_src.get("osu_names"))
+            _f_osu  = _art_cmt_facts_osusume(_cmt_src.get("osu_plan"))
+            _f_oth  = _art_cmt_facts_other(_cmt_df, _cmt_di, _cmt_src.get("sonota"))
+            _f_sum  = _art_cmt_facts_summary(_cmt_di, _f_zen, _f_high, _f_nami)
+            _cmt_facts = {"A": _f_zen, "B": _f_high, "C": _f_nami,
+                          "D": _f_osu, "E": _f_oth, "F": _f_sum}
+            _cmt_cands = {
+                "A": _art_cmt_cands_zendai(_f_zen),
+                "B": _art_cmt_cands_high(_f_high),
+                "C": _art_cmt_cands_narabi(_f_nami),
+                "E": _art_cmt_cands_other(_f_oth),
+                "F": _art_cmt_cands_summary(_f_sum),
+            }
+            st.caption("候補は公開記事の書き方ルールと当日の実データから自動生成しています"
+                       "（AIは使っていません）。★おすすめは目安で、**選ぶまでは未確定**です。"
+                       "　第1段階では WordPress 本文へは入りません。")
+
+            def _on_art_cmt_pick(_store, _pick_logical, _pick_wk, _txt_logical, _txt_wk,
+                                 _expected, _map) -> None:
+                """候補を選んだ**そのイベントのときだけ**最終文へコピーする。
+
+                ★rerun では呼ばれないので、人間が手修正した最終文を候補本文へ戻さない。
+                ★「選択してください」へ戻したときは最終文を触らない（消さない）。
+                """
+                if st.session_state.get("art_current_excel") != _expected:
+                    return
+                _sel = st.session_state.get(_pick_wk)
+                st.session_state[_pick_logical] = _sel
+                if _sel is not None and _sel != _ART_CMT_PICK_UNSET:
+                    _new = _map.get(_sel, "")
+                    st.session_state[_txt_wk] = _new
+                    st.session_state[_txt_logical] = _new
+                    st.session_state[_art_edited_key(_txt_wk)] = True
+                _save_article_inputs(_store, True)
+
+            for _sec, _sec_name in _ART_CMT_SECTIONS:
+                _f = _cmt_facts[_sec]
+                _pick_logical = f"art_comment_pick_{_sec}_{store}"
+                _txt_logical  = f"art_comment_{_sec}_{store}"
+                _pick_wk = _art_widget_key(_art_excel_w, _pick_logical)
+                _txt_wk  = _art_widget_key(_art_excel_w, _txt_logical)
+                if _sec == "D":
+                    # ⑤オススメは固定文方式（3候補にしない）
+                    _opts = [_ART_CMT_PICK_UNSET, _ART_CMT_D_USE, _ART_CMT_D_SKIP]
+                    _map  = {_ART_CMT_D_USE: _ART_CMT_D_TEXT, _ART_CMT_D_SKIP: ""}
+                    _reco = None
+                else:
+                    _cs = _cmt_cands[_sec]
+                    _lb = _ART_CMT_LABELS[_sec]
+                    _opts = [_ART_CMT_PICK_UNSET] + list(_lb) + [_ART_CMT_PICK_NONE]
+                    _map  = {_lb[_i]: _cs[_i] for _i in range(3)}
+                    _map[_ART_CMT_PICK_NONE] = ""
+                    _reco = _art_cmt_recommend(_sec, _f)
+                _has = bool(_f) and (_f.get("n_blocks") if _sec == "D" else True)
+                with st.expander(f"📝 {_sec_name}", expanded=False):
+                    if _sec != "D" and not any(_map.get(l) for l in _ART_CMT_LABELS[_sec]):
+                        st.caption("この日は対象データが無いため候補を作れません"
+                                   "（コメントなしで問題ありません）。")
+                    elif _sec == "D" and not _has:
+                        st.caption("この日は⑤オススメの画像が無いため、"
+                                   "コメントは不要です。")
+                    if _reco:
+                        st.markdown(f"★おすすめ：**{_ART_CMT_LABELS[_sec][_reco - 1]}**"
+                                    "　（表示のみ・自動では選ばれません）")
+                    _sv = _art_saved_value(_art_excel_w, store, _pick_logical, None)
+                    st.selectbox(
+                        "コメント候補", _opts, key=_pick_wk,
+                        index=(_opts.index(_sv) if _sv in _opts else 0),
+                        on_change=_on_art_cmt_pick,
+                        args=(store, _pick_logical, _pick_wk, _txt_logical, _txt_wk,
+                              _art_excel_w, _map))
+                    st.session_state[_pick_logical] = st.session_state.get(_pick_wk)
+                    if _sec == "D":
+                        st.caption("固定文：" + _ART_CMT_D_TEXT.replace("\n", " / "))
+                    else:
+                        with st.expander("候補を読む（3件）", expanded=False):
+                            for _i, _lab in enumerate(_ART_CMT_LABELS[_sec]):
+                                st.markdown(f"**{_lab}**")
+                                st.text(_cmt_cands[_sec][_i] or "（この日は候補なし）")
+                    with st.expander("使用データを見る", expanded=False):
+                        st.json(_art_cmt_facts_view(_sec, _f), expanded=False)
+                    _art_txt("最終文（WordPress掲載予定・編集できます）",
+                             _txt_logical, area=True, height=140,
+                             placeholder="候補を選ぶとここへコピーされます")
+
+            # ── WordPress掲載予定コメントの確認表示（画像へは焼き込まない）──
+            with st.expander("📄 WordPress掲載予定コメント（現在の最終文）", expanded=False):
+                _any_cmt = False
+                for _sec, _sec_name in _ART_CMT_SECTIONS:
+                    _t = str(st.session_state.get(f"art_comment_{_sec}_{store}") or "").strip()
+                    _p = st.session_state.get(f"art_comment_pick_{_sec}_{store}")
+                    if _t:
+                        _any_cmt = True
+                        st.markdown(f"**{_sec}. {_sec_name}**　`{_p}`")
+                        st.text(_t)
+                    else:
+                        st.caption(f"{_sec}. {_sec_name}：（未選択／コメントなし）")
+                if not _any_cmt:
+                    st.caption("まだコメントは確定していません。")
+                st.info("第1段階のため、このコメントは WordPress 本文へは挿入されません。")
 
     # ── ⑥ 実行ボタン ─────────────────────────────────────────────────
     # 見出しは全店舗共通で「{丸数字} 実行」。記事構成で採番する店舗（_art_v2）は

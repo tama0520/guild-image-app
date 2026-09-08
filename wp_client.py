@@ -432,6 +432,20 @@ _ART_WP_NOSPLIT_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
 # ★元JPEGの生成サイズ・画質・分割仕様は一切変更しない。
 _ART_WP_FULLWIDTH_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
 
+# ── nosplit 店舗でも例外的に分割するファイル（2026-09-08 追加）────────────────
+# `その他の優秀台ピックアップ.jpg` だけは掲載台数が多く極端に縦長になるため
+# （実測 9/6: 2160×8726・縦横比4.04 で記事内の最長）、1枚絵のまま送ると
+# WordPress の長辺2560px縮小で **保存幅が634pxまで落ち**、fullwidth 表示（本文内幅
+# 実測752px）で **1.19倍に“拡大”される唯一の画像**になり、他画像（保存幅839〜1361px
+# ＝縮小表示で鮮明）と比べて明らかに荒く見える。
+# 生成側は既に HQ 2倍・q95・4:4:4・5.6MB で最高品質なので、画質を上げる余地は
+# 「WordPress側の縮小を避ける」＝分割しかない。分割すると各片の長辺が2560px未満に
+# 収まり **縮小されず保存幅2160pxを維持**できる。
+# ★代償として、この画像だけクリック拡大が分割片単位になる。
+# ★他の画像・島図・他店舗の nosplit / one-piece 仕様は一切変更しない。
+# ★`WP_NOSPLIT_FILES`（島図を全店舗で1枚絵にする）とは別仕様。統合しない。
+_ART_WP_SPLIT_ALLOW_FILES: "frozenset[str]" = frozenset({FN_SONOTA})
+
 
 def needs_split(w: int, h: int, max_h: int = WP_SPLIT_MAX_H) -> bool:
     """WordPress側の長辺縮小で幅が潰れるか。高さが上限超なら分割対象。"""
@@ -1068,9 +1082,17 @@ def plan_blocks(payload: dict) -> list[dict]:
 
     # ── ジャグラー: H2 → 個別高配分画像（あれば）→ 統合画像 ──
     #    修正3: 青文字テキスト一覧は出力しない。
-    jug_imgs = _resolve_high_images(payload["juggler"], out_dir)
-    jug_comb = os.path.isfile(os.path.join(out_dir, FN_JUGGLER)) if out_dir else False
-    if jug_imgs or jug_comb or payload["juggler"]:
+    #    ★payload["juggler_section"] が False の店舗（渋谷新館）はこの塊を**丸ごと出さない**。
+    #      ⑤オススメでジャグラーシリーズを扱えるため独立セクションが不要という判断。
+    #      統合画像の**実ファイル存在も見ない**ので、古い ジャグラーシリーズ優秀台.jpg が
+    #      出力フォルダに残っていても plan / upload / 本文のどこにも入らない（stale対策）。
+    #      個別ジャグラー高配分は build_payload 側で payload["high"] へ統合済み。
+    #      キーを持たない店舗（高田馬場・秋葉原）は従来どおり True 扱い＝1ブロックも変わらない。
+    _jug_section = payload.get("juggler_section", True)
+    jug_imgs = _resolve_high_images(payload["juggler"], out_dir) if _jug_section else []
+    jug_comb = (os.path.isfile(os.path.join(out_dir, FN_JUGGLER))
+                if (out_dir and _jug_section) else False)
+    if _jug_section and (jug_imgs or jug_comb or payload["juggler"]):
         plan.append({"type": "h2", "text": H2_JUGGLER})
         for h in jug_imgs:
             plan.append({"type": "h3", "text": h3_zendai(h["entry"])})
@@ -1091,11 +1113,6 @@ def plan_blocks(payload: dict) -> list[dict]:
             plan.append({"type": "image", "file": FN_JUGGLER,
                          "label": "ジャグラーシリーズ優秀台", "optional": True})
 
-    # ── その他単品: H2 → 画像1枚 ──
-    plan.append({"type": "h2", "text": H2_SONOTA})
-    plan.append({"type": "image", "file": FN_SONOTA,
-                 "label": "その他の優秀台ピックアップ", "optional": True})
-
     # ── ⑤オススメ機種の優秀台: H2 →（H3=ブロックタイトル + 画像）× ブロック数 ──
     #    渋谷新館の記事用のみ。payload["osusume"] は
     #    [{"title": ブロックタイトル, "images": [ファイル名, …]}, …]（⑧の生成順）。
@@ -1113,6 +1130,13 @@ def plan_blocks(payload: dict) -> list[dict]:
                 plan.append({"type": "h3", "text": _t})
             for fn in _files:
                 plan.append({"type": "image", "file": fn, "label": f"オススメ {fn}"})
+
+    # ── その他単品: H2 → 画像1枚 ──
+    #    後半の正式順は 並び → ⑤オススメ機種 → その他単品優秀台 → 差枚数ランキング&島図
+    #    （2026-09-08）。⑤より前へ戻さない。
+    plan.append({"type": "h2", "text": H2_SONOTA})
+    plan.append({"type": "image", "file": FN_SONOTA,
+                 "label": "その他の優秀台ピックアップ", "optional": True})
 
     # ── 差枚数ランキング&島図: 1つのH2へ統合（渋谷新館の記事用のみ）──
     #    ランキング画像 →（5行ぶんの空段落）→ 島図画像 の順。
@@ -1186,15 +1210,19 @@ def plan_split(found: list[dict], tmp_dir: str, store: str = "") -> dict:
 
     `store` が `_ART_WP_NOSPLIT_STORES` の店舗なら、高さに関係なく
     **1枚も分割しない**（`split_image_for_wp()` を1度も呼ばない）。
+    ただし `_ART_WP_SPLIT_ALLOW_FILES` のファイルだけは例外的に分割する
+    （画質優先。理由は定数のコメント参照）。
     既定 `""` は従来動作なので、引数を渡さない呼び出しは影響を受けない。
     """
     from PIL import Image
     result: dict[str, list[dict]] = {}
-    if store in _ART_WP_NOSPLIT_STORES:
-        return result
+    _nosplit_store = store in _ART_WP_NOSPLIT_STORES
     for f in found:
         # 島図など「1枚絵のまま送る」ファイルは分割しない（needs_split は呼ばない）
         if f["file"] in WP_NOSPLIT_FILES:
+            continue
+        # nosplit 店舗では、明示的に許可したファイル以外は分割しない
+        if _nosplit_store and f["file"] not in _ART_WP_SPLIT_ALLOW_FILES:
             continue
         try:
             with Image.open(f["path"]) as im:

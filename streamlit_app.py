@@ -3055,6 +3055,19 @@ _ART_WP_STORES = frozenset({"高田馬場", "渋谷新館"})
 # **高田馬場は対象外**（既存のWordPress本文をバイト単位で維持するため）。
 _ART_WP_JUG_H3_STORES = frozenset({"渋谷新館"})
 
+# ── WordPress本文の独立ジャグラーセクションを廃止する店舗（2026-09-08）────────
+# 渋谷新館は⑤「オススメ機種の優秀台」へジャグラーシリーズを設定でき、
+# 生成側でも統合画像は「⑤オススメ掲載台のみのため画像なし」でスキップされる
+# （`d477a91` の `_jug_pool_osu`・実測で9/5〜9/7の3日とも生成なし）。
+# そのため H2「ジャグからも高配分機種多数！」の独立した塊自体を出さない。
+#   ・統合画像 ジャグラーシリーズ優秀台.jpg は **本文へ載せず upload もしない**
+#     （古いファイルが出力フォルダに残っていても実ファイル存在を見ないので拾わない）
+#   ・そこへ入っていた**個別ジャグラー高配分画像は捨てず**、通常「高配分機種」へ統合する
+#     （build_payload へ juggler_series=set() を渡して high/juggler の分割をしない）
+# ★高田馬場・秋葉原など他店舗の既存ジャグラーセクションへは影響させない。
+# ★生成側（run_step2_juggler / osusume_bans / _jug_pool_osu）は変更しない。
+_ART_WP_NO_JUG_SECTION_STORES = frozenset({"渋谷新館"})
+
 # WordPress冒頭へ「ななこポスト」セクションを入れる店舗。
 # **高田馬場は対象外**（既存のWordPress本文をバイト単位で維持するため）。
 # 秋葉原はそもそもWordPress対象外（_ART_WP_STORES に無い）。
@@ -16051,11 +16064,13 @@ def show_auto_article_page() -> None:
                                             except Exception:
                                                 pass
                                         if _g_imgs_pv2:
-                                            if _is_osu_pv2:
-                                                # ⑤ブロック画像は「パネル＋表＋スランプ」だけ。
-                                                # 液晶はめ込みは付けない（メタも登録せずセレクタも出さない）。
-                                                _gap_img_pv2 = None
-                                            elif store in _GAP_FILL_STORES or store in _ARTICLE_GAP_FILL_STORES:
+                                            # ⑤ブロック画像も既存の液晶はめ込み対象にする
+                                            # （2026-09-08）。専用処理は作らず、既存の
+                                            # `_gap_screen_paths_for_bans()` /
+                                            # `_gap_sel_key()`（掲載台番集合単位）/
+                                            # `_resolve_gap_screen()` をそのまま再利用し、
+                                            # ⑦の液晶セレクタ・再合成ベースにも同じ形で載せる。
+                                            if store in _GAP_FILL_STORES or store in _ARTICLE_GAP_FILL_STORES:
                                                 _gm_pv2, _gp_pv2 = _gap_screen_paths_for_bans(_bans_pv2, _pv_ban2diff, _pv_ban2mac)
                                                 _gsel_pv2 = st.session_state.get(_gap_sel_key(store, _bans_pv2, _gm_pv2), 0)
                                                 _gap_img_pv2 = _resolve_gap_screen(_gp_pv2, _gsel_pv2)
@@ -17339,11 +17354,11 @@ def show_auto_article_page() -> None:
                                         pass
                                 if not _g_imgs_sl:
                                     continue
-                                if _is_osu_sl:
-                                    # ⑤ブロック画像は「パネル＋表＋スランプ」だけ。
-                                    # 液晶はめ込みは付けない（既存の液晶仕様自体は変更しない）。
-                                    _gap_img_sl = None
-                                elif store == "新宿歌舞伎町" or store in _ARTICLE_GAP_FILL_STORES:
+                                # ⑤ブロック画像も既存の液晶はめ込み対象にする（2026-09-08）。
+                                # 専用の液晶処理は作らず、`_gap_screen_paths_for_bans()` /
+                                # `_gap_sel_key()`（掲載台番集合単位）/ `_resolve_gap_screen()` /
+                                # `_attach_slump_to_table()` をそのまま再利用する。
+                                if store == "新宿歌舞伎町" or store in _ARTICLE_GAP_FILL_STORES:
                                     _gm_sl, _gp_sl = _gap_screen_paths_for_bans(_bans_sl, _art_ban2diff_sl, _art_ban2mac_sl)
                                     _gsel_sl = st.session_state.get(_gap_sel_key(store, _bans_sl, _gm_sl), 0)
                                     _gap_img_sl = _resolve_gap_screen(_gp_sl, _gsel_sl)
@@ -17511,11 +17526,22 @@ def show_auto_article_page() -> None:
             if store in _ART_WP_STORES:
                 try:
                     import wp_client as _wpc0
+                    # ★渋谷新館は独立ジャグラーセクションを廃止したので、
+                    #   juggler_series を空で渡して high_ratio_list を分割させない
+                    #   ＝ジャグラー機種の個別高配分も payload["high"] へ入り、
+                    #   通常「高配分機種」の平均差枚降順の中へ自然に並ぶ。
+                    #   （run_step2_juggler / 画像生成側は一切変更しない）
                     _art_wp_pl = _wpc0.build_payload(
                         store=store, output_dir=output_dir, dir_stem=dir_stem,
                         result=result,
-                        juggler_series=get_store_config(store)["juggler_series"],
+                        juggler_series=(set() if store in _ART_WP_NO_JUG_SECTION_STORES
+                                        else get_store_config(store)["juggler_series"]),
                     )
+                    # 独立ジャグラーセクション（H2「ジャグからも高配分機種多数！」）を
+                    # 出すかどうか。False の店舗では統合画像の**実ファイル存在も見ない**
+                    # ので、古い ジャグラーシリーズ優秀台.jpg が出力フォルダに残っていても
+                    # plan / upload / 本文のどこにも入らない。
+                    _art_wp_pl["juggler_section"] = store not in _ART_WP_NO_JUG_SECTION_STORES
                     # 記事上部（見出し／ポスター下文章／Xリンク下文章）。
                     # 空欄ならブロックごと出力されない（wp_client 側で判定）。
                     _art_wp_pl["top_heading"] = st.session_state.get(
@@ -21797,14 +21823,26 @@ _ART_MULTI_PANEL_FNS = ("ジャグラーシリーズ優秀台.jpg", "その他�
 # ★高田馬場は従来どおり最大4枚（2×2）。バラエティ・末尾・その他優秀台へは波及させない。
 _ART_JUG_PANEL2_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
 
+# ── ⑤「オススメ優秀台_ブロックN.jpg」のパネルを最大2機種へ絞る店舗（2026-09-08）──
+# 3機種のブロックは 2列グリッドだと [1][2] / [3][空白] になり、最下行の右半分が
+# 白く空いて「パネル欠損」に見える（9/6 ブロック5 の実測: 3機種すべてパネル登録あり・
+# 実際に3枚描画・最下行右半分は白100%）。上限2枚にすると常に1行2列の横並びになり
+# 空白が出ない。選定順・繰り上げ・表示順は既存のまま（`_build_variety_panel_grid`）。
+# ★`_ART_JUG_PANEL2_STORES`（ジャグラー統合画像用）とは **別仕様。統合しない。**
+# ★表・スランプ・掲載台・抽出条件は減らさない（減るのは上部のパネル枚数だけ）。
+_ART_OSU_PANEL2_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
+
 
 def _art_panel_max(store: str, bare_fn: str) -> int:
     """記事用の 2×2 パネルグリッドへ渡す上限枚数。
 
     対象店舗の「ジャグラーシリーズ優秀台.jpg」だけ 2（横並び2枚）。
+    対象店舗の⑤「オススメ優秀台_ブロックN.jpg」も 2（3機種以上でも上位2枚）。
     それ以外は従来どおり 4（2×2）。**この判定を他画像・他店舗へ広げない。**
     """
     if store in _ART_JUG_PANEL2_STORES and bare_fn == "ジャグラーシリーズ優秀台.jpg":
+        return 2
+    if store in _ART_OSU_PANEL2_STORES and _art_is_osusume_fn(bare_fn):
         return 2
     return 4
 

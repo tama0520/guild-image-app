@@ -6236,7 +6236,8 @@ def _art_zendai_image(diff_raw, hq_scale: float = 1.0) -> "Image.Image | None":
 #     稼働（フル稼働）は**データから確実に判定できないため書かない**。
 _ART_COMMENT_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
 
-# セクション記号 → (見出し, 候補ラベル3種)。D は固定文方式なので候補を持たない。
+# セクション記号 → (見出し, 候補ラベル3種)。**D も 2026-09-08 に3候補方式へ変更**
+# （旧「固定文方式」は supersede。_ART_CMT_D_TEXT / _USE / _SKIP は履歴として残置）。
 _ART_CMT_SECTIONS: "tuple[tuple[str, str], ...]" = (
     ("A", "全台系"), ("B", "高配分"), ("C", "並び・列"),
     ("D", "⑤オススメ機種"), ("E", "その他単品優秀台"), ("F", "まとめ"),
@@ -6245,17 +6246,23 @@ _ART_CMT_LABELS: "dict[str, tuple[str, str, str]]" = {
     "A": ("候補① 仕掛け・機種構成重視", "候補② 出玉・突出結果重視", "候補③ バランス型"),
     "B": ("候補① 機種数・構成重視", "候補② ⑤オススメとの関係重視", "候補③ 突出出玉＋全体構成"),
     "C": ("候補① 総量重視", "候補② 並び台数・特徴重視", "候補③ ⑤オススメとの関係＋立ち回り重視"),
+    "D": ("候補① 突出差枚重視", "候補② 各種オススメ横断型", "候補③ バランス型"),
     "E": ("候補① 単品の広がり重視", "候補② 万枚・大量出玉重視", "候補③ 広がり＋万枚のバランス型"),
     "F": ("候補① 数値中心", "候補② その日の仕掛け総括", "候補③ 短め総括"),
 }
 _ART_CMT_PICK_NONE = "コメントを使用しない"
 _ART_CMT_PICK_UNSET = "選択してください"
-# D ⑤オススメの選択肢（3候補方式にしない）
+# ── D ⑤オススメの旧「固定文方式」の残置（2026-09-08 に3候補方式へ supersede）──
+#    定義は履歴として残すが、現在の生成・UIからは参照しない（削除しないこと）。
 _ART_CMT_D_USE = "使用する（固定文）"
 _ART_CMT_D_SKIP = "使用しない"
-# D の固定文（公開3記事 8/25・8/23・8/22 で完全一致していた正式定型）
 _ART_CMT_D_TEXT = ("ここでは各種オススメ機種の優秀台をピックアップ。\n"
                    "気になる機種の優秀台をチェックしておき、今後の立ち回りに活かしましょう！")
+# 旧固定文のうち「立ち回り誘導」の1文だけを候補③の締めへ流用する。
+_ART_CMT_D_OUTRO = "気になる機種の優秀台をチェックしておき、今後の立ち回りに活かしましょう！"
+# D の突出出玉しきい値（⑤掲載対象内の台数で判定する）
+_ART_CMT_D_BIG = 5000     # 「大量出玉」として扱う差枚
+_ART_CMT_D_REP = 3000     # ブロック代表台が「強い」と判定する差枚
 
 # 台数規模のしきい値（公開記事の「多台数機種」「少台数機種」の実例に合わせる）
 _ART_CMT_MANY = 10        # 「多台数機種」= 10台以上（8/25「10台以上機種」・8/15「20台設置」）
@@ -6462,12 +6469,88 @@ def _art_cmt_facts_narabi(df, diff_raw, nami, retsu_bans, osu_names) -> dict:
     }
 
 
-def _art_cmt_facts_osusume(osu_plan) -> dict:
-    """D ⑤オススメの facts。**固定文方式なので数値は持たない**
-    （公開4コメント中、台数・平均・勝率・万枚の言及 0回）。"""
-    _blocks = [b for b in (osu_plan or []) if (b or {}).get("images")]
+def _art_cmt_osu_rows(blocks, bans_by_fn, df) -> "list[dict]":
+    """D ⑤コメントの母集団＝**⑤画像へ実際に掲載された台**をブロック単位で返す。
+
+    bans_by_fn : `_art_osusume_block_images()` の戻り値 `{ファイル名: 掲載台番}` そのもの。
+                 ★コメント用に別の抽出ロジックを作らない（⑤画像と対象台が食い違うため）。
+    df         : ⑤画像と同じ **補正後** の df（`差枚` 列をそのまま使う。再補正しない）。
+    戻り値: [{"idx","title","filter","rows":[{"name","ban","diff"}, …]}, …]（ブロック順）
+    """
+    if df is None or not bans_by_fn:
+        return []
+    _by_ban: "dict[int, tuple[str, int]]" = {}
+    for _b, _nm, _d in zip(df["台番"], df["機種名"], df["差枚"]):
+        try:
+            _bi = int(str(_b).split(".")[0])
+            _di = int(_d)
+        except (TypeError, ValueError):
+            continue
+        _by_ban[_bi] = (str(_nm or "").strip(), _di)
+    _out: "list[dict]" = []
+    for _n, _blk in enumerate(blocks or []):
+        _bans = bans_by_fn.get(_art_osusume_fn(_n))
+        if not _bans:
+            continue                      # 画像が無いブロックは母集団に入れない
+        _rows = []
+        for _x in _bans:
+            _nm, _di = _by_ban.get(int(_x), ("", None))
+            if _nm:
+                _rows.append({"name": _nm, "ban": int(_x), "diff": int(_di)})
+        if not _rows:
+            continue
+        _out.append({"idx": _n,
+                     "title": str((_blk or {}).get("title") or "").strip(),
+                     "filter": str((_blk or {}).get("filter") or "").strip(),
+                     "rows": _rows})
+    return _out
+
+
+def _art_cmt_facts_osusume(osu_rows) -> dict:
+    """D ⑤オススメの facts（2026-09-08 から3候補方式）。
+
+    母集団は **⑤画像の最終掲載台だけ**。ホール全体・全台系・高配分・並び・
+    その他優秀台の母集団と混同しない（万枚台数 `n10k` も⑤内の台数）。
+    ★勝率は持たない。平均差枚も持たない（公開記事の⑤コメントで 0回）。
+    """
+    _blocks: "list[dict]" = []
+    _all: "list[dict]" = []
+    for _b in (osu_rows or []):
+        _rows = sorted(_b.get("rows") or [], key=lambda r: (-r["diff"], r["ban"]))
+        if not _rows:
+            continue
+        _bm: "dict[str, int]" = {}
+        for _r in _rows:
+            _bm[_r["name"]] = _bm.get(_r["name"], 0) + 1
+        _blocks.append({"idx": _b.get("idx"), "title": _b.get("title") or "",
+                        "filter": _b.get("filter") or "",
+                        "n_units": len(_rows), "n_machines": len(_bm),
+                        "top": _rows[0], "rows": _rows, "by_machine": _bm})
+        _all += _rows
+    if not _all:
+        return {"n_blocks": 0, "titles": [], "blocks": [], "n_units": 0,
+                "n_machines": 0, "by_diff": [], "by_machine": {},
+                "by_machine_max": [], "max": 0, "n10k": 0, "n5k": 0, "n3k": 0}
+    _by_diff = sorted(_all, key=lambda r: (-r["diff"], r["ban"]))
+    _bm_all: "dict[str, int]" = {}
+    for _r in _all:
+        _bm_all[_r["name"]] = _bm_all.get(_r["name"], 0) + 1
+    # 機種ごとの最高差枚（候補①は同一機種の連続ではなく**異なる機種**を優先する）
+    _best: "dict[str, dict]" = {}
+    for _r in _by_diff:
+        _best.setdefault(_r["name"], _r)
     return {"n_blocks": len(_blocks),
-            "titles": [str((b or {}).get("title") or "").strip() for b in _blocks]}
+            "titles": [b["title"] for b in _blocks],
+            "blocks": _blocks,
+            "n_units": len(_all), "n_machines": len(_bm_all),
+            "by_diff": _by_diff,
+            "by_machine": dict(sorted(_bm_all.items(), key=lambda kv: -kv[1])),
+            "by_machine_max": sorted(_best.values(),
+                                     key=lambda r: (-r["diff"], r["ban"])),
+            "max": _by_diff[0]["diff"],
+            "n10k": sum(1 for r in _all if r["diff"] >= 10000),
+            "n5k": sum(1 for r in _all if r["diff"] >= _ART_CMT_D_BIG),
+            "n3k": sum(1 for r in _all if r["diff"] >= _ART_CMT_D_REP)}
 
 
 def _art_cmt_facts_other(df, diff_raw, sonota) -> dict:
@@ -6735,6 +6818,80 @@ def _art_cmt_cands_narabi(f) -> "list[str]":
     return ["\n".join(_c1), "\n".join(_c2), "\n".join(_c3)]
 
 
+def _art_cmt_cands_osusume(f) -> "list[str]":
+    """D ⑤オススメの候補①②③（2026-09-08 から3候補方式）。
+
+    ★母集団は⑤画像の最終掲載台だけ。⑤対象外の万枚・大量出玉を書かない。
+    ★「多数」「各種」「続出」は facts が満たすときだけ使う
+      （1台の日に「多数」と書かない）。
+    ★候補ごとに**情報の選び方**を変える（語尾だけ違う文にしない）。
+        候補① 出玉そのものを主役（機種別最高差枚の上位＝異なる機種を優先）
+        候補② オススメ種別の広がりを主役（ブロックごとの代表台）
+        候補③ 出玉＋旧固定文の立ち回り誘導（_ART_CMT_D_OUTRO）
+    """
+    if not f or not f.get("n_units"):
+        return ["", "", ""]
+    _n, _nb = f["n_units"], f["n_blocks"]
+    _lim = 1 if _n == 1 else (2 if _n == 2 else 3)
+    _picks = f["by_machine_max"][:_lim]          # 異なる機種の代表台を優先
+    _man = [r for r in f["by_diff"] if r["diff"] >= 10000]
+    _top = f["by_diff"][0]
+
+    # ── 候補① 突出差枚重視 ───────────────────────────────────────────
+    # 冒頭も facts 連動（⑤内に大量出玉が複数ある日だけ「続出」を使う）。
+    _c1 = ["オススメ機種からは大量出玉が続出！" if (_man or f["n5k"] >= 2)
+           else ("各種オススメ機種からも優秀台をピックアップ！" if _nb >= 2
+                 else "オススメ機種からも優秀台をピックアップ！")]
+    if _n == 1:
+        _c1.append(f"{_top['name']}から{_cmt_exact(_top['diff'])}の優秀台が出現していました。")
+    else:
+        _c1.append("今回は"
+                   + _cmt_join([f"{r['name']}から{_cmt_exact(r['diff'])}" for r in _picks])
+                   + "など、オススメ機種から大量出玉を確認できました！")
+    if _man:
+        _c1.append(f"中でも{_man[0]['name']}の{_cmt_exact(_man[0]['diff'])}は万枚オーバーとなっており、"
+                   "オススメ機種を追いかけた方はチャンスを掴めた1日となっていました。")
+    elif f["n5k"] >= 2:
+        _c1.append(f"+5,000枚オーバーの台も{_cmt_n(f['n5k'])}台と、"
+                   "オススメ機種からの大量出玉が目立つ結果となっていました。")
+    else:
+        _c1.append("オススメ機種は仕掛けの対象になりやすいため、"
+                   "打つ機種を迷った際の候補として押さえておきましょう。")
+
+    # ── 候補② 各種オススメ横断型 ────────────────────────────────────
+    _reps = [b for b in f["blocks"] if b.get("title")]
+    _rep_txt = _cmt_join([f"{b['title']}の{b['top']['name']}から{_cmt_exact(b['top']['diff'])}"
+                          for b in _reps[:3]], sep="、")
+    if _nb >= 2 and _rep_txt:
+        _c2 = [f"{_rep_txt}と、各種オススメから優秀台が登場！"]
+        _c2.append(f"今回は{_cmt_n(_nb)}種類のオススメから"
+                   f"あわせて{_cmt_n(_n)}台の優秀台を確認できており、"
+                   "どのオススメを追いかけてもチャンスがある内容となっていました。")
+    elif _reps:
+        _b0 = _reps[0]
+        _c2 = [f"{_b0['title']}からは{_b0['top']['name']}の"
+               f"{_cmt_exact(_b0['top']['diff'])}など、"
+               f"{_cmt_n(_b0['n_units'])}台の優秀台を確認！"]
+        _c2.append("オススメとして挙げられている機種は仕掛けの対象になりやすいため、"
+                   "事前にチェックしておくのがおすすめです。")
+    else:
+        _c2 = [f"オススメ機種からは{_cmt_n(_n)}台の優秀台を確認！"]
+        _c2.append("気になる機種はデータをチェックしておきましょう。")
+
+    # ── 候補③ バランス型（出玉＋立ち回り誘導）──────────────────────
+    _c3 = ["各種オススメ機種の優秀台をピックアップ。" if _nb >= 2
+           else "オススメ機種の優秀台をピックアップ。"]
+    _b2 = _picks[:2]
+    if _n == 1:
+        _c3.append(f"今回は{_top['name']}から{_cmt_exact(_top['diff'])}の優秀台が出現！")
+    else:
+        _c3.append("今回は"
+                   + _cmt_join([f"{r['name']}から{_cmt_exact(r['diff'])}" for r in _b2])
+                   + "と目立った出玉を確認！")
+    _c3.append(_ART_CMT_D_OUTRO)
+    return ["\n".join(_c1), "\n".join(_c2), "\n".join(_c3)]
+
+
 def _art_cmt_cands_other(f) -> "list[str]":
     """E その他単品の候補①②③。★万枚は「その他優秀台内」の台数だけを使う。"""
     if not f or not f.get("n_units"):
@@ -6837,6 +6994,16 @@ def _art_cmt_recommend(sec: str, f) -> int:
         if len(f.get("osu_machines") or []) >= 3:
             return 3
         return 1
+    if sec == "D":
+        # ★複数のオススメから強い代表台が出ている日は横断型、
+        #   ⑤内に突出出玉が複数ある日は差枚重視。それ以外はバランス型。
+        _reps = [b["top"]["diff"] for b in (f.get("blocks") or [])]
+        if (f.get("n_blocks", 0) >= 3
+                and sum(1 for d in _reps if d >= _ART_CMT_D_REP) >= 3):
+            return 2
+        if f.get("n10k") or f.get("n5k", 0) >= 2:
+            return 1
+        return 3
     if sec == "E":
         if f.get("n10k") and f.get("n_machines", 0) >= 5:
             return 3
@@ -6886,8 +7053,21 @@ def _art_cmt_facts_view(sec: str, f) -> dict:
                 "⑤オススメ機種": f["osu_machines"], "⑤以外": f["non_osu_machines"],
                 "※平均差枚": f"突出条件(+{_ART_CMT_NAMI_AVG_MIN:,}枚以上)のみ候補③で使用"}
     if sec == "D":
-        return {"⑤画像のブロック数": f["n_blocks"], "ブロックタイトル": f["titles"],
-                "※台数・平均・勝率・万枚": "使用しない（固定文方式）"}
+        return {"⑤掲載ブロック数": f["n_blocks"],
+                "ブロック": [f"{b['title']}({b['filter']}) "
+                            f"{b['n_units']}台/{b['n_machines']}機種 "
+                            f"代表 {b['top']['name']} {b['top']['diff']:+,}"
+                            for b in f["blocks"]],
+                "⑤掲載台数": f["n_units"],
+                "掲載機種数": f["n_machines"],
+                "機種別掲載台数": f["by_machine"],
+                "★⑤内の万枚台数": f["n10k"],
+                "⑤内の+5,000枚台数": f["n5k"],
+                "⑤内の+3,000枚台数": f["n3k"],
+                "機種別最高差枚TOP3":
+                    [f"{r['name']} {r['ban']}番台 {r['diff']:+,}"
+                     for r in f["by_machine_max"][:3]],
+                "※平均差枚・勝率": "使用しない"}
     if sec == "E":
         return {"その他優秀台の掲載台数": f["n_units"], "掲載機種数": f["n_machines"],
                 "機種別掲載台数": f["by_machine"],
@@ -16863,6 +17043,10 @@ def show_auto_article_page() -> None:
                                         "diff": e.get("diff")}
                                        for e in (_art_pr.get("sonota_excellent_list") or [])],
                             "osu_plan": list(st.session_state.get(f"_art_osu_plan_{store}") or []),
+                            # D⑤コメントの母集団＝⑤画像へ実際に掲載された台
+                            # （_art_osusume_block_images() の bans をそのまま使う）
+                            "osu_rows": _art_cmt_osu_rows(
+                                art_osusume_blocks, _art_osu_bans, _apdf),
                             "osu_names": sorted({m.strip() for m in art_osusume_machines
                                                  if (m or "").strip()}),
                         }
@@ -17283,7 +17467,7 @@ def show_auto_article_page() -> None:
                                           _f_zen["machines"], _cmt_src.get("osu_names"))
             _f_nami = _art_cmt_facts_narabi(_cmt_df, _cmt_di, _cmt_src.get("nami"),
                                             _cmt_src.get("retsu"), _cmt_src.get("osu_names"))
-            _f_osu  = _art_cmt_facts_osusume(_cmt_src.get("osu_plan"))
+            _f_osu  = _art_cmt_facts_osusume(_cmt_src.get("osu_rows"))
             _f_oth  = _art_cmt_facts_other(_cmt_df, _cmt_di, _cmt_src.get("sonota"))
             _f_sum  = _art_cmt_facts_summary(_cmt_di, _f_zen, _f_high, _f_nami)
             _cmt_facts = {"A": _f_zen, "B": _f_high, "C": _f_nami,
@@ -17292,6 +17476,7 @@ def show_auto_article_page() -> None:
                 "A": _art_cmt_cands_zendai(_f_zen),
                 "B": _art_cmt_cands_high(_f_high),
                 "C": _art_cmt_cands_narabi(_f_nami),
+                "D": _art_cmt_cands_osusume(_f_osu),
                 "E": _art_cmt_cands_other(_f_oth),
                 "F": _art_cmt_cands_summary(_f_sum),
             }
@@ -17323,22 +17508,18 @@ def show_auto_article_page() -> None:
                 _txt_logical  = f"art_comment_{_sec}_{store}"
                 _pick_wk = _art_widget_key(_art_excel_w, _pick_logical)
                 _txt_wk  = _art_widget_key(_art_excel_w, _txt_logical)
-                if _sec == "D":
-                    # ⑤オススメは固定文方式（3候補にしない）
-                    _opts = [_ART_CMT_PICK_UNSET, _ART_CMT_D_USE, _ART_CMT_D_SKIP]
-                    _map  = {_ART_CMT_D_USE: _ART_CMT_D_TEXT, _ART_CMT_D_SKIP: ""}
-                    _reco = None
-                else:
-                    _cs = _cmt_cands[_sec]
-                    _lb = _ART_CMT_LABELS[_sec]
-                    _opts = [_ART_CMT_PICK_UNSET] + list(_lb) + [_ART_CMT_PICK_NONE]
-                    _map  = {_lb[_i]: _cs[_i] for _i in range(3)}
-                    _map[_ART_CMT_PICK_NONE] = ""
-                    _reco = _art_cmt_recommend(_sec, _f)
-                _has = bool(_f) and (_f.get("n_blocks") if _sec == "D" else True)
+                _cs = _cmt_cands[_sec]
+                _lb = _ART_CMT_LABELS[_sec]
+                _opts = [_ART_CMT_PICK_UNSET] + list(_lb) + [_ART_CMT_PICK_NONE]
+                _map  = {_lb[_i]: _cs[_i] for _i in range(3)}
+                _map[_ART_CMT_PICK_NONE] = ""
+                _reco = _art_cmt_recommend(_sec, _f)
                 with st.expander(f"📝 {_sec_name}", expanded=False):
-                    if _sec != "D" and not any(_map.get(l) for l in _ART_CMT_LABELS[_sec]):
-                        st.caption("この日は対象データが無いため候補を作れません"
+                    if not any(_map.get(l) for l in _lb):
+                        st.caption("⑤オススメ優秀台の掲載対象がありません"
+                                   "（コメントなしで問題ありません）。"
+                                   if _sec == "D" else
+                                   "この日は対象データが無いため候補を作れません"
                                    "（コメントなしで問題ありません）。")
                     elif _sec == "D" and not _has:
                         st.caption("この日は⑤オススメの画像が無いため、"
@@ -17354,13 +17535,10 @@ def show_auto_article_page() -> None:
                         args=(store, _pick_logical, _pick_wk, _txt_logical, _txt_wk,
                               _art_excel_w, _map))
                     st.session_state[_pick_logical] = st.session_state.get(_pick_wk)
-                    if _sec == "D":
-                        st.caption("固定文：" + _ART_CMT_D_TEXT.replace("\n", " / "))
-                    else:
-                        with st.expander("候補を読む（3件）", expanded=False):
-                            for _i, _lab in enumerate(_ART_CMT_LABELS[_sec]):
-                                st.markdown(f"**{_lab}**")
-                                st.text(_cmt_cands[_sec][_i] or "（この日は候補なし）")
+                    with st.expander("候補を読む（3件）", expanded=False):
+                        for _i, _lab in enumerate(_lb):
+                            st.markdown(f"**{_lab}**")
+                            st.text(_cs[_i] or "（この日は候補なし）")
                     with st.expander("使用データを見る", expanded=False):
                         st.json(_art_cmt_facts_view(_sec, _f), expanded=False)
                     _art_txt("最終文（WordPress掲載予定・編集できます）",

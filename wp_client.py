@@ -904,6 +904,36 @@ def _existing_files(files, output_dir: str) -> list[str]:
     return out
 
 
+# ══════════════════════════════════════════════════════════════════
+# 記事コメント（渋谷新館の記事用・第2段階 2026-09-08）
+# ══════════════════════════════════════════════════════════════════
+# ★人間が「選択して確定した最終文」だけを本文へ入れる。
+#   候補①②③の本文・★おすすめは **アプリ側で使用可否を判定済み**で、
+#   ここへ届くのは確定コメントだけ（wp_client は文章を作らない・再生成しない）。
+#   payload["comments"] = {"zendai": "...", "high": "...", "narabi": "...",
+#                          "osusume": "...", "other": "...", "summary": "..."}
+#   キー自体を持たない店舗（高田馬場・秋葉原）は1ブロックも増えない。
+#   段落分けは既存 `_split_para()` を再利用する（1行＝1段落・空行は落とす）。
+#   **新しいHTMLを直書きしない**（既存 `para` ブロック経路のみを使う）。
+_CMT_ZENDAI  = "zendai"
+_CMT_HIGH    = "high"
+_CMT_NARABI  = "narabi"
+_CMT_OSUSUME = "osusume"
+_CMT_OTHER   = "other"
+_CMT_SUMMARY = "summary"
+
+
+def _comment_paras(payload: dict, key: str) -> "list[dict]":
+    """確定コメント → `para` ブロック項目のリスト（無ければ空リスト）。
+
+    ★内容は一切書き換えない（再生成・表現調整・句読点変更・丸め直しをしない）。
+      するのは前後空白の除去と空行の除去だけ。ユーザー入力なので `esc()` を通す。
+    """
+    _txt = ((payload.get("comments") or {}) if isinstance(payload, dict) else {})
+    _t = str((_txt or {}).get(key) or "")
+    return [{"type": "para", "text": esc(_ln)} for _ln in _split_para(_t)]
+
+
 def _resolve_high_images(entries: list[dict], output_dir: str) -> list[dict]:
     """高配分エントリ列 → 実在する画像の並び（機種単位で重複除去）。
 
@@ -1013,6 +1043,8 @@ def plan_blocks(payload: dict) -> list[dict]:
             plan.append({"type": "image",
                          "file": f"{app_safe_fn(it['name'])}.jpg",
                          "label": f"全台系 {it['name']}"})
+        # Aコメントは **全台系セクションの最後に1回だけ**（各H3ごとには入れない）
+        plan += _comment_paras(payload, _CMT_ZENDAI)
 
     # ── 高配分: H2 → 画像を機種ごとに順番配置 ──
     #    修正1: 赤文字テキスト一覧は出力しない。
@@ -1035,6 +1067,9 @@ def plan_blocks(payload: dict) -> list[dict]:
             plan.append({"type": "h3", "text": H3_PREFIX_HIGH + h3_zendai(h["entry"])})
             plan.append({"type": "image", "file": h["file"],
                          "label": ("手動高配分 " if h["manual"] else "自動高配分 ") + h["name"]})
+        # Bコメントは **統合後の高配分セクションの最後に1回だけ**
+        # （渋谷新館ではジャグラー系高配分もここへ統合されている）
+        plan += _comment_paras(payload, _CMT_HIGH)
 
     # ── 末尾: H2 → 画像 × 枚数（2026-08-25 追加）──
     #    掲載順は **⑧の生成順そのまま**（通常末尾①②③ → ジャグラー末尾①②③）。
@@ -1070,6 +1105,8 @@ def plan_blocks(payload: dict) -> list[dict]:
             plan.append({"type": "h3", "text": h3_retsu(it)})
             plan.append({"type": "image", "file": it["file"],
                          "label": f"列 {it.get('machine', it['file'])}"})
+        # Cコメントは **並び・列セクションの最後に1回だけ**（並びが複数でも1回）
+        plan += _comment_paras(payload, _CMT_NARABI)
 
     # ── バラエティ: H2 → 画像（2026-08-25 追加）──
     #    ⑧は最大1枚（`バラエティ.jpg` / `バラエティの優秀台.jpg`）。
@@ -1130,6 +1167,8 @@ def plan_blocks(payload: dict) -> list[dict]:
                 plan.append({"type": "h3", "text": _t})
             for fn in _files:
                 plan.append({"type": "image", "file": fn, "label": f"オススメ {fn}"})
+        # Dコメントは **⑤全ブロックの後に1回だけ**（ブロックごとには入れない）
+        plan += _comment_paras(payload, _CMT_OSUSUME)
 
     # ── その他単品: H2 → 画像1枚 ──
     #    後半の正式順は 並び → ⑤オススメ機種 → その他単品優秀台 → 差枚数ランキング&島図
@@ -1137,6 +1176,13 @@ def plan_blocks(payload: dict) -> list[dict]:
     plan.append({"type": "h2", "text": H2_SONOTA})
     plan.append({"type": "image", "file": FN_SONOTA,
                  "label": "その他の優秀台ピックアップ", "optional": True})
+    # Eコメントは **その他単品セクションの最後に1回だけ**。
+    # WP側の分割例外（`_ART_WP_SPLIT_ALLOW_FILES`）で複数 piece になる日も、
+    # plan 上は画像1項目なので **最後の piece の直後に1回**入る
+    # （split は build_content 層の話で、ここでは論理ファイル単位で計画する）。
+    # 画像が実在しない日は孤立コメントを出さない（H2の扱いは従来どおり変えない）。
+    if out_dir and os.path.isfile(os.path.join(out_dir, FN_SONOTA)):
+        plan += _comment_paras(payload, _CMT_OTHER)
 
     # ── 差枚数ランキング&島図: 1つのH2へ統合（渋谷新館の記事用のみ）──
     #    ランキング画像 →（5行ぶんの空段落）→ 島図画像 の順。
@@ -1163,6 +1209,9 @@ def plan_blocks(payload: dict) -> list[dict]:
                 plan.append({"type": "empty_para"})
         for fn in shimazu_files:
             plan.append({"type": "image", "file": fn, "label": f"島図 {fn}"})
+        # Fコメントは **島図の後**（ランキング → 全台データ conditional → 島図 → F）。
+        # 新しいH2は作らない。
+        plan += _comment_paras(payload, _CMT_SUMMARY)
     elif "ranking" not in payload and "shimazu" not in payload:
         # ランキング/島図の**キー自体を持たない店舗**（高田馬場）だけ、
         # 従来どおり「シマズをチェック！」の見出しを出す。

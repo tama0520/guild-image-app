@@ -6264,6 +6264,56 @@ _ART_CMT_D_OUTRO = "気になる機種の優秀台をチェックしておき、
 _ART_CMT_D_BIG = 5000     # 「大量出玉」として扱う差枚
 _ART_CMT_D_REP = 3000     # ブロック代表台が「強い」と判定する差枚
 
+
+# ── 第2段階（2026-09-08）: 人間が確定した最終文だけを WordPress 本文へ送る ──
+#    セクション記号 → wp_client 側の payload["comments"] のキー。
+#    **候補①②③の本文・★おすすめは直接使わない。**使用可否は pick 状態が正で、
+#    「未選択」「コメントを使用しない」「最終文が空」はいずれも挿入しない。
+_ART_CMT_WP_KEYS: "dict[str, str]" = {
+    "A": "zendai", "B": "high", "C": "narabi",
+    "D": "osusume", "E": "other", "F": "summary",
+}
+
+
+def _art_comment_pick(store: str, sec: str):
+    """そのセクションで現在保存されている pick 値（logical キー）。"""
+    return st.session_state.get(f"art_comment_pick_{sec}_{store}")
+
+
+def _art_comment_final_text(store: str, sec: str) -> str:
+    """人間が確定した最終文（前後空白を除いただけ・内容は再生成しない）。"""
+    return str(st.session_state.get(f"art_comment_{sec}_{store}") or "").strip()
+
+
+def _art_comment_is_enabled(store: str, sec: str) -> bool:
+    """WordPress へ挿入してよいか。**pick 状態が正式な使用可否**。
+
+    True になるのは「候補①②③のいずれかを明示選択済み」かつ「最終文が非空」だけ。
+      ・未選択（`_ART_CMT_PICK_UNSET` / None / ""）      → False
+      ・`_ART_CMT_PICK_NONE`（コメントを使用しない）      → False（文字が残っていても送らない）
+      ・旧D固定文の値（`_ART_CMT_D_USE` / `_SKIP`）       → False（現在の選択肢に無い）
+      ・最終文が空                                        → False
+    ★★おすすめからの補完はしない。
+    """
+    _p = _art_comment_pick(store, sec)
+    if _p not in list(_ART_CMT_LABELS.get(sec) or ()):
+        return False
+    return bool(_art_comment_final_text(store, sec))
+
+
+def _art_wp_comments(store: str) -> "dict[str, str]":
+    """payload["comments"] を作る。使用可のセクションだけを入れる。
+
+    その日の session_state（＝`_restore_article_inputs()` が現在Excelの保存値で
+    埋めた logical キー）だけを見るので、**別日の値は構造的に混入しない**。
+    """
+    _out: "dict[str, str]" = {}
+    for _sec, _ in _ART_CMT_SECTIONS:
+        if _art_comment_is_enabled(store, _sec):
+            _out[_ART_CMT_WP_KEYS[_sec]] = _art_comment_final_text(store, _sec)
+    return _out
+
+
 # 台数規模のしきい値（公開記事の「多台数機種」「少台数機種」の実例に合わせる）
 _ART_CMT_MANY = 10        # 「多台数機種」= 10台以上（8/25「10台以上機種」・8/15「20台設置」）
 _ART_CMT_FEW = 4          # 「少台数機種」= 4台以下（8/28「3台・4台機種」・8/16「3台設置」）
@@ -17482,7 +17532,7 @@ def show_auto_article_page() -> None:
             }
             st.caption("候補は公開記事の書き方ルールと当日の実データから自動生成しています"
                        "（AIは使っていません）。★おすすめは目安で、**選ぶまでは未確定**です。"
-                       "　第1段階では WordPress 本文へは入りません。")
+                       "　**選んで確定した最終文だけ**が WordPress 本文へ入ります。")
 
             def _on_art_cmt_pick(_store, _pick_logical, _pick_wk, _txt_logical, _txt_wk,
                                  _expected, _map) -> None:
@@ -17543,20 +17593,34 @@ def show_auto_article_page() -> None:
                              placeholder="候補を選ぶとここへコピーされます")
 
             # ── WordPress掲載予定コメントの確認表示（画像へは焼き込まない）──
+            #    ★第2段階（2026-09-08）: ここで「掲載」と出たセクションだけが
+            #      WordPress 本文へ入る。未選択・コメントなし・空欄は掲載しない。
+            #      候補を強制選択させない（未選択でも⑧・下書き作成は実行できる）。
             with st.expander("📄 WordPress掲載予定コメント（現在の最終文）", expanded=False):
-                _any_cmt = False
+                _n_use = 0
                 for _sec, _sec_name in _ART_CMT_SECTIONS:
-                    _t = str(st.session_state.get(f"art_comment_{_sec}_{store}") or "").strip()
-                    _p = st.session_state.get(f"art_comment_pick_{_sec}_{store}")
-                    if _t:
-                        _any_cmt = True
-                        st.markdown(f"**{_sec}. {_sec_name}**　`{_p}`")
+                    _t = _art_comment_final_text(store, _sec)
+                    _p = _art_comment_pick(store, _sec)
+                    if _art_comment_is_enabled(store, _sec):
+                        _n_use += 1
+                        st.markdown(f"**{_sec} {_sec_name}：掲載**　`{_p}`")
                         st.text(_t)
+                    elif _p == _ART_CMT_PICK_NONE:
+                        st.caption(f"{_sec} {_sec_name}：**掲載しない**"
+                                   "（「コメントを使用しない」を選択中）")
+                    elif _p in list(_ART_CMT_LABELS.get(_sec) or ()):
+                        st.caption(f"{_sec} {_sec_name}：**掲載しない**"
+                                   "（最終文が空欄のため掲載されません）")
                     else:
-                        st.caption(f"{_sec}. {_sec_name}：（未選択／コメントなし）")
-                if not _any_cmt:
-                    st.caption("まだコメントは確定していません。")
-                st.info("第1段階のため、このコメントは WordPress 本文へは挿入されません。")
+                        st.caption(f"{_sec} {_sec_name}：**未選択**のため"
+                                   "コメントは掲載されません")
+                st.caption(f"掲載予定 {_n_use} / {len(_ART_CMT_SECTIONS)} セクション。"
+                           "★おすすめは自動採用されません（選んだものだけが入ります）。")
+                st.info("WordPress本文へは、ここで「掲載」と表示された"
+                        "**確定済みの最終文だけ**が入ります"
+                        "（候補①②③の本文がそのまま入ることはありません）。"
+                        "該当セクションの画像がその日に生成されていない場合は、"
+                        "コメントも挿入されません。")
 
     # ── ⑥ 実行ボタン ─────────────────────────────────────────────────
     # 見出しは全店舗共通で「{丸数字} 実行」。記事構成で採番する店舗（_art_v2）は
@@ -18688,6 +18752,12 @@ def show_auto_article_page() -> None:
                 if _wp_author not in _ART_WP_AUTHORS:
                     _wp_author = ""
                 _wp_pl["author_user"] = _wp_author
+            # コメントも **⑧実行時点で固定しない**。ここで現在日付の確定状態を取り、
+            # 使用可のセクションだけ payload へ入れる（⑧のあとに選び直しても反映される）。
+            # キーを渡すのは _ART_COMMENT_STORES（渋谷新館）だけ＝高田馬場・秋葉原は
+            # comments キー自体を持たないので本文は1ブロックも変わらない。
+            if store in _ART_COMMENT_STORES:
+                _wp_pl["comments"] = _art_wp_comments(store)
             _wp_ok, _wp_msg = _wpc.config_ready()
             _wp_cat = _wpc.store_category(store)
             if not _wp_ok:

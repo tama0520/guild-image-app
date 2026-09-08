@@ -2776,6 +2776,43 @@ def _stat_from_diff(diff_raw_s: pd.Series) -> dict:
     }
 
 
+# ── 全台データ（その日の全台の集計）の正式な単一実装 ────────────────────
+# 結果テキストの `summary_section()`（🏆総差枚／🏆平均差枚）と、
+# 渋谷新館 記事用⑥の「全台データ」画像が **必ず同じ値**になるよう、
+# 集計はこの2関数だけを通す。**呼び出し側で sum() / mean() を書かない（二重計算の禁止）。**
+# 入力はどちらもパイプラインの **補正後** 差枚（`result["diff_raw"]` / `_apdi`）。
+# `_pipeline_calc_d` を再適用しない（二重適用の禁止）。
+
+def _zendai_diff_list(diff_raw) -> list[int]:
+    """全台データ用の差枚リスト（欠損を落として int 化）。
+    結果テキストの従来実装 `[int(d) for d in diff_raw.dropna().tolist()]` と同じ結果。"""
+    if diff_raw is None:
+        return []
+    try:
+        _s = pd.to_numeric(pd.Series(diff_raw), errors="coerce").dropna()
+    except Exception:
+        return []
+    return [int(_d) for _d in _s.tolist()]
+
+
+def _zendai_total_stat(diff_raw) -> "dict | None":
+    """全台データの正式集計。結果テキストと記事用⑥画像で共用する唯一の実装。
+
+    戻り値は `_stat_from_diff()` の dict
+      total_diff … 全台の差枚合計（結果テキストの 🏆総差枚 と同値）
+      avg_diff   … int(round(mean))（結果テキストの 🏆平均差枚 と同値）
+      win_count  … 差枚 > 0 の台数（±0枚は勝ち扱いしない）
+      total_count… 全台数
+    データが無い／全欠損なら None（0扱いで作らない）。
+    ※勝率は結果テキストには出力されていない項目のため、画像だけが使う
+      （母集団・差枚は結果テキストと同一なので数値の食い違いは起きない）。
+    """
+    _d = _zendai_diff_list(diff_raw)
+    if not _d:
+        return None
+    return _stat_from_diff(pd.Series(_d))
+
+
 # 青タイトルバーで「機種名」と後置語の間を詰める対象（末尾一致・判定順は固定）。
 # MochiyPopOne の**全角**括弧は1em幅で左に約半角(27px)の空きがあるため GAP_TITLE=-22 で詰める。
 # 半角括弧は左の空きが4pxしかなく、既存の「(4台並び)」と同じ自然な間隔になるため
@@ -4743,11 +4780,14 @@ def generate_report_text(
     def summary_section() -> str:
         if diff_raw is None:
             return ""
-        diffs = [int(d) for d in diff_raw.dropna().tolist()]
-        if not diffs:
+        # 集計は共通の _zendai_total_stat() に一本化する（記事用⑥「全台データ」
+        # 画像と同じ値を返す唯一の実装）。ここで sum() / mean() を書かない。
+        diffs = _zendai_diff_list(diff_raw)
+        _zst  = _zendai_total_stat(diff_raw)
+        if not diffs or _zst is None:
             return ""
-        total = sum(diffs)
-        avg = int(round(total / len(diffs)))
+        total = _zst["total_diff"]
+        avg   = _zst["avg_diff"]
 
         def _s(n: int) -> str:
             sign = "+" if n >= 0 else "-"
@@ -6072,13 +6112,17 @@ _ART_RANK_MIN_COL_W: dict[str, int] = {
 
 # ── ⑥「全台データ」（渋谷新館の記事用のみ・2026-09-08）─────────────────
 # 差枚数ランキングの直後に入れる小型サマリー画像（勝率／総差枚／平均）。
-# ★集計は既存 `_stat_from_diff()` をそのまま使う（勝率=差枚>0の台数/全台数・
-#   総差枚=合計・平均=int(round(mean))）。**同じ指標を別ロジックで二重実装しない。**
-# ★入力は差枚数ランキングと同じ **パイプラインの補正後差枚**
+# ★集計は共通の `_zendai_total_stat()`（＝結果テキストの `summary_section()` が
+#   使う唯一の実装）を参照する。**画像側で sum() / mean() を書かない（二重計算の禁止）。**
+#   よって画像の 総差枚／平均差枚 は結果テキストの 🏆総差枚／🏆平均差枚 と必ず一致する。
+#   （勝率は結果テキストに項目が無いため画像だけが持つ。母集団・差枚は同一。）
+# ★入力は差枚数ランキング・結果テキストと同じ **パイプラインの補正後差枚**
 #   （⑦=`_apdi` / ⑧=`result["diff_raw"]`）。`_pipeline_calc_d` を再適用しない。
-#   同じ記事の中でランキングと数値が食い違わないことを優先する。
-# ★平均差枚（＝画面表示と同じ丸め後の int）が `_ART_ZENDAI_MIN_AVG` 以上のときだけ
-#   生成する。未達・データ欠損なら画像自体を作らない（upload / 本文 / ZIP へも入らない）。
+#   生の差枚は使わない（記事内でランキング・結果テキストと数値が食い違う）。
+# ★生成判定も **結果テキストへ出力される補正後の平均差枚** を使う。
+#   `_ART_ZENDAI_MIN_AVG` 以上のときだけ生成し、未達・データ欠損なら画像自体を
+#   作らない（upload / 本文 / ZIP へも入らない）。
+#   例: 2026/9/7 は 生データ平均 +47枚（未達）だが結果テキスト平均 +64枚 → **生成する**。
 _ART_ZENDAI_STORES  = frozenset({"渋谷新館"})
 _ART_ZENDAI_FN      = "全台データ.jpg"
 _ART_ZENDAI_TITLE   = "全台データ"
@@ -6093,20 +6137,15 @@ _ART_ZENDAI_BORDER   = (147, 39, 143)     # 外枠
 
 
 def _art_zendai_stat(diff_raw) -> "dict | None":
-    """記事用⑥「全台データ」の集計。既存 `_stat_from_diff()` をそのまま使う。
+    """記事用⑥「全台データ」の集計。
 
-    diff_raw : 差枚数ランキングと同じ **補正後** 差枚。
+    ★結果テキストの `summary_section()`（🏆総差枚／🏆平均差枚）と**同じ
+      `_zendai_total_stat()` を参照する**。ここで独自の sum() / mean() は行わない
+      （画像と結果テキストで別の数字を作らないため）。
+    diff_raw : 差枚数ランキング・結果テキストと同じ **補正後** 差枚。
     データが無い／全欠損なら None（＝0扱いで画像を作らない）。
     """
-    if diff_raw is None:
-        return None
-    try:
-        _s = pd.to_numeric(pd.Series(diff_raw), errors="coerce").dropna()
-    except Exception:
-        return None
-    if len(_s) == 0:
-        return None
-    return _stat_from_diff(_s)
+    return _zendai_total_stat(diff_raw)
 
 
 def _art_zendai_image(diff_raw, hq_scale: float = 1.0) -> "Image.Image | None":

@@ -209,6 +209,21 @@ FN_ZENDAI  = "全台データ.jpg"
 WP_THIRD_WIDTH       = "33%"
 WP_THIRD_WIDTH_FILES: "frozenset[str]" = frozenset({FN_ZENDAI})
 
+# 1/3幅の画像を **左詰め** にするための追加クラス（2026-09-09）。
+#   SWELL の main.css に `.wp-block-image { text-align:center }`（特異度 0,1,0）があり、
+#   align クラスの無い画像ブロックはテーマ側で **中央寄せ** される（実測で確認）。
+#   WordPress コアのグローバルスタイル
+#     `:root .has-text-align-left { text-align:left }`（特異度 0,2,0）
+#   はこれより特異度が高いので確実に勝ち、**float を発生させない**。
+#   付与は `className`（core/image の customClassName サポート）＝**正式なブロック属性**で、
+#   分割画像の `SPLIT_JOIN_CLASS` と**トークンを合成**して併用できる。
+#   ★`"align":"left"` は使わない：実測では figure が float:left になるだけで
+#     内部の img は text-align:center のまま＝**左詰めにならず副作用だけ増える**。
+#   ★figure への直接 style / img への margin-right:auto も使わない
+#     （ブロック属性から再生成されない形になり invalid block のリスク＝A-1 と同種）。
+#   ★テーマCSSの変更・画像への余白追加・空段落による clear もしない。
+WP_LEFT_ALIGN_CLASS  = "has-text-align-left"
+
 
 def img_width_css(fn: str) -> str:
     """画像1枚ぶんの表示幅（full_width=True のときに使う値）を返す。"""
@@ -703,15 +718,18 @@ def blk_image(media_id: int, src: str, join: bool = False,
     _wattr = f'"width":"{width}",' if full_width else ""
     _rcls  = " is-resized" if full_width else ""
     _st    = f' style="width:{width};height:auto"' if full_width else ""
+    # className は既存トークンを消さずに合成する（分割の連結クラスと左詰めを併用可）。
+    _cls: "list[str]" = []
     if join:
-        return (f'<!-- wp:image {{"id":{media_id},{_wattr}"sizeSlug":"full",'
-                f'"linkDestination":"none","className":"{SPLIT_JOIN_CLASS}"}} -->\n'
-                f'<figure class="wp-block-image size-full{_rcls} {SPLIT_JOIN_CLASS}">'
-                f'<img src="{src}" alt="" class="wp-image-{media_id}"{_st}/></figure>\n'
-                '<!-- /wp:image -->')
+        _cls.append(SPLIT_JOIN_CLASS)
+    if full_width and width != "100%":
+        _cls.append(WP_LEFT_ALIGN_CLASS)      # 1/3幅の画像だけ左詰め
+    _cname = " ".join(_cls)
+    _cattr = f',"className":"{_cname}"' if _cname else ""
+    _cfig  = f' {_cname}' if _cname else ""
     return (f'<!-- wp:image {{"id":{media_id},{_wattr}"sizeSlug":"full",'
-            f'"linkDestination":"none"}} -->\n'
-            f'<figure class="wp-block-image size-full{_rcls}">'
+            f'"linkDestination":"none"{_cattr}}} -->\n'
+            f'<figure class="wp-block-image size-full{_rcls}{_cfig}">'
             f'<img src="{src}" alt="" class="wp-image-{media_id}"{_st}/></figure>\n'
             '<!-- /wp:image -->')
 

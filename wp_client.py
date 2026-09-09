@@ -144,7 +144,8 @@ H2_SHIMAZUZ = "島図"
 # ランキング画像と島図画像の間に入れる空段落の数（約5行ぶんの余白）。
 # `blk_empty_para()` を使う。**スペーサーブロック・`<br>`連続・`&nbsp;`・CSSは使わない**
 # （記事上部のX貼付用空段落と同じ方式に揃える）。
-RANK_SHIMAZU_GAP_PARAS = 5
+RANK_SHIMAZU_GAP_PARAS = 5   # ★2026-09-09 以降 未使用（Fコメント移動により廃止）。
+#                              定義は履歴として残す。復活させない。
 
 # ジャグラー統合画像の直前へ入れるH3（渋谷新館の記事用のみ）。
 # payload["juggler_comb_h3"] が真のときだけ、**統合画像が実在する場合に限り**出す。
@@ -193,6 +194,25 @@ _WEEKDAY_JP = ("月", "火", "水", "木", "金", "土", "日")
 # 固定ファイル名（記事用⑧が書き出す名前）
 FN_JUGGLER = "ジャグラーシリーズ優秀台.jpg"
 FN_SONOTA  = "その他の優秀台ピックアップ.jpg"
+FN_ZENDAI  = "全台データ.jpg"
+
+# ★「全台データ」だけ本文カラム幅の約1/3で左詰め表示する（2026-09-09）。
+#   他の画像（全台系・高配分・並び・列・⑤オススメ・その他単品・ランキング・島図）は
+#   従来どおり fullwidth のまま。**この例外を他ファイルへ広げない。**
+#   幅は px 固定ではなく **%** にする：本文カラム幅が変わっても常に約1/3で、
+#   スマホ幅でも親要素の33%に収まるためオーバーフローしない。
+#   本文幅約752px のとき 33% ≒ 248px（≒ 752 ÷ 3）。
+#   markup は A-2a の3点セットのまま **値だけ** 100% → 33% に変える
+#   （構造が同じなので Gutenberg の block validation を壊さない）。
+#   ★align 系クラス（alignleft / aligncenter / alignwide）は付けない。
+#     alignleft は float になり後続ブロックが横へ回り込むため使わない。
+WP_THIRD_WIDTH       = "33%"
+WP_THIRD_WIDTH_FILES: "frozenset[str]" = frozenset({FN_ZENDAI})
+
+
+def img_width_css(fn: str) -> str:
+    """画像1枚ぶんの表示幅（full_width=True のときに使う値）を返す。"""
+    return WP_THIRD_WIDTH if fn in WP_THIRD_WIDTH_FILES else "100%"
 
 # ── その日のポスター（記事上部）────────────────────────────────────
 # ⑧実行時に output_dir へ書き出す結合済みポスター1枚のファイル名。
@@ -650,7 +670,7 @@ def blk_h3(text: str) -> str:
 
 
 def blk_image(media_id: int, src: str, join: bool = False,
-              full_width: bool = False) -> str:
+              full_width: bool = False, width: str = "100%") -> str:
     """58109 の画像ブロックと同一属性。
 
     join=True で 58963 と同じ連結クラスを付ける（分割片の最後以外）。
@@ -675,10 +695,14 @@ def blk_image(media_id: int, src: str, join: bool = False,
       （高田馬場の既存本文HTMLを維持するため）。
     ★id / sizeSlug / linkDestination / className / src / alt / img class は
       full_width の有無にかかわらず変更しない。
+    width : full_width=True のときの表示幅。既定 "100%"。
+            「全台データ」だけ `img_width_css()` が "33%" を返す（2026-09-09）。
+            **3点セットの値をすべて同じにする**（属性・style で食い違わせない）。
+            既定 "100%" のときの出力は変更前と**バイト単位で同一**。
     """
-    _wattr = '"width":"100%",' if full_width else ""
+    _wattr = f'"width":"{width}",' if full_width else ""
     _rcls  = " is-resized" if full_width else ""
-    _st    = ' style="width:100%;height:auto"' if full_width else ""
+    _st    = f' style="width:{width};height:auto"' if full_width else ""
     if join:
         return (f'<!-- wp:image {{"id":{media_id},{_wattr}"sizeSlug":"full",'
                 f'"linkDestination":"none","className":"{SPLIT_JOIN_CLASS}"}} -->\n'
@@ -1203,15 +1227,17 @@ def plan_blocks(payload: dict) -> list[dict]:
             plan.append({"type": "image", "file": fn, "label": f"差枚数ランキング {fn}"})
         for fn in zendai_files:
             plan.append({"type": "image", "file": fn, "label": f"全台データ {fn}"})
-        # 既存の空段落は「島図の直前に5つ」のまま。全台データを挟んでも位置と個数を変えない。
-        if (rank_files or zendai_files) and shimazu_files:
-            for _ in range(RANK_SHIMAZU_GAP_PARAS):
-                plan.append({"type": "empty_para"})
+        # ★Fコメントは **島図の前**（ランキング → 全台データ conditional → F → 島図）。
+        #   2026-09-09 に「島図の後」から移動した。**島図の下へ戻さない。**
+        #   新しいH2は作らない。Fが無い日は何も入らず ランキング →（全台データ）→ 島図。
+        plan += _comment_paras(payload, _CMT_SUMMARY)
+        # ★旧「島図の直前に空段落×5」は廃止した（2026-09-09）。
+        #   あれは将来ここへ最終まとめコメントFを入れるための場所取りで、
+        #   Fを実際に入れた時点で役割が終わった。**復活させない。**
+        #   全台データ↔F↔島図の間に意図的な空段落を入れず、
+        #   通常の段落・画像ブロックの自然な余白だけにする。
         for fn in shimazu_files:
             plan.append({"type": "image", "file": fn, "label": f"島図 {fn}"})
-        # Fコメントは **島図の後**（ランキング → 全台データ conditional → 島図 → F）。
-        # 新しいH2は作らない。
-        plan += _comment_paras(payload, _CMT_SUMMARY)
     elif "ranking" not in payload and "shimazu" not in payload:
         # ランキング/島図の**キー自体を持たない店舗**（高田馬場）だけ、
         # 従来どおり「シマズをチェック！」の見出しを出す。
@@ -1330,15 +1356,17 @@ def build_content(plan: list[dict], media_map: dict, site: str = "",
                     m = media_map.get(p["file"])
                     if m:
                         blocks.append(m)
+                _w = img_width_css(fn)
                 for i, m in enumerate(blocks):
                     out.append(blk_image(m["id"], m["src"],
                                          join=(i < len(blocks) - 1),
-                                         full_width=full_width))
+                                         full_width=full_width, width=_w))
             else:
                 m = media_map.get(fn)
                 if m:
                     out.append(blk_image(m["id"], m["src"],
-                                         full_width=full_width))
+                                         full_width=full_width,
+                                         width=img_width_css(fn)))
         elif t == "button":
             out.append(blk_button(slug=category_slug, site=site))
     return "\n\n".join(out)

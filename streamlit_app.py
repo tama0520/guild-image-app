@@ -4171,10 +4171,74 @@ def insert_formatted_result_before_other_picks(
 _REC_BLOCK_EMOJIS = ["🌺", "✨", "⭐", "🎯"]
 
 
+def _demoted_high_names(store_name: str, high_ratio_list: list[dict]) -> set:
+    """高配分の(1/2台)降格機種名。generate_report_text と⑤カテゴリ移動で共用する
+    （判定条件は従来どおり・稲毛は降格しない）。"""
+    if store_name == "稲毛":
+        return set()
+    return {item["name"] for item in (high_ratio_list or [])
+            if item.get("count") == 1 and item.get("total") == 2}
+
+
+def _result_summary_lines(item: dict, avg: int, avg_show_thr: int = 0) -> list[str]:
+    """全台系／高配分サマリー1機種分の行（🎖️見出し＋🌋/💎差枚リスト）。
+    zen_dai_section / high_ratio_section / ⑤カテゴリ移動サマリーで共用し、
+    数値・絵文字・×N表記・改行を完全一致させる。"""
+    avg_str = f"→平均{_fmt_diff(avg)}" if (avg > avg_show_thr or item.get("always_show_avg")) else ""
+    lines = [f"🎖️{item['name']}({item['count']}/{item['total']}台){avg_str}"]
+    if item.get("diffs"):
+        emoji = "🌋" if max(item["diffs"]) >= 4000 else "💎"
+        lines.append(f"{emoji}{_format_diffs(item['diffs'])}")
+    return lines
+
+
+def _high_avg_of(item: dict) -> int:
+    """高配分サマリーの平均差枚（既存 high_ratio_section と同一の取り方）。"""
+    if "all_avg_diff" in item:
+        return int(item["all_avg_diff"])
+    return int(round(sum(item["diffs"]) / len(item["diffs"]))) if item["diffs"] else 0
+
+
+def _rec_category_summaries(recommended_blocks: list[dict],
+                            zen_dai_list: list[dict],
+                            high_ratio_list: list[dict],
+                            demoted_names: set | None = None):
+    """⑤ブロック所属機種の全台系／高配分サマリーを {ブロックindex: [行…]} で返す。
+    第2戻り値は「下部セクションで表示だけ抑止する機種名」の集合。
+    **判定は一切しない**。既存 zen_dai_list / high_ratio_list の項目を
+    既存の並び順・既存フォーマッタのまま振り分けるだけ。
+    同じ機種が複数ブロックに登録されている場合は、既存⑤表示と同じく
+    どちらのブロックにも出す（新しい排他ルールを作らない）。"""
+    _dem = demoted_names or set()
+    _zen = sorted(list(zen_dai_list or []),
+                  key=lambda x: x.get("all_avg_diff", 0), reverse=True)
+    _high = sorted([it for it in (high_ratio_list or []) if it["name"] not in _dem],
+                   key=_high_avg_of, reverse=True)
+    out: dict[int, list[str]] = {}
+    moved: set = set()
+    for i, block in enumerate(recommended_blocks or []):
+        names = {m.strip() for m in block.get("machines", []) if m.strip()}
+        if not names:
+            continue
+        lines: list[str] = []
+        for it in _zen:
+            if it.get("name") in names:
+                lines += _result_summary_lines(it, int(it.get("all_avg_diff", 0)))
+                moved.add(it["name"])
+        for it in _high:
+            if it.get("name") in names:
+                lines += _result_summary_lines(it, _high_avg_of(it))
+                moved.add(it["name"])
+        if lines:
+            out[i] = lines
+    return out, moved
+
+
 def generate_recommended_result_text(
     recommended_blocks: list[dict], df, diff_raw,
     exclude_machines: set | None = None,
     store_name: str = "",
+    block_summaries: dict | None = None,
 ) -> str:
     """オススメ機種ブロックから +1,000枚以上の台番をピックアップしたテキストを生成する。
     各ブロックが「{section_emoji}{title}の優秀台」セクションになる。"""
@@ -4214,7 +4278,8 @@ def generate_recommended_result_text(
                 lines.append(f"【{ban}番台】{sign}{val:,}枚")
             machine_parts.append("\n".join(lines))
 
-        if not machine_parts:
+        _blk_sum = list((block_summaries or {}).get(i) or [])
+        if not machine_parts and not _blk_sum:
             continue
         clean_title = title[:-len("の優秀台")] if title.endswith("の優秀台") else title
         _block_header_names = _rec_cfg.get("block_header_names", {})
@@ -4222,7 +4287,15 @@ def generate_recommended_result_text(
             header_line = f"{_sec_emoji}{clean_title}({'・'.join(_block_header_names[i])})"
         else:
             header_line = f"{_sec_emoji}{clean_title}の優秀台"
-        sections.append(header_line + "\n" + "\n\n".join(machine_parts))
+        if _blk_sum:
+            # ⑤所属機種の全台系／高配分サマリーをカテゴリ見出しの直下へ置き、
+            # 従来の優秀台一覧は 🎁{title} の下にそのまま残す（二段構成）。
+            _body = header_line + "\n" + "\n".join(_blk_sum)
+            if machine_parts:
+                _body += "\n\n" + f"🎁{title}" + "\n" + "\n\n".join(machine_parts)
+            sections.append(_body)
+        else:
+            sections.append(header_line + "\n" + "\n\n".join(machine_parts))
 
     return "\n\n".join(sections)
 
@@ -4428,6 +4501,7 @@ def generate_report_text(
     excellent_min_diff: int = 2000,
     variety_excellent: list[dict] | None = None,
     retsu_list: list[dict] | None = None,
+    hide_summary_names: set | None = None,
 ) -> str:
     """画像生成で使ったデータをそのまま文章化して返す。
     variety_excellent: ⑤バラエティ画像に実際に掲載された+1,000枚以上の台
@@ -4446,13 +4520,11 @@ def generate_report_text(
 
     # 稲毛以外の全店舗: 高配分の(1/2台)機種を降格し、+2,000枚以上の台をその他の優秀台へ回す
     # （全台系濃厚の(1/2台)機種は降格しない・稲毛は高配分の(1/2台)機種も残す）
-    _demoted_names: set[str] = set()
     _zen_dai_names = {item["name"] for item in zen_dai_list}
-    if store_name != "稲毛":
-        _demoted_names = {
-            item["name"] for item in high_ratio_list
-            if item.get("count") == 1 and item.get("total") == 2
-        }
+    _demoted_names: set[str] = _demoted_high_names(store_name, high_ratio_list)
+    # ⑤カテゴリへ表示を移した機種を下部セクションから隠すだけの集合。
+    # リスト本体・high_ratio_names・excellent_section の判定には使わない。
+    _hide_sum: set = set(hide_summary_names or set())
 
     # 全店舗: プラス（平均>0）の機種すべてに平均差枚を表示
     _avg_show_thr = 0
@@ -4467,7 +4539,7 @@ def generate_report_text(
 
     def zen_dai_section() -> str:
         # 全台系濃厚は(1/2台)降格の対象外（降格は高配分のみ）
-        _zd_list = list(zen_dai_list)
+        _zd_list = [it for it in zen_dai_list if it.get("name") not in _hide_sum]
         if not _zd_list:
             return "（なし）"
         lines = []
@@ -4477,16 +4549,12 @@ def generate_report_text(
             reverse=True,
         )
         for item in sorted_list:
-            avg = item.get("all_avg_diff", 0)
-            avg_str = f"→平均{_fmt_diff(avg)}" if avg > _avg_show_thr else ""
-            lines.append(f"🎖️{item['name']}({item['count']}/{item['total']}台){avg_str}")
-            if item["diffs"]:
-                emoji = _diff_emoji(item["diffs"])
-                lines.append(f"{emoji}{_format_diffs(item['diffs'])}")
+            lines += _result_summary_lines(item, int(item.get("all_avg_diff", 0)), _avg_show_thr)
         return "\n".join(lines)
 
     def high_ratio_section() -> str:
-        _hr_list = [it for it in high_ratio_list if it["name"] not in _demoted_names]
+        _hr_list = [it for it in high_ratio_list
+                    if it["name"] not in _demoted_names and it["name"] not in _hide_sum]
         if not _hr_list:
             return "（なし）"
         lines = []
@@ -4497,15 +4565,7 @@ def generate_report_text(
             reverse=True,
         )
         for item in sorted_list:
-            if "all_avg_diff" in item:
-                avg = item["all_avg_diff"]
-            else:
-                avg = int(round(sum(item["diffs"]) / len(item["diffs"]))) if item["diffs"] else 0
-            avg_str = f"→平均{_fmt_diff(avg)}" if (avg > _avg_show_thr or item.get("always_show_avg")) else ""
-            lines.append(f"🎖️{item['name']}({item['count']}/{item['total']}台){avg_str}")
-            if item["diffs"]:
-                emoji = _diff_emoji(item["diffs"])
-                lines.append(f"{emoji}{_format_diffs(item['diffs'])}")
+            lines += _result_summary_lines(item, _high_avg_of(item), _avg_show_thr)
         return "\n".join(lines)
 
     def _nami_like_section(items: list[dict]) -> str:
@@ -15255,6 +15315,19 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _high_for_report = [x for x in _high_for_report if x.get("name") not in _off_hr_r]
                 if _off_zen_r:
                     _zen_for_report = [x for x in _zen_for_report if x.get("name") not in _off_zen_r]
+            # ★新小岩スランプ付きのみ：⑤B1〜B4に登録された機種の全台系／高配分
+            #   サマリーを、下部セクションではなく各カテゴリ内へ表示する。
+            #   判定ロジック・zen_dai_list / high_ratio_list 本体は変更せず、
+            #   結果テキストの「表示先」だけを移す（excellent_section は不変）。
+            _rec_blk_sums: dict = {}
+            _rec_hide_names: set = set()
+            if (_rec_ban_level and store in EXTENDED_FEATURE_STORES
+                    and recommended_blocks
+                    and result.get("df") is not None
+                    and result.get("diff_raw") is not None):
+                _rec_blk_sums, _rec_hide_names = _rec_category_summaries(
+                    recommended_blocks, _zen_for_report, _high_for_report,
+                    _demoted_high_names(store, _high_for_report))
             report_text = generate_report_text(
                 store_name=store,
                 date=result.get("date"),
@@ -15270,6 +15343,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 retsu_list=(_build_retsu_report_items(result.get("df"), retsu_ranges)
                             if (retsu_ok and retsu_ranges and result.get("df") is not None)
                             else None),
+                hide_summary_names=_rec_hide_names or None,
             )
             # オススメ機種ブロックの優秀台（+1000枚以上）を挿入（拡張機能店舗）
             if store in EXTENDED_FEATURE_STORES and recommended_blocks:
@@ -15280,6 +15354,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         recommended_blocks, _rec_df, _rec_diff_raw,
                         exclude_machines=_memo_machines,
                         store_name=store,
+                        block_summaries=_rec_blk_sums or None,
                     )
                     if _rec_text:
                         report_text = insert_formatted_result_before_other_picks(report_text, _rec_text, store)

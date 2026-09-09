@@ -13536,3 +13536,161 @@ libgbm1 / libasound2 / libpango-1.0-0 / libcairo2
    （過去に `chromium-browser` / `wkhtmltopdf` が Debian trixie に存在せず失敗した事例あり＝`e34562e`）
 6. **ログに `bullseye-security` / `packages.microsoft.com/debian/11/prod` が出ても、
    当リポジトリのファイルが原因と即断しない**（Cloud ベースイメージ側の定義）
+
+## 渋谷新館 WordPress：全台データ33%幅・左詰め＋まとめコメントFを島図の前へ（2026-09-09・`0583161` / `38a1b61`）
+
+**正式仕様。巻き戻し禁止。**対象は**【渋谷新館】の記事用WordPress本文だけ**。
+正式コード commit は **`0583161`**（`fix: 全台データを1/3幅にしまとめコメントFを島図の前へ移動`）＋
+**`38a1b61`**（`fix: 全台データ画像をWordPressで左詰め表示`）。
+**どちらも `wp_client.py` の1ファイルのみ。`streamlit_app.py` は無変更。**
+
+### ① 全台データだけ本文幅の約1/3・左詰め
+
+```python
+FN_ZENDAI            = "全台データ.jpg"
+WP_THIRD_WIDTH       = "33%"
+WP_THIRD_WIDTH_FILES = frozenset({FN_ZENDAI})
+WP_LEFT_ALIGN_CLASS  = "has-text-align-left"
+def img_width_css(fn): return WP_THIRD_WIDTH if fn in WP_THIRD_WIDTH_FILES else "100%"
+```
+
+- **`全台データ.jpg` だけ**が 33%。他（全台系・高配分・並び・列・⑤オススメ・その他単品・
+  ランキング・島図）は**従来どおり fullwidth 100%**。
+- **`_ART_WP_FULLWIDTH_STORES = {"渋谷新館"}` は変更しない。**例外は**ファイル名1件だけ**の狭いスコープ。
+- **px 固定ではなく `%`**：本文幅が変わっても常に約1/3で、スマホでも親の33%に収まる。
+- **元画像 748×298（HQ2.0・論理374×149）は変更しない。**
+  `_art_zendai_image()` / ⑦プレビュー / ZIP も無変更。**WordPress の表示幅だけの仕様。**
+
+### ② 左詰めは `className:"has-text-align-left"` で行う（実測で確定）
+
+**初回実装（`0583161`）では中央寄せになった。**原因は SWELL テーマの
+```css
+/* main.css?ver=2.12.0 */
+.wp-block-image { text-align: center; }      /* 特異度 0,1,0 */
+```
+で、**align クラスの無い画像ブロックはテーマが中央寄せする**（実測 left_offset 268px）。
+WordPress コアは中央寄せしないため「align 無し＝左詰め」という想定が**このテーマでは成立しない**。
+
+**`"align":"left"` は採用しない。**実測では
+```
++ alignleft → float:left になるが textAlign は center のまま → left_offset 267px（左詰めにならない）
+```
+＝**目的を達成せず float の副作用だけ増える**。**この事実を忘れて再導入しない。**
+
+正式解は WordPress コアのグローバルスタイル
+```css
+:root .has-text-align-left { text-align: left; }   /* 特異度 0,2,0 → SWELL に勝つ */
+```
+を **`className`（core/image の customClassName サポート＝正式なブロック属性）**で付ける方法。
+**float は発生しない。**
+
+- **figure への直接 `style` / img への `margin-right:auto` は使わない**
+  （ブロック属性から再生成されない形＝A-1 と同種の invalid block リスク）。
+- **テーマCSSの変更・画像への余白追加・空段落による clear もしない。**
+- className は**既存トークンを消さずに合成**する（分割画像の `SPLIT_JOIN_CLASS` と併用可）。
+  `join=True` かつ 100% のときの出力は**旧実装とバイト一致**。
+
+正式な出力形（A-2a の3点セットは維持し、**値だけ 100% → 33%**）:
+
+```html
+<!-- wp:image {"id":N,"width":"33%","sizeSlug":"full","linkDestination":"none","className":"has-text-align-left"} -->
+<figure class="wp-block-image size-full is-resized has-text-align-left"><img src="…" alt="" class="wp-image-N" style="width:33%;height:auto"/></figure>
+<!-- /wp:image -->
+```
+
+### ③ 最終H2の正式順序（旧 blank×5 は廃止）
+
+```
+H2 差枚数ランキング&島図
+  → 差枚数ランキング
+  → 全台データ（条件成立時）
+  → まとめコメントF
+  → 島図
+→ 店舗情報ボタン
+```
+
+- **`RANK_SHIMAZU_GAP_PARAS = 5` の空段落は完全に廃止した。**
+  あれは将来ここへFを入れるための場所取りで、Fを入れた時点で役割が終わった。
+  **復活させない。**定数定義だけ履歴として残置（未使用）。
+- 全台データ↔F、F↔島図の間に**意図的な空段落を入れない**。
+- **Fは島図の下に残さない。** F用の新しいH2も作らない。
+- Fが無い日（未選択／「コメントを使用しない」／final空）は
+  `ランキング →（全台データ）→ 島図` と自然に詰まる（孤立ブロックなし）。
+- 全台データが無い日（平均+50枚未満）は `ランキング →（F）→ 島図`。
+- **コメントA〜Eの位置・内容・条件、および候補生成・選択・保存・日付スコープの
+  ロジックは変更していない**（`_comment_paras` はバイト一致）。変えたのは**Fの挿入位置だけ**。
+
+### ④ 実WordPress検証（2026-09-09・draft 62659）
+
+| 項目 | 値 |
+|---|---|
+| post ID | **62659** ／ status `draft` ／ category `[19]` ／ author `2`（m.takahashi） |
+| タイトル | `9月6日(日)│エスパス渋谷新館│`（2026/09/06・433台） |
+| 送信 | 40枚 / 60.75 MB → media 43枚 |
+
+**PC実表示（SWELL適用後DOM）**
+
+```
+本文カラム 784px ／ 全台データ 248×99px ＝ 31.7%
+left_offset 16px（＝コメントFの左端と完全一致）
+figure textAlign: left ／ float: none ／ img float: none
+naturalWidth/Height = 748×298（縮小保存されていない）
+縦横比OK ／ はみ出しなし ／ F回り込みなし ／ 島図回り込みなし
+```
+
+**スマホ実表示**（同一オリジンの414px iframe に実ページを読み込み、実CSS適用下で測定）
+
+```
+viewport 410px ／ 本文カラム 354px ／ 全台データ 117×47px ＝ 33.0%
+left_offset 0px（＝本文左端）／ textAlign: left ／ float: none
+縦横比OK ／ はみ出しなし ／ 横スクロールなし ／ F・島図とも回り込みなし
+```
+
+**本文HTML（GET `context=edit` 実測）**
+
+```
+画像43ブロック ／ 33%:1 ／ 100%:42
+has-text-align-left の出現 2回（ブロック属性＋figure のみ＝正）
+align系クラス 0 ／ A-2a 3点セットNG 0
+linkDestination:"none" 43件 ／ 画像の <a href> ラップ 0（Luminous維持・data-luminous あり）
+SPLIT_JOIN_CLASS 6件（その他優秀台の分割・非回帰）
+空段落 0
+最終H2以降: H2 → IMG(100%) → IMG(33%) → P → P → IMG(100%) → BTN
+```
+
+**Fコメント**：保存済み final の各行の出現回数は **1 / 1**。
+**`P → P` は final 内の改行による2段落で、重複挿入ではない。**
+
+**Gutenberg編集画面**（実際に開いて確認）
+
+```
+総ブロック 114 ／ core/image 43 ／ invalid ブロック 0
+「想定されていないか無効なコンテンツ」「ブロックの復旧を試行」等の警告文言 0
+全台データブロック: name=core/image / isValid=true / width="33%"
+                    className="has-text-align-left" / sizeSlug="full"
+                    linkDestination="none" / align=undefined
+前後: core/image → core/image → core/paragraph(F) → core/paragraph(F) → core/image(島図)
+```
+
+**高田馬場**：`plan_blocks` / `build_content` とも旧実装と**完全一致**（`width` / `is-resized` /
+`style="width` の混入 0）。秋葉原も `_ART_WP_FULLWIDTH_STORES` 外で不変。
+
+**既存 draft 62525 / 62615 は未編集・未削除・未公開。**（62615 は調査時にブラウザDOM上で
+クラスを一時付与して計測したが、WordPress のデータは変更していない。）
+
+### ⑤ 今後の禁止事項
+
+1. **`"align":"left"` / `alignleft` を使わない**（実測で左詰めにならず float の害だけ）
+2. **`has-text-align-left` を外さない**（外すと SWELL の `.wp-block-image{text-align:center}` で中央寄せへ戻る）
+3. **figure への直接 `style` / img への `margin-right:auto` を使わない**（invalid block リスク）
+4. **テーマCSSを変更しない／画像へ余白を足さない／空段落で clear しない**
+5. **A-2a の3点セット（属性 width・figure `is-resized`・img `style`）を崩さない／値を食い違わせない**
+6. **`className` の既存トークン（`SPLIT_JOIN_CLASS`）を上書き・消失させない**
+7. **33% を他の画像へ広げない**／`_ART_WP_FULLWIDTH_STORES` を変更しない
+8. **元画像 748×298 / HQ2.0 / 論理374×149 / `_art_zendai_image()` / ⑦プレビュー / ZIP を変更しない**
+9. **Fの位置（全台データの直後・島図の前）を戻さない／島図の下へ置かない**
+10. **旧 blank×5（`RANK_SHIMAZU_GAP_PARAS`）を復活させない**
+11. **コメントA〜Fの生成・選択・保存・日付スコープのロジックを変更しない**
+12. **高田馬場・秋葉原へ 33% や `has-text-align-left` を混入させない**
+13. **draft 62525 / 62615 / 62659 を公開・編集・削除しない**
+14. **無関係なリファクタ・未使用コード整理をしない**

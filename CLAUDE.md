@@ -13447,3 +13447,92 @@ _w = max(_sc(_ART_ZENDAI_MIN_W), _val_x + _val_w + PAD,
 11. **他店舗・他画像へこの配色や定数を流用しない**
 12. **外部フォントを導入しない**（`load_font()`＝MochiyPopOne で見本を再現できる）
 13. **無関係なリファクタ・未使用コード整理をしない**
+
+## Streamlit Cloud 起動障害：`packages.txt` 削除で復旧（2026-09-09・`625d29b`）
+
+**正式記録。巻き戻し禁止。**対象は**Streamlit Cloud の起動（APT依存処理）だけ**。
+正式コード commit は **`625d29b`**（`fix: 不要なAPT依存を削除してCloud起動エラーを回避`・
+**`packages.txt` の削除のみ**・15行削除／追加0）。
+**`streamlit_app.py` / `requirements.txt` / `runtime.txt` / その他コードは今回いっさい変更していない。**
+
+### ① 障害内容
+
+2026-09-09、Streamlit Cloud でアプリが起動しなくなった。
+**`streamlit_app.py` の実行前**、**APT依存関係のインストール段階**で停止していた。
+
+```
+Processing dependencies...
+Apt dependencies were installed from /mount/src/guild-image-app/packages.txt using apt-get.
+E: Release file for http://deb.debian.org/debian-security/dists/bullseye-security/InRelease
+   is expired (invalid since 1d ...)
+   Updates for this repository will not be applied.
+installer returned a non-zero exit code
+Error during processing dependencies!
+```
+
+`apt-get install` ではなく **`apt-get update` の段階**で失敗している。
+`bullseye-security` は **Debian 11 のセキュリティリポジトリ**で、Debian 11 の EOL に伴い
+**Release ファイルの有効期限（Valid-Until）が切れた**ことによる。
+ログには `Debian trixie`（Debian 13）・`bullseye-security`（Debian 11）・
+`packages.microsoft.com/debian/11/prod` が同時に見えるが、これらは
+**Streamlit Cloud のベースイメージ側が持つリポジトリ定義**であり、**当リポジトリの
+`packages.txt` の内容（パッケージ名）が原因ではない**。
+ただし **`packages.txt` が存在すると Cloud が APT 処理（update → install）を実行する**ため、
+**ファイルの存在自体がトリガー**になっていた。
+
+### ② `packages.txt` は旧 Playwright/Chromium 用で現在不要
+
+削除した15項目は**すべて Playwright/Chromium のシステム依存ライブラリ**だった。
+
+```
+libnss3 / libnspr4 / libatk1.0-0 / libatk-bridge2.0-0 / libcups2 / libdrm2 /
+libxkbcommon0 / libxcomposite1 / libxdamage1 / libxfixes3 / libxrandr2 /
+libgbm1 / libasound2 / libpango-1.0-0 / libcairo2
+```
+
+**現在の Cloud 実行経路では1つも必要ないことを削除前に確認した。**
+
+| 確認項目 | 結果 |
+|---|---|
+| `requirements.txt` の playwright / selenium / chromium / imgkit / dataframe_image / weasyprint / cairosvg / pyppeteer / kaleido | **0件**（Cloud にインストールされない） |
+| Cloud実行経路（`streamlit_app.py` / `convert_narabi_pil.py` / `shimazu_renderer.py` / `wp_client.py`）のトップレベル import | **0件** |
+| 実 import が残るファイル | `convert_20260408.py` / `convert_narabi_稲毛_20260415.py` / `fix_title_spaces.py` ＝ **旧スクリプトで Cloud では起動されない** |
+| 並び・列画像 | **全13店舗が `convert_narabi_pil.py`**（`_NARABI_GENERIC`）。import は pandas / os / io / collections / PIL のみ＝**ブラウザ不使用** |
+| `streamlit_app.py` の imgkit パッチ | `try: import imgkit, dataframe_image / except: pass` の**文字列**。未インストールなので常に握り潰され無効 |
+| `_draw_weekly_table_image` の「Playwright実装に委譲」コメント | **記述が古いだけ**。委譲先 `_weekly_table_html_image()` は docstring どおり **PIL 実装（Playwright不使用・Cloud/ローカル共通版）** |
+| フォント | `fonts/MochiyPopOne-Regular.ttf` / `NotoSansJP-Regular.ttf` を**リポジトリ同梱**で使用（APTのフォントパッケージに依存しない） |
+
+`packages.txt` の最終変更は **`e34562e`（2026-06-04）**で、直前の
+`205ce21` / `1b43288` / `f0762e7` / `988ea7b` は**いずれも Cloud 起動関連ファイルを触っていない**。
+＝**「今日から急に起動しなくなった」のは外部要因（Debian 11 security の期限切れ）のタイミング。**
+
+### ③ 対処＝`packages.txt` を削除して APT 処理自体を発生させない
+
+- **`packages.txt` を削除**すると Cloud は APT 段階を実行しないため、この経路の失敗を回避できる。
+- **`streamlit_app.py` をこの起動障害のために変更しない**（実際に変更していない）。
+- **APT の workaround（sources.list 書き換え・`--allow-releaseinfo-change` 等）は追加しない。**
+- ローカル起動は `packages.txt` を参照しないため**影響なし**。
+
+### ④ 確認できた事実（誤記しないこと）
+
+- **`packages.txt` 削除後、ユーザーが Streamlit Cloud のアプリを実際に開き、
+  正常起動・アプリ画面の表示を確認した。これが正式に確認できた事実である。**
+- **★Cloud ログ上で「APT処理が消えたこと」自体は Claude 側では直接確認していない。**
+  リポジトリに Cloud アプリの URL が記録されておらず、`share.streamlit.io` は
+  アカウント設定フォームを表示したため（アカウント作成・フォーム送信は行わない方針）
+  コンソール・ログへ到達できなかった。
+  **「Cloudログで APT 処理の消滅を確認済み」とは書かない。**
+
+### ⑤ 今後の禁止事項
+
+1. **`packages.txt` を理由なく復活させない**（存在するだけで Cloud の APT 処理が走る）
+2. **APT の workaround を勝手に追加しない**
+3. **この起動障害を理由に `streamlit_app.py` / `requirements.txt` / `runtime.txt` を変更しない**
+4. **並び・列画像を browser 方式（Playwright / selenium / imgkit / dataframe_image）へ戻さない**
+   （現在は `convert_narabi_pil.py` の PIL 実装）
+5. **将来 Playwright/Chromium 等のブラウザ系処理を Cloud へ再導入する場合は、
+   `requirements.txt` への追加と APT システム依存（`packages.txt`）を改めてセットで設計する。**
+   その際は Cloud ベースイメージの Debian バージョンに合うパッケージ名かを必ず確認する
+   （過去に `chromium-browser` / `wkhtmltopdf` が Debian trixie に存在せず失敗した事例あり＝`e34562e`）
+6. **ログに `bullseye-security` / `packages.microsoft.com/debian/11/prod` が出ても、
+   当リポジトリのファイルが原因と即断しない**（Cloud ベースイメージ側の定義）

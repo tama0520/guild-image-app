@@ -6141,12 +6141,32 @@ _ART_ZENDAI_FN      = "全台データ.jpg"
 _ART_ZENDAI_TITLE   = "全台データ"
 _ART_ZENDAI_MIN_AVG = 50
 # 全台データ専用の配色（既存の C_* / _ART_RANK_* は変更しない）
-_ART_ZENDAI_TITLE_BG = (147, 39, 143)     # 紫のタイトルバー
-_ART_ZENDAI_TITLE_FG = (255, 255, 255)    # 白文字
-_ART_ZENDAI_BODY_BG  = (255, 244, 204)    # クリーム色の本文
-_ART_ZENDAI_LABEL_FG = (102, 0, 153)      # 項目名（紫）
-_ART_ZENDAI_VALUE_FG = (26, 26, 92)       # 数値（濃紺）
-_ART_ZENDAI_BORDER   = (147, 39, 143)     # 外枠
+# ★見本.png（374×149）の実測ピクセル値。ラベルと値は**同じ紫**で色分けしない。
+_ART_ZENDAI_TITLE_BG = (220, 185, 255)    # 見出し帯（薄ラベンダー）
+_ART_ZENDAI_TITLE_FG = (112,  48, 160)    # 見出し文字（紫）
+_ART_ZENDAI_BODY_BG  = (255, 242, 204)    # クリーム色の本文
+_ART_ZENDAI_LABEL_FG = ( 90,   0, 180)    # 項目名（紫）
+_ART_ZENDAI_VALUE_FG = ( 90,   0, 180)    # 数値（項目名と同色）
+_ART_ZENDAI_BORDER   = (128, 128, 128)    # 外枠（1px グレー）
+_ART_ZENDAI_RULE     = (128, 128, 128)    # 見出し下の罫線（1px グレー）
+
+# ★論理レイアウトは見本.png の実測値そのもの（基準 374×149）。
+#   実際の描画は **すべての要素を同じ `hq_scale` 倍**でスケールする
+#   （キャンバスだけ2倍にしてフォント・座標を1倍のままにしない）。
+#   既定 `_ART_ZENDAI_HQ = 2.0` なので保存画像は 748×298 相当になり、
+#   WordPress の fullwidth（本文幅約752px）で拡大されない。
+#   ⑦プレビュー・⑧本番はどちらも引数を渡さないため**必ず同じ倍率**になる。
+_ART_ZENDAI_HQ       = 2.0
+_ART_ZENDAI_MIN_W    = 374   # 通常ケースの幅（見本と同じ右余白を再現）
+_ART_ZENDAI_PAD      = 5     # 左余白／右余白
+_ART_ZENDAI_GAP      = 23    # ラベル右端〜値左端の最小間隔
+_ART_ZENDAI_VAL_X    = 88    # 値の左位置（全行固定）
+_ART_ZENDAI_HDR_BOT  = 37    # 見出し帯の下端（y=1..36 が帯・y=37 が罫線）
+_ART_ZENDAI_BODY_TOP = 38    # 本文の開始 y
+_ART_ZENDAI_ROW_H    = 37    # 本文1行の高さ（＝行ピッチ）
+_ART_ZENDAI_FS_TITLE = 20    # 見出しのフォントサイズ
+_ART_ZENDAI_FS_LABEL = 20    # ラベルのフォントサイズ
+_ART_ZENDAI_FS_VALUE = 22    # 値のフォントサイズ
 
 
 def _art_zendai_stat(diff_raw) -> "dict | None":
@@ -6161,11 +6181,12 @@ def _art_zendai_stat(diff_raw) -> "dict | None":
     return _zendai_total_stat(diff_raw)
 
 
-def _art_zendai_image(diff_raw, hq_scale: float = 1.0) -> "Image.Image | None":
+def _art_zendai_image(diff_raw, hq_scale: float = _ART_ZENDAI_HQ) -> "Image.Image | None":
     """記事用⑥「全台データ」画像（⑦プレビューと⑧本番で共用・別実装にしない）。
 
     平均差枚が `_ART_ZENDAI_MIN_AVG` 未満、またはデータ欠損なら None を返す。
-    hq_scale : >1 で最初からその倍率で描画する（後から resize しない）。既定 1.0。
+    hq_scale : 全要素を同じ倍率で描く（後から resize しない）。既定 `_ART_ZENDAI_HQ`。
+               ★呼び出し側は引数を渡さないので⑦と⑧が必ず同じ倍率になる。
     """
     _st = _art_zendai_stat(diff_raw)
     if _st is None or _st["avg_diff"] < _ART_ZENDAI_MIN_AVG:
@@ -6177,38 +6198,48 @@ def _art_zendai_image(diff_raw, hq_scale: float = 1.0) -> "Image.Image | None":
         ("総差枚", fmt_diff(_st["total_diff"])),
         ("平均",   fmt_diff(_st["avg_diff"])),
     ]
-    FN_TITLE = load_font(round(30 * _hq))
-    FN_LABEL = load_font(round(28 * _hq))
-    FN_VALUE = load_font(round(32 * _hq))
-    PAD      = round(14 * _hq)
-    GAP      = round(22 * _hq)
-    TITLE_HH = round(44 * _hq)
-    ROW_HH   = round(46 * _hq)
+    # 論理値（見本 374×149 基準）を **すべて同じ倍率** でスケールする。
+    def _sc(v: float) -> int:
+        return max(1, round(v * _hq))
+
+    FN_TITLE = load_font(_sc(_ART_ZENDAI_FS_TITLE))
+    FN_LABEL = load_font(_sc(_ART_ZENDAI_FS_LABEL))
+    FN_VALUE = load_font(_sc(_ART_ZENDAI_FS_VALUE))
+    PAD      = _sc(_ART_ZENDAI_PAD)
+    GAP      = _sc(_ART_ZENDAI_GAP)
+    BD       = _sc(1)                       # 外枠・見出し下罫線の太さ
+    HDR_BOT  = _sc(_ART_ZENDAI_HDR_BOT)     # 見出し帯の下端（ここに罫線を引く）
+    BODY_TOP = _sc(_ART_ZENDAI_BODY_TOP)
+    ROW_HH   = _sc(_ART_ZENDAI_ROW_H)
 
     _d0 = ImageDraw.Draw(Image.new("RGB", (1, 1)))
     _lab_w = max(_text_w(_d0, _l, FN_LABEL) for _l, _v in _rows)
     _val_w = max(_text_w(_d0, _v, FN_VALUE) for _l, _v in _rows)
-    _w = max(PAD + _lab_w + GAP + _val_w + PAD,
+    # 値の左位置は見本どおり固定。ラベルが長い場合だけ右へずらす（重なり防止）。
+    _val_x = max(_sc(_ART_ZENDAI_VAL_X), PAD + _lab_w + GAP)
+    # 通常ケースは見本と同じ幅。内容が長いときだけ必要分だけ広げる（切れない）。
+    _w = max(_sc(_ART_ZENDAI_MIN_W),
+             _val_x + _val_w + PAD,
              PAD + _text_w(_d0, _ART_ZENDAI_TITLE, FN_TITLE) + PAD)
-    _h = TITLE_HH + ROW_HH * len(_rows) + PAD
+    _h = BODY_TOP + ROW_HH * len(_rows)
 
     img  = Image.new("RGB", (_w, _h), _ART_ZENDAI_BODY_BG)
     draw = ImageDraw.Draw(img)
-    draw.rectangle([(0, 0), (_w - 1, TITLE_HH - 1)], fill=_ART_ZENDAI_TITLE_BG)
+    draw.rectangle([(0, 0), (_w - 1, HDR_BOT - 1)], fill=_ART_ZENDAI_TITLE_BG)
+    draw.rectangle([(0, HDR_BOT), (_w - 1, BODY_TOP - 1)], fill=_ART_ZENDAI_RULE)
 
     def _put(text: str, x: int, y: int, h: int, font, fill) -> None:
         _bb = draw.textbbox((0, 0), text, font=font)
         draw.text((x - _bb[0], y + (h - (_bb[3] - _bb[1])) // 2 - _bb[1]),
                   text, font=font, fill=fill)
 
-    _put(_ART_ZENDAI_TITLE, PAD, 0, TITLE_HH, FN_TITLE, _ART_ZENDAI_TITLE_FG)
-    _y = TITLE_HH
+    _put(_ART_ZENDAI_TITLE, PAD, BD, HDR_BOT - BD, FN_TITLE, _ART_ZENDAI_TITLE_FG)
+    _y = BODY_TOP
     for _l, _v in _rows:
         _put(_l, PAD, _y, ROW_HH, FN_LABEL, _ART_ZENDAI_LABEL_FG)
-        _put(_v, PAD + _lab_w + GAP, _y, ROW_HH, FN_VALUE, _ART_ZENDAI_VALUE_FG)
+        _put(_v, _val_x, _y, ROW_HH, FN_VALUE, _ART_ZENDAI_VALUE_FG)
         _y += ROW_HH
-    draw.rectangle([(0, 0), (_w - 1, _h - 1)], outline=_ART_ZENDAI_BORDER,
-                   width=max(1, round(2 * _hq)))
+    draw.rectangle([(0, 0), (_w - 1, _h - 1)], outline=_ART_ZENDAI_BORDER, width=BD)
     return img
 
 

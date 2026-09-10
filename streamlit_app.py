@@ -490,7 +490,7 @@ _TABLE_THEME_STORES: frozenset[str] = frozenset(STORES)
 #   auto_slump  … スランプ付き結果ポスト用（新宿歌舞伎町かぶぱ・秋葉原を含む）
 #   work        … ⑥個別に生成（全台データ画像・高配分データ画像・並び画像・末尾画像・
 #                  その他の優秀台画像）。記事用ではない表画像ページなので対象に含める。
-_TABLE_THEME_PAGES:  frozenset[str] = frozenset({"auto", "auto_slump", "work"})
+_TABLE_THEME_PAGES:  frozenset[str] = frozenset({"auto", "auto_slump", "auto_slump2", "work"})
 
 C_NEW_TITLE_BG_RGBA   = (112, 0, 224, 255)     # #7000E0 タイトルバー背景
 C_NEW_HEADER_BG       = "#290068"              # 列見出しバー背景
@@ -542,7 +542,7 @@ _SLUMP_THEME_STORES: frozenset[str] = frozenset({
 # 対象ページはスランプ付き結果ポスト用のみ。
 # 記事用(auto_article)・単体スランプページ(slump_graph)は**含めない**。
 # 通常結果ポスト用(auto)と⑥個別(work)は `if with_slump:` によりスランプを生成しない。
-_SLUMP_THEME_PAGES:  frozenset[str] = frozenset({"auto_slump"})
+_SLUMP_THEME_PAGES:  frozenset[str] = frozenset({"auto_slump", "auto_slump2"})
 
 C_SL_GRAPH_BG  = (253, 249, 246)   # #FDF9F6 旧グラフ地（ベタ塗り）。現在はグラデーションを使うため未使用・履歴として残す
 C_SL_HEADER_BG = (239, 227, 245)   # #EFE3F5 グラデーションの最も濃い側（旧: ヘッダー2帯のベタ塗り）
@@ -611,6 +611,44 @@ _SL_LIGHT_V     = 255         # 白 #FFFFFF の max(R,G,B)
 
 # 再配色済みテンプレートのキャッシュ（キー: パス文字列＋更新時刻）
 _SL_TMPL_CACHE: dict = {}
+
+
+# 新宿歌舞伎町だけ「かぶぱポストの結果（auto_slump）」と
+# 「スランプ付き結果（auto_slump2）」の2系統を持つ。両者は store が同じなので
+# **page を含めて判定する**。保存フラグは持たず毎回 page × store から導出するので、
+# URL・F5・戻る/進むと常に一致する（_slump_theme_new と同じ流儀）。
+_KABUPA_STORE = "新宿歌舞伎町"
+# ②の入力値保存に使う論理名前空間。**保存キーの分離だけ**に使い、
+# pision取得・store_config・画像生成・ファイル名・パネル・液晶へは渡さない
+# （表示上の店舗名は常に "新宿歌舞伎町"）。
+_KABUPA_SLUMP2_NS = "新宿歌舞伎町(スランプ)"
+
+
+def _is_kabupa_page() -> bool:
+    """新宿歌舞伎町の「かぶぱポストの結果」を表示中か（page × store の AND）。
+
+    ②「スランプ付き結果」(auto_slump2) では False になり、上野新館型の
+    共通経路へ落ちる。他店舗では常に False。"""
+    try:
+        return (st.session_state.get("selected_store") == _KABUPA_STORE
+                and st.session_state.get("page") == "auto_slump")
+    except Exception:
+        return False
+
+
+def _kojin_ns(store: str) -> str:
+    """②個別画像など**入力値の保存名前空間**を返す。
+
+    新宿歌舞伎町だけ ①auto_slump と ②auto_slump2 で保存を物理分離する。
+    ①は従来どおり "新宿歌舞伎町"（既存 auto_page_inputs.json と後方互換）、
+    ②は _KABUPA_SLUMP2_NS。他店舗は store をそのまま返す。"""
+    try:
+        if (store == _KABUPA_STORE
+                and st.session_state.get("page") == "auto_slump2"):
+            return _KABUPA_SLUMP2_NS
+    except Exception:
+        pass
+    return store
 
 
 def _slump_theme_new() -> bool:
@@ -2209,7 +2247,8 @@ def _navigate(page: str, store: str | None = None, itype: str | None = None) -> 
     params: dict[str, str] = {"page": page}
     s = st.session_state.get("selected_store", "")
     t = st.session_state.get("selected_image_type", "")
-    if page in ("image_type", "work", "auto", "auto_slump", "rote", "auto_article") and s:
+    if page in ("image_type", "work", "auto", "auto_slump", "auto_slump2",
+                "rote", "auto_article") and s:
         params["store"] = s
     if page == "work" and t:
         params["type"] = t
@@ -2374,15 +2413,19 @@ def show_image_type_page() -> None:
             ):
                 _navigate("rote")
         elif store == "新宿歌舞伎町":
-            # 新宿歌舞伎町：かぶぱポストの結果（スランプ付き）＋ ローテ用（結果ポスト用は非表示）
+            # 新宿歌舞伎町：①かぶぱポストの結果（auto_slump）＋
+            # ②スランプ付き結果（auto_slump2・上野新館型）＋ ③ローテ用。
+            # 結果ポスト用(auto)は従来どおり非表示。
             st.markdown(
                 """<style>
-                .st-key-auto_slump_btn button {
+                .st-key-auto_slump_btn button,
+                .st-key-auto_slump2_btn button {
                     background-color: #00ACC1 !important;
                     border-color: #00838F !important;
                     color: white !important;
                 }
-                .st-key-auto_slump_btn button:hover {
+                .st-key-auto_slump_btn button:hover,
+                .st-key-auto_slump2_btn button:hover {
                     background-color: #00838F !important;
                     border-color: #00838F !important;
                 }
@@ -2409,11 +2452,17 @@ def show_image_type_page() -> None:
                     _navigate("auto_slump")
             with _col_r:
                 if st.button(
-                    "📋 ローテ用",
-                    key="rote_mode_btn",
+                    "📈 スランプ付き結果",
+                    key="auto_slump2_btn",
                     use_container_width=True,
                 ):
-                    _navigate("rote")
+                    _navigate("auto_slump2")
+            if st.button(
+                "📋 ローテ用",
+                key="rote_mode_btn",
+                use_container_width=True,
+            ):
+                _navigate("rote")
         elif store in ("溝の口本館", "溝の口新館", "西武新宿", "渋谷新館", "新大久保"):
             # ローテあり：2列横並び
             st.markdown(
@@ -5921,7 +5970,7 @@ _ARTICLE_INPUTS_JSON = os.path.join(BASE_DIR, "article_page_inputs.json")
 # 店舗ごとにコードを複製せず、この集合へ追記して対応する。
 _KOJIN_DATE_SCOPED_STORES: frozenset[str] = frozenset({
     "新小岩",
-    "新宿歌舞伎町",
+    _KABUPA_SLUMP2_NS,   # 新宿歌舞伎町の②スランプ付き結果のみ（①かぶぱは対象外）
     "上野新館",
     "上野本館",
     "稲毛",
@@ -5936,6 +5985,10 @@ _KOJIN_DATE_SCOPED_STORES: frozenset[str] = frozenset({
 
 def _persistent_keys(store: str) -> set[str]:
     """Excel切り替えをまたいで保持するキー（機種名・台番範囲など）。"""
+    store = _kojin_ns(store)
+    # 新宿歌舞伎町の①かぶぱポストは②優秀台を毎回空欄にしたいので永続化しない
+    if store == _KABUPA_STORE:
+        return {f"variety_range_{store}"}
     # 高田馬場は②個別画像の機種名を日付ごとに扱う（別日データ取得時は空欄・同日は保持）ため永続化しない
     if store == "高田馬場":
         return {f"variety_range_{store}"}
@@ -5998,7 +6051,7 @@ _KOJIN_Y_EXPAND_SLUMP_STORES = frozenset({
     "上野新館",
     "上野本館",
     "新小岩",
-    "新宿歌舞伎町",
+    _KABUPA_SLUMP2_NS,   # 新宿歌舞伎町の②スランプ付き結果のみ（①かぶぱは3/6枠）
 })
 
 def _collect_kojin_pick(store: str, prefix: str = "") -> list[tuple[str, set[int]]]:
@@ -6205,6 +6258,7 @@ def _manual_jug_title(kojin_machines, cfg: dict) -> str:
 
 
 def _auto_input_keys(store: str) -> list[str]:
+    store = _kojin_ns(store)
     keys = ["kojin_enabled", "narabi_enabled", "narabi_ranges_input",
             "retsu_enabled", "retsu_ranges_input",
             "suebangai_enabled",
@@ -6245,7 +6299,7 @@ def _kojin_scope_key(store: str) -> str:
 
     _KOJIN_DATE_SCOPED_STORES の店舗でのみ使う。保存対象ではない
     （_auto_input_keys() に含めないので JSON へは出ない）。"""
-    return f"_kojin_scope_excel_{store}"
+    return f"_kojin_scope_excel_{_kojin_ns(store)}"
 
 
 def _kojin_keys(store: str) -> list[str]:
@@ -6253,6 +6307,7 @@ def _kojin_keys(store: str) -> list[str]:
 
     _auto_input_keys() が生成するものと同じ並び・同じ範囲を1か所で使い回す
     （枠数を変えるときは _auto_input_keys() と一緒に直す）。"""
+    store = _kojin_ns(store)
     return ([f"kojin_z_{i}_{store}" for i in range(12)]
             + [f"kojin_y_{i}_{store}" for i in range(48)])
 
@@ -6291,7 +6346,7 @@ def _merge_auto_entry(existing: "dict | None", store: str,
     ②以外のキー（variety_range_* / kojin_enabled / 末尾 等）はこのガードの対象外。"""
     entry = dict(existing or {})
     _skip_kojin = False
-    if store in _KOJIN_DATE_SCOPED_STORES and excel_name:
+    if _kojin_ns(store) in _KOJIN_DATE_SCOPED_STORES and excel_name:
         _scope = st.session_state.get(_kojin_scope_key(store))
         _scope_ng = _scope != excel_name        # scope 未設定（None）も不一致として扱う
         _incomplete = not all(k in st.session_state for k in _kojin_keys(store))
@@ -6344,10 +6399,15 @@ def _restore_auto_inputs(excel_name: str, store: str) -> None:
     # 秋葉原は個別画像を毎回デフォルトONにする
     if store == "秋葉原":
         st.session_state["kojin_enabled"] = True
+    # 新宿歌舞伎町の①かぶぱポストは②優秀台を毎回空欄にする（保存値・永続値を無視）。
+    # ②スランプ付き結果(auto_slump2)では日付単位保存なのでここへ入れない。
+    if _is_kabupa_page():
+        for i in range(48):
+            st.session_state[f"kojin_y_{i}_{store}"] = ""
     # ②を日付単位で扱う店舗は「②session_stateがどのExcelの値か」を記録する。
     # 上のループで kojin_z_0〜11 / kojin_y_0〜47 が全て excel_name の状態
     # （saved値 or ""）へ揃った直後にだけ更新する。折りたたみ中の13枠目以降も含む。
-    if store in _KOJIN_DATE_SCOPED_STORES:
+    if _kojin_ns(store) in _KOJIN_DATE_SCOPED_STORES:
         st.session_state[_kojin_scope_key(store)] = excel_name
 
 
@@ -6367,9 +6427,12 @@ def _kojin_default(excel_name: "str | None", store: str, key: str) -> str:
       2. 保存値にキーが無い → 永続キーかつ永続値があれば永続値
       3. それ以外 → ""
 
-    新宿歌舞伎町はかつて kojin_y_* を無条件に "" へ潰していたが、②を
-    _KOJIN_DATE_SCOPED_STORES へ入れて日付（Excel）単位保存へ切り替えたため廃止した。
+    新宿歌舞伎町の①かぶぱポスト（auto_slump）だけは kojin_y_* を常に "" にする。
+    ②スランプ付き結果（auto_slump2）は _KABUPA_SLUMP2_NS の名前空間で
+    日付（Excel）単位保存になるため、ここでは潰さない。
     """
+    if _is_kabupa_page() and key.startswith("kojin_y_"):
+        return ""
     saved      = _load_auto_inputs_json().get(excel_name, {}) if excel_name else {}
     persistent = _load_persistent_json().get(store, {})
     pk         = _persistent_keys(store)
@@ -10047,7 +10110,11 @@ def show_auto_page(with_slump: bool = False) -> None:
     """自動処理ページ: PIL パイプラインで全画像を生成する"""
     store = st.session_state.selected_store
     # バラエティ画像を有効にする店舗（秋葉原・新宿歌舞伎町のスランプ付き＋高田馬場結果ポスト用）
-    _variety_ui = (with_slump and store in ("秋葉原", "新宿歌舞伎町")) or store == "高田馬場"
+    # バラエティは 秋葉原スランプ付き・新宿歌舞伎町の①かぶぱ・高田馬場のみ。
+    # 新宿歌舞伎町の②スランプ付き結果(auto_slump2)では使わない。
+    _is_kabupa_pg = _is_kabupa_page()
+    _variety_ui = ((with_slump and (store == "秋葉原" or _is_kabupa_pg))
+                   or store == "高田馬場")
     # セクション番号を動的採番（実際に表示されたセクションだけ丸数字を消費し、番号飛びを防ぐ）
     _CIRCLED_SEC = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫"
     _sec_state = {"n": 0}
@@ -10055,7 +10122,8 @@ def show_auto_page(with_slump: bool = False) -> None:
         _sec_state["n"] += 1
         return _CIRCLED_SEC[_sec_state["n"] - 1]
     # その他の優秀台ピックアップ分割（秋葉原=①②③・上野新館/上野本館/新小岩=①②）
-    _sonota_split = with_slump and store in ("秋葉原", "上野新館", "上野本館", "新小岩", "新宿歌舞伎町")
+    _sonota_split = with_slump and _kojin_ns(store) in (
+        "秋葉原", "上野新館", "上野本館", "新小岩", _KABUPA_SLUMP2_NS)
     # ⑤オススメ機種の台番単位除外（新小岩スランプ付きのみ・2026-07-16）
     # True: ⑤登録を理由に全台系・高配分・ジャグラー画像／結果テキストを抑制せず、
     #       自動生成画像へ実際に掲載された台番だけを⑤ブロックから台番単位で除外する。
@@ -10065,7 +10133,7 @@ def show_auto_page(with_slump: bool = False) -> None:
     if store == "秋葉原":
         _sonota_extra_thrs.append((3000, "その他の優秀台+3,000枚以上.jpg"))
     if with_slump:
-        _slump_label = "かぶぱポストの結果" if store == "新宿歌舞伎町" else "スランプ付き結果ポスト用"
+        _slump_label = "かぶぱポストの結果" if _is_kabupa_pg else "スランプ付き結果ポスト用"
         st.markdown(f"## 【{store}】{_slump_label}")
     else:
         st.markdown(f"## 【{store}】結果ポスト用")
@@ -10498,7 +10566,7 @@ def show_auto_page(with_slump: bool = False) -> None:
     kojin_narabi2_title: str = ""
     # スランプ付きの対象店舗は台番範囲を一切使わない（UI非表示＋下流も空文字扱い）。
     # kojin_enabled=False でも参照されるため、必ずこのブロックの外で定義する。
-    _no_kojin_narabi = with_slump and store in _KOJIN_Y_EXPAND_SLUMP_STORES
+    _no_kojin_narabi = with_slump and _kojin_ns(store) in _KOJIN_Y_EXPAND_SLUMP_STORES
     sonota_extra_title: str = ""
     sonota_extra_text: str = ""
     sonota_extra_auto: str = "なし"
@@ -10523,14 +10591,14 @@ def show_auto_page(with_slump: bool = False) -> None:
         st.caption("指定した機種の個別画像を生成します。ここに入力した機種はその他の優秀台ピックアップから除外されます。")
         # 未描画 run を挟んだ後の初回描画でブラウザへ初期値を届けるための保存値参照用
         _kojin_excel = st.session_state.get("auto_current_excel")
-        # 新宿歌舞伎町（かぶぱ）は 左=優秀台・右=全台の並び。それ以外は 左=全台・右=優秀台。
-        # 枠数は全店舗共通（全台12枠・優秀台12→最大48枠）。
-        _is_kabupa = (store == "新宿歌舞伎町")
-        _kz_count = 12
-        # スランプ付きの対象店舗は②優秀台を最大48枠にする（全台は12枠のまま）。
+        # 新宿歌舞伎町の①かぶぱは 左=優秀台6個・右=全台3個。
+        # それ以外（②スランプ付き結果を含む）は 左=全台12・右=優秀台12→48。
+        _is_kabupa = _is_kabupa_pg
+        _kz_count = 3 if _is_kabupa else 12
+        # スランプ付きの対象は②優秀台を最大48枠にする（全台は12枠のまま）。
         # 台番範囲を使わない店舗と同一集合。
         _ky_expandable = _no_kojin_narabi
-        _ky_count = 48 if _ky_expandable else 12
+        _ky_count = 6 if _is_kabupa else (48 if _ky_expandable else 12)
         _cols_k = st.columns(2, gap="large")
         if _is_kabupa:
             col_ky, col_kz = _cols_k
@@ -10617,8 +10685,8 @@ def show_auto_page(with_slump: bool = False) -> None:
             kojin_narabi_title        = st.session_state.get(f"kojin_narabi_title_{store}", "")
             kojin_narabi2_ranges_text = st.session_state.get(f"kojin_narabi2_range_{store}", "")
             kojin_narabi2_title       = st.session_state.get(f"kojin_narabi2_title_{store}", "")
-        # 個別機種の優秀台ピックアップ（全店舗で表示）
-        if True:
+        # 個別機種の優秀台ピックアップ（新宿歌舞伎町の①かぶぱだけ非表示）
+        if not _is_kabupa_pg:
             st.markdown("**個別機種の優秀台ピックアップ**")
             st.caption("タイトルと台番を指定した機種は、貼った台番だけの画像を作り、自動高配分画像は生成しません。")
             for _pi in range(_KOJIN_PICK_COUNT):
@@ -10637,7 +10705,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         height=68,
                         on_change=_save_auto_inputs, args=(store,),
                     )
-        if True:  # その他の優秀台ピックアップ（全店舗で表示）
+        if not _is_kabupa_pg:  # その他の優秀台ピックアップ（①かぶぱは非表示）
             st.markdown("**その他の優秀台ピックアップ**")
             # 秋葉原スランプ付き: タイトル未設定/空文字なら既定文言を session_state へ入れて常時表示する。
             # Streamlit は key が既存だと value= を無視するため、_restore_auto_inputs が入れた ""
@@ -10787,7 +10855,9 @@ def show_auto_page(with_slump: bool = False) -> None:
             if _sue_tails_ui:
                 _sue_mode_opts = (["全台", "+1,000枚以上の優秀台", "プラス台"]
                                   if with_slump and store == "秋葉原"
-                                  else ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）", "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"])
+                                  else (["全台", "優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"]
+                                        if _is_kabupa_pg
+                                        else ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）", "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"]))
                 if st.session_state.get("suebangai_mode") not in _sue_mode_opts:
                     st.session_state.pop("suebangai_mode", None)
                 _sue_mode = st.radio("モード", _sue_mode_opts, key="suebangai_mode",
@@ -10955,7 +11025,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                                       on_change=_save_auto_inputs, args=(store,))
             _jug_tails_ui = [t.strip() for t in [_jt1, _jt2, _jt3] if t.strip()]
             if _jug_tails_ui:
-                _jug_sue_mode_opts = ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）", "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"]
+                _jug_sue_mode_opts = (["全台", "優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"]
+                                      if _is_kabupa_pg
+                                      else ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）", "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"])
                 if st.session_state.get("jug_sue_mode") not in _jug_sue_mode_opts:
                     st.session_state.pop("jug_sue_mode", None)
                 _jug_sue_mode = st.radio("モード（ジャグラー）", _jug_sue_mode_opts, key="jug_sue_mode",
@@ -11116,7 +11188,7 @@ def show_auto_page(with_slump: bool = False) -> None:
     # ── ⑤ オススメ機種ピックアップ（拡張機能店舗）──────────────────────
 
     recommended_blocks: list[dict] = []
-    if store in EXTENDED_FEATURE_STORES:
+    if store in EXTENDED_FEATURE_STORES and not _is_kabupa_pg:
         # 保存済み機種名を受け取り、ウィジェットのキー不在時の seed に使う
         # （default="" のままだと ⑤OFF→ON の再描画で空文字が焼き付く）
         _rec_saved_m = _init_recommended_settings(store)
@@ -11317,8 +11389,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                 on_change=_save_auto_inputs, args=(store,),
             )
 
-    # ── ⑥ 結果テキスト素材メモ（拡張機能店舗）──────────────────────
-    if store in EXTENDED_FEATURE_STORES:
+    # ── ⑥ 結果テキスト素材メモ（拡張機能店舗・①かぶぱは非表示）──────────
+    if store in EXTENDED_FEATURE_STORES and not _is_kabupa_pg:
         st.markdown(f"### {_sec_num()} 結果テキスト素材メモ")
         memo_enabled = st.checkbox("結果テキスト素材メモを使用する", key=f"memo_enabled_{store}")
         if memo_enabled:
@@ -11410,25 +11482,29 @@ def show_auto_page(with_slump: bool = False) -> None:
         # 立っていないので成立せず、従来どおりフル再構築へ入る。
         _manual_regen = (
             _unit_regen
-            and (store == "新宿歌舞伎町" or (with_slump and store == "秋葉原"))
+            and (_is_kabupa_pg or (with_slump and store == "秋葉原"))
             and bool(st.session_state.get(f"_manual_preview_mode_{store}", False))
         )
         if _manual_regen:
             _unit_regen = False   # フルプレビュー経路には入れない
         if _auto_previews is None or _unit_regen or _manual_regen:
-            if store == "新宿歌舞伎町":
-                # 新宿歌舞伎町（かぶぱポストの結果）はスマホ幅（≤640px）でだけ
-                # 「📝 記入部分のみ」を赤で強調する（PC幅・他店舗は従来のグレー）。
+            if _is_kabupa_pg:
+                # 新宿歌舞伎町の①かぶぱポスト：記入したもののみ生成するため
+                # 「🔍 プレビュー生成」は非表示・「📝 記入部分のみ」のみ表示
+                _full_prev_btn = False
+                # スマホ幅（≤640px）のみ：プレビュー作成ボタンを赤で強調（PCは従来のグレー）
                 st.markdown(
                     "<style>@media (max-width:640px){.st-key-manual_only_preview_btn button{"
                     "background:#FF4B4B!important;border-color:#FF4B4B!important;color:#fff!important;}}</style>",
                     unsafe_allow_html=True,
                 )
-            _mc1, _mc2 = st.columns(2)
-            with _mc1:
-                _full_prev_btn = st.button("🔍 プレビュー生成", key="auto_preview_btn", use_container_width=True)
-            with _mc2:
                 _manual_prev_btn = st.button("📝 記入部分のみプレビュー作成", key="manual_only_preview_btn", use_container_width=True)
+            else:
+                _mc1, _mc2 = st.columns(2)
+                with _mc1:
+                    _full_prev_btn = st.button("🔍 プレビュー生成", key="auto_preview_btn", use_container_width=True)
+                with _mc2:
+                    _manual_prev_btn = st.button("📝 記入部分のみプレビュー作成", key="manual_only_preview_btn", use_container_width=True)
             if _full_prev_btn or _unit_regen:
                 st.session_state.pop(f"_manual_preview_mode_{store}", None)
                 _save_auto_inputs(store)
@@ -12208,7 +12284,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         # 🎯掲載台を選ぶ（新宿歌舞伎町＝かぶぱポストの結果のみ）:
                         # 対象画像 → {kind, machine(画像キー), bans(除外前の掲載候補)}。
                         # 他店舗の📝経路ではパネルを出さないため空のままにする。
-                        _kabupa_unit = (store == "新宿歌舞伎町")
+                        _kabupa_unit = _is_kabupa_pg
                         # 📝経路で②個別「優秀台」の🎯を有効にする判定。
                         # _kabupa_unit 自体は広げない（④末尾・⑤バラエティのパネルまで
                         # 秋葉原に付いてしまうため）。秋葉原は②個別優秀台だけを対象にする。
@@ -12496,11 +12572,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                             # スランプ付きのかぶぱ以外）でも、フォールバック元として必要なため。
                             # ※これは🎯パネルを増やす変更ではない（パネルは _aprev_unit_key
                             #   に要素がある場合だけ描画されるので従来どおり）。
-                            if _manual_unit_ky or (with_slump and store != "新宿歌舞伎町"):
+                            if _manual_unit_ky or (with_slump and not _is_kabupa_pg):
                                 st.session_state[f"_manual_unit_df_{store}"] = _df_m
                                 st.session_state[f"_manual_unit_di_{store}"] = _diff_m
-                            # 新宿歌舞伎町（かぶぱポストの結果）：プレビュー時に結果テキストも生成して保持
-                            if store == "新宿歌舞伎町":
+                            # 新宿歌舞伎町の①かぶぱポスト：プレビュー時に結果テキストも生成して保持
+                            if _is_kabupa_pg:
                                 import datetime as _dt_kp
                                 _kp_date = None
                                 try:
@@ -12654,7 +12730,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     )
             # 新宿歌舞伎町（かぶぱポストの結果）：画像の下に結果テキストをコピー可能な形で表示
             _kabupa_prev_text = st.session_state.get(f"_kabupa_prev_text_{store}")
-            if store == "新宿歌舞伎町" and _kabupa_prev_text:
+            if _is_kabupa_pg and _kabupa_prev_text:
                 st.markdown("---")
                 import html as _html_kp
                 _safe_kp = _html_kp.escape(_kabupa_prev_text)
@@ -12693,11 +12769,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                     # 「その他の優秀台」へ回らなかった。📝が保存済みの df/diff をフォールバックに使う。
                     # _pv_hr / _pv_zen / _pv_ex は復元しない（＝記入していない自動抽出画像は増えない）。
                     # 対象はスランプ付き結果ポスト用の📝経路（稲毛・上野新館・上野本館・
-                    # 新小岩・秋葉原・新宿歌舞伎町）。通常ページ（with_slump=False）は対象外。
-                    # かぶぱの結果テキストは _build_kabupa_result_text() のままで変更しない。
+                    # 新小岩・秋葉原＋新宿歌舞伎町の②スランプ付き結果）。
+                    # ①かぶぱは結果テキストが _build_kabupa_result_text() の別系統のため除外。
+                    # 通常ページ（with_slump=False）も対象外。
                     _manual_son_upd = (
                         bool(st.session_state.get(f"_manual_preview_mode_{store}", False))
-                        and with_slump
+                        and with_slump and not _is_kabupa_pg
                     )
                     _pv_df     = st.session_state.get(_aprev_df_key)
                     _pv_diff   = st.session_state.get(_aprev_di_key)
@@ -13446,7 +13523,7 @@ def show_auto_page(with_slump: bool = False) -> None:
     st.markdown(f"### {_sec_num()} 実行")
     # 新宿歌舞伎町（かぶぱ）×スマホ幅（≤640px）のみ：プレビュー前は「自動処理を開始」を
     # 非表示、プレビュー後はグレーで控えめにして誤爆を防ぐ。PC幅・他店舗は無変更。
-    if store == "新宿歌舞伎町":
+    if _is_kabupa_pg:
         if st.session_state.get(f"auto_preview_imgs_{store}") is None:
             st.markdown(
                 "<style>@media (max-width:640px){.st-key-auto_run{display:none!important;}}</style>",
@@ -13556,10 +13633,10 @@ def show_auto_page(with_slump: bool = False) -> None:
 
                     # 📝経路で②個別優秀台のチェック外しを「生成前」に処理する対象（秋葉原スランプ付き）。
                     # OFF機種からその他の優秀台へ回す台番（この⑧処理内だけのローカル集合）。
-                    _manual_son_upd_e = with_slump
+                    _manual_son_upd_e = (with_slump and not _is_kabupa_pg)
                     _m_son_extra_bans: set[int] = set()
                     # 🎯掲載台を選ぶ（新宿歌舞伎町＝かぶぱポストの結果のみ）
-                    _kabupa_unit_e = (store == "新宿歌舞伎町")
+                    _kabupa_unit_e = _is_kabupa_pg
                     # 📝経路の②個別「優秀台」🎯（📝プレビューと同じ判定・同じ安定キー）
                     _manual_unit_ky_e = _kabupa_unit_e or (with_slump and store == "秋葉原")
 
@@ -14094,7 +14171,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 if _sf_rt.empty: continue
                                 _sfd_rt = _diff_exec_m.loc[_sf_rt.index]
                                 _m_jug_data.append({"tail": _t_rt, "total": len(_sf_rt), "win_count": int((_sfd_rt > 0).sum()), "avg_diff": int(round(_sfd_rt.mean())), "plus1000": _sue_plus1000_list(_sf_rt, _diff_exec_m, allowed_bans=_jug_allow_m)})
-                        if store == "新宿歌舞伎町":
+                        if _is_kabupa_pg:
                             # かぶぱポストの結果：②個別画像で記入した機種名（全台＋優秀台）を
                             # 順序保持・重複除去して ✅ ブロックにする。
                             # 今後、他ピックアップの機種を足す場合はこのリストに追記する。
@@ -25125,6 +25202,9 @@ def main() -> None:
             st.markdown(f"📍 **{st.session_state.selected_store}**")
             _bc_slump = "📊 かぶぱポストの結果" if st.session_state.selected_store == "新宿歌舞伎町" else "📊 スランプ付き結果ポスト用"
             st.markdown(f"　→ **{_bc_slump}**")
+        elif page == "auto_slump2":
+            st.markdown(f"📍 **{st.session_state.selected_store}**")
+            st.markdown("　→ **📈 スランプ付き結果**")
         elif page == "rote":
             st.markdown(f"📍 **{st.session_state.selected_store}**")
             st.markdown("　→ **📋 ローテ用**")
@@ -25151,6 +25231,10 @@ def main() -> None:
     elif st.session_state.page == "auto":
         show_auto_page()
     elif st.session_state.page == "auto_slump":
+        show_auto_page(with_slump=True)
+    elif st.session_state.page == "auto_slump2":
+        # 新宿歌舞伎町の②スランプ付き結果（上野新館型）。①かぶぱと同じ関数を
+        # 共有し、_is_kabupa_page() が False になることで挙動が切り替わる。
         show_auto_page(with_slump=True)
     elif st.session_state.page == "rote":
         show_rote_page()

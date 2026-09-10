@@ -488,6 +488,7 @@ C_NEW_TITLE_BG_RGBA   = (112, 0, 224, 255)     # #7000E0 タイトルバー背�
 C_NEW_HEADER_BG       = "#290068"              # 列見出しバー背景
 C_NEW_HEADER_FG       = "#FFFFFF"              # 列見出しバー文字（白統一）
 C_NEW_SUMMARY_BG_RGBA = (255, 111, 165, 255)   # #FF6FA5 下段サマリーバー背景
+C_NEW_DATA_FG         = "#4B0082"              # 白地データ行の通常文字（差枚列は対象外）
 # サマリーバーの文字色は従来どおり黒 (0,0,0)。白へ変更しない。
 
 
@@ -1224,6 +1225,9 @@ def draw_table_image(
     y += _header_h
 
     # ── データ行 ─────────────────────────────────────────────────────
+    # 通常文字色（台番・機種名・ゲーム数・BIG・REG・AT・合算確率 …）。
+    # 差枚列の C_PLUS / C_MINUS / C_ZERO の色分けは**変更しない**。
+    _data_fg = C_NEW_DATA_FG if _table_theme_new() else C_ZERO
     for ri, row in enumerate(rows):
         bg = C_ROW_BG
         x  = 0
@@ -1258,7 +1262,7 @@ def draw_table_image(
             else:
                 # 差枚以外はすべてセンタリング
                 tx = x + (col_w[ci] - tw) // 2 - tb[0]
-                draw.text((tx, ty_c), cell, fill=C_ZERO, font=fn_data)
+                draw.text((tx, ty_c), cell, fill=_data_fg, font=fn_data)
 
             x += col_w[ci]
         y += _row_h
@@ -2900,6 +2904,11 @@ def _build_machine_img(
 
     # ── タイトルバー（横幅に比例してBAR_Hを自動計算・視覚的に統一）──────
     LINE_H  = 6
+    # 結果ポスト系の新デザインは赤ラインを**描かず、その分の余白も残さない**
+    # （LINE_H=0 で _top_h = BAR_H となり、紫バーの直下から表が始まる）。
+    # 従来デザイン（他店舗・記事用）は LINE_H=6 のまま変更しない。
+    if _table_theme_new():
+        LINE_H = 0
     BAR_H   = round(w * 73 / 950)   # 標準幅950pxのとき73px
     FONT_SZ = round(BAR_H * 40 / 73)
 
@@ -2986,7 +2995,8 @@ def _build_machine_img(
         final   = Image.new("RGBA", (w, total_h), (255, 255, 255, 255))
         if not no_bar:
             final.paste(bar,   (0, 0))
-            final.paste(line,  (0, BAR_H))
+            if LINE_H:
+                final.paste(line,  (0, BAR_H))
         final.paste(table_img, (0, _top_h))
         final.paste(pink,      (0, _top_h + table_img.height))
     else:
@@ -2999,7 +3009,8 @@ def _build_machine_img(
         final   = Image.new("RGBA", (w, total_h), (255, 255, 255, 255))
         if not no_bar:
             final.paste(bar,   (0, 0))
-            final.paste(line,  (0, BAR_H))
+            if LINE_H:
+                final.paste(line,  (0, BAR_H))
         final.paste(table_img, (0, _top_h))
 
     return final.convert("RGB")

@@ -237,6 +237,7 @@ HEADER_BG  = ((41, 0, 104) if THEME_NEW else (243, 230, 200))   # 新#290068 / �
 HEADER_FG  = ((255, 255, 255) if THEME_NEW else (75, 0, 130))   # 新#FFFFFF / 旧#4B0082
 CELL_BG    = (255, 255, 255)   # white
 BORDER_C   = (170, 170, 170)   # #AAAAAA
+DATA_FG    = ((75, 0, 130) if THEME_NEW else (0, 0, 0))   # 新#4B0082 / 旧 ZERO_C
 PLUS_C     = (0,   0,   204)   # #0000CC
 MINUS_C    = (204, 0,   0  )   # #CC0000
 ZERO_C     = (0,   0,   0  )
@@ -326,7 +327,8 @@ def build_table_pil(group, diff_raw_s, hq=1.0):
                     fg = ZERO_C
                 align = "right"
             else:
-                fg, align = ZERO_C, "center"
+                # 通常文字色。差枚列の PLUS_C / MINUS_C / ZERO_C は変更しない。
+                fg, align = DATA_FG, "center"
             _draw_cell(draw, col_x(ci), y, cell_ow[ci], _row_h,
                        val, CELL_BG, fg, font, align)
     return img
@@ -352,7 +354,9 @@ for run_idx, (run, title, _dup_set) in enumerate(_JOBS):
 
     # --- タイトルバー（青バー＋赤ライン） ---
     bar_h  = round(w * 73 / 950)   # 標準幅950pxのとき73px（_build_machine_imgと統一）
-    line_h = 6
+    # 結果ポスト系の新デザインは赤ラインを描かず、その分の余白も残さない
+    # （_build_machine_img と同じ扱い）。従来デザインは 6px のまま。
+    line_h = 0 if THEME_NEW else 6
     font_size_bar = round(bar_h * 40 / 73)
 
     blue_bar = Image.new("RGBA", (w, bar_h),
@@ -393,7 +397,8 @@ for run_idx, (run, title, _dup_set) in enumerate(_JOBS):
     canvas  = Image.new("RGBA", (w, total_h), (255, 255, 255, 255))
     if not NO_BAR:
         canvas.paste(blue_bar, (0, 0))
-        canvas.paste(red_line, (0, bar_h))
+        if line_h:
+            canvas.paste(red_line, (0, bar_h))
     canvas.paste(top_img,  (0, _top_h))
 
     # --- ピンクのサマリーバー ---

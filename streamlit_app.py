@@ -537,13 +537,23 @@ _SLUMP_THEME_STORES: frozenset[str] = frozenset({"稲毛"})
 # 通常結果ポスト用(auto)と⑥個別(work)は `if with_slump:` によりスランプを生成しない。
 _SLUMP_THEME_PAGES:  frozenset[str] = frozenset({"auto_slump"})
 
-C_SL_GRAPH_BG  = (253, 249, 246)   # #FDF9F6 グラフ地
-C_SL_HEADER_BG = (239, 227, 245)   # #EFE3F5 ヘッダー2帯の地
+C_SL_GRAPH_BG  = (253, 249, 246)   # #FDF9F6 旧グラフ地（ベタ塗り）。現在はグラデーションを使うため未使用・履歴として残す
+C_SL_HEADER_BG = (239, 227, 245)   # #EFE3F5 グラデーションの最も濃い側（旧: ヘッダー2帯のベタ塗り）
 C_SL_AXIS      = (75,  0,   130)   # #4B0082 縦軸・0ライン・目盛文字
 C_SL_GRID      = (207, 189, 229)   # #CFBDE5 補助線（破線）
 C_SL_FRAME     = (216, 198, 227)   # #D8C6E3 外枠・区切り
 C_SL_TEXT      = (75,  0,   130)   # #4B0082 ヘッダー内 機種名/台番・差枚・下部機種名
 C_SL_TEXT_EDGE = (255, 255, 255)   # 下部機種名の縁取り（淡背景なので白）
+
+# 背景は「白地＋ごく淡い紫のグラデーション」。中央はほぼ #FFFFFF、外周がわずかに紫、
+# 四隅がいちばん紫になる。#EFE3F5 を広い面へベタ塗りしない（弱く混ざる程度にする）。
+# 白→C_SL_GRAD_MAX の線形補間なので、u≈0.45 付近が #F8F2FC 相当になる。
+C_SL_BASE_BG   = (255, 255, 255)   # #FFFFFF 中央（基本色）
+C_SL_GRAD_MAX  = C_SL_HEADER_BG    # #EFE3F5 四隅（グラデーションの最も濃い側）
+_SL_GRAD_R_W   = 0.60   # 中心からの放射成分の重み
+_SL_GRAD_C_W   = 0.40   # 四隅成分の重み
+_SL_GRAD_R_P   = 1.55   # 放射成分の指数（大きいほど中央が白く残る）
+_SL_GRAD_C_P   = 0.85   # 四隅成分の指数
 
 # base_3000_bk.png の実測レイアウト（再配色の領域判定に使う。**PNGは変更しない**）
 _SL_FRAME_PAD   = 10    # 外枠の幅（左右上下とも10px）
@@ -583,9 +593,13 @@ def _slump_template_image(template_path) -> "Image.Image":
 
     再配色は「元画素の明るさ t（0=黒地／1=白）で 背景色→前景色 を線形補間」する。
     白黒の2値置換ではないため、文字・破線・角丸のアンチエイリアス階調がそのまま残る。
-    前景色は座標で決める:
-      * 外枠／区切り            → C_SL_FRAME
-      * ヘッダー2帯            → 地 C_SL_HEADER_BG（角丸のAAは C_SL_FRAME へ）
+
+    背景（t=0 側）は**カード全体で1つの連続したグラデーション**にする。
+    中央はほぼ #FFFFFF、外周がわずかに紫、四隅がいちばん紫。ヘッダー2帯と
+    グラフ地で同じ場を使うので、**帯だけ別の紫い長方形に見えない**。
+    前景色（t=1 側）は座標で決める:
+      * 外枠／区切り            → C_SL_FRAME（グラデーションを掛けない単色）
+      * ヘッダー2帯            → 角丸のAAは C_SL_FRAME へ
       * 縦軸 x=24,25            → C_SL_AXIS
       * 0ライン y=Y_ZERO±1      → C_SL_AXIS
       * 補助線 y=Y_ZERO±k*PX_1000±1 (k=1..3) → C_SL_GRID
@@ -615,6 +629,31 @@ def _slump_template_image(template_path) -> "Image.Image":
             _c = _Y_ZERO + _sgn * _k * _PX_1000
             _grid_rows |= {_c - 1, _c, _c + 1}
 
+    # ── 背景グラデーション（白基調・中央ほぼ白／外周と四隅がごく淡い紫）──
+    # 放射成分 r（中心からの距離）と四隅成分 c（|nx|*|ny|）を重ね合わせる。
+    # 単純な縦方向の一直線グラデーションではなく「白いパネルに淡紫の光が入る」質感。
+    _wm1, _hm1 = max(1, w - 1), max(1, h - 1)
+    _rt2 = math.sqrt(2.0)
+    _nxs = [2.0 * _x / _wm1 - 1.0 for _x in range(w)]
+    _nys = [2.0 * _y / _hm1 - 1.0 for _y in range(h)]
+    _gd  = (C_SL_GRAD_MAX[0] - C_SL_BASE_BG[0],
+            C_SL_GRAD_MAX[1] - C_SL_BASE_BG[1],
+            C_SL_GRAD_MAX[2] - C_SL_BASE_BG[2])
+    _grad: list = []
+    for y in range(h):
+        _ny = _nys[y]
+        _row = []
+        for x in range(w):
+            _nx = _nxs[x]
+            _u = (_SL_GRAD_R_W * (math.hypot(_nx, _ny) / _rt2) ** _SL_GRAD_R_P
+                  + _SL_GRAD_C_W * (abs(_nx) * abs(_ny)) ** _SL_GRAD_C_P)
+            if _u > 1.0:
+                _u = 1.0
+            _row.append((C_SL_BASE_BG[0] + _gd[0] * _u,
+                         C_SL_BASE_BG[1] + _gd[1] * _u,
+                         C_SL_BASE_BG[2] + _gd[2] * _u))
+        _grad.append(_row)
+
     _den = float(_SL_LIGHT_V - _SL_DARK_V)
     for y in range(h):
         _is_frame_row = (y < _SL_FRAME_PAD or y >= h - _SL_FRAME_PAD
@@ -628,11 +667,11 @@ def _slump_template_image(template_path) -> "Image.Image":
             t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
             _is_frame_col = (x < _SL_FRAME_PAD or x >= w - _SL_FRAME_PAD)
             if _is_frame_row or _is_frame_col:
-                bg, fg = C_SL_FRAME, C_SL_FRAME
+                bg, fg = C_SL_FRAME, C_SL_FRAME      # 外枠・区切りは単色のまま
             elif _is_hdr_row:
-                bg, fg = C_SL_HEADER_BG, C_SL_FRAME
+                bg, fg = _grad[y][x], C_SL_FRAME     # ヘッダー帯もグラフ地と同じ場
             else:
-                bg = C_SL_GRAPH_BG
+                bg = _grad[y][x]
                 if _SL_AXIS_X[0] <= x <= _SL_AXIS_X[1] or y in _axis_rows:
                     fg = C_SL_AXIS
                 elif y in _grid_rows:

@@ -555,42 +555,42 @@ C_SL_TEXT_EDGE = (255, 255, 255)   # 下部機種名の縁取り（淡背景な�
 #   さらに右下から左上へ斜めにスキャンすると 67→50→36→20→白 と段になっており、
 #   半透明の斜めレイヤーが複数枚重なっていることが分かる。
 C_SL_BASE_BG    = (255, 255, 255)   # #FFFFFF 各セルの基本色（白地を最優先）
-C_SL_CELL_MAX   = (234, 220, 243)   # #EADCF3 グラフ本体セルの最も濃い側（u=1 のときの色）
-C_SL_CELL_MAX_H = (220, 201, 238)   # #DCC9EE ヘッダー2セルの最も濃い側
-# セルごとの「最も濃い側」の色。グラフ本体は指定どおり #EADCF3 までに留め、
-# ヘッダー2セルだけ見本 aaa.jpg に合わせてもう一段だけ濃くする。
-_SL_CELL_MAXC = {"hdr1": C_SL_CELL_MAX_H, "hdr2": C_SL_CELL_MAX_H, "graph": C_SL_CELL_MAX}
-# セルの下地（u の下駄）。見本ではヘッダー2セルが淡紫のパネル、グラフ本体が白地。
-_SL_CELL_BASE = {"hdr1": 0.42, "hdr2": 0.42, "graph": 0.0}
+C_SL_PURPLE     = (199, 180, 221)   # #C7B4DD u=1.0 の淡紫（見本 aa.png の最も濃い部分の実測）
 
-# セルごとの重み (左, 右, 上, 下, 左上, 右上, 左下, 右下)。**四隅を独立させ対称にしない。**
-# aaa.jpg の 5x5 実測（補助線・0ラインを除外）に合わせてある:
-#   機種名セル … 左端が全行にわたって濃い＋右下が上がる
-#   台番セル   … 左端＋上段が帯状に濃い
-#   グラフセル … 縁ではなく**四隅**（右下 > 左上 > 左下 > 右上）で、中央は白いまま
-_SL_CELL_W = {
-    "hdr1":  (0.42, 0.20, 0.10, 0.06, 0.60, 0.20, 0.28, 0.52),
-    "hdr2":  (0.44, 0.24, 0.26, 0.06, 0.44, 0.24, 0.32, 0.56),
-    "graph": (0.10, 0.10, 0.08, 0.12, 1.15, 0.90, 0.85, 6.00),
+# セルの淡紫の強さ u(0..1) を決めるパラメータ。確認用サンプルで承認された値。
+# **細い斜めストライプを何本も描く方式は使わない。** 左右の端から指数的に減衰する
+# 大きな面と、少数の広い斜めバンドだけで作る（左右対称にしない）。
+_SL_HDR_BASE      = 0.045   # ヘッダーの下地
+_SL_HDR_L_AMT, _SL_HDR_L_K = 0.92, 0.085   # 左：大きく柔らかい淡紫の面
+_SL_HDR_R_AMT, _SL_HDR_R_K = 0.62, 0.055   # 右：やや小ぶりな淡紫の面
+_SL_HDR_TB        = 0.045   # 上下の縁をほんのり
+# (lo, hi, feather, amount) の斜めバンド。amount が負なら白い光沢面。
+# 機種名セルと台番セルで位置・量を変え、完全同一にしない。
+_SL_HDR_BANDS = {
+    0: [(-0.02, 0.16, 0.09, -0.26), (0.62, 1.06, 0.20, 0.10)],   # 機種名セル
+    1: [(0.02, 0.21, 0.10, -0.22), (0.55, 1.02, 0.22, 0.13)],    # 台番セル
 }
-_SL_CELL_EDGE_P   = 4.0   # 縁成分の指数
-_SL_CELL_CORNER_P = 5.0   # コーナー成分の指数（大きいほど中央が白く残る）
-# 斜めレイヤー。(fx+fy) のしきい値 lo..hi でスムーズに立ち上げ、amount を加算する。
-# aaa.jpg の右下を斜めにスキャンすると fx+fy≈1.55 付近から段状に濃くなるため、
-# グラフセルは 1.52 / 1.72 / 1.87 の3枚を重ねて、外側ほど広く薄い段差を作る。
-_SL_CELL_WEDGE = {
-    "hdr1":  [(1.55, 1.80, 0.14)],
-    "hdr2":  [(1.52, 1.78, 0.16)],
-    "graph": [(1.50, 1.68, 0.18), (1.70, 1.84, 0.20), (1.86, 1.97, 0.24)],
-}
-# 斜めの光沢ストライプ。ピクセル基準の 45 度方向 sp=((x-x0)-(y-y0))/幅 の帯へ
-# amount を加算する。**amount が負なら明るい帯**（見本のヘッダーに走る光沢）。
-# セルごとに位置も本数も変えるので、四隅対称にはならない。
-_SL_CELL_STRIPE = {
-    "hdr1":  [(0.02, 0.09, -0.30), (0.10, 0.15, -0.16), (0.16, 0.21, -0.26)],
-    "hdr2":  [(0.03, 0.10, -0.30), (0.11, 0.16, -0.16), (0.17, 0.22, -0.26)],
-    "graph": [],   # グラフ本体は白地優先。斜めの重なりは右下の _SL_CELL_WEDGE で作る
-}
+# グラフ本体：中央はかなり白く、四隅（とくに右下）へ大きな斜め面が入る。
+# **赤いグラフ線の背景を横切る白い斜め光沢は入れない。**
+_SL_GRAPH_BASE   = 0.025
+_SL_GRAPH_CORNER = ((0.55, 2.2), (0.30, 2.4), (0.18, 2.6), (0.85, 1.9))  # 左上/左下/右上/右下
+_SL_GRAPH_WEDGE  = ((1.42, 0.26, 0.14), (1.66, 0.20, 0.16), (1.86, 0.12, 0.20))
+_SL_GRAPH_EDGE_AMT, _SL_GRAPH_EDGE_K = 0.10, 0.035   # 左右端のごく細い立ち上がり
+
+# ── 右下へ入れる猫（背景装飾）──────────────────────────────────
+# `assets/slump/neko_5000_1.bmp` は**読み取り専用**。矩形をそのまま貼らず、
+# 「猫の画素だけ」のアルファマスクを作って合成する。
+_SL_NEKO_PATH = os.path.join(BASE_DIR, "assets", "slump", "neko_5000_1.bmp")
+# 元ファイルの猫の bbox は (148,190,321,387) だが、上端に破線1本・右端/下端に
+# カードの枠線が入るため内側へ寄せて切り出す。位置と大きさは旧枠基準で合わせる。
+_SL_NEKO_BOX   = (152, 194, 319, 385)
+_SL_NEKO_REF   = (148, 190, 321, 387)   # 位置・縮尺の基準にする旧枠
+_SL_NEKO_REF_W = 206                    # 旧枠を貼っていた幅
+_SL_NEKO_REF_H = 238                    # 同 高さ
+_SL_NEKO_BASE  = 26     # 地色のゆらぎ。これ以下は完全透明
+_SL_NEKO_CAT   = 74     # 猫の濃さの上限（ここで alpha=255）
+_SL_NEKO_LINE  = 90     # これ以上は破線・罫線・枠 → 猫から除外
+_SL_NEKO_K     = 0.198  # 最終的な合成強度（背景装飾としてうっすら見える濃さ）
 
 # base_3000_bk.png の実測レイアウト（再配色の領域判定に使う。**PNGは変更しない**）
 _SL_FRAME_PAD   = 10    # 外枠の幅（左右上下とも10px）
@@ -618,6 +618,101 @@ def _slump_theme_new() -> bool:
                 and st.session_state.get("selected_store") in _SLUMP_THEME_STORES)
     except Exception:
         return False
+
+
+_SL_NEKO_CACHE: dict = {}
+
+
+def _slump_neko_alpha():
+    """猫だけのアルファマスク（貼り付けサイズへ縮小済み）を返す。失敗時は None。
+
+    **元ファイル `assets/slump/neko_5000_1.bmp` は読み取るだけで変更しない。**
+    元画像には猫の上に破線・罫線・枠線が焼き込まれているため、矩形をそのまま
+    合成すると点線まで持ち込んでしまう。そこで:
+
+      1. 濃さ d = 255 - min(R,G,B) を作る
+      2. d >= `_SL_NEKO_LINE` は破線・罫線・枠 → 線として除外（1px膨張してAAも除去）
+      3. 残りから猫のアルファを作る（`_SL_NEKO_BASE` 以下は完全透明）
+      4. 線だった画素は「穴」なので**上下の猫アルファから縦方向に補間して埋める**
+
+    4 が要。単に alpha=0 にすると猫の中で線の跡が抜けて、合成後に
+    **白い点線**として見えてしまう。猫の外では上下とも 0 なので 0 のまま＝
+    完全透明で、下の白＋淡紫グラデーションがそのまま途切れず出る。
+    """
+    _hit = _SL_NEKO_CACHE.get("a")
+    if _hit is not None:
+        return _hit
+    try:
+        _src = Image.open(_SL_NEKO_PATH).convert("RGB")
+    except Exception:
+        _SL_NEKO_CACHE["a"] = None
+        return None
+    _sp = _src.load()
+    _x0, _y0, _x1, _y1 = _SL_NEKO_BOX
+    _cw, _ch = _x1 - _x0, _y1 - _y0
+
+    _dark = [[0] * _cw for _ in range(_ch)]
+    _line = [[False] * _cw for _ in range(_ch)]
+    for _yy in range(_ch):
+        for _xx in range(_cw):
+            _d = 255 - min(_sp[_x0 + _xx, _y0 + _yy])
+            _dark[_yy][_xx] = _d
+            if _d >= _SL_NEKO_LINE:
+                _line[_yy][_xx] = True
+    _line2 = [_row[:] for _row in _line]
+    for _yy in range(_ch):
+        for _xx in range(_cw):
+            if _line[_yy][_xx]:
+                for _dy in (-1, 0, 1):
+                    for _dx in (-1, 0, 1):
+                        _ny, _nx = _yy + _dy, _xx + _dx
+                        if 0 <= _ny < _ch and 0 <= _nx < _cw:
+                            _line2[_ny][_nx] = True
+
+    def _a_of(_d: int) -> int:
+        if _d <= _SL_NEKO_BASE:
+            return 0
+        return min(255, round((_d - _SL_NEKO_BASE)
+                              / (_SL_NEKO_CAT - _SL_NEKO_BASE) * 255))
+
+    _av = [[0] * _cw for _ in range(_ch)]
+    for _yy in range(_ch):
+        for _xx in range(_cw):
+            if not _line2[_yy][_xx]:
+                _av[_yy][_xx] = _a_of(_dark[_yy][_xx])
+    _fill = [_row[:] for _row in _av]
+    for _xx in range(_cw):
+        for _yy in range(_ch):
+            if not _line2[_yy][_xx]:
+                continue
+            _up = _yy - 1
+            while _up >= 0 and _line2[_up][_xx]:
+                _up -= 1
+            _dn = _yy + 1
+            while _dn < _ch and _line2[_dn][_xx]:
+                _dn += 1
+            _va = _av[_up][_xx] if _up >= 0 else None
+            _vb = _av[_dn][_xx] if _dn < _ch else None
+            if _va is None and _vb is None:
+                _fill[_yy][_xx] = 0
+            elif _va is None:
+                _fill[_yy][_xx] = _vb
+            elif _vb is None:
+                _fill[_yy][_xx] = _va
+            else:
+                _w2 = (_yy - _up) / (_dn - _up)
+                _fill[_yy][_xx] = round(_va + (_vb - _va) * _w2)
+
+    _alpha = Image.new("L", (_cw, _ch), 0)
+    _ap = _alpha.load()
+    for _yy in range(_ch):
+        for _xx in range(_cw):
+            _ap[_xx, _yy] = _fill[_yy][_xx]
+    _sx = _SL_NEKO_REF_W / (_SL_NEKO_REF[2] - _SL_NEKO_REF[0])
+    _sy = _SL_NEKO_REF_H / (_SL_NEKO_REF[3] - _SL_NEKO_REF[1])
+    _alpha = _alpha.resize((round(_cw * _sx), round(_ch * _sy)), Image.LANCZOS)
+    _SL_NEKO_CACHE["a"] = _alpha
+    return _alpha
 
 
 def _slump_template_image(template_path) -> "Image.Image":
@@ -667,66 +762,101 @@ def _slump_template_image(template_path) -> "Image.Image":
             _c = _Y_ZERO + _sgn * _k * _PX_1000
             _grid_rows |= {_c - 1, _c, _c + 1}
 
-    # ── 背景装飾（セルごとに独立・白地＋淡紫の角グラデーション／斜めレイヤー）──
-    # セル内の相対座標 fx, fy から、左/右/上/下の縁と 左上/右下 コーナーの成分を
-    # **非対称な重み**で足し、さらに (fx+fy) のしきい値で斜めレイヤーを重ねる。
-    _cells = (("hdr1",  _SL_HDR1[0], _SL_HDR1[1]),
-              ("hdr2",  _SL_HDR2[0], _SL_HDR2[1]),
-              ("graph", _SL_SEP2[1] + 1, h - _SL_FRAME_PAD - 1))
+    # ── 背景装飾（セルごとに独立・白地＋淡紫の角グラデーション／斜めの面）──
+    # 確認用サンプルで承認されたロジックをそのまま使う。
+    _cells = (("hdr1",  _SL_HDR1[0], _SL_HDR1[1], 0),
+              ("hdr2",  _SL_HDR2[0], _SL_HDR2[1], 1),
+              ("graph", _SL_SEP2[1] + 1, h - _SL_FRAME_PAD - 1, 2))
     _cx0, _cx1 = _SL_FRAME_PAD, w - _SL_FRAME_PAD - 1
     _cwm1 = max(1, _cx1 - _cx0)
 
     def _smooth(_v: float) -> float:
-        """0..1 へクランプしてスムーズステップ（斜めレイヤーの縁を柔らかくする）。"""
+        """0..1 へクランプしてスムーズステップ（斜めの面の縁を柔らかくする）。"""
         if _v <= 0.0:
             return 0.0
         if _v >= 1.0:
             return 1.0
         return _v * _v * (3.0 - 2.0 * _v)
 
+    def _band(_sp: float, _lo: float, _hi: float, _fe: float) -> float:
+        """幅の広い斜め面。内側は一定で、両端だけ _fe 幅でなめらかに消す。"""
+        if _sp <= _lo or _sp >= _hi:
+            return 0.0
+        return min(_smooth((_sp - _lo) / _fe), _smooth((_hi - _sp) / _fe))
+
+    def _hdr_u(_fx: float, _fy: float, _sp: float, _variant: int) -> float:
+        """ヘッダーセルの淡紫の強さ。左端が最も濃く、中央はほぼ白、右端で再上昇。"""
+        _u = _SL_HDR_BASE
+        _u += _SL_HDR_L_AMT * math.exp(-_fx / _SL_HDR_L_K)
+        _u += _SL_HDR_R_AMT * math.exp(-(1.0 - _fx) / _SL_HDR_R_K)
+        _u += _SL_HDR_TB * ((1.0 - _fy) ** 3 + _fy ** 3)
+        for _lo, _hi, _fe, _amt in _SL_HDR_BANDS[_variant]:
+            _u += _amt * _band(_sp, _lo, _hi, _fe)
+        return 0.0 if _u < 0.0 else (1.0 if _u > 1.0 else _u)
+
+    def _graph_u(_fx: float, _fy: float) -> float:
+        """グラフ本体。中央はかなり白く、四隅（とくに右下）へ大きな斜め面が入る。"""
+        _d = _fx + _fy
+        _u = _SL_GRAPH_BASE
+        _u += _SL_GRAPH_CORNER[0][0] * ((1.0 - _fx) * (1.0 - _fy)) ** _SL_GRAPH_CORNER[0][1]
+        _u += _SL_GRAPH_CORNER[1][0] * ((1.0 - _fx) * _fy) ** _SL_GRAPH_CORNER[1][1]
+        _u += _SL_GRAPH_CORNER[2][0] * (_fx * (1.0 - _fy)) ** _SL_GRAPH_CORNER[2][1]
+        _u += _SL_GRAPH_CORNER[3][0] * (_fx * _fy) ** _SL_GRAPH_CORNER[3][1]
+        for _c, _wd, _amt in _SL_GRAPH_WEDGE:
+            _u += _amt * _smooth((_d - _c) / _wd)
+        _u += _SL_GRAPH_EDGE_AMT * (math.exp(-_fx / _SL_GRAPH_EDGE_K)
+                                    + math.exp(-(1.0 - _fx) / _SL_GRAPH_EDGE_K))
+        return 0.0 if _u < 0.0 else (1.0 if _u > 1.0 else _u)
+
+    _gd = (C_SL_PURPLE[0] - C_SL_BASE_BG[0],
+           C_SL_PURPLE[1] - C_SL_BASE_BG[1],
+           C_SL_PURPLE[2] - C_SL_BASE_BG[2])
     _grad: list = [[C_SL_BASE_BG] * w for _ in range(h)]
-    for _name, _cy0, _cy1 in _cells:
-        _wl, _wr, _wt, _wb, _wtl, _wtr, _wbl, _wbr = _SL_CELL_W[_name]
-        _wedges  = _SL_CELL_WEDGE[_name]
-        _stripes = _SL_CELL_STRIPE[_name]
-        _base    = _SL_CELL_BASE[_name]
-        _mx      = _SL_CELL_MAXC[_name]
-        _gd = (_mx[0] - C_SL_BASE_BG[0], _mx[1] - C_SL_BASE_BG[1], _mx[2] - C_SL_BASE_BG[2])
+    for _name, _cy0, _cy1, _variant in _cells:
         _chm1 = max(1, _cy1 - _cy0)
         for y in range(_cy0, min(_cy1 + 1, h)):
             _fy = (y - _cy0) / _chm1
             _row = _grad[y]
             for x in range(_cx0, min(_cx1 + 1, w)):
                 _fx = (x - _cx0) / _cwm1
-                _u = (_wl * (1.0 - _fx) ** _SL_CELL_EDGE_P
-                      + _wr * _fx ** _SL_CELL_EDGE_P
-                      + _wt * (1.0 - _fy) ** _SL_CELL_EDGE_P
-                      + _wb * _fy ** _SL_CELL_EDGE_P
-                      + _wtl * ((1.0 - _fx) * (1.0 - _fy)) ** _SL_CELL_CORNER_P
-                      + _wtr * (_fx * (1.0 - _fy)) ** _SL_CELL_CORNER_P
-                      + _wbl * ((1.0 - _fx) * _fy) ** _SL_CELL_CORNER_P
-                      + _wbr * (_fx * _fy) ** _SL_CELL_CORNER_P)
-                _u += _base
-                _d = _fx + _fy
-                for _lo, _hi, _amt in _wedges:
-                    _u += _amt * _smooth((_d - _lo) / (_hi - _lo))
-                # 斜めストライプ（帯の中心でいちばん効くよう三角形に立ち上げる）
-                _sp = ((x - _cx0) - (y - _cy0)) / _cwm1
-                for _lo, _hi, _amt in _stripes:
-                    if _lo < _sp < _hi:
-                        _t = (_sp - _lo) / (_hi - _lo)
-                        _u += _amt * _smooth(1.0 - abs(2.0 * _t - 1.0))
-                if _u < 0.0:
-                    _u = 0.0
-                if _u > 1.0:
-                    _u = 1.0
-                _row[x] = (C_SL_BASE_BG[0] + _gd[0] * _u,
-                           C_SL_BASE_BG[1] + _gd[1] * _u,
-                           C_SL_BASE_BG[2] + _gd[2] * _u)
+                if _variant == 2:
+                    _u = _graph_u(_fx, _fy)
+                else:
+                    _u = _hdr_u(_fx, _fy, ((x - _cx0) - (y - _cy0)) / _cwm1, _variant)
+                _row[x] = (round(C_SL_BASE_BG[0] + _gd[0] * _u),
+                           round(C_SL_BASE_BG[1] + _gd[1] * _u),
+                           round(C_SL_BASE_BG[2] + _gd[2] * _u))
+
+    # ── 右下の猫（背景装飾）を _grad へ焼き込む ──────────────────
+    _neko_a = _slump_neko_alpha()
+    if _neko_a is not None:
+        _nw, _nh = _neko_a.size
+        _np = _neko_a.load()
+        _sx = _SL_NEKO_REF_W / (_SL_NEKO_REF[2] - _SL_NEKO_REF[0])
+        _sy = _SL_NEKO_REF_H / (_SL_NEKO_REF[3] - _SL_NEKO_REF[1])
+        _ox0 = w - _SL_FRAME_PAD - 1 - _SL_NEKO_REF_W + round((_SL_NEKO_BOX[0] - _SL_NEKO_REF[0]) * _sx)
+        _oy0 = h - _SL_FRAME_PAD - 1 - _SL_NEKO_REF_H + round((_SL_NEKO_BOX[1] - _SL_NEKO_REF[1]) * _sy)
+        for _yy in range(_nh):
+            _gy = _oy0 + _yy
+            if _gy < _SL_SEP2[1] + 1 or _gy >= h - _SL_FRAME_PAD:
+                continue
+            for _xx in range(_nw):
+                _gx = _ox0 + _xx
+                if _gx < _SL_FRAME_PAD or _gx >= w - _SL_FRAME_PAD:
+                    continue
+                _a = _np[_xx, _yy] / 255.0 * _SL_NEKO_K
+                if _a <= 0.0:
+                    continue
+                _bg = _grad[_gy][_gx]
+                _grad[_gy][_gx] = tuple(
+                    max(0, min(255, round(_bg[_i] * (1.0 - _a)))) for _i in range(3))
 
     _den = float(_SL_LIGHT_V - _SL_DARK_V)
     for y in range(h):
-        _is_frame_row = (y < _SL_FRAME_PAD or y >= h - _SL_FRAME_PAD
+        # 外枠のライン自体（上下端・左右端の1px）も枠として扱う。ここを < / >
+        # にしていると、枠の角の濃い画素がグラフ側の C_SL_AXIS で再配色され、
+        # **四隅に濃紫の点**として残る。
+        _is_frame_row = (y <= _SL_FRAME_PAD or y >= h - _SL_FRAME_PAD - 1
                          or _SL_SEP1[0] <= y <= _SL_SEP1[1]
                          or _SL_SEP2[0] <= y <= _SL_SEP2[1])
         _is_hdr_row = (_SL_HDR1[0] <= y <= _SL_HDR1[1]
@@ -735,9 +865,10 @@ def _slump_template_image(template_path) -> "Image.Image":
             _v = max(sp[x, y])
             t = (_v - _SL_DARK_V) / _den
             t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
-            _is_frame_col = (x < _SL_FRAME_PAD or x >= w - _SL_FRAME_PAD)
+            _is_frame_col = (x <= _SL_FRAME_PAD or x >= w - _SL_FRAME_PAD - 1)
             if _is_frame_row or _is_frame_col:
-                bg, fg = C_SL_FRAME, C_SL_FRAME      # 外枠・区切りは単色のまま
+                # 枠の「線」だけが C_SL_FRAME になり、外側の余白は白のまま
+                bg, fg = C_SL_BASE_BG, C_SL_FRAME
             elif _is_hdr_row:
                 bg, fg = _grad[y][x], C_SL_FRAME     # ヘッダー帯はセル独自の装飾
             else:

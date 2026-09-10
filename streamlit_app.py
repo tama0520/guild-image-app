@@ -473,6 +473,40 @@ TITLE_H         = 75    # タイトルバーの高さ（文字サイズに合わ
 REDLINE_H       = 5     # タイトル下の赤ラインの高さ(px)
 GAP_SUM         = -8    # ピンクバー内 % と（の間のカーニング調整(px)
 
+# ── 結果ポスト系の新デザイン（2026-09-10）──────────────────────────────
+# 「記事用以外の表画像」を新配色へ統一するための追加定数。
+# 既存の C_TITLE_BG / C_MACH_HEADER_BG / C_MACH_HEADER_FG / C_SUMMARY_BG_RGBA は
+# **1つも書き換えない**（記事用・⑥個別生成ページが従来色のままである根拠）。
+#
+# 対象の判定は「保存フラグ」ではなく **現在のページと店舗から毎回導出**する。
+# session_state へ真偽値を書き込む方式は、直前に開いたページの残存値へ
+# 描画関数が暗黙依存するため採用しない（_table_theme_new() を参照）。
+_TABLE_THEME_STORES: frozenset[str] = frozenset({"稲毛"})   # 店舗追加はこの集合への追記だけ
+_TABLE_THEME_PAGES:  frozenset[str] = frozenset({"auto", "auto_slump"})  # 記事用(auto_article)は含めない
+
+C_NEW_TITLE_BG_RGBA   = (129, 0, 255, 255)     # #8100FF タイトルバー背景
+C_NEW_HEADER_BG       = "#290068"              # 列見出しバー背景
+C_NEW_HEADER_FG       = "#FFFFFF"              # 列見出しバー文字（白統一）
+C_NEW_SUMMARY_BG_RGBA = (255, 111, 165, 255)   # #FF6FA5 下段サマリーバー背景
+# サマリーバーの文字色は従来どおり黒 (0,0,0)。白へ変更しない。
+
+
+def _table_theme_new() -> bool:
+    """結果ポスト系の新デザインを使うか（毎回 page と store から導出する）。
+
+    * True になるのは `_TABLE_THEME_PAGES`（auto / auto_slump）を表示中で、
+      かつ `_TABLE_THEME_STORES` の店舗を選択しているときだけ。
+    * 記事用（page="auto_article"）・ローテ・⑥個別生成・他店舗は必ず False。
+    * **状態を書き込まないので、ページ遷移・rerun・on_change コールバックの
+      順序に依存しない**（残存値による色漏れが構造的に起きない）。
+    * Streamlit 外（純粋テスト・subprocess）では例外を握って False を返す。
+    """
+    try:
+        return (st.session_state.get("page") in _TABLE_THEME_PAGES
+                and st.session_state.get("selected_store") in _TABLE_THEME_STORES)
+    except Exception:
+        return False
+
 # =============================================================================
 # ■ ③フォントユーティリティ
 # =============================================================================
@@ -1171,6 +1205,11 @@ def draw_table_image(
         y += REDLINE_H
 
     # ── ヘッダー行 ───────────────────────────────────────────────────
+    # 結果ポスト系の新デザインでは列見出しバーを濃紫＋白文字へ統一する。
+    # ここ1か所で全列（台番・機種名・ゲーム数・BIG・REG・AT・合算確率・差枚数）が
+    # 同じ header_bg / header_fg で描かれるため、列ごとのハードコードは不要。
+    if _table_theme_new():
+        header_bg, header_fg = C_NEW_HEADER_BG, C_NEW_HEADER_FG
     x = 0
     for ci, h in enumerate(headers):
         draw.rectangle(
@@ -2864,7 +2903,8 @@ def _build_machine_img(
     BAR_H   = round(w * 73 / 950)   # 標準幅950pxのとき73px
     FONT_SZ = round(BAR_H * 40 / 73)
 
-    bar  = Image.new("RGBA", (w, BAR_H),  (38, 76, 161, 255))
+    _bar_rgba = C_NEW_TITLE_BG_RGBA if _table_theme_new() else (38, 76, 161, 255)
+    bar  = Image.new("RGBA", (w, BAR_H),  _bar_rgba)
     line = Image.new("RGBA", (w, LINE_H), (204, 0, 0, 255))
     bd   = ImageDraw.Draw(bar)
     font = load_font(FONT_SZ)
@@ -2928,7 +2968,9 @@ def _build_machine_img(
                  f"　勝率：{win_rate:.1f}%")
         part2 = f"（{s['win_count']}/{s['total_count']}台）"
 
-        pink = Image.new("RGBA", (w, pink_h), (255, 182, 193, 255))
+        _pink_rgba = (C_NEW_SUMMARY_BG_RGBA if _table_theme_new()
+                      else (255, 182, 193, 255))
+        pink = Image.new("RGBA", (w, pink_h), _pink_rgba)
         pd_  = ImageDraw.Draw(pink)
         bb1  = pd_.textbbox((0, 0), part1, font=font_sum)
         ty_p = (pink_h - (bb1[3]-bb1[1])) // 2 - bb1[1]
@@ -5292,7 +5334,7 @@ def ranges_to_bans(ranges: list[list[int]]) -> set[int]:
 def _patch_and_run_narabi(
     script_path: str, input_path: str, split_dir: str, ranges: list,
     no_bar: bool = False, hq_scale: float = 1.0, col_ranges: list | None = None,
-    hq_min_rows: int | None = None,
+    hq_min_rows: int | None = None, theme_new: bool = False,
 ) -> tuple[bool, str, str]:
     """並びスクリプト専用: INPUT/SPLIT_DIR/RANGES を書き換えて実行する。
     no_bar=True のときは NO_BAR も書き換え、青タイトルバーなしで生成させる
@@ -5305,6 +5347,11 @@ def _patch_and_run_narabi(
         code = f.read()
     if no_bar:
         code = re.sub(r'^NO_BAR\s*=\s*(True|False)', 'NO_BAR = True', code, flags=re.MULTILINE)
+    # 結果ポスト系の新デザイン（⑦プレビューの _build_machine_img と同じ配色にする）。
+    # 既定 False＝従来デザイン。記事用の呼び出しには渡さない。
+    if theme_new:
+        code = re.sub(r'^THEME_NEW\s*=\s*(True|False)', 'THEME_NEW = True',
+                      code, flags=re.MULTILINE)
     if hq_scale and hq_scale > 1.0:
         code = re.sub(r'^HQ_SCALE\s*=\s*[\d.]+', f'HQ_SCALE = {float(hq_scale)}',
                       code, flags=re.MULTILINE)
@@ -14423,6 +14470,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                     STORE_NARABI_SCRIPT[store], excel_path, narabi_dir,
                     narabi_ranges if narabi_ok else [],
                     col_ranges=(retsu_ranges if retsu_ok else None),
+                    # ⑦プレビュー（_build_machine_img）と⑧本番の色を必ず一致させる
+                    theme_new=_table_theme_new(),
                 )
                 narabi_result = {"ok": ok_n, "stdout": out_n, "stderr": err_n}
                 st.write(f"{'✅' if ok_n else '❌'} 並び画像{'完了' if ok_n else 'エラー'}")

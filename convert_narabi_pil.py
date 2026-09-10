@@ -35,6 +35,12 @@ HQ_MIN_ROWS = 10
 COL_RANGES = []
 COL_SUFFIX = "(列仕掛け)"
 
+# 結果ポスト系の新デザイン（2026-09-10）。
+# Streamlit 側 _patch_and_run_narabi(theme_new=True) のときだけ True へ書き換えられる。
+# 既定 False＝従来デザイン（記事用・他店舗は必ずこちら）。
+# ⑦プレビュー（streamlit_app._build_machine_img）と同じ配色にすること。
+THEME_NEW = False
+
 # ── フォントパス（cwd = BASE_DIR で subprocess 実行される）──────────
 _BASE = os.getcwd()
 FONT_PATH = os.path.join(_BASE, "fonts", "MochiyPopOne-Regular.ttf")
@@ -227,8 +233,8 @@ PAD_X         = round(8  * SCALE)   # 13px  左右パディング
 ROW_H_TBL     = round(28 * SCALE)   # 44px  行高（28 CSS px × 1.5625）
 PAD_Y         = (ROW_H_TBL - FONT_SIZE_TBL) // 2  # 11px  上下パディング
 
-HEADER_BG  = (243, 230, 200)   # #f3e6c8
-HEADER_FG  = (75,  0,   130)   # #4B0082
+HEADER_BG  = ((41, 0, 104) if THEME_NEW else (243, 230, 200))   # 新#290068 / 旧#f3e6c8
+HEADER_FG  = ((255, 255, 255) if THEME_NEW else (75, 0, 130))   # 新#FFFFFF / 旧#4B0082
 CELL_BG    = (255, 255, 255)   # white
 BORDER_C   = (170, 170, 170)   # #AAAAAA
 PLUS_C     = (0,   0,   204)   # #0000CC
@@ -349,7 +355,8 @@ for run_idx, (run, title, _dup_set) in enumerate(_JOBS):
     line_h = 6
     font_size_bar = round(bar_h * 40 / 73)
 
-    blue_bar = Image.new("RGBA", (w, bar_h),  (38, 76, 161, 255))
+    blue_bar = Image.new("RGBA", (w, bar_h),
+                         ((129, 0, 255, 255) if THEME_NEW else (38, 76, 161, 255)))
     red_line = Image.new("RGBA", (w, line_h), (204, 0, 0, 255))
     bar_draw = ImageDraw.Draw(blue_bar)
     bar_font = _load_font(font_size_bar)
@@ -407,7 +414,7 @@ for run_idx, (run, title, _dup_set) in enumerate(_JOBS):
     table_only_h = canvas.height - _top_h   # ピンクバー高さの算出はテーブル部分のみ基準（従来と同値）
     row_h_sum    = int(max(30, table_only_h // (len(group) + 2)) * 1.2)
 
-    SUMMARY_BG = "#FFB6C1"
+    SUMMARY_BG = "#FF6FA5" if THEME_NEW else "#FFB6C1"
     pink_rgba  = tuple(int(SUMMARY_BG.lstrip("#")[i:i+2], 16) for i in (0, 2, 4)) + (255,)
     bar_pink   = Image.new("RGBA", (w, row_h_sum), pink_rgba)
     draw_pink  = ImageDraw.Draw(bar_pink)

@@ -545,15 +545,52 @@ C_SL_FRAME     = (216, 198, 227)   # #D8C6E3 外枠・区切り
 C_SL_TEXT      = (75,  0,   130)   # #4B0082 ヘッダー内 機種名/台番・差枚・下部機種名
 C_SL_TEXT_EDGE = (255, 255, 255)   # 下部機種名の縁取り（淡背景なので白）
 
-# 背景は「白地＋ごく淡い紫のグラデーション」。中央はほぼ #FFFFFF、外周がわずかに紫、
-# 四隅がいちばん紫になる。#EFE3F5 を広い面へベタ塗りしない（弱く混ざる程度にする）。
-# 白→C_SL_GRAD_MAX の線形補間なので、u≈0.45 付近が #F8F2FC 相当になる。
-C_SL_BASE_BG   = (255, 255, 255)   # #FFFFFF 中央（基本色）
-C_SL_GRAD_MAX  = C_SL_HEADER_BG    # #EFE3F5 四隅（グラデーションの最も濃い側）
-_SL_GRAD_R_W   = 0.60   # 中心からの放射成分の重み
-_SL_GRAD_C_W   = 0.40   # 四隅成分の重み
-_SL_GRAD_R_P   = 1.55   # 放射成分の指数（大きいほど中央が白く残る）
-_SL_GRAD_C_P   = 0.85   # 四隅成分の指数
+# 背景は「白地＋淡紫の角グラデーション／斜め装飾」。見本 aaa.jpg の実測にもとづき、
+# **カード全体を1枚の放射グラデーションにしない**。機種名セル／台番セル／グラフ本体セルを
+# それぞれ独立した白いパネルとして扱い、セルごとに非対称な装飾を入れる。
+#   aaa.jpg の紫の強さ（255-G）を 5x5 で実測した結果:
+#     機種名セル … 左端が最強（左上53.8）→中央9.1→右端で再上昇（右下26.6）
+#     台番セル   … 左端が最強（51.1）＋上段が帯状に濃い（29〜51）→中央11.4
+#     グラフセル … **右下が最強（39.6）**／左上35.4／左下28.8／中央は5〜8でほぼ白
+#   さらに右下から左上へ斜めにスキャンすると 67→50→36→20→白 と段になっており、
+#   半透明の斜めレイヤーが複数枚重なっていることが分かる。
+C_SL_BASE_BG    = (255, 255, 255)   # #FFFFFF 各セルの基本色（白地を最優先）
+C_SL_CELL_MAX   = (234, 220, 243)   # #EADCF3 グラフ本体セルの最も濃い側（u=1 のときの色）
+C_SL_CELL_MAX_H = (220, 201, 238)   # #DCC9EE ヘッダー2セルの最も濃い側
+# セルごとの「最も濃い側」の色。グラフ本体は指定どおり #EADCF3 までに留め、
+# ヘッダー2セルだけ見本 aaa.jpg に合わせてもう一段だけ濃くする。
+_SL_CELL_MAXC = {"hdr1": C_SL_CELL_MAX_H, "hdr2": C_SL_CELL_MAX_H, "graph": C_SL_CELL_MAX}
+# セルの下地（u の下駄）。見本ではヘッダー2セルが淡紫のパネル、グラフ本体が白地。
+_SL_CELL_BASE = {"hdr1": 0.42, "hdr2": 0.42, "graph": 0.0}
+
+# セルごとの重み (左, 右, 上, 下, 左上, 右上, 左下, 右下)。**四隅を独立させ対称にしない。**
+# aaa.jpg の 5x5 実測（補助線・0ラインを除外）に合わせてある:
+#   機種名セル … 左端が全行にわたって濃い＋右下が上がる
+#   台番セル   … 左端＋上段が帯状に濃い
+#   グラフセル … 縁ではなく**四隅**（右下 > 左上 > 左下 > 右上）で、中央は白いまま
+_SL_CELL_W = {
+    "hdr1":  (0.42, 0.20, 0.10, 0.06, 0.60, 0.20, 0.28, 0.52),
+    "hdr2":  (0.44, 0.24, 0.26, 0.06, 0.44, 0.24, 0.32, 0.56),
+    "graph": (0.10, 0.10, 0.08, 0.12, 1.15, 0.90, 0.85, 6.00),
+}
+_SL_CELL_EDGE_P   = 4.0   # 縁成分の指数
+_SL_CELL_CORNER_P = 5.0   # コーナー成分の指数（大きいほど中央が白く残る）
+# 斜めレイヤー。(fx+fy) のしきい値 lo..hi でスムーズに立ち上げ、amount を加算する。
+# aaa.jpg の右下を斜めにスキャンすると fx+fy≈1.55 付近から段状に濃くなるため、
+# グラフセルは 1.52 / 1.72 / 1.87 の3枚を重ねて、外側ほど広く薄い段差を作る。
+_SL_CELL_WEDGE = {
+    "hdr1":  [(1.55, 1.80, 0.14)],
+    "hdr2":  [(1.52, 1.78, 0.16)],
+    "graph": [(1.50, 1.68, 0.18), (1.70, 1.84, 0.20), (1.86, 1.97, 0.24)],
+}
+# 斜めの光沢ストライプ。ピクセル基準の 45 度方向 sp=((x-x0)-(y-y0))/幅 の帯へ
+# amount を加算する。**amount が負なら明るい帯**（見本のヘッダーに走る光沢）。
+# セルごとに位置も本数も変えるので、四隅対称にはならない。
+_SL_CELL_STRIPE = {
+    "hdr1":  [(0.02, 0.09, -0.30), (0.10, 0.15, -0.16), (0.16, 0.21, -0.26)],
+    "hdr2":  [(0.03, 0.10, -0.30), (0.11, 0.16, -0.16), (0.17, 0.22, -0.26)],
+    "graph": [],   # グラフ本体は白地優先。斜めの重なりは右下の _SL_CELL_WEDGE で作る
+}
 
 # base_3000_bk.png の実測レイアウト（再配色の領域判定に使う。**PNGは変更しない**）
 _SL_FRAME_PAD   = 10    # 外枠の幅（左右上下とも10px）
@@ -594,9 +631,10 @@ def _slump_template_image(template_path) -> "Image.Image":
     再配色は「元画素の明るさ t（0=黒地／1=白）で 背景色→前景色 を線形補間」する。
     白黒の2値置換ではないため、文字・破線・角丸のアンチエイリアス階調がそのまま残る。
 
-    背景（t=0 側）は**カード全体で1つの連続したグラデーション**にする。
-    中央はほぼ #FFFFFF、外周がわずかに紫、四隅がいちばん紫。ヘッダー2帯と
-    グラフ地で同じ場を使うので、**帯だけ別の紫い長方形に見えない**。
+    背景（t=0 側）は**セルごとに独立した白地＋淡紫の装飾**にする（見本 aaa.jpg 準拠）。
+    機種名セル／台番セル／グラフ本体セルをそれぞれ別の白いパネルとして扱い、
+    セル内の角と斜め方向へ非対称に淡紫を入れる。**カード全体を1枚の放射
+    グラデーションにしない。**各セルの基本色はどれも白なので統一感は保たれる。
     前景色（t=1 側）は座標で決める:
       * 外枠／区切り            → C_SL_FRAME（グラデーションを掛けない単色）
       * ヘッダー2帯            → 角丸のAAは C_SL_FRAME へ
@@ -629,30 +667,62 @@ def _slump_template_image(template_path) -> "Image.Image":
             _c = _Y_ZERO + _sgn * _k * _PX_1000
             _grid_rows |= {_c - 1, _c, _c + 1}
 
-    # ── 背景グラデーション（白基調・中央ほぼ白／外周と四隅がごく淡い紫）──
-    # 放射成分 r（中心からの距離）と四隅成分 c（|nx|*|ny|）を重ね合わせる。
-    # 単純な縦方向の一直線グラデーションではなく「白いパネルに淡紫の光が入る」質感。
-    _wm1, _hm1 = max(1, w - 1), max(1, h - 1)
-    _rt2 = math.sqrt(2.0)
-    _nxs = [2.0 * _x / _wm1 - 1.0 for _x in range(w)]
-    _nys = [2.0 * _y / _hm1 - 1.0 for _y in range(h)]
-    _gd  = (C_SL_GRAD_MAX[0] - C_SL_BASE_BG[0],
-            C_SL_GRAD_MAX[1] - C_SL_BASE_BG[1],
-            C_SL_GRAD_MAX[2] - C_SL_BASE_BG[2])
-    _grad: list = []
-    for y in range(h):
-        _ny = _nys[y]
-        _row = []
-        for x in range(w):
-            _nx = _nxs[x]
-            _u = (_SL_GRAD_R_W * (math.hypot(_nx, _ny) / _rt2) ** _SL_GRAD_R_P
-                  + _SL_GRAD_C_W * (abs(_nx) * abs(_ny)) ** _SL_GRAD_C_P)
-            if _u > 1.0:
-                _u = 1.0
-            _row.append((C_SL_BASE_BG[0] + _gd[0] * _u,
-                         C_SL_BASE_BG[1] + _gd[1] * _u,
-                         C_SL_BASE_BG[2] + _gd[2] * _u))
-        _grad.append(_row)
+    # ── 背景装飾（セルごとに独立・白地＋淡紫の角グラデーション／斜めレイヤー）──
+    # セル内の相対座標 fx, fy から、左/右/上/下の縁と 左上/右下 コーナーの成分を
+    # **非対称な重み**で足し、さらに (fx+fy) のしきい値で斜めレイヤーを重ねる。
+    _cells = (("hdr1",  _SL_HDR1[0], _SL_HDR1[1]),
+              ("hdr2",  _SL_HDR2[0], _SL_HDR2[1]),
+              ("graph", _SL_SEP2[1] + 1, h - _SL_FRAME_PAD - 1))
+    _cx0, _cx1 = _SL_FRAME_PAD, w - _SL_FRAME_PAD - 1
+    _cwm1 = max(1, _cx1 - _cx0)
+
+    def _smooth(_v: float) -> float:
+        """0..1 へクランプしてスムーズステップ（斜めレイヤーの縁を柔らかくする）。"""
+        if _v <= 0.0:
+            return 0.0
+        if _v >= 1.0:
+            return 1.0
+        return _v * _v * (3.0 - 2.0 * _v)
+
+    _grad: list = [[C_SL_BASE_BG] * w for _ in range(h)]
+    for _name, _cy0, _cy1 in _cells:
+        _wl, _wr, _wt, _wb, _wtl, _wtr, _wbl, _wbr = _SL_CELL_W[_name]
+        _wedges  = _SL_CELL_WEDGE[_name]
+        _stripes = _SL_CELL_STRIPE[_name]
+        _base    = _SL_CELL_BASE[_name]
+        _mx      = _SL_CELL_MAXC[_name]
+        _gd = (_mx[0] - C_SL_BASE_BG[0], _mx[1] - C_SL_BASE_BG[1], _mx[2] - C_SL_BASE_BG[2])
+        _chm1 = max(1, _cy1 - _cy0)
+        for y in range(_cy0, min(_cy1 + 1, h)):
+            _fy = (y - _cy0) / _chm1
+            _row = _grad[y]
+            for x in range(_cx0, min(_cx1 + 1, w)):
+                _fx = (x - _cx0) / _cwm1
+                _u = (_wl * (1.0 - _fx) ** _SL_CELL_EDGE_P
+                      + _wr * _fx ** _SL_CELL_EDGE_P
+                      + _wt * (1.0 - _fy) ** _SL_CELL_EDGE_P
+                      + _wb * _fy ** _SL_CELL_EDGE_P
+                      + _wtl * ((1.0 - _fx) * (1.0 - _fy)) ** _SL_CELL_CORNER_P
+                      + _wtr * (_fx * (1.0 - _fy)) ** _SL_CELL_CORNER_P
+                      + _wbl * ((1.0 - _fx) * _fy) ** _SL_CELL_CORNER_P
+                      + _wbr * (_fx * _fy) ** _SL_CELL_CORNER_P)
+                _u += _base
+                _d = _fx + _fy
+                for _lo, _hi, _amt in _wedges:
+                    _u += _amt * _smooth((_d - _lo) / (_hi - _lo))
+                # 斜めストライプ（帯の中心でいちばん効くよう三角形に立ち上げる）
+                _sp = ((x - _cx0) - (y - _cy0)) / _cwm1
+                for _lo, _hi, _amt in _stripes:
+                    if _lo < _sp < _hi:
+                        _t = (_sp - _lo) / (_hi - _lo)
+                        _u += _amt * _smooth(1.0 - abs(2.0 * _t - 1.0))
+                if _u < 0.0:
+                    _u = 0.0
+                if _u > 1.0:
+                    _u = 1.0
+                _row[x] = (C_SL_BASE_BG[0] + _gd[0] * _u,
+                           C_SL_BASE_BG[1] + _gd[1] * _u,
+                           C_SL_BASE_BG[2] + _gd[2] * _u)
 
     _den = float(_SL_LIGHT_V - _SL_DARK_V)
     for y in range(h):
@@ -669,7 +739,7 @@ def _slump_template_image(template_path) -> "Image.Image":
             if _is_frame_row or _is_frame_col:
                 bg, fg = C_SL_FRAME, C_SL_FRAME      # 外枠・区切りは単色のまま
             elif _is_hdr_row:
-                bg, fg = _grad[y][x], C_SL_FRAME     # ヘッダー帯もグラフ地と同じ場
+                bg, fg = _grad[y][x], C_SL_FRAME     # ヘッダー帯はセル独自の装飾
             else:
                 bg = _grad[y][x]
                 if _SL_AXIS_X[0] <= x <= _SL_AXIS_X[1] or y in _axis_rows:

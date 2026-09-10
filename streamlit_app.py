@@ -484,7 +484,7 @@ GAP_SUM         = -8    # ピンクバー内 % と（の間のカーニング調
 _TABLE_THEME_STORES: frozenset[str] = frozenset({"稲毛"})   # 店舗追加はこの集合への追記だけ
 _TABLE_THEME_PAGES:  frozenset[str] = frozenset({"auto", "auto_slump"})  # 記事用(auto_article)は含めない
 
-C_NEW_TITLE_BG_RGBA   = (129, 0, 255, 255)     # #8100FF タイトルバー背景
+C_NEW_TITLE_BG_RGBA   = (112, 0, 224, 255)     # #7000E0 タイトルバー背景
 C_NEW_HEADER_BG       = "#290068"              # 列見出しバー背景
 C_NEW_HEADER_FG       = "#FFFFFF"              # 列見出しバー文字（白統一）
 C_NEW_SUMMARY_BG_RGBA = (255, 111, 165, 255)   # #FF6FA5 下段サマリーバー背景

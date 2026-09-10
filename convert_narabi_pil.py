@@ -356,7 +356,7 @@ for run_idx, (run, title, _dup_set) in enumerate(_JOBS):
     font_size_bar = round(bar_h * 40 / 73)
 
     blue_bar = Image.new("RGBA", (w, bar_h),
-                         ((129, 0, 255, 255) if THEME_NEW else (38, 76, 161, 255)))
+                         ((112, 0, 224, 255) if THEME_NEW else (38, 76, 161, 255)))
     red_line = Image.new("RGBA", (w, line_h), (204, 0, 0, 255))
     bar_draw = ImageDraw.Draw(blue_bar)
     bar_font = _load_font(font_size_bar)

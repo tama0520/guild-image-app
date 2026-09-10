@@ -481,8 +481,16 @@ GAP_SUM         = -8    # ピンクバー内 % と（の間のカーニング調
 # 対象の判定は「保存フラグ」ではなく **現在のページと店舗から毎回導出**する。
 # session_state へ真偽値を書き込む方式は、直前に開いたページの残存値へ
 # 描画関数が暗黙依存するため採用しない（_table_theme_new() を参照）。
-_TABLE_THEME_STORES: frozenset[str] = frozenset({"稲毛"})   # 店舗追加はこの集合への追記だけ
-_TABLE_THEME_PAGES:  frozenset[str] = frozenset({"auto", "auto_slump"})  # 記事用(auto_article)は含めない
+# 対象店舗は STORES から自動導出する（＝表画像を生成する全店舗）。
+# 店舗を追加しても STORES へ足すだけで新デザインになり、横展開漏れが起きない。
+_TABLE_THEME_STORES: frozenset[str] = frozenset(STORES)
+# 対象ページ。**記事用(auto_article)は絶対に含めない。**
+# ページ単位で除外しているので、将来 記事用の店舗が増えても新デザインは適用されない。
+#   auto        … 結果ポスト用
+#   auto_slump  … スランプ付き結果ポスト用（新宿歌舞伎町かぶぱ・秋葉原を含む）
+#   work        … ⑥個別に生成（全台データ画像・高配分データ画像・並び画像・末尾画像・
+#                  その他の優秀台画像）。記事用ではない表画像ページなので対象に含める。
+_TABLE_THEME_PAGES:  frozenset[str] = frozenset({"auto", "auto_slump", "work"})
 
 C_NEW_TITLE_BG_RGBA   = (112, 0, 224, 255)     # #7000E0 タイトルバー背景
 C_NEW_HEADER_BG       = "#290068"              # 列見出しバー背景
@@ -507,6 +515,16 @@ def _table_theme_new() -> bool:
                 and st.session_state.get("selected_store") in _TABLE_THEME_STORES)
     except Exception:
         return False
+
+
+def _bar_crop_h(width: int) -> int:
+    """機種別画像の上部（青タイトルバー＋赤ライン）の合計高さ。
+
+    新デザインは赤ラインを描かないため +0。従来デザインは従来どおり +6。
+    青バーを crop して差し替える経路（新宿歌舞伎町かぶぱのパネル合成）が
+    この値を使う。**ここを固定 +6 のままにすると新デザインで表の先頭行が 6px 欠ける。**
+    """
+    return round(width * 73 / 950) + (0 if _table_theme_new() else 6)
 
 # =============================================================================
 # ■ ③フォントユーティリティ
@@ -22924,7 +22942,7 @@ def _insert_panel_into_machine_img(
     except Exception:
         return img, False
     w = img.width
-    split = round(w * 73 / 950) + 6  # 青バー(BAR_H) + 赤ライン(LINE_H) = _build_machine_img と同一
+    split = _bar_crop_h(w)  # 青バー(BAR_H) + 赤ライン(LINE_H)。新デザインは赤ラインなし
     pw, ph = panel.size
     new_ph = max(1, round(ph * w / pw)) if pw > 0 else ph
     panel  = panel.resize((w, new_ph), Image.LANCZOS)
@@ -23142,7 +23160,7 @@ def _apply_panel_to_table_img(
     max_panels は 2×2 グリッド分岐へそのまま渡す上限枚数（既定4＝従来動作）。
 
     戻り値: (加工後img, 照合した機種名 or None, パネル成否)"""
-    _bar_h = round(img.width * 73 / 950) + 6  # 青バー(BAR_H)＋赤ライン(LINE_H)
+    _bar_h = _bar_crop_h(img.width)  # 青バー(BAR_H)＋赤ライン(LINE_H)。新デザインは赤ラインなし
     _is_narabi = ("台並び" in bare_fn) or narabi_like
     if not show_mn and not _is_narabi:
         _mn = re.sub(r"(_高配分)?\.jpg$", "", bare_fn)          # 拡張子・_高配分 除去
@@ -23239,7 +23257,7 @@ def _composite_slump_onto_images(
         if not _bans:
             if store in _PANEL_STORES and "台並び" not in _bare:
                 # スランプ無しでも青タイトルバーは除去（表のみ）
-                _bar_h0 = round(_img.width * 73 / 950) + 6
+                _bar_h0 = _bar_crop_h(_img.width)
                 _img = _img.crop((0, _bar_h0, _img.width, _img.height))
             if store != "秋葉原":
                 _merged.append((_fn, _img))
@@ -23692,7 +23710,8 @@ def _build_slump_title_img(
         COLS = max(min(3, len(graph_imgs)), math.ceil(len(graph_imgs) / 10))
     PAD    = 12
     GAP    = 8
-    LINE_H = 6
+    # 新デザインは赤ラインを描かず、その分の余白も残さない（_build_machine_img と同じ扱い）。
+    LINE_H = 0 if _table_theme_new() else 6
 
     gw0, gh0 = graph_imgs[0].size
     cell_w   = gw0
@@ -23725,7 +23744,8 @@ def _build_slump_title_img(
 
     canvas = Image.new("RGB", (total_w, total_h), (255, 255, 255))
 
-    bar = Image.new("RGBA", (total_w, BAR_H), (38, 76, 161, 255))
+    bar = Image.new("RGBA", (total_w, BAR_H),
+                    C_NEW_TITLE_BG_RGBA if _table_theme_new() else (38, 76, 161, 255))
     bd  = ImageDraw.Draw(bar)
     if title.endswith(SUB):
         main_text = title[:-len(SUB)].replace('･', '・')
@@ -23747,7 +23767,8 @@ def _build_slump_title_img(
             disp_title, fill=(255, 255, 255, 255), font=font,
         )
     canvas.paste(bar.convert("RGB"), (0, 0))
-    canvas.paste(Image.new("RGB", (total_w, LINE_H), (204, 0, 0)), (0, BAR_H))
+    if LINE_H:
+        canvas.paste(Image.new("RGB", (total_w, LINE_H), (204, 0, 0)), (0, BAR_H))
 
     y0 = BAR_H + LINE_H
     if bg_path is not None:

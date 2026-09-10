@@ -526,6 +526,126 @@ def _bar_crop_h(width: int) -> int:
     """
     return round(width * 73 / 950) + (0 if _table_theme_new() else 6)
 
+
+# ── スランプグラフの新デザイン（2026-09-10・確認用）──────────────────
+# **表画像のテーマ（_TABLE_THEME_* / _table_theme_new）とは完全に別物。混ぜない。**
+# 現在は「稲毛のスランプ付き結果ポスト用」だけが対象。将来の横展開は
+# `_SLUMP_THEME_STORES` への追記だけで行う（各描画処理へ if を散らさない）。
+_SLUMP_THEME_STORES: frozenset[str] = frozenset({"稲毛"})
+# 対象ページはスランプ付き結果ポスト用のみ。
+# 記事用(auto_article)・単体スランプページ(slump_graph)は**含めない**。
+# 通常結果ポスト用(auto)と⑥個別(work)は `if with_slump:` によりスランプを生成しない。
+_SLUMP_THEME_PAGES:  frozenset[str] = frozenset({"auto_slump"})
+
+C_SL_GRAPH_BG  = (253, 249, 246)   # #FDF9F6 グラフ地
+C_SL_HEADER_BG = (239, 227, 245)   # #EFE3F5 ヘッダー2帯の地
+C_SL_AXIS      = (75,  0,   130)   # #4B0082 縦軸・0ライン・目盛文字
+C_SL_GRID      = (207, 189, 229)   # #CFBDE5 補助線（破線）
+C_SL_FRAME     = (216, 198, 227)   # #D8C6E3 外枠・区切り
+C_SL_TEXT      = (75,  0,   130)   # #4B0082 ヘッダー内 機種名/台番・差枚・下部機種名
+C_SL_TEXT_EDGE = (255, 255, 255)   # 下部機種名の縁取り（淡背景なので白）
+
+# base_3000_bk.png の実測レイアウト（再配色の領域判定に使う。**PNGは変更しない**）
+_SL_FRAME_PAD   = 10    # 外枠の幅（左右上下とも10px）
+_SL_HDR1        = (10, 50)    # ヘッダー1（機種名）
+_SL_HDR2        = (57, 97)    # ヘッダー2（台番）
+_SL_SEP1        = (51, 56)    # ヘッダー間の区切り
+_SL_SEP2        = (98, 101)   # ヘッダー2とグラフ地の区切り
+_SL_AXIS_X      = (24, 25)    # 縦軸
+_SL_DARK_V      = 18          # 黒地 #120606 の max(R,G,B)
+_SL_LIGHT_V     = 255         # 白 #FFFFFF の max(R,G,B)
+
+# 再配色済みテンプレートのキャッシュ（キー: パス文字列＋更新時刻）
+_SL_TMPL_CACHE: dict = {}
+
+
+def _slump_theme_new() -> bool:
+    """スランプグラフを新デザイン（淡紫）で描くか。
+
+    表画像の `_table_theme_new()` とは**別の判定**。保存フラグを持たず、
+    現在の page と selected_store から毎回導出するので、ページ遷移・rerun・
+    on_change の順序に依存しない。Streamlit 外では False（従来の黒背景）。
+    """
+    try:
+        return (st.session_state.get("page") in _SLUMP_THEME_PAGES
+                and st.session_state.get("selected_store") in _SLUMP_THEME_STORES)
+    except Exception:
+        return False
+
+
+def _slump_template_image(template_path) -> "Image.Image":
+    """base_3000_bk.png を**メモリ上だけ**で淡紫デザインへ再配色して返す。
+
+    **元PNGは読み取るだけで一切変更しない**（他店舗・記事用・単体ページが共有）。
+    サイズ・軸位置・補助線位置・目盛位置・文字グリフ・外枠・区切り位置は
+    元PNGのままなので、下流の座標計算（X_START/X_END/Y_ZERO/PX_1000/DARK_Y1）へ
+    影響しない。
+
+    再配色は「元画素の明るさ t（0=黒地／1=白）で 背景色→前景色 を線形補間」する。
+    白黒の2値置換ではないため、文字・破線・角丸のアンチエイリアス階調がそのまま残る。
+    前景色は座標で決める:
+      * 外枠／区切り            → C_SL_FRAME
+      * ヘッダー2帯            → 地 C_SL_HEADER_BG（角丸のAAは C_SL_FRAME へ）
+      * 縦軸 x=24,25            → C_SL_AXIS
+      * 0ライン y=Y_ZERO±1      → C_SL_AXIS
+      * 補助線 y=Y_ZERO±k*PX_1000±1 (k=1..3) → C_SL_GRID
+      * それ以外（+3.000/-3.000 の文字）      → C_SL_AXIS
+    """
+    _key = str(template_path)
+    try:
+        _key = (_key, os.path.getmtime(_key))
+    except Exception:
+        _key = (_key, 0)
+    _hit = _SL_TMPL_CACHE.get(_key)
+    if _hit is not None:
+        return _hit
+
+    src = Image.open(str(template_path)).convert("RGB")
+    w, h = src.size
+    sp = src.load()
+    dst = Image.new("RGBA", (w, h))
+    dp = dst.load()
+
+    # 補助線・0ラインの y 帯（draw_slump_graph と同じ Y_ZERO / PX_1000 から導出）
+    _Y_ZERO, _PX_1000 = 290, 47
+    _axis_rows: set = {_Y_ZERO - 1, _Y_ZERO, _Y_ZERO + 1}
+    _grid_rows: set = set()
+    for _k in (1, 2, 3):
+        for _sgn in (-1, 1):
+            _c = _Y_ZERO + _sgn * _k * _PX_1000
+            _grid_rows |= {_c - 1, _c, _c + 1}
+
+    _den = float(_SL_LIGHT_V - _SL_DARK_V)
+    for y in range(h):
+        _is_frame_row = (y < _SL_FRAME_PAD or y >= h - _SL_FRAME_PAD
+                         or _SL_SEP1[0] <= y <= _SL_SEP1[1]
+                         or _SL_SEP2[0] <= y <= _SL_SEP2[1])
+        _is_hdr_row = (_SL_HDR1[0] <= y <= _SL_HDR1[1]
+                       or _SL_HDR2[0] <= y <= _SL_HDR2[1])
+        for x in range(w):
+            _v = max(sp[x, y])
+            t = (_v - _SL_DARK_V) / _den
+            t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+            _is_frame_col = (x < _SL_FRAME_PAD or x >= w - _SL_FRAME_PAD)
+            if _is_frame_row or _is_frame_col:
+                bg, fg = C_SL_FRAME, C_SL_FRAME
+            elif _is_hdr_row:
+                bg, fg = C_SL_HEADER_BG, C_SL_FRAME
+            else:
+                bg = C_SL_GRAPH_BG
+                if _SL_AXIS_X[0] <= x <= _SL_AXIS_X[1] or y in _axis_rows:
+                    fg = C_SL_AXIS
+                elif y in _grid_rows:
+                    fg = C_SL_GRID
+                else:
+                    fg = C_SL_AXIS      # 「+3.000」「-3.000」の目盛文字
+            dp[x, y] = (round(bg[0] + (fg[0] - bg[0]) * t),
+                        round(bg[1] + (fg[1] - bg[1]) * t),
+                        round(bg[2] + (fg[2] - bg[2]) * t), 255)
+
+    _SL_TMPL_CACHE[_key] = dst
+    return dst
+
 # =============================================================================
 # ■ ③フォントユーティリティ
 # =============================================================================
@@ -23376,7 +23496,11 @@ def draw_slump_graph(
     LINE_RGB  = (255, 0, 0, 255)
     LINE_W    = 15  # 3xキャンバス上の線幅（1x換算で約5px）
 
-    base = Image.open(str(template_path)).convert("RGBA")
+    # 新デザイン（稲毛 auto_slump）はメモリ上で再配色したテンプレを使う。
+    # **base_3000_bk.png 自体は読み取るだけで変更しない。**
+    _sl_new = _slump_theme_new()
+    base = (_slump_template_image(template_path) if _sl_new
+            else Image.open(str(template_path)).convert("RGBA"))
     w, h = base.size
 
     # 高解像度キャンバスでアンチエイリアスを強化
@@ -23443,12 +23567,15 @@ def draw_slump_graph(
         y = box_y0 + (box_h - th) // 2 - bb[1]
         return x, y
 
+    # 新デザインは淡いヘッダー地なので濃紫、従来デザインは黒地なので純白。
+    _hdr_fg = C_SL_TEXT if _sl_new else (255, 255, 255)
+
     name_x, name_y = _center_xy(display_name, font_name, round(10 * _os), round(41 * _os))
-    draw.text((name_x, name_y), display_name, fill=(255, 255, 255), font=font_name)
+    draw.text((name_x, name_y), display_name, fill=_hdr_fg, font=font_name)
 
     uid_text = f"{unit_id}番台"
     uid_x, uid_y = _center_xy(uid_text, font_uid, round(57 * _os), round(41 * _os))
-    draw.text((uid_x, uid_y), uid_text, fill=(255, 255, 255), font=font_uid)
+    draw.text((uid_x, uid_y), uid_text, fill=_hdr_fg, font=font_uid)
 
     # 差枚テキスト（黄色・中央寄せ）
     if points and show_diff:
@@ -23458,7 +23585,8 @@ def draw_slump_graph(
         bb = font_diff.getbbox(diff_text)
         diff_x = (w - (bb[2] - bb[0])) // 2 - bb[0]
         diff_y = (h - round(18 * _os)) - bb[3]
-        draw.text((diff_x, diff_y), diff_text, fill=(255, 255, 0), font=font_diff)
+        draw.text((diff_x, diff_y), diff_text,
+                  fill=(C_SL_TEXT if _sl_new else (255, 255, 0)), font=font_diff)
 
         # 機種名テキスト（差枚数の直上・黄色・縁取り）
         if machine_name:
@@ -23477,10 +23605,13 @@ def draw_slump_graph(
             _mn_x  = (w - _mn_w) // 2 - _mn_bb[0]
             _mn_y  = diff_y - _mn_h - round(4 * _os) - _mn_bb[1]
             _ow = max(1, round(1 * _os))
+            # 新デザインは淡背景なので「濃紫＋白縁」、従来は黒地なので「黄＋黒縁」。
+            _mn_edge = C_SL_TEXT_EDGE if _sl_new else (0, 0, 0)
+            _mn_fill = C_SL_TEXT      if _sl_new else (255, 255, 0)
             for _ox, _oy in ((-_ow,-_ow),(_ow,-_ow),(-_ow,_ow),(_ow,_ow),
                              (0,-_ow),(0,_ow),(-_ow,0),(_ow,0)):
-                draw.text((_mn_x + _ox, _mn_y + _oy), machine_name, fill=(0, 0, 0), font=_mn_font)
-            draw.text((_mn_x, _mn_y), machine_name, fill=(255, 255, 0), font=_mn_font)
+                draw.text((_mn_x + _ox, _mn_y + _oy), machine_name, fill=_mn_edge, font=_mn_font)
+            draw.text((_mn_x, _mn_y), machine_name, fill=_mn_fill, font=_mn_font)
 
     return result
 

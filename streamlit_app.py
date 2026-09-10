@@ -531,7 +531,14 @@ def _bar_crop_h(width: int) -> int:
 # **表画像のテーマ（_TABLE_THEME_* / _table_theme_new）とは完全に別物。混ぜない。**
 # 現在は「稲毛のスランプ付き結果ポスト用」だけが対象。将来の横展開は
 # `_SLUMP_THEME_STORES` への追記だけで行う（各描画処理へ if を散らさない）。
-_SLUMP_THEME_STORES: frozenset[str] = frozenset({"稲毛"})
+_SLUMP_THEME_STORES: frozenset[str] = frozenset({
+    "稲毛",
+    "新小岩",
+    "上野新館",
+    "上野本館",
+    "秋葉原",
+    "新宿歌舞伎町",
+})
 # 対象ページはスランプ付き結果ポスト用のみ。
 # 記事用(auto_article)・単体スランプページ(slump_graph)は**含めない**。
 # 通常結果ポスト用(auto)と⑥個別(work)は `if with_slump:` によりスランプを生成しない。

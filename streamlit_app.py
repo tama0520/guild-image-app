@@ -2418,13 +2418,20 @@ def show_image_type_page() -> None:
             # 結果ポスト用(auto)は従来どおり非表示。
             st.markdown(
                 """<style>
-                .st-key-auto_slump_btn button,
+                .st-key-auto_slump_btn button {
+                    background-color: #7000E0 !important;
+                    border-color: #5A00B8 !important;
+                    color: white !important;
+                }
+                .st-key-auto_slump_btn button:hover {
+                    background-color: #5A00B8 !important;
+                    border-color: #5A00B8 !important;
+                }
                 .st-key-auto_slump2_btn button {
                     background-color: #00ACC1 !important;
                     border-color: #00838F !important;
                     color: white !important;
                 }
-                .st-key-auto_slump_btn button:hover,
                 .st-key-auto_slump2_btn button:hover {
                     background-color: #00838F !important;
                     border-color: #00838F !important;

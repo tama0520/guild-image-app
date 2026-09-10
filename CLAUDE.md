@@ -13892,3 +13892,257 @@ B4 の順序（チバリヨ2 → 沖ドキゴージャス30）は**既存の平�
 10. **新引数の既定値を変えない**（他経路の非回帰が壊れる）
 11. **📝・記事用・他店舗・西武新宿・WordPress・画像生成系へ波及させない**
 12. **無関係なリファクタ・未使用コード整理をしない**
+
+## 【正式仕様】非記事用・全店舗の表画像デザイン（2026-09-10・`a05cb00`）
+
+**正式仕様。巻き戻し禁止。**対象は**記事用（`auto_article`）以外の表画像を生成する全店舗・全ページ**。
+稲毛で実装・実画面確認したうえで全店舗へ横展開し、**横展開後もユーザーが実画面を確認して
+「問題ないです」と最終承認済み**。以後これを現行の正式デザインとして扱う。
+
+### ⓪ 確定までのcommit履歴
+
+| commit | 内容 |
+|---|---|
+| **`2a0ab80`** | `feat: 稲毛の結果ポスト系表画像を新デザインへ`（タイトル #8100FF・見出し #290068＋白文字・サマリー #FF6FA5） |
+| **`2a31721`** | `fix: 稲毛のタイトルバーを #8100FF から #7000E0 へ`（明るすぎたため濃くした） |
+| **`121f1f7`** | `feat: 稲毛の表画像から赤ラインを削除し通常文字を #4B0082 へ` |
+| **`a05cb00`** | `feat: 新デザインの表画像を記事用以外の全店舗へ横展開`（**今回の正式基準HEAD**） |
+
+**`7497c43`（`auto: 画像生成後の設定を保存`）は `auto_page_inputs.json` を94行追加しただけの
+アプリ自動commit**であり、**表画像デザインの実装commitではない**。履歴を混同しないこと。
+
+### ① 正式配色
+
+| 要素 | 値 |
+|---|---|
+| **タイトルバー背景** | **#7000E0** RGB(112, 0, 224) |
+| **タイトルバー文字** | **#FFFFFF** |
+| **タイトルバー直下** | **赤線なし。赤線用の6px余白も残さない** |
+| **列見出しバー背景** | **#290068** RGB(41, 0, 104) |
+| **列見出しバー文字** | **#FFFFFF** |
+| **白地データ行の通常文字** | **#4B0082** RGB(75, 0, 130) |
+| **差枚数** | **既存の条件付き色を維持**（プラス `C_PLUS`=#0000CC 青／マイナス `C_MINUS`=#CC0000 赤／±0 `C_ZERO` 黒） |
+| **下段サマリーバー背景** | **#FF6FA5** RGB(255, 111, 165) |
+| **下段サマリーバー文字** | **黒 RGB(0,0,0)** |
+
+通常文字の対象は **台番・機種名・ゲーム数・BIG・REG・AT・合算確率**など、
+`draw_table_image()` のデータ行ループで通常色として描かれる全セル。
+**列ごとのハードコードはしない**（ループ直前で `_data_fg` を1回解決するだけ）。
+
+### ② ★通常文字色と条件付き色は必ず分離する
+
+**通常文字を #4B0082 にするために `C_ZERO` そのものを変更してはならない。**
+`C_ZERO` は差枚±0の条件色としても使われるため、変更すると既存の条件付き色ロジックが壊れる。
+
+```python
+C_NEW_DATA_FG = "#4B0082"     # 通常セル専用（新設）
+...
+_data_fg = C_NEW_DATA_FG if _table_theme_new() else C_ZERO   # データ行ループの直前で1回
+...
+if diff_col_idx is not None and ci == diff_col_idx:
+    color = C_PLUS if v > 0 else (C_MINUS if v < 0 else C_ZERO)   # ← 差枚列は無変更
+else:
+    draw.text((tx, ty_c), cell, fill=_data_fg, font=fn_data)      # ← 通常セルのみ
+```
+
+**既存の `C_TITLE_BG` / `C_MACH_HEADER_BG` / `C_MACH_HEADER_FG` / `C_HEADER_BG` /
+`C_SUMMARY_BG_RGBA` / `C_REDLINE` / `REDLINE_H` は1つも書き換えない**
+（記事用・⑥個別生成ページが従来色のままである根拠）。
+
+### ③ 対象ページ
+
+```python
+_TABLE_THEME_PAGES: frozenset[str] = frozenset({"auto", "auto_slump", "work"})
+```
+
+| page | 内容 | 判定 |
+|---|---|---|
+| **`auto`** | 結果ポスト用 | **対象** |
+| **`auto_slump`** | スランプ付き結果ポスト用（新宿歌舞伎町かぶぱ・秋葉原を含む） | **対象** |
+| **`work`** | ⑥「個別に生成する場合は以下から選択」（全台データ画像・高配分データ画像・並び画像・末尾画像・その他の優秀台画像） | **対象** |
+| **`auto_article`** | 記事用 | **対象外（従来デザイン）** |
+| **`rote`** | ローテ・週間/月間オススメ表 | **対象外**（独自レンダラー・独自配色） |
+| `weekly_result_text` / `name_conversion` / `slump_graph` / `machine_image` / `store` / `image_type` | 表画像なし | 対象外 |
+
+### ④ 対象店舗＝`STORES` から自動導出
+
+```python
+_TABLE_THEME_STORES: frozenset[str] = frozenset(STORES)
+```
+
+**店舗名を個別ハードコードしない。**`STORES`（現在13店舗）から導出することで、
+**今後 `STORES` へ店舗を追加しても「非記事用ページ＝新デザイン／記事用＝従来デザイン」**
+という構造が自動的に維持され、**横展開漏れが起きない**。
+
+現在の店舗×ページ対応（`show_image_type_page()` から確定）:
+
+| 店舗 | auto | auto_slump | auto_article | rote |
+|---|---|---|---|---|
+| 高田馬場 | ○ | — | ○ | ○ |
+| 上野本館 | ○ | ○ | — | ○ |
+| 新宿歌舞伎町 | — | ○（かぶぱ） | — | ○ |
+| 溝の口本館 / 溝の口新館 / 西武新宿 / 新大久保 | ○ | — | — | ○ |
+| 渋谷新館 | ○ | — | ○ | ○ |
+| 稲毛 / 上野新館 / 新小岩 | ○ | ○ | — | — |
+| 秋葉原 | — | ○ | ○ | — |
+| 赤坂見附 | ○ | — | — | — |
+
+### ⑤ ★記事用の除外は「店舗名」ではなく「page 単位」
+
+**「高田馬場・渋谷新館・秋葉原だから除外」ではない。`auto_article` というページ自体を
+新テーマ対象外にしているのが正式仕様。**
+**将来 記事用の店舗が追加されても、`auto_article` である限り新デザインを適用してはならない。**
+
+記事用店舗であっても `auto` / `auto_slump` を開いていれば新デザインになる
+（＝店舗名で除外していないことの裏返し）。
+
+### ⑥ テーマ判定は page と store から毎回導出する
+
+```python
+def _table_theme_new() -> bool:
+    try:
+        return (st.session_state.get("page") in _TABLE_THEME_PAGES
+                and st.session_state.get("selected_store") in _TABLE_THEME_STORES)
+    except Exception:
+        return False
+```
+
+**session_state へ新しい sticky フラグを保存する方式にしてはならない。**採用理由:
+
+- ページ遷移時の状態残留を防止できる
+- rerun 時のフラグ立て忘れ・消し忘れが起きない
+- 記事用を page 単位で安全に除外できる
+- **約70か所ある `_build_machine_img()` 呼び出しへ theme 引数を足す必要がない**
+- Streamlit 外（純粋テスト・subprocess）では `except` で False＝従来デザインへ落ちる
+
+**この設計を今後も維持すること。**
+
+### ⑦ ⑦プレビューと⑧本番は必ず同じデザイン
+
+| 経路 | 実装 |
+|---|---|
+| ⑦プレビュー | `streamlit_app.py` の `_build_machine_img()` / `draw_table_image()` |
+| ⑧本番の並び・列 | `convert_narabi_pil.py`（subprocess） |
+
+`show_auto_page` の ⑧ 呼び出しが **`theme_new=_table_theme_new()`** を渡し、
+`_patch_and_run_narabi()` が `NO_BAR` と同じ regex 方式で **`THEME_NEW`** を書き換える。
+`convert_narabi_pil.py` 側は `THEME_NEW` により `HEADER_BG` / `HEADER_FG` / `DATA_FG` /
+`line_h` / 青バー色 / `SUMMARY_BG` を切り替える。**既定は必ず `False`＝従来デザイン。**
+
+**「⑦だけ新デザイン・⑧だけ旧デザイン」という状態は禁止。**
+記事用は `no_bar=True` で呼ばれ `theme_new` を渡さないため、従来デザインのまま。
+
+### ⑧ 店舗固有対応①：秋葉原 `_build_slump_title_img()`
+
+秋葉原のスランプ付き結果ポストは**表なし・タイトルバー＋スランプグラフだけ**の画像を
+`_build_slump_title_img()` で作っており、**独自に青バー `(38,76,161)` と `LINE_H = 6` の
+赤線を持っていた**。新テーマ時は次のとおり対応済み。
+
+```python
+LINE_H = 0 if _table_theme_new() else 6            # 赤線なし・余白も残さない
+bar = Image.new("RGBA", (total_w, BAR_H),
+                C_NEW_TITLE_BG_RGBA if _table_theme_new() else (38, 76, 161, 255))
+if LINE_H:
+    canvas.paste(Image.new("RGB", (total_w, LINE_H), (204, 0, 0)), (0, BAR_H))
+```
+
+**従来テーマ（記事用等）へは影響させない。**グラフ領域は画素完全一致・幅不変・高さのみ −6px。
+
+### ⑨ 店舗固有対応②：新宿歌舞伎町（かぶぱ）の `_bar_crop_h()`
+
+かぶぱのパネル合成は**「青バー＋赤線6px」を前提に上部を crop** していた。
+
+```
+_insert_panel_into_machine_img()   … split = round(w*73/950) + 6
+_apply_panel_to_table_img()        … _bar_h = round(img.width*73/950) + 6
+_composite_slump_onto_images()     … _bar_h0 = round(_img.width*73/950) + 6
+```
+
+**新デザインでは赤線6pxが無いため、固定 +6 のままだと表の先頭行が6px欠ける。**
+そこで新設した `_bar_crop_h()` を3か所すべてで使う。
+
+```python
+def _bar_crop_h(width: int) -> int:
+    return round(width * 73 / 950) + (0 if _table_theme_new() else 6)
+```
+
+| テーマ | 戻り値 |
+|---|---|
+| **新デザイン** | **BAR_H のみ（赤線6pxを含めない）** |
+| 従来デザイン | **BAR_H + 6（従来どおり）** |
+
+実測で **新=76 / 旧=82**、**crop後の最上行が列見出し（新 `#290068` / 旧 `#F3E6C8`）**、
+**crop後の高さが表本体と一致（6px余分に切っていない）**ことを確認済み。
+
+### ⑩ スランプ合成ロジックは変更していない
+
+**`_attach_slump_to_table()` / `_attach_slump_to_table_side()` は本体無変更。**
+赤線6pxを削除した結果、**新デザインの表画像は旧デザインより6px低くなる。これは正式仕様。**
+
+| レイアウト | 挙動 |
+|---|---|
+| 縦3列 | 幅不変・高さは表の赤線分（−6px）だけ小さい・**グラフ領域は従来と画素完全一致**・表の下端（ピンクバー）が残り切れない |
+| 横4列 | 高さは `max(表の高さ, グラフ域の高さ)`。**グラフ域が高い＝実運用の16台以上では高さ不変**。**グラフ領域は従来と画素完全一致**・表とグラフの間の白い SIDE_GAP により重ならない |
+
+**店舗固有のスランプ配置条件は維持する**（例：稲毛＝表下3列／横版4列／16台以上で横版）。
+
+### ⑪ ★スランプグラフ本体のデザインは今回の対象外
+
+今回正式記録したのは **「表画像のデザイン」だけ**である。
+**スランプグラフ自体の黒背景・グラフ線・目盛・文字・機種名表示・その他の配色は
+今回の正式仕様変更に含めない。**`draw_slump_graph()` は無変更。
+スランプグラフの背景色等は**次の別案件**として検討する。
+
+### ⑫ 変更範囲（`a05cb00` 時点）
+
+| ファイル | 変更 |
+|---|---|
+| `streamlit_app.py` | 定数 `_TABLE_THEME_STORES` / `_TABLE_THEME_PAGES` / `C_NEW_TITLE_BG_RGBA` / `C_NEW_HEADER_BG` / `C_NEW_HEADER_FG` / `C_NEW_DATA_FG` / `C_NEW_SUMMARY_BG_RGBA`、関数 `_table_theme_new()` / `_bar_crop_h()`、`draw_table_image()` / `_build_machine_img()` / `_patch_and_run_narabi()` / `show_auto_page()` / `_insert_panel_into_machine_img()` / `_apply_panel_to_table_img()` / `_composite_slump_onto_images()` / `_build_slump_title_img()` |
+| `convert_narabi_pil.py` | `THEME_NEW` / `HEADER_BG` / `HEADER_FG` / `DATA_FG` / `line_h` / 青バー色 / 赤線paste / `SUMMARY_BG` |
+| **`wp_client.py` / `shimazu_renderer.py`** | **無変更** |
+
+`run_auto_pipeline` / `run_step1〜3` / `_build_sue_images` / `_build_col_items` /
+`_build_machine_img_no_bar` / `_build_article_machine_img` / `_art_high_title_bar` /
+`_art_ranking_image` / `_art_zendai_image` / `_attach_slump_to_table(_side)` /
+`generate_report_text` / `_save_jpeg` / `draw_slump_graph` / `show_auto_article_page` /
+`show_work_page` / `show_rote_page` ほかは**ASTバイト一致（無変更）**。
+
+### ⑬ 確認結果（横展開時・178 PASS / 0 FAIL）
+
+- **ゲート網羅**：全13店舗 × auto/auto_slump/work＝**39通りすべて ON**。
+  記事用・ローテ・その他ページは**全店舗で OFF**。未知の店舗名・page未設定・Streamlit外も OFF。
+- **稲毛**：横展開前と**画素完全一致**（ピンクあり/なし/no_bar/no_bar+ピンク/hq2.0）。
+- **他店舗**：pipeline を7店舗（西武新宿・新小岩・上野本館・赤坂見附・新宿歌舞伎町・秋葉原・稲毛）
+  で実行し、各5画像すべてで紫バー・赤線なし・濃紫見出し・白見出し文字・紫の通常文字（黒0px）・
+  濃ピンクサマリー・黒サマリー文字を確認。**差枚列は従来デザインと画素完全一致**。
+- **⑦⑧一致**：並び・列でタイトル・見出し・赤線なし・通常文字がすべて一致（⑧はJPEG圧縮±数階調）。
+- **記事用**：`_build_machine_img_no_bar` / `_build_article_machine_img` / `_art_high_title_bar` /
+  `_art_ranking_image` / `_art_zendai_image` / `draw_table_image`(テーマOFF) が**画素完全一致**、
+  ⑧記事用相当（`no_bar=True`）は **JPEG SHA256 完全一致**。
+- **抽出・結果テキスト**：7店舗すべてで `zen_dai_list` / `high_ratio_list` / `excellent_list` と
+  生成ファイル名が**不変**。
+- **WordPress 実通信0件**（GET/POST/PUT/DELETE すべてなし）。⑧ボタンも未実行。
+
+### ⑭ 今後の禁止事項
+
+1. **`C_ZERO` を #4B0082 へ変更しない**（通常文字色と条件付き色を必ず分離する）
+2. **差枚列の `C_PLUS` / `C_MINUS` / `C_ZERO` の色分岐を変更しない**
+3. **既存の `C_TITLE_BG` / `C_MACH_HEADER_BG` / `C_MACH_HEADER_FG` / `C_HEADER_BG` /
+   `C_SUMMARY_BG_RGBA` / `C_REDLINE` / `REDLINE_H` を書き換えない・削除しない**
+   （`draw_table_image()` 内の `title` 引数用デッド経路も整理・削除しない）
+4. **`_TABLE_THEME_STORES` を店舗名の個別ハードコードへ戻さない**（`frozenset(STORES)` を維持）
+5. **`_TABLE_THEME_PAGES` へ `auto_article` を追加しない**
+6. **記事用の除外を「店舗名リスト」で行わない**（page 単位を維持）
+7. **`rote` を対象へ加えない**（独自レンダラー・独自配色）
+8. **`_table_theme_new()` を session_state の sticky フラグ方式へ戻さない**
+9. **`_build_machine_img()` 等の呼び出し側へ theme 引数を追加しない**
+10. **⑦だけ／⑧だけ直さない**（`theme_new` → `THEME_NEW` の配線を維持。既定は必ず `False`）
+11. **`_bar_crop_h()` を固定 `+6` へ戻さない**（新宿歌舞伎町の表の先頭行が6px欠ける）
+12. **秋葉原 `_build_slump_title_img()` の紫バー・赤線なしを巻き戻さない**
+13. **`_attach_slump_to_table()` / `_attach_slump_to_table_side()` を色変更のために改造しない**
+14. **表画像が6px低くなることを不具合として扱わない**（正式仕様）
+15. **店舗固有のスランプ配置条件（稲毛の3列／横版4列／16台以上 等）を変更しない**
+16. **スランプグラフ本体（`draw_slump_graph()` の黒背景・線・目盛・文字）を今回を理由に変更しない**
+17. **記事用・WordPress・抽出条件・判定・ファイル名・並び順・液晶・パネル・ban_map・
+    結果テキストを色変更を理由に変更しない**
+18. **無関係なリファクタ・未使用コード整理をしない**

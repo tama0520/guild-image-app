@@ -19836,6 +19836,25 @@ def _save_master_df(df: pd.DataFrame) -> None:
     load_name_map.clear()
 
 
+# 2026-09-11: ローテ結果テキストを新デザイン（見出し 📝結果📝 ／ 日数は装飾なしの
+# 「{day_num}日目」／差枚帯 💎○○枚超（末尾絵文字なし）／台番 ・○番台）にする店舗。
+# _generate_rote_result_text() を通る店舗の集合。上野本館・渋谷新館は別経路
+# （show_rote_page 内のインライン実装／_generate_shibuyashinkan_result_texts）
+# なのでここには入れない（そちら側で同じ表示にする）。
+# **既存の _ROTE_SINGLE_STORES / _ROTE_PLAIN_STORES / _ROTE_NEW_THEME_STORES /
+#   _ROTE_WEEKLY_NEW_THEME_STORES とは意味が違うので流用しない。**
+# 日数の算出（新宿歌舞伎町=10日区切り／他店舗=weekday+1）・差枚帯の閾値・
+# 台番の抽出条件と並び順・空カテゴリ挙動・機種見出しは変更しない。
+_ROTE_NEW_TEXT_STORES: "frozenset[str]" = frozenset({
+    "新宿歌舞伎町",
+    "高田馬場",
+    "溝の口本館",
+    "溝の口新館",
+    "西武新宿",
+    "新大久保",
+})
+
+
 def _generate_rote_result_text(
     df: pd.DataFrame,
     machine_inputs: list[str],
@@ -19881,12 +19900,16 @@ def _generate_rote_result_text(
         monday  = date_obj - _dt.timedelta(days=weekday)
         sunday  = monday  + _dt.timedelta(days=6)
         week_str = f"{monday.month}月{monday.day}日～{sunday.month}月{sunday.day}日"
+        # day_num は上の weekday + 1（曜日ベース）のまま。表示だけ
+        # ＼＼{day_num}日目結果／／ → {day_num}日目 にする（新デザイン店舗のみ）。
+        _new_text = store in _ROTE_NEW_TEXT_STORES
         lines = [
-            f"{date_obj.month}/{date_obj.day}({dow})👨‍💻結果👨‍💻",
+            f"{date_obj.month}/{date_obj.day}({dow})"
+            + ("📝結果📝" if _new_text else "👨‍💻結果👨‍💻"),
             store_full,
             "",
             f"🏆{week_str}オススメポスター🏆",
-            f"＼＼{day_num}日目結果／／",
+            (f"{day_num}日目" if _new_text else f"＼＼{day_num}日目結果／／"),
         ]
 
     _re, _te = ROTE_EMOJI_CONFIG.get(store, ("🌌", "🔥"))
@@ -19896,7 +19919,7 @@ def _generate_rote_result_text(
     # ROTE_BAN_EMOJI_CONFIG の従来表記のまま（1文字も変えない）。
     # 他店舗へ展開するときはこの条件だけを広げる。
     # 差枚帯の閾値・台番の抽出条件・並び順は変更しない。
-    if store == "新宿歌舞伎町":
+    if store in _ROTE_NEW_TEXT_STORES:
         _tp, _ts, _be = "💎", "", "・"
     else:
         _tp, _ts = _te, _te
@@ -19969,14 +19992,18 @@ def _generate_shibuyashinkan_result_texts(
     """
     weekday = date_obj.weekday()
     dow     = ["月", "火", "水", "木", "金", "土", "日"][weekday]
-    header  = f"{date_obj.month}/{date_obj.day}({dow})👨‍💻結果👨‍💻\n{store_full}"
+    # 2026-09-11: 結果テキスト新デザイン（見出し 📝結果📝 ／ 差枚帯 💎○○枚超 ／
+    # 台番 ・○番台）。渋谷新館は日数ロジックを持たないので日数行は追加しない。
+    # 北斗シリーズ／ジャグラーシリーズ／✅毎日…／📍項目／機種見出し（👊🗼🚂）／
+    # 5テキスト構成／当日0台の機種をセクションごと省略する仕様は維持する。
+    header  = f"{date_obj.month}/{date_obj.day}({dow})📝結果📝\n{store_full}"
 
     name_col = "機種名" if "機種名" in df.columns else None
     tiers = [
-        (10000, None,  "📌10,000枚超📌"),
-        (5000,  10000, "📌5,000枚超📌"),
-        (3000,  5000,  "📌3,000枚超📌"),
-        (1000,  3000,  "📌1,000枚超📌"),
+        (10000, None,  "💎10,000枚超"),
+        (5000,  10000, "💎5,000枚超"),
+        (3000,  5000,  "💎3,000枚超"),
+        (1000,  3000,  "💎1,000枚超"),
     ]
 
     def _tier_block(inputs: list[str]) -> list[str]:
@@ -20007,7 +20034,7 @@ def _generate_shibuyashinkan_result_texts(
                 continue
             lines.append(label)
             for _, row in tier.iterrows():
-                lines.append(f"💫{int(row['台番'])}番台")
+                lines.append(f"・{int(row['台番'])}番台")
             lines.append("")
         return lines
 
@@ -22250,13 +22277,17 @@ def show_rote_page() -> None:
                 elif store == "上野本館":
                     _re_uo, _te_uo = ROTE_EMOJI_CONFIG.get(store, ("🌌", "🔥"))
                     _dow_uo = ["月", "火", "水", "木", "金", "土", "日"][_rd.weekday()]
-                    _header_uo = f"{_rd.month}/{_rd.day}({_dow_uo})👨‍💻結果👨‍💻\n{_rote_store_full}"
+                    # 2026-09-11: 結果テキスト新デザイン（見出し 📝結果📝 ／
+                    # 差枚帯 💎○○枚超 ／ 台番 ・○番台）。上野本館は日数ロジックを
+                    # 持たないので日数行は追加しない。✅毎日…／📍項目／表ごとの
+                    # ポスター名／機種見出し（🤡🚂👊）／月間表①②③の3ファイル構成は維持。
+                    _header_uo = f"{_rd.month}/{_rd.day}({_dow_uo})📝結果📝\n{_rote_store_full}"
                     _nc_uo = "機種名" if "機種名" in df.columns else None
                     _tiers_uo = [
-                        (10000, None,  f"{_te_uo}10,000枚超{_te_uo}"),
-                        (5000,  10000, f"{_te_uo}5,000枚超{_te_uo}"),
-                        (3000,  5000,  f"{_te_uo}3,000枚超{_te_uo}"),
-                        (1000,  3000,  f"{_te_uo}1,000枚超{_te_uo}"),
+                        (10000, None,  "💎10,000枚超"),
+                        (5000,  10000, "💎5,000枚超"),
+                        (3000,  5000,  "💎3,000枚超"),
+                        (1000,  3000,  "💎1,000枚超"),
                     ]
                     def _uo_monthly_text(machine_input, monthly_items, re_emoji=None, poster_text=None):
                         _re = re_emoji if re_emoji else _re_uo
@@ -22285,7 +22316,7 @@ def show_rote_page() -> None:
                                         continue
                                     _lm.append(_lb)
                                     for _, _row in _tr.iterrows():
-                                        _lm.append(f"💎{int(_row['台番'])}番台")
+                                        _lm.append(f"・{int(_row['台番'])}番台")
                                     _lm.append("")
                         return "\n".join(_lm).rstrip()
                     # 月間オススメ表結果.txtと重複するためローテ①②結果.txtは生成しない

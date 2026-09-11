@@ -161,6 +161,18 @@ ROTE_BAN_COLOR_CONFIG: dict[str, str] = {
 # 未登録店舗は従来どおり①②の各最大6機種を1枚へまとめる方式
 _ROTE_SINGLE_STORES: frozenset[str] = frozenset({"新宿歌舞伎町"})
 
+# 2026-09-11: ローテ用でランキング画像（ranking_*.png）を作らない店舗。
+# 現在 generate_ranking_image() の呼び出しは _ROTE_SINGLE_STORES 経路にしか無いが、
+# 他店舗の既存挙動を壊さないよう店舗集合でゲートする（店舗追加はこの集合の編集だけ）。
+# **generate_ranking_image() 本体・ランキング用の定数・描画ロジックは削除しない。**
+# 既存の ranking_*.png を後から削除する処理も追加しない（最初から生成経路へ入れない）。
+_ROTE_RANKING_OFF_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
+def _rote_ranking_on(store: str) -> bool:
+    """ローテ用でランキング画像を生成するか（OFF店舗は生成・保存・ZIPとも0件）。"""
+    return store not in _ROTE_RANKING_OFF_STORES
+
 # 拡張機能店舗のオススメブロック絵文字設定
 # section_emoji: 「{emoji}{title}の優秀台」ヘッダー絵文字
 # block_emojis:  各ブロック内の機種名文頭絵文字（4ブロック分）
@@ -21873,12 +21885,17 @@ def show_rote_page() -> None:
                         if _cn else None
                         for _ci, _cn in zip(_cat_inputs, _cat_names)
                     ]
-                    # ランキング画像もカテゴリごとにその1機種だけを対象にする
-                    _rank_imgs = [
-                        generate_ranking_image(df, _ci, date_label=_rote_date_label, store=store)
-                        if _cn else None
-                        for _ci, _cn in zip(_cat_inputs, _cat_names)
-                    ]
+                    # ランキング画像もカテゴリごとにその1機種だけを対象にする。
+                    # _ROTE_RANKING_OFF_STORES の店舗は generate_ranking_image() を
+                    # 1度も呼ばない（保存・ZIPへも入らない）。
+                    if _rote_ranking_on(store):
+                        _rank_imgs = [
+                            generate_ranking_image(df, _ci, date_label=_rote_date_label, store=store)
+                            if _cn else None
+                            for _ci, _cn in zip(_cat_inputs, _cat_names)
+                        ]
+                    else:
+                        _rank_imgs = [None] * len(_rote_imgs)
                 else:
                     # 渋谷新館は④（月間オススメ表②）までローテ画像を作る
                     _n_cat = len(_cat_inputs) if store == "渋谷新館" else 3

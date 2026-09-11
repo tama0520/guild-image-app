@@ -24326,7 +24326,13 @@ _ARTICLE_GAP_FILL_STORES = {"高田馬場", "渋谷新館"}
 # _GAP_FILL_STORES 自体は記事用の分岐（show_auto_article_page）からも参照されているので、
 # そちらを書き換えず「結果ポスト経路のゲートだけ」を _gap_fill_on() へ差し替える。
 # 全店舗へ広げるときはこの集合へ店舗を追記する（店舗ごとにコードを複製しない）。
-_GAP_FILL_OFF_SLUMP_STORES: "frozenset[str]" = frozenset({"新小岩"})
+_GAP_FILL_OFF_SLUMP_STORES: "frozenset[str]" = frozenset({
+    "新小岩",
+    "上野新館",
+    "上野本館",
+    "秋葉原",        # auto_slump はOFF。auto_article は _GAP_FILL_STORES 経由で液晶を維持する
+    "新宿歌舞伎町",  # auto_slump（かぶぱ）/ auto_slump2 の両方がOFFになる
+})
 
 
 def _gap_fill_on(store: str) -> bool:

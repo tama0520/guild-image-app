@@ -21606,7 +21606,14 @@ def show_rote_page() -> None:
                         # ①〜⑥各1機種方式の店舗は6カテゴリすべてを対象にする
                         _rv_sets = (("1", "2", "3", "4", "5", "6")
                                     if store in _ROTE_SINGLE_STORES else ("1", "2"))
-                        for _rfi in range(6):
+                        # ①〜⑥各1機種方式の店舗は各 set の index 0 しか UI・画像生成・
+                        # 結果テキストで使わないため、絞り込みも index 0 だけを見る。
+                        # （_save_rote_machines(preserve_tail=True) が index 1 以降を
+                        #   恒久保持する仕様のため、index を全部見ると
+                        #   「新UIでは使用しない」旧機種まで機種別データへ混入する。
+                        #   c59dd90 の「JSON上は保持／新UIでは使用しない」を絞り込みへ反映）
+                        _rv_idxs = (0,) if store in _ROTE_SINGLE_STORES else range(6)
+                        for _rfi in _rv_idxs:
                             for _rset in _rv_sets:
                                 _rv_m = (
                                     st.session_state.get(f"rote{_rset}_mname_{_rfi}", "")

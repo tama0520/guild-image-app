@@ -5101,7 +5101,9 @@ def generate_report_text(
     def suebangai_section() -> str:
         _circle_map = {"0":"⓪","1":"①","2":"②","3":"③","4":"④",
                        "5":"⑤","6":"⑥","7":"⑦","8":"⑧","9":"⑨"}
-        _item_emoji = STORE_REC_CONFIG.get(store_name, {}).get("item_emoji", "🚩")
+        # 2026-09-11: 末尾の+1,000枚以上一覧の行頭 🚩 は「・」で出す。
+        # 店舗固有の item_emoji（🚩 以外を設定している店舗）はそのまま維持する。
+        _item_emoji = STORE_REC_CONFIG.get(store_name, {}).get("item_emoji", "🚩").replace("🚩", "・")
         lines = []
 
         def _plus1000_lines(_item) -> list[str]:
@@ -5131,7 +5133,9 @@ def generate_report_text(
         整形は末尾の+1,000枚以上一覧と同一（_item_emoji / 変換済み機種名 / _fmt_diff）。"""
         if not variety_excellent:
             return ""
-        _item_emoji = STORE_REC_CONFIG.get(store_name, {}).get("item_emoji", "🚩")
+        # 2026-09-11: バラエティの結果行の行頭 🚩 は「・」で出す。
+        # 店舗固有の item_emoji（🚩 以外を設定している店舗）はそのまま維持する。
+        _item_emoji = STORE_REC_CONFIG.get(store_name, {}).get("item_emoji", "🚩").replace("🚩", "・")
         return "\n".join(
             ["👑バラエティの優秀台"] +
             [f"{_item_emoji}【{_p['ban']}番台】{_p['name']}→{_fmt_diff(_p['diff'])}"

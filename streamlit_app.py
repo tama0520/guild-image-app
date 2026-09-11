@@ -221,6 +221,14 @@ def _rote_weekly_new_theme(store: str) -> bool:
     return store in _ROTE_WEEKLY_NEW_THEME_STORES
 
 
+# ローテ用「表.png」でチェック後セルに使うレモン色。値はスランプ付き結果の
+# グラフエリア背景 C_SLUMP_AREA_BG（#FFFFCB）と同じだが、表テーマの変更で
+# スランプ側の定数・実装へ影響を出さないため表専用定数として持つ
+# （C_ROTE_NEW_BAN_BG と C_SL_PURPLE を分けているのと同じ用途分離）。
+# **C_SLUMP_AREA_BG / _paste_slump_area_bg() は変更しない。**
+C_ROTE_WEEKLY_CK_BG = "#FFFFCB"   # RGB(255, 255, 203)
+
+
 def _wt_hex_rgb(hex_color: str) -> tuple:
     """"#RRGGBB" を (R, G, B) へ。表テーマで既存HEX定数をそのまま使うための変換のみ。"""
     _h = hex_color.lstrip("#")
@@ -20390,18 +20398,17 @@ def _weekly_table_html_image(
     C_CELL_WHT = (255, 255, 255)
     C_BORDER   = (0, 0, 0)
     # _ROTE_WEEKLY_NEW_THEME_STORES の店舗は差枚ローテ画像と同じ正式色へ寄せる。
-    # ①タイトルバー=#290068 ②日付ヘッダー=#7000E0 ③項目列=#4B0082
-    # ④チェック後セル=#C7B4DD。濃色背景になる②③は文字を白へ（視認性確保）。
+    # ①タイトルバー=#4B0082 ②日付ヘッダー=#7000E0 ③項目列=#C7B4DD
+    # ④チェック後セル=#FFFFCB。濃色背景になる②だけ文字を白へ（視認性確保）。
+    # ③は淡色なので項目文字は従来どおり黒のまま。
     # 罫線 C_BORDER・白セル C_CELL_WHT・チェック前は変更しない。
-    _wt_hdr_fg  = (0, 0, 0)
-    _wt_item_fg = (0, 0, 0)
+    _wt_hdr_fg = (0, 0, 0)
     if theme_new:
-        C_TITLE_BG  = _wt_hex_rgb(C_NEW_HEADER_BG)
-        C_HDR_BG    = C_NEW_TITLE_BG_RGBA[:3]
-        C_ITEM_BG   = _wt_hex_rgb(C_NEW_DATA_FG)
-        C_CELL_YEL  = _wt_hex_rgb(C_ROTE_NEW_BAN_BG)
-        _wt_hdr_fg  = (255, 255, 255)
-        _wt_item_fg = (255, 255, 255)
+        C_TITLE_BG = _wt_hex_rgb(C_NEW_DATA_FG)
+        C_HDR_BG   = C_NEW_TITLE_BG_RGBA[:3]
+        C_ITEM_BG  = _wt_hex_rgb(C_ROTE_NEW_BAN_BG)
+        C_CELL_YEL = _wt_hex_rgb(C_ROTE_WEEKLY_CK_BG)
+        _wt_hdr_fg = (255, 255, 255)
 
     f_title   = _lf_m(_TITLE_SZ)
     f_hdr     = _lf_m(_HDR_SZ)
@@ -20503,7 +20510,7 @@ def _weekly_table_html_image(
         cx = x + (w - total_tw) // 2
         for ch, fn, bb, cw in chars:
             # x方向のみbb[0]補正。y方向は全文字共通のy_originを使う
-            draw.text((cx - bb[0], y_origin), ch, fill=_wt_item_fg, font=fn)
+            draw.text((cx - bb[0], y_origin), ch, fill=(0, 0, 0), font=fn)
             cx += cw
 
     # ── タイトルバー ──
@@ -20594,15 +20601,15 @@ def _draw_weekly_table_image(
     C_YL = "#FFFF00"
     C_GY = "#D0D0D0"
     # _ROTE_WEEKLY_NEW_THEME_STORES の店舗は差枚ローテ画像と同じ正式色へ寄せる。
-    # ①タイトルバー=#290068 ②日付ヘッダー=#7000E0 ③項目列=#4B0082
-    # ④チェック後セル=#C7B4DD。濃色背景になる②③は文字を白へ（視認性確保）。
+    # ①タイトルバー=#4B0082 ②日付ヘッダー=#7000E0 ③項目列=#C7B4DD
+    # ④チェック後セル=#FFFFCB。濃色背景になる②だけ文字を白へ（視認性確保）。
+    # ③は淡色なので項目文字は従来どおり黒のまま。
     # 罫線 C_BK・白セル C_WH・チェック前セル・○の文字色は変更しない。
-    C_TTL_BG  = C_NEW_HEADER_BG if theme_new else C_BK          # ①
+    C_TTL_BG  = C_NEW_DATA_FG if theme_new else C_BK            # ①
     C_DHDR_BG = (C_NEW_TITLE_BG_RGBA[:3] if theme_new else C_GY)  # ②
     C_DHDR_FG = C_WH if theme_new else C_BK
-    C_ITEM_BG = C_NEW_DATA_FG if theme_new else C_BG            # ③
-    C_ITEM_FG = C_WH if theme_new else C_BK
-    C_CK_BG   = C_ROTE_NEW_BAN_BG if theme_new else C_YL        # ④
+    C_ITEM_BG = C_ROTE_NEW_BAN_BG if theme_new else C_BG        # ③
+    C_CK_BG   = C_ROTE_WEEKLY_CK_BG if theme_new else C_YL      # ④
 
     # ◎○など記号だけ Meiryo、それ以外は MochiyPopOne（1文字単位で切り替え）
     _SYM_CHARS = set("◎○●◯△▲▽▼□■◇◆")
@@ -20734,13 +20741,13 @@ def _draw_weekly_table_image(
             for _li, _line in enumerate(_nel):
                 _lw = _measure(_line, FONT_SZ)
                 _tx = (ITEM_W - _lw) // 2
-                _draw_mixed(_line, _tx, _ty0 + _li * TEXT_LINE_H, TEXT_LINE_H, FONT_SZ, C_ITEM_FG)
+                _draw_mixed(_line, _tx, _ty0 + _li * TEXT_LINE_H, TEXT_LINE_H, FONT_SZ, C_BK)
         else:
             for _li, _line in enumerate(_lines):
                 if _line.strip():
                     _lw = _measure(_line, FONT_SZ)
                     _tx = (ITEM_W - _lw) // 2
-                    _draw_mixed(_line, _tx, cy + _li * ROW_H, ROW_H, FONT_SZ, C_ITEM_FG)
+                    _draw_mixed(_line, _tx, cy + _li * ROW_H, ROW_H, FONT_SZ, C_BK)
         if cell_machines is not None:
             # 機種名モード：縦中央揃えで描画
             # _row_nmach[_ri] = このタイトル行の最大機種数（全日付列の最大値）

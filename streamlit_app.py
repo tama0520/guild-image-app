@@ -173,6 +173,26 @@ def _rote_ranking_on(store: str) -> bool:
     """ローテ用でランキング画像を生成するか（OFF店舗は生成・保存・ZIPとも0件）。"""
     return store not in _ROTE_RANKING_OFF_STORES
 
+
+# 2026-09-11: ローテ用画像の配色を「高配分画像」と同じ正式色（紫系）へ寄せる店舗。
+# 現在は新宿歌舞伎町だけの実験。将来は全ローテ店舗へ展開する予定なので、
+# 店舗ごとに色をベタ書きせずこの集合だけで対象を管理する（追加は集合の編集のみ）。
+# 変えるのは色だけで、画像サイズ・列幅・行高・セル位置・文字位置・フォント・
+# 罫線・データ内容・並び順・ファイル名はいっさい変更しない。
+_ROTE_NEW_THEME_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
+def _rote_new_theme(store: str) -> bool:
+    """ローテ用画像を紫系配色にする店舗か（未登録店舗は従来配色のまま）。"""
+    return store in _ROTE_NEW_THEME_STORES
+
+
+# ローテ用 紫系配色で「台番の数字」セルの背景に使う淡紫（ユーザー選択値）。
+# 値はスランプカードの C_SL_PURPLE と同じ #C7B4DD だが、ローテ側の変更で
+# スランプ・高配分の定数へ影響を出さないためローテ専用定数として持つ。
+# **C_SL_PURPLE / C_NEW_* / ROTE_BAN_COLOR_CONFIG は変更しない。**
+C_ROTE_NEW_BAN_BG = "#C7B4DD"   # RGB(199, 180, 221)
+
 # 拡張機能店舗のオススメブロック絵文字設定
 # section_emoji: 「{emoji}{title}の優秀台」ヘッダー絵文字
 # block_emojis:  各ブロック内の機種名文頭絵文字（4ブロック分）
@@ -2020,13 +2040,21 @@ def generate_rote_image(df: pd.DataFrame, machine_names: list[str], date_label: 
     COL_DIFF = 130 * SC  # 枚数列を少し狭く（-13%）
     W = COL_BAN + COL_DIFF
 
-    C_BAN_BG  = ROTE_BAN_COLOR_CONFIG.get(store, "#00FFCC")  # 台番列
-    C_HDR_BG  = "#606060"   # 列ヘッダー背景 濃いグレー
+    # _ROTE_NEW_THEME_STORES の店舗は高配分画像と同じ正式色（紫系）を使う。
+    # ①台番・日付ヘッダー背景＝C_NEW_TITLE_BG_RGBA(#7000E0)／②機種名背景＝
+    # C_NEW_HEADER_BG(#290068)／③台番セル背景＝C_ROTE_NEW_BAN_BG(#C7B4DD)／
+    # ④台番文字＝C_NEW_DATA_FG(#4B0082)。文字色（白）は新旧で同じ。
+    _rote_new = _rote_new_theme(store)
+    C_BAN_BG  = (C_ROTE_NEW_BAN_BG if _rote_new
+                 else ROTE_BAN_COLOR_CONFIG.get(store, "#00FFCC"))  # 台番列
+    C_HDR_BG  = (C_NEW_TITLE_BG_RGBA[:3] if _rote_new
+                 else "#606060")   # 列ヘッダー背景（旧: 濃いグレー）
     C_HDR_FG  = "#FFFFFF"   # 列ヘッダー文字 白
     C_BORDER  = "#000000"
     C_EMPTY   = "#FFFFFF"
-    C_MAC_BG  = "#000000"
+    C_MAC_BG  = C_NEW_HEADER_BG if _rote_new else "#000000"
     C_MAC_FG  = "#FFFFFF"
+    C_BAN_FG  = C_NEW_DATA_FG if _rote_new else "black"   # 台番の数字の文字色
 
     FONT_SZ = int(15 * SC)  # 約115%（一段階大きく）
     font = load_font(FONT_SZ)
@@ -2137,7 +2165,7 @@ def generate_rote_image(df: pd.DataFrame, machine_names: list[str], date_label: 
             ban_str = str(int(row["台番"]))
             diff_v  = row.get("差枚", None)
 
-            cell(0, cy, COL_BAN, ROW_H, C_BAN_BG, ban_str, "black")
+            cell(0, cy, COL_BAN, ROW_H, C_BAN_BG, ban_str, C_BAN_FG)
 
             if pd.isna(diff_v) or int(diff_v) < 1000:
                 cell(COL_BAN, cy, COL_DIFF, ROW_H, C_EMPTY)

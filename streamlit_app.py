@@ -5177,14 +5177,23 @@ def generate_report_text(
         def nami_for(name):
             return [x for x in nami_list if x.get("machine") == name]
 
-        def nami_detail_lines(name):
+        def retsu_for(name):
+            # ③列画像（列仕掛け）。nami_list と同じ形の dict リストなので整形も共通。
+            return [x for x in (retsu_list or []) if x.get("machine") == name]
+
+        def _detail_lines(items, prefix: str = ""):
+            """並び／列の詳細行を既存書式のまま作る（記号だけ prefix で付ける）。"""
             res = []
-            for item in nami_for(name):
+            for item in items:
                 br = item.get("ban_range", "")
                 n = item["count"]
                 avg = _fmt_diff(item["avg_diff"])
-                res.append(f"{br}番台({n}台並び)→平均{avg}" if br else f"({n}台並び)→平均{avg}")
+                res.append(f"{prefix}{br}番台({n}台並び)→平均{avg}" if br
+                           else f"{prefix}({n}台並び)→平均{avg}")
             return res
+
+        def nami_detail_lines(name, prefix: str = ""):
+            return _detail_lines(nami_for(name), prefix)
 
         def extract_bans_1k(machine_name):
             if df is None or diff_raw is None:
@@ -5198,8 +5207,9 @@ def generate_report_text(
             dr_f = dr_sub[mask]
             if sub_f.empty:
                 return []
-            order = dr_f.sort_values(ascending=False).index
-            return [(int(sub_f.loc[i, "台番"]), int(dr_f.loc[i])) for i in order]
+            rows = [(int(sub_f.loc[i, "台番"]), int(dr_f.loc[i])) for i in sub_f.index]
+            # 差枚降順 → 同差枚は台番昇順（tie-break）
+            return sorted(rows, key=lambda t: (-t[1], t[0]))
 
         def _checked_pins(table_num: int) -> list[str]:
             """同日の⑤表入力でチェック/選択が入った項目のみ返す。日付/start_date不明・未設定時は全件返す。
@@ -5276,61 +5286,76 @@ def generate_report_text(
 
         L = ["📈オススメポスター機種の仕掛け📈"]
 
-        # ── スマスロ北斗の拳 ──
-        _kita_pins = _checked_pins(1)
-        KITA = "スマスロ北斗の拳"
-        L.append(f"【{KITA}】")
-        h_kita = find_high(KITA)
-        for pin in _kita_pins:
-            L.append(f"📌{pin}")
-        if h_kita:
-            L.append(f"🎖️{KITA}({h_kita['count']}/{h_kita['total']}台)")
-        if nami_for(KITA):
-            L.append(f"🍡{KITA}")
-            L.extend(nami_detail_lines(KITA))
-        L.append("")
-
-        # ── 北斗転生2 ──
-        KITA2 = "北斗転生2"
-        L.append(f"【{KITA2}】")
-        for ban, dv in extract_bans_1k(KITA2):
-            L.append(f"🚩【{ban}番台】+{dv:,}枚")
-        L.append("")
-
-        # ── ジャグラーシリーズ ──
-        _jug_pins = _checked_pins(3)
-        L.append("【ジャグラーシリーズ】")
-        for pin in _jug_pins:
-            L.append(f"📌{pin}")
-        for z in [x for x in zen_dai_list if x["name"] in jug_names]:
-            L.append(f"🎖️{z['name']}({z['count']}/{z['total']}台)→平均{_fmt_diff(z.get('all_avg_diff', 0))}")
-        for h in [x for x in high_ratio_list if x["name"] in jug_names]:
-            L.append(f"🎖️{h['name']}({h['count']}/{h['total']}台)→平均{_fmt_diff(h.get('all_avg_diff', 0))}")
-        jug_m_order = list(dict.fromkeys(x.get("machine", "") for x in nami_list if x.get("machine", "") in jug_names))
-        for m in jug_m_order:
-            L.append(f"🍡{m}")
-            L.extend(nami_detail_lines(m))
-        L.append("")
-
-        # ── 東京喰種 ──
+        # ── 東京喰種 ──（t2＝月間オススメ表①のチェック連動。判定・抽出は従来どおり）
         _ghoul_pins = _checked_pins(2)
         GHOUL = "東京喰種"
         L.append(f"【{GHOUL}】")
         for pin in _ghoul_pins:
-            L.append(f"📌{pin}")
+            L.append(f"📍{pin}")
         h_ghoul = find_high(GHOUL)
         if h_ghoul:
-            L.append(f"🎖️{GHOUL}({h_ghoul['count']}/{h_ghoul['total']}台)")
+            L.append(f"・{GHOUL}({h_ghoul['count']}/{h_ghoul['total']}台)")
             n1k = len(h_ghoul.get("diffs", []))
-            L.append(f"🎖️{GHOUL}→{n1k}台が+1,000枚以上")
-        L.extend(nami_detail_lines(GHOUL))
+            L.append(f"・{GHOUL}→{n1k}台が+1,000枚以上")
+        L.extend(nami_detail_lines(GHOUL, "・"))
         L.append("")
 
-        # ── カバネリ海門決戦 ──
-        # 2026-08-05: 専用ブロック（見出し＋🚩台番一覧）は出力しない。
-        # STORE_CONFIG の poster_extra_exclude からも外し、他機種と同じ扱いにする
-        # （全台系→👑全台系濃厚機種／高配分→👑高配分機種／どちらでもなく+2,000枚以上
-        #   →👑その他の優秀台）。extract_bans_1k() は【北斗転生2】で使用中のため残す。
+        # ── カバネリ海門決戦 ──（t4＝月間オススメ表②のチェック連動）
+        # チェックが入った項目だけを出し、項目の種別（全台系／高配分／並び／列）に応じて
+        # 既存データ（zen_dai_list / high_ratio_list / nami_list / retsu_list）から詳細を出す。
+        # 項目文字列はローテ画面の入力値なので、項目名をハードコードしない。
+        KABA = "カバネリ海門決戦"
+        L.append(f"【{KABA}】")
+        for pin in _checked_pins(4):
+            L.append(f"📍{pin}")
+            if "全台系" in pin:
+                _z = next((x for x in zen_dai_list if x["name"] == KABA), None)
+                if _z:
+                    L.append(f"・{KABA}({_z['count']}/{_z['total']}台)"
+                             f"→平均{_fmt_diff(_z.get('all_avg_diff', 0))}")
+            elif "高配分" in pin:
+                _h = find_high(KABA)
+                if _h:
+                    L.append(f"・{KABA}({_h['count']}/{_h['total']}台)")
+            elif "並び" in pin:
+                L.extend(_detail_lines(nami_for(KABA), "・"))
+            elif "列" in pin:
+                L.extend(_detail_lines(retsu_for(KABA), "・"))
+        L.append("")
+
+        # ── ジャグラーシリーズ ──（t3。判定・抽出は従来どおり・記号のみ変更）
+        _jug_pins = _checked_pins(3)
+        L.append("【ジャグラーシリーズ】")
+        for pin in _jug_pins:
+            L.append(f"📍{pin}")
+        for z in [x for x in zen_dai_list if x["name"] in jug_names]:
+            L.append(f"・{z['name']}({z['count']}/{z['total']}台)→平均{_fmt_diff(z.get('all_avg_diff', 0))}")
+        for h in [x for x in high_ratio_list if x["name"] in jug_names]:
+            L.append(f"・{h['name']}({h['count']}/{h['total']}台)→平均{_fmt_diff(h.get('all_avg_diff', 0))}")
+        jug_m_order = list(dict.fromkeys(x.get("machine", "") for x in nami_list if x.get("machine", "") in jug_names))
+        for m in jug_m_order:
+            L.append(f"・{m}")
+            L.extend(nami_detail_lines(m, "・"))
+        L.append("")
+
+        # ── 北斗シリーズ ──
+        # 対象2機種の +1,000枚以上台のみを差枚降順（同差枚は台番昇順）で並べる。
+        # 機種ごとに📍見出しを出し、対象台が0台の機種は見出しも出さない。
+        KITA = "スマスロ北斗の拳"
+        KITA2 = "北斗転生2"
+        L.append("【北斗シリーズ】")
+        _hok_first = True
+        for _hm in (KITA, KITA2):
+            _rows = extract_bans_1k(_hm)
+            if not _rows:
+                continue
+            if not _hok_first:
+                L.append("")
+            _hok_first = False
+            L.append(f"📍{_hm}")
+            for _ban, _dv in _rows:
+                L.append(f"・【{_ban}番台】+{_dv:,}枚")
+        L.append("")
 
         # ── ヴァルヴレイヴ2 ──
         # 2026-08-05: ブロックごと出力しない（見出し・📌4行・2台/3台並び詳細）。

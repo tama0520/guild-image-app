@@ -16781,3 +16781,226 @@ C_SLUMP_AREA_BG     = (255, 255, 203)   # #FFFFCB       ← スランプ専用�
 17. **`auto` / `auto_slump` / `auto_slump2` / `auto_article` / `work` へ適用しない**
 18. **`fdcf349` / `8a85e34` へ reset して実装をやり直さない**
 19. **無関係なリファクタ・未使用コード整理をしない**
+
+## 2026-09-11 新宿歌舞伎町 ローテ機種別データ絞り込み正式修正
+
+**正式仕様。巻き戻し禁止。**対象は**【新宿歌舞伎町】のローテ用（`page == "rote"`）で
+速報データ取得後に表示される「機種別データ」の絞り込みだけ**。
+2026-09-11 に **ユーザーが Streamlit Cloud 実機で確認し「問題なし」と正式承認**した。
+
+既存のローテ関連セクション（とくに **`c59dd90`**「新宿歌舞伎町ローテ：①〜⑥各1機種＝1枚」／
+`6b87aa4`＋記録 `061e42f` ／ `7a47c12`＋記録 `a17ea22` ／ `a2bd8f7`・`9084f93`＋記録 `4914bed` ／
+`8a85e34`＋記録 `378291b` ほか）は**削除・圧縮・統合・並べ替え・書き換えしない**。
+
+### A. 正式実装commit
+
+| | commit |
+|---|---|
+| **正式** | **`94f8e7b7bfe85a6dde4af8dd309618f5c3cb446c`**（`fix: 新宿歌舞伎町ローテの機種別データ絞り込みを修正`） |
+
+**`streamlit_app.py` のみ・+8 / −1・1ハンク・変更関数は `show_rote_page()` だけ・
+新規関数0・削除関数0。**
+**`94f8e7b` へ reset してはならない**（正式仕様の根拠commitであって、HEAD を戻す意味ではない）。
+
+### B. Cloud 承認
+
+**2026-09-11：`94f8e7b` push 後、ユーザーが Cloud で【新宿歌舞伎町】→「📋 ローテ用」→
+速報データ取得 →「機種別データ」を実機確認し「問題なし」と正式承認。**
+
+確認内容：
+
+```
+現在の入力  ① 東京喰種 ／ ② カバネリ海門決戦 ／ ③〜⑥ 空
+機種別データ 東京喰種 ／ カバネリ海門決戦 の2機種だけ
+旧hidden値  set2[1] = 炎炎ノ消防隊2 は保持したまま、機種別データには表示されない
+```
+
+### C. 発生していた事象
+
+新宿歌舞伎町のローテ用で**2機種だけ入力**して「速報データを取得」したのに、
+**「機種別データ」に `炎炎ノ消防隊2` まで出て3機種**表示されていた。
+
+### D. ★根本原因（filter の index 範囲）
+
+`rote_machines.json` の新宿歌舞伎町には旧仕様由来の
+
+```
+set1 = ['東京喰種',         '', '', '', '', '']
+set2 = ['カバネリ海門決戦', '炎炎ノ消防隊2', '', '', '', '']   ← index 1 に旧機種
+set3〜set6 = ['']
+```
+
+が保持されている。復元処理（`show_rote_page()` 冒頭）は
+**`_rote_init_{store}_{set}_{index}` を index 0〜5 まで作る**。
+
+一方、新宿歌舞伎町は **`_ROTE_SINGLE_STORES`** 対象で
+**UI・画像生成・結果テキストは各 set の index 0 しか使わない**
+（widget は `rote1_mname_0`〜`rote6_mname_0` のみ）。
+
+にもかかわらず、**機種別データの `_rv_filter` 構築だけが `for _rfi in range(6):` で
+index 0〜5 を全走査**しており、widget が存在しない index 1 では
+`or st.session_state.get(f"_rote_init_{store}_{_rset}_{_rfi}", "")` のフォールバックが
+**必ず `_rote_init_新宿歌舞伎町_2_1 = 炎炎ノ消防隊2` を採用**していた。
+
+```
+画面入力         2件（① 東京喰種 ／ ② カバネリ海門決戦）
+画像/ZIP/結果    2件（machine_inputs_all＝widget index0 のみ）
+_rv_filter      3件（+ 炎炎ノ消防隊2）★ ここだけ食い違っていた
+```
+
+**`preserve_tail=True` の `_merge_set()` が index 1 以降を恒久保持する仕様のため、
+この旧値は UI からは消せない。** つまり原因は「今回2機種へ減らした操作」ではなく
+**filter の index 範囲**である。
+
+### E. 正式実装（既存ゲートを再利用・新定数を作らない）
+
+```python
+# ①〜⑥各1機種方式の店舗は各 set の index 0 しか UI・画像生成・
+# 結果テキストで使わないため、絞り込みも index 0 だけを見る。
+# （_save_rote_machines(preserve_tail=True) が index 1 以降を
+#   恒久保持する仕様のため、index を全部見ると
+#   「新UIでは使用しない」旧機種まで機種別データへ混入する。
+#   c59dd90 の「JSON上は保持／新UIでは使用しない」を絞り込みへ反映）
+_rv_idxs = (0,) if store in _ROTE_SINGLE_STORES else range(6)
+for _rfi in _rv_idxs:
+    for _rset in _rv_sets:
+        _rv_m = (st.session_state.get(f"rote{_rset}_mname_{_rfi}", "")
+                 or st.session_state.get(f"_rote_init_{store}_{_rset}_{_rfi}", "")).strip()
+        if _rv_m:
+            _rv_filter.add(_rv_m)
+```
+
+| 店舗 | 機種別データ filter が見る index |
+|---|---|
+| **新宿歌舞伎町（`_ROTE_SINGLE_STORES`）** | **index 0 のみ** |
+| **それ以外のローテ店舗** | **index 0〜5（従来どおり）** |
+
+- **既存 `_ROTE_SINGLE_STORES` をそのまま再利用**する（`_ROTE_SINGLE_STORES` の参照が1箇所増えただけ）。
+- **新しい店舗別 if 文・新しい専用定数・新しい helper を作らない。**
+- `_rv_sets`（単一機種店舗は `("1"..."6")`／他店舗は `("1","2")`）は**変更していない**。
+
+### F. ★「2機種固定」ではない（誤記しないこと）
+
+正式仕様は **「①〜⑥の各 set の index 0 に現在入力されている機種だけを表示する」**である。
+
+| 入力 | 機種別データ |
+|---|---|
+| ①② に2機種 | **2機種** |
+| **①〜⑥ に6機種** | **6機種** |
+
+**`set1`〜`set6` の index 0 はすべて対象。**新宿歌舞伎町で無視するのは **index 1〜5 だけ**。
+**「2機種だけ表示する」という仕様に読み替えてはならない。**
+
+### G. ★`c59dd90` との関係（既存仕様は変更していない）
+
+既存正式仕様 **`c59dd90`**（「新宿歌舞伎町ローテ：①〜⑥各1機種＝1枚」節 ③）では
+`set2[1] = "炎炎ノ消防隊2"` について
+
+- **JSON上で保持する**
+- **新UIでは使用しない**
+- **③へ自動移動しない**
+- **削除しない**
+
+と記録されている。**この既存仕様は今回いっさい変更していない。**
+
+**今回の修正は、その「新UIでは使用しない」という正式仕様を
+機種別データ filter 側にも正しく反映したもの**である。
+
+したがって次はすべて**非変更**：
+
+**`rote_machines.json`（無変更・`git status` に出ない）／ `set2[1] = 炎炎ノ消防隊2`（保持）／
+`preserve_tail=True` ／ `_merge_set()` ／ `_save_rote_machines()` ／ `_load_rote_machines()` ／
+`_on_rote_name_change()` ／ 復元方式 ／ session_state ／ widget 構造 ／ UI。**
+
+**`rote_machines.json` の `set2[1]` を削除してはならない。**
+
+### H. 他店舗は従来どおり（誤適用しない）
+
+**`_ROTE_SINGLE_STORES` 以外のローテ店舗は index 0〜5 のまま。**
+
+**高田馬場 ／ 上野本館 ／ 溝の口本館 ／ 溝の口新館 ／ 西武新宿 ／ 渋谷新館 ／ 新大久保**
+は**非変更**（実データで修正前後の `_rv_filter` 一致を確認）。
+**今回の index 0 限定を他店舗へ誤適用してはならない。**
+
+### I. 影響範囲は「機種別データの filter」だけ
+
+**今回の問題は表示用 filter だけで、画像生成・ZIP・結果テキストには元々影響していなかった**
+（これらは `machine_inputs_all`＝widget index 0 のみを読むため）。
+
+次はすべて**非変更**：
+
+`machine_inputs_all` ／ `{機種名}ローテ.png` ／ ZIP ／ 結果テキスト ／
+`_cat_inputs` ／ `_cat_names` ／ 10日区切り ／ 「○日目結果」 ／ ranking 生成停止 ／
+ローテ画像配色 ／ 上野本館・渋谷新館の `表.png` 配色 ／ 速報取得そのもの ／
+Pision 取得処理 ／ `normalize_df()` ／ `apply_name_conversion()` ／ `_render_pision_summary()`。
+
+### J. 回帰確認結果（テスト **103 PASS / 0 FAIL**）
+
+**新宿歌舞伎町（実 `rote_machines.json` を読み取りのみで検証）**
+- 実データ（`set1[0]=東京喰種` / `set2[0]=カバネリ海門決戦` / `set2[1]=炎炎ノ消防隊2`）で
+  **`_rv_filter` = {東京喰種, カバネリ海門決戦} の2機種**
+- **`炎炎ノ消防隊2` 除外を確認**（修正前は3機種だったことも同一データで再現）
+- 機種別データの表示機種数 **2**
+- **①〜⑥へ6機種入力時は `_rv_filter` 6機種**（`set1`〜`set6` の index 0 を全採用）
+- **hidden index 1〜5 に旧値30件を仕込んでも filter は2機種のまま**（全部無視）
+
+**他店舗の非回帰（修正前後で `_rv_filter` 完全一致）**
+高田馬場2件 ／ 上野本館1件 ／ 溝の口本館4件 ／ 溝の口新館1件 ／ 西武新宿5件 ／
+渋谷新館2件 ／ 新大久保5件。渋谷新館の `_rote_init_渋谷新館_2_1` に旧値を仕込むと
+**従来どおり拾う**ことも確認（index 0〜5 維持）。
+
+**保存**：`rote_machines.json` 無変更 ／ `set2[1]` 保持 ／
+`preserve_tail` / `_merge_set` / `_save_rote_machines` / `_load_rote_machines` /
+`_on_rote_name_change` / `_rote_init_` / `machine_inputs_all` / `_cat_inputs` / `_cat_names` の
+**コード上の出現数が HEAD と一致**。
+
+**出力**：`{機種名}ローテ.png` が **HEAD と md5 完全一致**（3ケース）／ ZIP 非回帰 ／
+結果テキスト非回帰（`_generate_rote_result_text` AST 一致）／
+**ranking 停止維持**（`_rote_ranking_on("新宿歌舞伎町") == False`・他7店舗 True・
+`_ROTE_RANKING_OFF_STORES` 不変）／ **10日区切り・「○日目結果」維持** ／
+**ローテ配色維持**（`#7000E0` / `#290068` / `#C7B4DD` / `#4B0082`・外背景 `#CFEEEE` 0px）／
+**上野本館・渋谷新館の `表.png` は md5 一致・4色（`#4B0082` / `#7000E0` / `#C7B4DD` / `#FFFFCB`）維持**。
+
+**AST**：**変更関数は `show_rote_page()` の1つだけ**。
+`generate_rote_image` / `generate_ranking_image` / `_rote_margin` / `_rote_plain` /
+`_rote_new_theme` / `_rote_ranking_on` / `_rote_weekly_new_theme` /
+`_generate_rote_result_text` / `_load_rote_machines` / `_save_rote_machines` /
+`_draw_weekly_table_image` / `_weekly_table_html_image` / `_weekly_table_data` /
+`normalize_df` / `apply_name_conversion` / `_render_pision_summary` / `show_auto_page` /
+`show_auto_article_page` / `show_weekly_table_section` / `_add_margin` /
+`draw_table_image` / `draw_slump_graph` — **すべて一致**。
+
+### K. ★副案は今回実装していない
+
+調査時に出た副案
+**「widget key が存在する場合は `_rote_init_` へフォールバックしない」**は
+**今回の正式仕様に含めない（未実装）**。
+
+理由：**Streamlit のページ離脱→復帰時の widget GC との関係**があり、
+別途の影響調査が必要なため（`_rote_init_*` は「widget キーが消えた run で古い値へ戻るのを防ぐ」
+ための非widgetキーとして機能している）。
+
+**今後必要になった場合は、別途調査・ユーザー承認のうえ実装する。**
+なお「カテゴリをクリアした直後に `_rote_init_*` が非空だと復活しうる」という潜在挙動は
+**調査時に確認済みの別論点**であり、今回の正式仕様の対象外である。
+
+### L. 今後の禁止事項
+
+1. **`for _rfi in range(6):` の無条件全走査へ戻さない**
+2. **`_rv_idxs` の判定を `_ROTE_SINGLE_STORES` 以外の新しい店舗別 if・新定数へ置き換えない**
+3. **新宿歌舞伎町の index 0 限定を他店舗へ適用しない**（他店舗は `range(6)` 維持）
+4. **「2機種固定」と解釈しない**（①〜⑥の各 index 0 に入力されている機種を表示する）
+5. **`set1`〜`set6` のいずれかを filter 対象から外さない**（`_rv_sets` は変更しない）
+6. **`rote_machines.json` の `set2[1] = 炎炎ノ消防隊2` を削除・移動しない**（`c59dd90` を維持）
+7. **`preserve_tail=True` / `_merge_set()` / `_save_rote_machines()` / `_load_rote_machines()` /
+   `_on_rote_name_change()` / 復元方式 / widget 構造 / UI を変更しない**
+8. **`machine_inputs_all` / `_cat_inputs` / `_cat_names` / `{機種名}ローテ.png` / ZIP /
+   結果テキストを今回を理由に変更しない**
+9. **ranking 停止（`7a47c12` / `a17ea22`）・10日区切り・「○日目結果」・
+   `_generate_rote_result_text()` を変更しない**
+10. **ローテ画像配色（`4914bed`）・上野本館/渋谷新館の `表.png` 配色（`378291b`）を変更しない**
+11. **速報取得・Pision 取得処理・`normalize_df()` / `apply_name_conversion()` /
+    `_render_pision_summary()` を変更しない**
+12. **副案（widget キー存在時のフォールバック抑止）を承認なしに実装しない**
+13. **`94f8e7b` へ reset して実装をやり直さない**
+14. **無関係なリファクタ・未使用コード整理をしない**

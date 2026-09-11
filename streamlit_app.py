@@ -4675,14 +4675,14 @@ def _demoted_high_names(store_name: str, high_ratio_list: list[dict]) -> set:
 
 
 def _result_summary_lines(item: dict, avg: int, avg_show_thr: int = 0) -> list[str]:
-    """全台系／高配分サマリー1機種分の行（🎖️見出し＋🌋/💎差枚リスト）。
+    """全台系／高配分サマリー1機種分の行（・見出し＋差枚リスト）。
     zen_dai_section / high_ratio_section / ⑤カテゴリ移動サマリーで共用し、
-    数値・絵文字・×N表記・改行を完全一致させる。"""
+    数値・×N表記・改行を完全一致させる。
+    2026-09-11: 見出しの行頭は「・」、差枚行の先頭絵文字（🌋/💎）は出さない。"""
     avg_str = f"→平均{_fmt_diff(avg)}" if (avg > avg_show_thr or item.get("always_show_avg")) else ""
-    lines = [f"🎖️{item['name']}({item['count']}/{item['total']}台){avg_str}"]
+    lines = [f"・{item['name']}({item['count']}/{item['total']}台){avg_str}"]
     if item.get("diffs"):
-        emoji = "🌋" if max(item["diffs"]) >= 4000 else "💎"
-        lines.append(f"{emoji}{_format_diffs(item['diffs'])}")
+        lines.append(_format_diffs(item['diffs']))
     return lines
 
 
@@ -4750,7 +4750,9 @@ def generate_recommended_result_text(
         if not title or not machines:
             continue
 
-        emoji = _blk_emojis[i] if i < len(_blk_emojis) else "🎯"
+        # 2026-09-11: 機種名の行頭 🎖️ は「・」で出す（結果テキスト共通の記号統一）。
+        # STORE_REC_CONFIG の block_emojis 自体は変更せず、🎖️ 以外の絵文字は維持する。
+        emoji = (_blk_emojis[i] if i < len(_blk_emojis) else "🎯").replace("🎖️", "・")
         machine_parts: list[str] = []
 
         for machine in machines:
@@ -4915,7 +4917,7 @@ def _build_kabupa_result_text(date, machine_names: list[str], df, diff_raw,
             "🔑",
             "🔑",
             "📈結果速報(21時時点)",
-            f"🎖️{name}({win}/{total}台)→平均{fmt_diff(avg)}",
+            f"・{name}({win}/{total}台)→平均{fmt_diff(avg)}",
         ]
     # 並び画像を作った場合は並びブロックを追加（ラベル＝機種名部分、集計＝並び台）
     for _nlabel, _nbans in (narabi_blocks or []):
@@ -4934,7 +4936,7 @@ def _build_kabupa_result_text(date, machine_names: list[str], df, diff_raw,
             "🔑",
             "🔑",
             "📈結果速報(21時時点)",
-            f"🎖️{_nlabel}({_nwin}/{_ntotal}台)→平均{fmt_diff(_navg)}",
+            f"・{_nlabel}({_nwin}/{_ntotal}台)→平均{fmt_diff(_navg)}",
         ]
     # 末尾画像・ジャグラー末尾画像を作った場合は末尾ブロックを追加
     for _slabel, _sbans in (sue_blocks or []):
@@ -4953,7 +4955,7 @@ def _build_kabupa_result_text(date, machine_names: list[str], df, diff_raw,
             "🔑",
             "🔑",
             "📈結果速報(21時時点)",
-            f"🎖️{_slabel}({_swin}/{_stotal}台)→平均{fmt_diff(_savg)}",
+            f"・{_slabel}({_swin}/{_stotal}台)→平均{fmt_diff(_savg)}",
         ]
     # バラエティ画像を作った場合はバラエティブロックを追加
     if variety_bans:
@@ -4971,7 +4973,7 @@ def _build_kabupa_result_text(date, machine_names: list[str], df, diff_raw,
                 "🔑",
                 "🔑",
                 "📈結果速報(21時時点)",
-                f"🎖️{variety_title}({_vwin}/{_vtotal}台)→平均{fmt_diff(_vavg)}",
+                f"・{variety_title}({_vwin}/{_vtotal}台)→平均{fmt_diff(_vavg)}",
             ]
     lines += [
         "",
@@ -5063,7 +5065,8 @@ def generate_report_text(
         return "\n".join(lines)
 
     def _nami_like_section(items: list[dict]) -> str:
-        """並び仕掛け／列仕掛け共通の整形。中身は従来の nami_section と同一。"""
+        """並び仕掛け／列仕掛け共通の整形。抽出・順序・数値は従来どおり。
+        2026-09-11: 行頭の🍡を出さず、台数表記は「(N台)」（「並び」を付けない）。"""
         if not items:
             return "（なし）"
         if any("machine" in item and "ban_range" in item for item in items):
@@ -5077,14 +5080,14 @@ def generate_report_text(
                 grouped[m].append(item)
             lines = []
             for m in machine_order:
-                lines.append(f"🍡{m}")
+                lines.append(f"{m}")
                 for item in grouped[m]:
                     br = item.get("ban_range", "")
                     n = item["count"]
                     avg = _fmt_diff(item["avg_diff"])
-                    lines.append(f"{br}番台({n}台並び)→平均{avg}" if br else f"({n}台並び)→平均{avg}")
+                    lines.append(f"{br}番台({n}台)→平均{avg}" if br else f"({n}台)→平均{avg}")
             return "\n".join(lines)
-        lines = [f"🍡{item['title']}→平均{_fmt_diff(item['avg_diff'])}" for item in items]
+        lines = [f"{item['title']}→平均{_fmt_diff(item['avg_diff'])}" for item in items]
         return "\n".join(lines)
 
     def nami_section() -> str:
@@ -5135,7 +5138,9 @@ def generate_report_text(
              for _p in variety_excellent])
 
     def excellent_section() -> str:
-        _item_emoji = STORE_REC_CONFIG.get(store_name, {}).get("item_emoji", "🚩")
+        # 2026-09-11: 👑その他の優秀台 の行頭 🚩 は「・」で出す。
+        # 店舗固有の item_emoji（🚩 以外を設定している店舗）はそのまま維持する。
+        _item_emoji = STORE_REC_CONFIG.get(store_name, {}).get("item_emoji", "🚩").replace("🚩", "・")
         # 降格した(1/2台)機種は除外対象から外し、その+2,000枚以上の台をその他の優秀台に含める
         high_ratio_names = ({item["name"] for item in high_ratio_list} - _demoted_names) | (_demoted_names & _zen_dai_names)
         _poster_ex = get_store_config(store_name).get("poster_extra_exclude", set())
@@ -5188,8 +5193,8 @@ def generate_report_text(
                 br = item.get("ban_range", "")
                 n = item["count"]
                 avg = _fmt_diff(item["avg_diff"])
-                res.append(f"{prefix}{br}番台({n}台並び)→平均{avg}" if br
-                           else f"{prefix}({n}台並び)→平均{avg}")
+                res.append(f"{prefix}{br}番台({n}台)→平均{avg}" if br
+                           else f"{prefix}({n}台)→平均{avg}")
             return res
 
         def nami_detail_lines(name, prefix: str = ""):

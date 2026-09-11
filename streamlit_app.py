@@ -20046,12 +20046,14 @@ def _generate_shibuyashinkan_result_texts(
         _n = (_n or "").strip()
         if _n and _n not in _wk_macs:
             _wk_macs.append(_n)
-    lines1 = [header, "", f"🔥{_SHIBUYA_WEEKLY_SERIES}🔥", "🔥週間オススメポスター🔥", ""]
+    # 2026-09-11: 渋谷新館の北斗シリーズ／カバネリ／東京喰種の見出しを 🏆 系へ。
+    # ジャグラー（text4）は現状維持のため触らない。差枚帯・台番・構成は変更しない。
+    lines1 = [header, "", f"🏆{_SHIBUYA_WEEKLY_SERIES}🏆", "🏆週間オススメポスター🏆", ""]
     for _wm in _wk_macs:
         # 当日データに1台も無い機種はセクションごと出さない
         if name_col is not None and _rote_match_sub(df, name_col, _wm).empty:
             continue
-        lines1.append(f"👊{_wm}👊")
+        lines1.append(f"【{_wm}】")
         lines1 += _tier_block([_wm])
         if lines1 and lines1[-1] != "":
             lines1.append("")
@@ -20063,8 +20065,8 @@ def _generate_shibuyashinkan_result_texts(
     name3    = next((n.strip() for n in _inputs3 if (n or "").strip()), "")
     lines3   = [header, ""]
     if name3:
-        lines3.append(f"🗼{name3}🗼")
-    lines3 += ["🗼月間オススメポスター🗼", ""]
+        lines3.append(f"🏆{name3}🏆")
+    lines3 += ["🏆月間オススメポスター🏆", ""]
     lines3.append("✅毎日何かしらの仕掛けアリ!?")
     for item in (monthly_items or []):
         if (item or "").strip():
@@ -20088,8 +20090,8 @@ def _generate_shibuyashinkan_result_texts(
     name5    = next((n.strip() for n in _inputs5 if (n or "").strip()), "")
     lines5   = [header, ""]
     if name5:
-        lines5.append(f"🚂{name5}🚂")
-    lines5 += ["🚂月間オススメポスター🚂", ""]
+        lines5.append(f"🏆{name5}🏆")
+    lines5 += ["🏆月間オススメポスター🏆", ""]
     lines5.append("✅毎日何かしらの仕掛けアリ!?")
     for item in (monthly_items2 or []):
         _it5 = (item or "").split("\n")[0].strip()

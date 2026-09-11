@@ -24194,12 +24194,7 @@ def _attach_slump_to_table_side(
     canvas.paste(table_scaled, (0, 0))
 
     graph_x0 = new_tw + SIDE_GAP
-    if bg_path is not None:
-        try:
-            _bg = Image.open(str(bg_path)).convert("RGB").resize((graph_area_w, total_h), Image.LANCZOS)
-            canvas.paste(_bg, (graph_x0, 0))
-        except Exception:
-            pass
+    _paste_slump_area_bg(canvas, bg_path, graph_x0, 0, graph_area_w, total_h)
 
     for i, g in enumerate(scaled):
         row = i // COLS
@@ -24306,12 +24301,7 @@ def _build_slump_title_img(
         canvas.paste(Image.new("RGB", (total_w, LINE_H), (204, 0, 0)), (0, BAR_H))
 
     y0 = BAR_H + LINE_H
-    if bg_path is not None:
-        try:
-            _bg = Image.open(str(bg_path)).convert("RGB").resize((total_w, graph_area_h), Image.LANCZOS)
-            canvas.paste(_bg, (0, y0))
-        except Exception:
-            pass
+    _paste_slump_area_bg(canvas, bg_path, 0, y0, total_w, graph_area_h)
 
     for i, g in enumerate(graph_imgs):
         row = i // COLS
@@ -24349,6 +24339,34 @@ def _find_slump_bg() -> "object | None":
         if c.exists():
             return c
     return None
+
+
+# 2026-09-11: スランプ付き結果（auto_slump / auto_slump2）のグラフエリア背景。
+# 旧: bbb.jpg のレインボー系グラデーションを貼っていた
+# 新: #FFFFCB のかなり薄い黄色の単色（グラデーションではない）
+# 記事用（auto_article）は _slump_theme_new() が False になるため従来どおり bbb.jpg。
+C_SLUMP_AREA_BG = (255, 255, 203)   # #FFFFCB
+
+
+def _paste_slump_area_bg(canvas: "Image.Image", bg_path, x0: int, y0: int,
+                         w: int, h: int) -> None:
+    """スランプカードを並べるグラフエリアの背景を塗る。
+
+    スランプ付き結果（_slump_theme_new）は C_SLUMP_AREA_BG の単色、
+    それ以外（記事用など）は従来どおり bg_path（bbb.jpg）を貼る。
+    カード・液晶・表・座標には触れない（背景だけ）。"""
+    if w <= 0 or h <= 0:
+        return
+    if _slump_theme_new():
+        canvas.paste(Image.new("RGB", (w, h), C_SLUMP_AREA_BG), (x0, y0))
+        return
+    if bg_path is None:
+        return
+    try:
+        _bg = Image.open(str(bg_path)).convert("RGB").resize((w, h), Image.LANCZOS)
+        canvas.paste(_bg, (x0, y0))
+    except Exception:
+        pass
 
 
 # 空きコマにはめ込む液晶の縮小率（1.0=空き領域いっぱい。気持ち小さく見せるため 0.9）
@@ -24571,12 +24589,7 @@ def _attach_slump_to_table(
     canvas = Image.new("RGB", (tw, th + graph_area_h), (255, 255, 255))
     canvas.paste(table_img, (0, 0))
 
-    if bg_path is not None:
-        try:
-            _bg = Image.open(str(bg_path)).convert("RGB").resize((tw, graph_area_h), Image.LANCZOS)
-            canvas.paste(_bg, (0, th))
-        except Exception:
-            pass
+    _paste_slump_area_bg(canvas, bg_path, 0, th, tw, graph_area_h)
 
     for i, g in enumerate(scaled):
         row = i // COLS

@@ -19864,13 +19864,16 @@ def _generate_rote_result_text(
         # 機種名を「×」で結合してポスター行を生成
         _kw_names = [kw.strip() for kw in machine_inputs if (kw or "").strip()]
         poster_machines = "×".join(_kw_names) if _kw_names else ""
+        # 2026-09-11: 新宿歌舞伎町だけ結果テキストを新デザインにする。
+        # 見出し 📝結果📝 ／ 日数は「{day_num}日目」（＼＼…結果／／ を外すだけ）。
+        # day_num の計算（10日区切り）は上のまま変更しない。
         lines = [
-            f"{date_obj.month}/{date_obj.day}({dow})👨‍💻結果👨‍💻",
+            f"{date_obj.month}/{date_obj.day}({dow})📝結果📝",
             "エスパス 新宿 歌舞伎 町",
             "",
             f"🏆{week_str}🏆",
             f"🏆{poster_machines}ポスター🏆",
-            f"＼＼{day_num}日目結果／／",
+            f"{day_num}日目",
         ]
     else:
         weekday = date_obj.weekday()          # 0=月
@@ -19888,12 +19891,21 @@ def _generate_rote_result_text(
 
     _re, _te = ROTE_EMOJI_CONFIG.get(store, ("🌌", "🔥"))
     _be = ROTE_BAN_EMOJI_CONFIG.get(store, "💫")
+    # 2026-09-11: 新宿歌舞伎町だけ差枚帯を「💎○○枚超」（末尾の絵文字なし）、
+    # 台番の先頭を「・」にする。他店舗は ROTE_EMOJI_CONFIG /
+    # ROTE_BAN_EMOJI_CONFIG の従来表記のまま（1文字も変えない）。
+    # 他店舗へ展開するときはこの条件だけを広げる。
+    # 差枚帯の閾値・台番の抽出条件・並び順は変更しない。
+    if store == "新宿歌舞伎町":
+        _tp, _ts, _be = "💎", "", "・"
+    else:
+        _tp, _ts = _te, _te
     name_col = "機種名" if "機種名" in df.columns else None
     tiers = [
-        (10000, None,  f"{_te}10,000枚超{_te}"),
-        (5000,  10000, f"{_te}5,000枚超{_te}"),
-        (3000,  5000,  f"{_te}3,000枚超{_te}"),
-        (1000,  3000,  f"{_te}1,000枚超{_te}"),
+        (10000, None,  f"{_tp}10,000枚超{_ts}"),
+        (5000,  10000, f"{_tp}5,000枚超{_ts}"),
+        (3000,  5000,  f"{_tp}3,000枚超{_ts}"),
+        (1000,  3000,  f"{_tp}1,000枚超{_ts}"),
     ]
 
     for kw in machine_inputs:

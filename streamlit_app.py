@@ -12197,7 +12197,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                         _ban2diff_pv[_bp] = int(_pv_diff.loc[_idx_p])
                                                     except Exception:
                                                         pass
-                                        _is_gap_pv = (store in _GAP_FILL_STORES)
+                                        _is_gap_pv = _gap_fill_on(store)
                                         _gap_img_pv = None
                                         if _is_gap_pv:
                                             _gmac_pv, _gpaths_pv = _gap_screen_paths_for_bans(
@@ -12698,7 +12698,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         args=(store, uploaded.name, _ptitle))
                         with _sub_img:
                             st.image(_pimg, caption=_ptitle, use_container_width=True)
-                            if store in _GAP_FILL_STORES:
+                            if _gap_fill_on(store):
                                 _gap_meta = st.session_state.get(f"_gap_meta_{store}", {})
                                 # _auto_previews の要素は (ファイル名, 画像)。_gap_meta も同じファイル名キー。
                                 _match_fn = _ptitle if _ptitle in _gap_meta else None
@@ -13508,7 +13508,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         else:
                                             _u2_title = (st.session_state.get(f"_inagawa_title_map_{store}", {}).get(_u2_bare)
                                                          or re.sub(r"[①②③④⑤⑥⑦⑧⑨⑩]", "", os.path.splitext(_u2_bare)[0]))
-                                        if store in _GAP_FILL_STORES:
+                                        if _gap_fill_on(store):
                                             _gm_a2, _gp_a2 = _gap_screen_paths_for_bans(_bans_u2, _upd_ban2diff, _upd_ban2mac)
                                             _gsel_a2 = st.session_state.get(_gap_sel_key(store, _bans_u2, _gm_a2), 0)
                                             _gap_img_a2 = _resolve_gap_screen(_gp_a2, _gsel_a2)
@@ -13518,7 +13518,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         if _u2_slump is not None:
                                             _new_prev[_ui] = (_ufn, _u2_slump)
                                     else:
-                                        if store in _GAP_FILL_STORES:
+                                        if _gap_fill_on(store):
                                             _gm_u2, _gp_u2 = _gap_screen_paths_for_bans(_bans_u2, _upd_ban2diff, _upd_ban2mac)
                                             _gsel_u2 = st.session_state.get(_gap_sel_key(store, _bans_u2, _gm_u2), 0)
                                             _gap_img_u2 = _resolve_gap_screen(_gp_u2, _gsel_u2)
@@ -13531,7 +13531,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             _side_u2  = _attach_slump_to_table_side(_uimg, _g_imgs_u2, _upd_bbb, _gap_img_u2)
                                             # 液晶を選び直したときに🔄前のグラフへ戻らないよう、
                                             # 横版の再合成ベースも更新後の表・スランプで差し替える
-                                            if store in _GAP_FILL_STORES:
+                                            if _gap_fill_on(store):
                                                 _gb_u2 = dict(st.session_state.get(f"_gap_base_{store}", {}) or {})
                                                 if _gap_fillable(len(_g_imgs_u2), 4):
                                                     _gb_u2[_side_ufn] = {**(_gb_u2.get(_side_ufn) or {}),
@@ -15693,7 +15693,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         if store == "秋葉原":
                                             if _g_imgs_exec:
                                                 _ex_title = st.session_state.get(f"_inagawa_title_map_{store}", {}).get(_bare_exec, os.path.splitext(_bare_exec)[0])
-                                                if store in _GAP_FILL_STORES:
+                                                if _gap_fill_on(store):
                                                     _gm_ax, _gp_ax = _gap_screen_paths_for_bans(_bans_exec, _ban2diff_exec, _ig_ban2mac_exec)
                                                     _gsel_ax = st.session_state.get(_gap_sel_key(store, _bans_exec, _gm_ax), 0)
                                                     _gap_img_ax = _resolve_gap_screen(_gp_ax, _gsel_ax)
@@ -15706,7 +15706,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                     _ig_composite.append((_lfn_exec, _ex_buf.getvalue()))
                                                     _ig_slump_cnt += 1
                                         else:
-                                            if store in _GAP_FILL_STORES:
+                                            if _gap_fill_on(store):
                                                 _gm_exec, _gp_exec = _gap_screen_paths_for_bans(_bans_exec, _ban2diff_exec, _ig_ban2mac_exec)
                                                 _gsel_exec = st.session_state.get(_gap_sel_key(store, _bans_exec, _gm_exec), 0)
                                                 _gap_img_exec = _resolve_gap_screen(_gp_exec, _gsel_exec)
@@ -23772,7 +23772,7 @@ def _composite_slump_onto_images(
         if store == "秋葉原":
             _title = os.path.splitext(_bare)[0]
             _gap_img_ak = None
-            if store in _GAP_FILL_STORES:
+            if _gap_fill_on(store):
                 _gm_ak, _gp_ak = _gap_screen_paths_for_bans(_bans, ban2diff, ban2mac)
                 # その他の優秀台は実描画列数(ceil(n/10))で空き判定（可変列と一致）。他は3列。
                 _gap_cols_ak = (max(1, math.ceil(len(_g_imgs) / 10))
@@ -23788,7 +23788,7 @@ def _composite_slump_onto_images(
             if _slp is not None:
                 _merged.append((_fn, _slp))
         else:
-            if store in _GAP_FILL_STORES:
+            if _gap_fill_on(store):
                 _gm_m, _gp_m = _gap_screen_paths_for_bans(_bans, ban2diff, ban2mac)
                 _fillable_m = _gap_fillable(len(_g_imgs), 3)
                 _gap_meta_out[_fn] = {"machine": _gm_m, "screens": _gp_m,
@@ -23803,7 +23803,7 @@ def _composite_slump_onto_images(
         if len(_g_imgs) >= 16 and store != "秋葉原":
             try:
                 _side_fn = os.path.splitext(_fn)[0] + "_side.jpg"
-                if store in _GAP_FILL_STORES:
+                if _gap_fill_on(store):
                     # _side.jpg も独立したメタ・選択キーを持たせる（⑦セレクタ表示用）
                     _fillable_side = _gap_fillable(len(_g_imgs), 4)
                     # 台番が同じ＝縦版と同じ正式キー → 選択を共有する
@@ -23827,7 +23827,7 @@ def _composite_slump_onto_images(
             "slump_date": date_str,
             "uid_count": len(_by_uid) if _by_uid else 0,
         }
-    if store in _GAP_FILL_STORES:
+    if _gap_fill_on(store):
         st.session_state[f"_gap_meta_{store}"] = _gap_meta_out  # ⑦液晶セレクタ用
         # Cloud/ローカル共通で保持（fillable機種のみ）。再生成のたびに作り直し累積させない。
         st.session_state[f"_gap_base_{store}"] = _gap_base_out  # 液晶選択の即時反映用
@@ -24320,6 +24320,22 @@ _GAP_FILL_STORES = {"新宿歌舞伎町", "上野新館", "上野本館", "新�
 # 記事用ページ経路だけで液晶をはめ込む店舗（通常ページには一切適用しない）。
 # session_state も専用キー（_art_gap_meta_/_art_gap_base_）で通常ページと分離する。
 _ARTICLE_GAP_FILL_STORES = {"高田馬場", "渋谷新館"}
+
+# 2026-09-11: スランプ付き結果ポスト用（auto_slump / auto_slump2）では液晶を使わない店舗。
+# **記事用（auto_article）は _ARTICLE_GAP_FILL_STORES で独立判定するため影響しない。**
+# _GAP_FILL_STORES 自体は記事用の分岐（show_auto_article_page）からも参照されているので、
+# そちらを書き換えず「結果ポスト経路のゲートだけ」を _gap_fill_on() へ差し替える。
+# 全店舗へ広げるときはこの集合へ店舗を追記する（店舗ごとにコードを複製しない）。
+_GAP_FILL_OFF_SLUMP_STORES: "frozenset[str]" = frozenset({"新小岩"})
+
+
+def _gap_fill_on(store: str) -> bool:
+    """結果ポスト用の液晶はめ込み／液晶選択UIを使うか。
+    _GAP_FILL_OFF_SLUMP_STORES の店舗は False（液晶なし・セレクタも出さない）。
+    液晶を抜くだけで、表・スランプのレイアウト・サイズは一切変えない。"""
+    if store in _GAP_FILL_OFF_SLUMP_STORES:
+        return False
+    return store in _GAP_FILL_STORES
 
 
 def _fit_center_in_box(img: "Image.Image", box_w: int, box_h: int) -> tuple["Image.Image", int, int]:

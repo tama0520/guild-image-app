@@ -203,6 +203,29 @@ def _rote_new_theme(store: str) -> bool:
 # **C_SL_PURPLE / C_NEW_* / ROTE_BAN_COLOR_CONFIG は変更しない。**
 C_ROTE_NEW_BAN_BG = "#C7B4DD"   # RGB(199, 180, 221)
 
+
+# 2026-09-11: ローテ用の週間／月間オススメ表（{機種名}表.png）を紫系配色にする店舗。
+# 対象は「表.png」を生成する上野本館・渋谷新館だけ。差枚ローテ画像の
+# _ROTE_NEW_THEME_STORES（全8店舗）とは意味が違うので流用しない
+# （流用すると表を作らない店舗まで表テーマONになる）。追加はこの集合の編集のみ。
+# 変えるのは色だけで、画像サイズ・列幅・行高・セル位置・罫線・余白・タイトル位置・
+# 文字位置・フォント・日付・項目・チェック内容・並び順・ファイル名は変更しない。
+_ROTE_WEEKLY_NEW_THEME_STORES: "frozenset[str]" = frozenset({
+    "上野本館",
+    "渋谷新館",
+})
+
+
+def _rote_weekly_new_theme(store: str) -> bool:
+    """ローテ用「表.png」を紫系配色にする店舗か（未登録店舗は従来配色のまま）。"""
+    return store in _ROTE_WEEKLY_NEW_THEME_STORES
+
+
+def _wt_hex_rgb(hex_color: str) -> tuple:
+    """"#RRGGBB" を (R, G, B) へ。表テーマで既存HEX定数をそのまま使うための変換のみ。"""
+    _h = hex_color.lstrip("#")
+    return tuple(int(_h[_i:_i + 2], 16) for _i in (0, 2, 4))
+
 # 拡張機能店舗のオススメブロック絵文字設定
 # section_emoji: 「{emoji}{title}の優秀台」ヘッダー絵文字
 # block_emojis:  各ブロック内の機種名文頭絵文字（4ブロック分）
@@ -20320,6 +20343,7 @@ def _weekly_table_html_image(
     date_labels: list[str],
     cell_machines,
     title: str = "週間オススメ",
+    theme_new: bool = False,
 ) -> "Image.Image":
     """週間オススメ表② (cell_machinesモード) を PIL ImageDraw で生成する。
     Playwright不使用・Cloud/ローカル共通版。"""
@@ -20365,6 +20389,19 @@ def _weekly_table_html_image(
     C_CELL_YEL = (255, 255, 0)
     C_CELL_WHT = (255, 255, 255)
     C_BORDER   = (0, 0, 0)
+    # _ROTE_WEEKLY_NEW_THEME_STORES の店舗は差枚ローテ画像と同じ正式色へ寄せる。
+    # ①タイトルバー=#290068 ②日付ヘッダー=#7000E0 ③項目列=#4B0082
+    # ④チェック後セル=#C7B4DD。濃色背景になる②③は文字を白へ（視認性確保）。
+    # 罫線 C_BORDER・白セル C_CELL_WHT・チェック前は変更しない。
+    _wt_hdr_fg  = (0, 0, 0)
+    _wt_item_fg = (0, 0, 0)
+    if theme_new:
+        C_TITLE_BG  = _wt_hex_rgb(C_NEW_HEADER_BG)
+        C_HDR_BG    = C_NEW_TITLE_BG_RGBA[:3]
+        C_ITEM_BG   = _wt_hex_rgb(C_NEW_DATA_FG)
+        C_CELL_YEL  = _wt_hex_rgb(C_ROTE_NEW_BAN_BG)
+        _wt_hdr_fg  = (255, 255, 255)
+        _wt_item_fg = (255, 255, 255)
 
     f_title   = _lf_m(_TITLE_SZ)
     f_hdr     = _lf_m(_HDR_SZ)
@@ -20466,7 +20503,7 @@ def _weekly_table_html_image(
         cx = x + (w - total_tw) // 2
         for ch, fn, bb, cw in chars:
             # x方向のみbb[0]補正。y方向は全文字共通のy_originを使う
-            draw.text((cx - bb[0], y_origin), ch, fill=(0, 0, 0), font=fn)
+            draw.text((cx - bb[0], y_origin), ch, fill=_wt_item_fg, font=fn)
             cx += cw
 
     # ── タイトルバー ──
@@ -20480,11 +20517,11 @@ def _weekly_table_html_image(
         _fill_rect(xj, _TH, _DW, _HH, C_HDR_BG)
         lines = [l for l in dl.split("\n") if l]
         if len(lines) <= 1:
-            _centered(dl, xj, _TH, _DW, _HH, f_hdr)
+            _centered(dl, xj, _TH, _DW, _HH, f_hdr, _wt_hdr_fg)
         else:
             lh = _HH // len(lines)
             for li, ln in enumerate(lines):
-                _centered(ln, xj, _TH + li * lh, _DW, lh, f_hdr)
+                _centered(ln, xj, _TH + li * lh, _DW, lh, f_hdr, _wt_hdr_fg)
 
     # ── データ行 ──
     _y = _TH + _HH
@@ -20532,11 +20569,13 @@ def _draw_weekly_table_image(
     items: list[str], date_labels: list[str], checks: list[list[bool]],
     title: str = "週間オススメ",
     cell_machines=None,
+    theme_new: bool = False,
 ) -> "Image.Image":
     """週間オススメ表をPIL画像で生成する。"""
     # cell_machinesモードはHTML+CSS+Playwright実装に委譲
     if cell_machines is not None:
-        return _weekly_table_html_image(items, date_labels, cell_machines, title)
+        return _weekly_table_html_image(items, date_labels, cell_machines, title,
+                                        theme_new=theme_new)
     SC          = 2
     TITLE_H     = int(44 * SC)
     HDR_H       = int(38 * SC)
@@ -20554,6 +20593,16 @@ def _draw_weekly_table_image(
     C_BG = "#F7EBCB"
     C_YL = "#FFFF00"
     C_GY = "#D0D0D0"
+    # _ROTE_WEEKLY_NEW_THEME_STORES の店舗は差枚ローテ画像と同じ正式色へ寄せる。
+    # ①タイトルバー=#290068 ②日付ヘッダー=#7000E0 ③項目列=#4B0082
+    # ④チェック後セル=#C7B4DD。濃色背景になる②③は文字を白へ（視認性確保）。
+    # 罫線 C_BK・白セル C_WH・チェック前セル・○の文字色は変更しない。
+    C_TTL_BG  = C_NEW_HEADER_BG if theme_new else C_BK          # ①
+    C_DHDR_BG = (C_NEW_TITLE_BG_RGBA[:3] if theme_new else C_GY)  # ②
+    C_DHDR_FG = C_WH if theme_new else C_BK
+    C_ITEM_BG = C_NEW_DATA_FG if theme_new else C_BG            # ③
+    C_ITEM_FG = C_WH if theme_new else C_BK
+    C_CK_BG   = C_ROTE_NEW_BAN_BG if theme_new else C_YL        # ④
 
     # ◎○など記号だけ Meiryo、それ以外は MochiyPopOne（1文字単位で切り替え）
     _SYM_CHARS = set("◎○●◯△▲▽▼□■◇◆")
@@ -20666,18 +20715,18 @@ def _draw_weekly_table_image(
         tx      = x + (w - total_w) // 2
         _draw_mixed(text, tx, y, h, sz, fg, sym_stroke=sym_stroke)
 
-    _cell(0, 0, W, TITLE_H, C_BK, title, C_WH, size=TITLE_SZ)
+    _cell(0, 0, W, TITLE_H, C_TTL_BG, title, C_WH, size=TITLE_SZ)
     cy = TITLE_H
-    _cell(0, cy, ITEM_W, HDR_H, C_GY, "", C_BK)
+    _cell(0, cy, ITEM_W, HDR_H, C_DHDR_BG, "", C_DHDR_FG)
     for j, dl in enumerate(date_labels):
-        _cell(ITEM_W + j * DAY_W, cy, DAY_W, HDR_H, C_GY, dl, C_BK, size=SM_SZ)
+        _cell(ITEM_W + j * DAY_W, cy, DAY_W, HDR_H, C_DHDR_BG, dl, C_DHDR_FG, size=SM_SZ)
     cy += HDR_H
     for _ri, (i, item) in enumerate(active):
         _rh    = _row_heights[_ri]
         _lines = item.split('\n')
         _nel   = [l for l in _lines if l.strip()]  # non-empty lines
         # 項目セル
-        d.rectangle([0, cy, ITEM_W - 1, cy + _rh - 1], fill=C_BG, outline=C_BK)
+        d.rectangle([0, cy, ITEM_W - 1, cy + _rh - 1], fill=C_ITEM_BG, outline=C_BK)
         if cell_machines is not None:
             # 縦中央・行間詰め描画
             _tbh = len(_nel) * TEXT_LINE_H
@@ -20685,13 +20734,13 @@ def _draw_weekly_table_image(
             for _li, _line in enumerate(_nel):
                 _lw = _measure(_line, FONT_SZ)
                 _tx = (ITEM_W - _lw) // 2
-                _draw_mixed(_line, _tx, _ty0 + _li * TEXT_LINE_H, TEXT_LINE_H, FONT_SZ, C_BK)
+                _draw_mixed(_line, _tx, _ty0 + _li * TEXT_LINE_H, TEXT_LINE_H, FONT_SZ, C_ITEM_FG)
         else:
             for _li, _line in enumerate(_lines):
                 if _line.strip():
                     _lw = _measure(_line, FONT_SZ)
                     _tx = (ITEM_W - _lw) // 2
-                    _draw_mixed(_line, _tx, cy + _li * ROW_H, ROW_H, FONT_SZ, C_BK)
+                    _draw_mixed(_line, _tx, cy + _li * ROW_H, ROW_H, FONT_SZ, C_ITEM_FG)
         if cell_machines is not None:
             # 機種名モード：縦中央揃えで描画
             # _row_nmach[_ri] = このタイトル行の最大機種数（全日付列の最大値）
@@ -20700,7 +20749,7 @@ def _draw_weekly_table_image(
             for j in range(n_days):
                 _ms = (cell_machines[i][j]
                        if i < len(cell_machines) and j < len(cell_machines[i]) else [])
-                _bg = C_YL if _ms else C_WH
+                _bg = C_CK_BG if _ms else C_WH
                 _x0 = ITEM_W + j * DAY_W
                 _x1 = _x0 + DAY_W - 1
                 d.rectangle([_x0, cy, _x1, cy + _rh - 1], fill=_bg, outline=C_BK)
@@ -20719,7 +20768,7 @@ def _draw_weekly_table_image(
             # チェックセルは行高全体に対して縦中央
             for j in range(n_days):
                 ck = checks[i][j] if i < len(checks) and j < len(checks[i]) else False
-                _cell(ITEM_W + j * DAY_W, cy, DAY_W, _rh, C_YL if ck else C_WH, "○" if ck else "", size=int(FONT_SZ * 1.3), sym_stroke=2)
+                _cell(ITEM_W + j * DAY_W, cy, DAY_W, _rh, C_CK_BG if ck else C_WH, "○" if ck else "", size=int(FONT_SZ * 1.3), sym_stroke=2)
         cy += _rh
     d.rectangle([0, 0, W - 1, H - 1], outline=C_BK, width=2)
     return img
@@ -21144,6 +21193,7 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
             _out_cm3 = _cm3_arr
             _wimg3 = _rote_margin(store, _draw_weekly_table_image(
                 _items, _out_labels3, [], title=_title or _default_title, cell_machines=_out_cm3,
+                theme_new=_rote_weekly_new_theme(store),
             ))
             _buf3 = _io.BytesIO()
             _wimg3.save(_buf3, format="PNG", dpi=(300, 300))
@@ -21249,7 +21299,9 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
                 # 全チェックなし → 初日のみ印なしで表示
                 _out_labels = _dlabels[:1]
                 _out_checks = [[False] for _ in _checks]
-            _wimg = _rote_margin(store, _draw_weekly_table_image(_items, _out_labels, _out_checks, title=_title or "週間オススメ"))
+            _wimg = _rote_margin(store, _draw_weekly_table_image(
+                _items, _out_labels, _out_checks, title=_title or "週間オススメ",
+                theme_new=_rote_weekly_new_theme(store)))
             _buf  = _io.BytesIO()
             _wimg.save(_buf, format="PNG", dpi=(300, 300))
             _buf.seek(0)
@@ -22046,6 +22098,7 @@ def show_rote_page() -> None:
                                 _wt_items, _wt_dlabels, [],
                                 title=_wt_title or _wt_default_title,
                                 cell_machines=_wt_cm3,
+                                theme_new=_rote_weekly_new_theme(store),
                             ))
                         else:
                             _wt_checks  = [
@@ -22091,6 +22144,7 @@ def show_rote_page() -> None:
                             _wt_img = _rote_margin(store, _draw_weekly_table_image(
                                 _wt_items, _wt_dlabels, _wt_checks,
                                 title=_wt_title or _wt_default_title,
+                                theme_new=_rote_weekly_new_theme(store),
                             ))
                         if _wtn == 1:
                             _wt1_mac = st.session_state.get(f"weekly_machine_{store}_t1", "").strip()

@@ -20077,7 +20077,7 @@ def _generate_shibuyashinkan_result_texts(
 
     # ── テキスト④ （週間オススメ表②） ───────────────────────────────────
     lines4 = [header, ""]
-    lines4 += ["🤡ジャグラーシリーズ🤡", "🚨月間オススメポスター🚨", ""]
+    lines4 += ["🏆ジャグラーシリーズ🏆", "🏆月間オススメポスター🏆", ""]
     lines4.append("✅毎日何かしらの仕掛けアリ!?")
     for item in (weekly_items2 or []):
         _it = item.split("\n")[0].strip()

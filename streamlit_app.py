@@ -4674,13 +4674,16 @@ def _demoted_high_names(store_name: str, high_ratio_list: list[dict]) -> set:
             if item.get("count") == 1 and item.get("total") == 2}
 
 
-def _result_summary_lines(item: dict, avg: int, avg_show_thr: int = 0) -> list[str]:
+def _result_summary_lines(item: dict, avg: int, avg_show_thr: int = 0,
+                          head: str = "・") -> list[str]:
     """全台系／高配分サマリー1機種分の行（・見出し＋差枚リスト）。
     zen_dai_section / high_ratio_section / ⑤カテゴリ移動サマリーで共用し、
     数値・×N表記・改行を完全一致させる。
-    2026-09-11: 見出しの行頭は「・」、差枚行の先頭絵文字（🌋/💎）は出さない。"""
+    2026-09-11: 見出しの行頭は既定「・」、差枚行の先頭絵文字（🌋/💎）は出さない。
+    head: 見出しの行頭記号。既定「・」（共通ルール）。新小岩⑤のカテゴリ内サマリーだけ
+      呼び出し側が "🏅" を渡す。差枚行は head に関係なく絵文字なし。"""
     avg_str = f"→平均{_fmt_diff(avg)}" if (avg > avg_show_thr or item.get("always_show_avg")) else ""
-    lines = [f"・{item['name']}({item['count']}/{item['total']}台){avg_str}"]
+    lines = [f"{head}{item['name']}({item['count']}/{item['total']}台){avg_str}"]
     if item.get("diffs"):
         lines.append(_format_diffs(item['diffs']))
     return lines
@@ -4693,10 +4696,16 @@ def _high_avg_of(item: dict) -> int:
     return int(round(sum(item["diffs"]) / len(item["diffs"]))) if item["diffs"] else 0
 
 
+# 新小岩⑤のカテゴリ内へ移した全台系／高配分サマリーの行頭記号。
+# 共通ルールの「・」とは別扱い（個別台・末尾・バラエティ・その他の優秀台は「・」のまま）。
+_REC_CATEGORY_SUMMARY_HEAD = "🏅"
+
+
 def _rec_category_summaries(recommended_blocks: list[dict],
                             zen_dai_list: list[dict],
                             high_ratio_list: list[dict],
-                            demoted_names: set | None = None):
+                            demoted_names: set | None = None,
+                            head: str = "・"):
     """⑤ブロック所属機種の全台系／高配分サマリーを {ブロックindex: [行…]} で返す。
     第2戻り値は「下部セクションで表示だけ抑止する機種名」の集合。
     **判定は一切しない**。既存 zen_dai_list / high_ratio_list の項目を
@@ -4717,11 +4726,11 @@ def _rec_category_summaries(recommended_blocks: list[dict],
         lines: list[str] = []
         for it in _zen:
             if it.get("name") in names:
-                lines += _result_summary_lines(it, int(it.get("all_avg_diff", 0)))
+                lines += _result_summary_lines(it, int(it.get("all_avg_diff", 0)), head=head)
                 moved.add(it["name"])
         for it in _high:
             if it.get("name") in names:
-                lines += _result_summary_lines(it, _high_avg_of(it))
+                lines += _result_summary_lines(it, _high_avg_of(it), head=head)
                 moved.add(it["name"])
         if lines:
             out[i] = lines
@@ -15878,7 +15887,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                     and result.get("diff_raw") is not None):
                 _rec_blk_sums, _rec_hide_names = _rec_category_summaries(
                     recommended_blocks, _zen_for_report, _high_for_report,
-                    _demoted_high_names(store, _high_for_report))
+                    _demoted_high_names(store, _high_for_report),
+                    head=_REC_CATEGORY_SUMMARY_HEAD)
             report_text = generate_report_text(
                 store_name=store,
                 date=result.get("date"),

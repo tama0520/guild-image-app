@@ -1539,6 +1539,35 @@ def _add_margin(img: Image.Image, pad: int = 20, color: str = "#CFEEEE") -> Imag
     return canvas
 
 
+# 2026-09-11: ローテ用画像を「表本体だけ」にする店舗。
+# ・最背面の地（_add_margin の #CFEEEE 外枠）を付けない
+# ・差枚数画像（generate_rote_image）の上部の凡例（1,000枚～／3,000枚～／
+#   5,000枚～／万枚オーバー）と直下の #CFEEEE 帯も出さない → 上端は日付セル
+# 対象を広げるときはこの集合へ店舗を追記する（店舗ごとにコードを複製しない）。
+# _add_margin() / _draw_weekly_table_image() / generate_ranking_image() の本体は変更しない。
+# rote 入口を持つ8店舗すべてが対象（2026-09-11 新宿歌舞伎町で先行確認 → 全店舗へ展開）。
+_ROTE_PLAIN_STORES: "frozenset[str]" = frozenset({
+    "新宿歌舞伎町",
+    "高田馬場",
+    "上野本館",
+    "渋谷新館",
+    "西武新宿",
+    "新大久保",
+    "溝の口本館",
+    "溝の口新館",
+})
+
+
+def _rote_plain(store: str) -> bool:
+    """ローテ用画像を表本体だけ（地・凡例なし）にする店舗か。"""
+    return store in _ROTE_PLAIN_STORES
+
+
+def _rote_margin(store: str, img: "Image.Image") -> "Image.Image":
+    """ローテ用画像の外枠マージン。_rote_plain() の店舗は付けずに表本体を返す。"""
+    return img if _rote_plain(store) else _add_margin(img)
+
+
 def draw_table_image(
     headers: list[str],
     rows: list[list],
@@ -1959,8 +1988,13 @@ def _rote_match_sub(df: pd.DataFrame, name_col: str, kw: str) -> pd.DataFrame:
     return df[mask].copy() if mask.any() else df.iloc[0:0].copy()
 
 
-def generate_rote_image(df: pd.DataFrame, machine_names: list[str], date_label: str = "", store: str = "") -> Image.Image:
-    """ローテ用機種別差枚一覧画像を生成する（aaa.jpg 参照）。"""
+def generate_rote_image(df: pd.DataFrame, machine_names: list[str], date_label: str = "",
+                        store: str = "", with_legend: bool = True) -> Image.Image:
+    """ローテ用機種別差枚一覧画像を生成する（aaa.jpg 参照）。
+    with_legend=False のとき、上部の凡例4行（1,000枚～／3,000枚～／5,000枚～／
+    万枚オーバー）と直下の #CFEEEE 帯を描かず、画像の上端を列ヘッダー
+    （台番／日付セル）にする。高さは行数から算出するので固定cropではない。
+    下端は従来どおり最終機種の最終台番行の下端（余白を足さない）。"""
     import datetime, io as _io
 
     # ── 定数 ───────────────────────────────────────────────────────────────
@@ -2005,7 +2039,9 @@ def generate_rote_image(df: pd.DataFrame, machine_names: list[str], date_label: 
             machines_data.append((kw, sub))
 
     # ── 高さ計算 ───────────────────────────────────────────────────────────
-    total_h = LEG_H * 4 + GAP_H + COL_HDR_H   # 凡例4行 + 余白 + 列ヘッダー
+    # 凡例4行＋余白は with_legend=False のとき描かないので高さにも含めない
+    _head_h = (LEG_H * 4 + GAP_H) if with_legend else 0
+    total_h = _head_h + COL_HDR_H
     for _, sub in machines_data:
         total_h += MAC_H + ROW_H * len(sub)
 
@@ -2055,23 +2091,24 @@ def generate_rote_image(df: pd.DataFrame, machine_names: list[str], date_label: 
 
     # ── 凡例 ───────────────────────────────────────────────────────────────
     cy = 0
-    legends = [
-        ("#FFFF00", "black",  "1,000枚～"),
-        ("#FFC000", "black",  "3,000枚～"),
-        ("#FF4343", "black",  "5,000枚～"),
-        (None,      "black",  "万枚オーバー"),
-    ]
-    for (bg, fg, label) in legends:
-        if bg is None:
-            rainbow_cell(0, cy, COL_BAN, LEG_H)
-        else:
-            cell(0, cy, COL_BAN, LEG_H, bg)
-        cell(COL_BAN, cy, COL_DIFF, LEG_H, "#FFFFFF", label, "black", align="center")
-        cy += LEG_H
+    if with_legend:
+        legends = [
+            ("#FFFF00", "black",  "1,000枚～"),
+            ("#FFC000", "black",  "3,000枚～"),
+            ("#FF4343", "black",  "5,000枚～"),
+            (None,      "black",  "万枚オーバー"),
+        ]
+        for (bg, fg, label) in legends:
+            if bg is None:
+                rainbow_cell(0, cy, COL_BAN, LEG_H)
+            else:
+                cell(0, cy, COL_BAN, LEG_H, bg)
+            cell(COL_BAN, cy, COL_DIFF, LEG_H, "#FFFFFF", label, "black", align="center")
+            cy += LEG_H
 
-    # 凡例↔列ヘッダー間の余白（外枠マージンと同色）
-    d.rectangle([0, cy, W - 1, cy + GAP_H - 1], fill="#CFEEEE")
-    cy += GAP_H
+        # 凡例↔列ヘッダー間の余白（外枠マージンと同色）
+        d.rectangle([0, cy, W - 1, cy + GAP_H - 1], fill="#CFEEEE")
+        cy += GAP_H
 
     # ── 列ヘッダー ─────────────────────────────────────────────────────────
     cell(0,       cy, COL_BAN,  COL_HDR_H, C_HDR_BG, "台番",     C_HDR_FG)
@@ -21055,7 +21092,7 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
             ] for _wi3 in range(_WEEKLY_N_ITEMS)]
             _out_labels3 = _dlabels
             _out_cm3 = _cm3_arr
-            _wimg3 = _add_margin(_draw_weekly_table_image(
+            _wimg3 = _rote_margin(store, _draw_weekly_table_image(
                 _items, _out_labels3, [], title=_title or _default_title, cell_machines=_out_cm3,
             ))
             _buf3 = _io.BytesIO()
@@ -21162,7 +21199,7 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
                 # 全チェックなし → 初日のみ印なしで表示
                 _out_labels = _dlabels[:1]
                 _out_checks = [[False] for _ in _checks]
-            _wimg = _add_margin(_draw_weekly_table_image(_items, _out_labels, _out_checks, title=_title or "週間オススメ"))
+            _wimg = _rote_margin(store, _draw_weekly_table_image(_items, _out_labels, _out_checks, title=_title or "週間オススメ"))
             _buf  = _io.BytesIO()
             _wimg.save(_buf, format="PNG", dpi=(300, 300))
             _buf.seek(0)
@@ -21830,7 +21867,9 @@ def show_rote_page() -> None:
                 if _rote_single:
                     # ①〜⑥ 各カテゴリ1機種だけを渡して独立した1枚を作る
                     _rote_imgs = [
-                        _add_margin(generate_rote_image(df, _ci, date_label=_rote_date_label, store=store))
+                        _rote_margin(store, generate_rote_image(
+                            df, _ci, date_label=_rote_date_label, store=store,
+                            with_legend=not _rote_plain(store)))
                         if _cn else None
                         for _ci, _cn in zip(_cat_inputs, _cat_names)
                     ]
@@ -21844,7 +21883,9 @@ def show_rote_page() -> None:
                     # 渋谷新館は④（月間オススメ表②）までローテ画像を作る
                     _n_cat = len(_cat_inputs) if store == "渋谷新館" else 3
                     _rote_imgs = [
-                        _add_margin(generate_rote_image(df, _ci, date_label=_rote_date_label, store=store))
+                        _rote_margin(store, generate_rote_image(
+                            df, _ci, date_label=_rote_date_label, store=store,
+                            with_legend=not _rote_plain(store)))
                         if _cn else None
                         for _ci, _cn in zip(_cat_inputs[:_n_cat], _cat_names[:_n_cat])
                     ] + [None] * max(0, 6 - _n_cat)
@@ -21946,7 +21987,7 @@ def show_rote_page() -> None:
                                 _wt_cm3 = [[_cm3_arr[_wi][_wj] for _wj in range(_wt_last_col + 1)] for _wi in range(_WEEKLY_N_ITEMS)]
                             else:
                                 _wt_cm3 = _cm3_arr
-                            _wt_img = _add_margin(_draw_weekly_table_image(
+                            _wt_img = _rote_margin(store, _draw_weekly_table_image(
                                 _wt_items, _wt_dlabels, [],
                                 title=_wt_title or _wt_default_title,
                                 cell_machines=_wt_cm3,
@@ -21992,7 +22033,7 @@ def show_rote_page() -> None:
                                 if _wt_last_col >= 0:
                                     _wt_dlabels = _wt_dlabels[:_wt_last_col + 1]
                                     _wt_checks  = [_r[:_wt_last_col + 1] for _r in _wt_checks]
-                            _wt_img = _add_margin(_draw_weekly_table_image(
+                            _wt_img = _rote_margin(store, _draw_weekly_table_image(
                                 _wt_items, _wt_dlabels, _wt_checks,
                                 title=_wt_title or _wt_default_title,
                             ))

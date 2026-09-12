@@ -24362,7 +24362,17 @@ def _attach_slump_to_table_side(
     canvas.paste(table_scaled, (0, 0))
 
     graph_x0 = new_tw + SIDE_GAP
-    _paste_slump_area_bg(canvas, bg_path, graph_x0, 0, graph_area_w, total_h)
+    # 背景は表の右端（new_tw）から塗る。SIDE_GAP 分が canvas の白のまま残ると
+    # 表とグラフエリアの間に縦長の白帯が出るため、その 24px も背景で埋める。
+    # graph_x0・カード位置・カード間隔・液晶位置・total_w は変更しない（塗り範囲だけ拡張）。
+    _paste_slump_area_bg(
+        canvas,
+        bg_path,
+        new_tw,
+        0,
+        SIDE_GAP + graph_area_w,
+        total_h,
+    )
 
     for i, g in enumerate(scaled):
         row = i // COLS

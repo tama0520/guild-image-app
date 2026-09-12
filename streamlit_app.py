@@ -24322,10 +24322,11 @@ def _attach_slump_to_table_side(
     gap_screen_img=None,
 ) -> "Image.Image":
     """表画像（左）＋スランプグラフ4列（右）の横レイアウト合成（16台以上用）。"""
-    COLS     = 4
-    PAD      = 12
-    GAP      = 8
-    SIDE_GAP = 24  # 表とグラフエリアの間隔
+    COLS = 4
+    PAD  = 12
+    GAP  = 8
+    # 表とグラフエリアの間隔（旧 SIDE_GAP = 24）は設けない。表の右端から
+    # 直接グラフエリアが始まる（グラフエリア幅・カード・PAD・液晶は不変）。
 
     tw, th = table_img.size
     if not graph_imgs:
@@ -24356,23 +24357,13 @@ def _attach_slump_to_table_side(
         new_tw       = tw
         table_scaled = table_img
 
-    total_w  = new_tw + SIDE_GAP + graph_area_w
+    total_w  = new_tw + graph_area_w
 
     canvas = Image.new("RGB", (total_w, total_h), (255, 255, 255))
     canvas.paste(table_scaled, (0, 0))
 
-    graph_x0 = new_tw + SIDE_GAP
-    # 背景は表の右端（new_tw）から塗る。SIDE_GAP 分が canvas の白のまま残ると
-    # 表とグラフエリアの間に縦長の白帯が出るため、その 24px も背景で埋める。
-    # graph_x0・カード位置・カード間隔・液晶位置・total_w は変更しない（塗り範囲だけ拡張）。
-    _paste_slump_area_bg(
-        canvas,
-        bg_path,
-        new_tw,
-        0,
-        SIDE_GAP + graph_area_w,
-        total_h,
-    )
+    graph_x0 = new_tw
+    _paste_slump_area_bg(canvas, bg_path, graph_x0, 0, graph_area_w, total_h)
 
     for i, g in enumerate(scaled):
         row = i // COLS

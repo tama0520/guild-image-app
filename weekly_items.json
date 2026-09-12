@@ -187,16 +187,6 @@
       ],
       "machine_name": "東京喰種",
       "date_checks": {
-        "2026-09-05": [
-          false,
-          true,
-          true,
-          false,
-          false,
-          true,
-          false,
-          false
-        ],
         "2026-09-06": [
           false,
           false,
@@ -256,6 +246,16 @@
           true,
           false,
           false
+        ],
+        "2026-09-12": [
+          false,
+          true,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false
         ]
       },
       "blank_days": [
@@ -268,13 +268,13 @@
         false
       ],
       "blank_date_checks": {
-        "2026-09-05": false,
         "2026-09-06": false,
         "2026-09-07": false,
         "2026-09-08": false,
         "2026-09-09": false,
         "2026-09-10": false,
-        "2026-09-11": false
+        "2026-09-11": false,
+        "2026-09-12": false
       }
     },
     "t3": {
@@ -506,6 +506,19 @@
             "ゴージャグ3",
             "ジャグラーガールズ"
           ]
+        },
+        "2026-09-12": {
+          "2": [
+            "マイジャグV",
+            "ジャグラーガールズ",
+            "ミスジャグ",
+            "ウルトラミラジャグ"
+          ],
+          "4": [
+            "マイジャグV",
+            "ネオアイム",
+            "ファンキー2"
+          ]
         }
       }
     },
@@ -523,16 +536,6 @@
       "title": "月間オススメ カバネリ海門決戦",
       "machine_name": "カバネリ海門決戦",
       "date_checks": {
-        "2026-09-05": [
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false
-        ],
         "2026-09-06": [
           false,
           false,
@@ -592,16 +595,26 @@
           false,
           false,
           false
+        ],
+        "2026-09-12": [
+          false,
+          true,
+          false,
+          true,
+          true,
+          false,
+          false,
+          false
         ]
       },
       "blank_date_checks": {
-        "2026-09-05": true,
         "2026-09-06": true,
         "2026-09-07": false,
         "2026-09-08": false,
         "2026-09-09": false,
         "2026-09-10": false,
-        "2026-09-11": false
+        "2026-09-11": false,
+        "2026-09-12": false
       }
     }
   },

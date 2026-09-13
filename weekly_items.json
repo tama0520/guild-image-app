@@ -685,9 +685,9 @@
         ],
         "2026-09-12": [
           true,
+          true,
           false,
-          false,
-          false,
+          true,
           false,
           false,
           false,

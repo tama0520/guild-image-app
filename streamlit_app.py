@@ -19971,6 +19971,34 @@ def _generate_rote_result_text(
 # （既存の「🤡ジャグラーシリーズ🤡」と同じ固定文言。機種名からは導出できないため定数）
 _SHIBUYA_WEEKLY_SERIES = "北斗シリーズ"
 
+# 渋谷新館ローテ：完成フォルダ／ZIP の並びを Windows エクスプローラーの「名前」昇順
+# （StrCmpLogicalW）で固定するための番号プレフィックス。機種名はユーザー入力で変わる
+# ため、ファイル名そのものではなく「どのカテゴリのどの種類か」で番号を決める。
+# 生成順・保存順は変更せず、並び順はファイル名だけで実現する。
+_SHIBUYA_ROTE_ORDER: "dict[str, int]" = {
+    "t3_txt":     1,   # 01_ ジャグラー系結果.txt（月間オススメ表③）
+    "t3_tbl":     2,   # 02_ ジャグラー系表.png
+    "m3_txt":     3,   # 03_ 東京喰種結果.txt
+    "m3_rote":    4,   # 04_ 東京喰種ローテ.png
+    "t2_tbl":     5,   # 05_ 東京喰種表.png（月間オススメ表①）
+    "m4_txt":     6,   # 06_ カバネリ海門決戦結果.txt
+    "m4_rote":    7,   # 07_ カバネリ海門決戦ローテ.png
+    "t4_tbl":     8,   # 08_ カバネリ海門決戦表.png（月間オススメ表②）
+    "hokuto_txt": 9,   # 09_ 北斗シリーズ結果.txt
+    "wk_rote":   10,   # 10_ 11_ 週間オススメのローテ画像（入力順に連番）
+}
+
+# 週間/月間オススメ表の table_num → 上記マップのキー（渋谷新館のみ）
+_SHIBUYA_ROTE_TBL_ROLE: "dict[int, str]" = {2: "t2_tbl", 3: "t3_tbl", 4: "t4_tbl"}
+
+
+def _shibuya_rote_fn(fname: str, no: "int | None") -> str:
+    """渋谷新館ローテの保存ファイル名へ並び順の番号プレフィックスを付ける。
+
+    no が None（対象外店舗・対象外ファイル）のときは原名をそのまま返す。
+    """
+    return f"{int(no):02d}_{fname}" if no else fname
+
 
 def _generate_shibuyashinkan_result_texts(
     df: "pd.DataFrame",
@@ -22073,12 +22101,23 @@ def show_rote_page() -> None:
                              + [machine_inputs3[0].strip() if machine_inputs3 else "",
                                 machine_inputs4[0].strip() if machine_inputs4 else ""])
                 _img_macs = _img_macs + [""] * max(0, 6 - len(_img_macs))
+            # 渋谷新館：ローテ画像の並び番号（週間は入力順に連番→③東京喰種→④カバネリ）。
+            # 対象外店舗は空リストのままで番号を付けない（従来どおりの原名）。
+            _img_nos: list[int] = []
+            # 渋谷新館ローテで今回置き換わる「番号なし」旧ファイル名（完全一致 stale 用）
+            _sh_old_fns: list[str] = []
+            if store == "渋谷新館":
+                _img_nos = ([_SHIBUYA_ROTE_ORDER["wk_rote"] + _wi for _wi in range(len(_wk_img_macs))]
+                            + [_SHIBUYA_ROTE_ORDER["m3_rote"], _SHIBUYA_ROTE_ORDER["m4_rote"]])
 
             for _ci_i, (_cimg, _crank) in enumerate(zip(_rote_imgs, _rank_imgs)):
                 _mac = _img_macs[_ci_i] if _ci_i < len(_img_macs) else ""
                 _maru = _ROTE_MARU[_ci_i] if _ci_i < len(_ROTE_MARU) else str(_ci_i + 1)
                 if _cimg:
                     _fn = f"{_mac}ローテ.png" if _mac else f"ローテ{_maru}.png"
+                    if _ci_i < len(_img_nos):
+                        _sh_old_fns.append(_fn)
+                        _fn = _shibuya_rote_fn(_fn, _img_nos[_ci_i])
                     _cimg.save(os.path.join(_rote_out_dir, _fn), format="PNG", dpi=(300, 300))
                 if _crank:
                     _rfn = f"ranking_{_mac}ローテ.png" if _mac else f"ranking_ローテ{_maru}.png"
@@ -22219,6 +22258,11 @@ def show_rote_page() -> None:
                         else:
                             _wt2_mac = st.session_state.get(f"weekly_machine_{store}_t2", "").strip()
                             _fname = f"{_wt2_mac}表.png" if _wt2_mac else "月間オススメ表.png"
+                        if store == "渋谷新館":
+                            _sh_old_fns.append(_fname)
+                            _fname = _shibuya_rote_fn(
+                                _fname,
+                                _SHIBUYA_ROTE_ORDER.get(_SHIBUYA_ROTE_TBL_ROLE.get(_wtn, "")))
                         _wt_img.save(os.path.join(_rote_out_dir, _fname), format="PNG", dpi=(300, 300))
 
             # ── 結果テキスト生成・保存 ────────────────────────────────
@@ -22242,31 +22286,44 @@ def show_rote_page() -> None:
                         machine_inputs4=machine_inputs4,
                         monthly_items2=_wt_items4,
                     )
-                    _sh_r1_fn = f"{_r1_mac}結果.txt" if _r1_mac else "ローテ①結果.txt"
+                    # 週間オススメの統合テキストは機種名ではなく系列名（北斗シリーズ）で保存する
+                    _sh_r1_base = f"{_SHIBUYA_WEEKLY_SERIES}結果.txt"
+                    _sh_r1_fn = _shibuya_rote_fn(_sh_r1_base, _SHIBUYA_ROTE_ORDER["hokuto_txt"])
                     # 週間オススメは北斗シリーズとして _sh_r1_fn へ統合したため、旧テキスト②は書き出さない
-                    _sh_r3_fn = f"{_r3_mac}結果.txt" if _r3_mac else "ローテ③結果.txt"
+                    _sh_r3_base = f"{_r3_mac}結果.txt" if _r3_mac else "ローテ③結果.txt"
+                    _sh_r3_fn = _shibuya_rote_fn(_sh_r3_base, _SHIBUYA_ROTE_ORDER["m3_txt"])
                     with open(os.path.join(_rote_out_dir, _sh_r1_fn), "w", encoding="utf-8") as _f:
                         _f.write(_rote_result)
                     with open(os.path.join(_rote_out_dir, _sh_r3_fn), "w", encoding="utf-8") as _f:
                         _f.write(_rote_result3)
                     _sh_r4_mac = st.session_state.get(f"weekly_machine_{store}_t3", "").strip()
-                    _sh_r4_fn = f"{_sh_r4_mac}結果.txt" if _sh_r4_mac else "週間オススメ②結果.txt"
+                    _sh_r4_base = f"{_sh_r4_mac}結果.txt" if _sh_r4_mac else "週間オススメ②結果.txt"
+                    _sh_r4_fn = _shibuya_rote_fn(_sh_r4_base, _SHIBUYA_ROTE_ORDER["t3_txt"])
                     with open(os.path.join(_rote_out_dir, _sh_r4_fn), "w", encoding="utf-8") as _f:
                         _f.write(_rote_result4)
                     _sh_r5_mac = machine_inputs4[0].strip() if machine_inputs4 else ""
+                    _sh_r5_base = f"{_sh_r5_mac}結果.txt" if _sh_r5_mac else ""
                     if _sh_r5_mac:
-                        _sh_r5_fn = f"{_sh_r5_mac}結果.txt"
+                        _sh_r5_fn = _shibuya_rote_fn(_sh_r5_base, _SHIBUYA_ROTE_ORDER["m4_txt"])
                         with open(os.path.join(_rote_out_dir, _sh_r5_fn), "w", encoding="utf-8") as _f:
                             _f.write(_rote_result5)
-                    # UI廃止・統合により今後生成しないファイルが前回実行分として
-                    # 残っている場合だけ削除する（完全一致のみ・他ファイルには触らない）
+                    # UI廃止・統合・番号プレフィックス化により今後生成しないファイルが
+                    # 前回実行分として残っている場合だけ削除する
+                    # （完全一致のみ・他ファイルには触らない）
                     _kept_fns = {_sh_r1_fn, _sh_r3_fn, _sh_r4_fn}
                     if _sh_r5_mac:
-                        _kept_fns.add(f"{_sh_r5_mac}結果.txt")
+                        _kept_fns.add(_sh_r5_fn)
                     _t1_mac_st = st.session_state.get(f"weekly_machine_{store}_t1", "").strip()
                     _stale_fns = [f"{_t1_mac_st}表.png" if _t1_mac_st else "週間オススメ表①.png"]
                     if _r2_mac:
                         _stale_fns.append(f"{_r2_mac}結果.txt")
+                    # 番号プレフィックスなしの旧ファイル名（画像・表・結果テキスト）
+                    _stale_fns.extend(_sh_old_fns)
+                    _stale_fns.extend([_sh_r1_base, _sh_r3_base, _sh_r4_base])
+                    if _sh_r5_base:
+                        _stale_fns.append(_sh_r5_base)
+                    if _r1_mac:
+                        _stale_fns.append(f"{_r1_mac}結果.txt")
                     for _sfn in _stale_fns:
                         if _sfn in _kept_fns:
                             continue

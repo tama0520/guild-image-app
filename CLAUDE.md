@@ -18244,3 +18244,229 @@ legacy `cell_machines` フォールバック。
 10. **t2 / t4・上野本館へ機械的に横展開しない**
 11. **120候補仕様（`e507b0d`）を壊さない**
 12. **正式実装は `9e137d5` を基準にする**（このhashへ reset する意味ではない）
+
+## 【正式仕様】ローテ月間表の日付切替によるチェック消失防止（2026-09-14・`0de5080`）
+
+**正式仕様。巻き戻し禁止。**対象は**ローテ用の月間オススメ表のうち、
+チェックボックス経路（`weekly_ck_*` × `date_checks`）を使う表の保存・復元だけ**。
+正式実装 commit は **`0de5080c5ad429e1bdcce3432b3a0aeb66179675`**
+（`fix: ローテ月間表の日付切替によるチェック消失を防止`・**`streamlit_app.py` の1ファイルのみ**・+37／−9・4ハンク）。
+**ローカル実画面でユーザー確認済み・問題なし。**
+
+直前の t3 正式仕様（実装 `9e137d504692c0b855f2b51014a290c04c4975b9` ／
+記録 `8ac2a0e9f3861729c52488d02a85a39697b428e2`）と**同じ原因の別経路**への対応であり、
+**t3 側は一切変更していない**。既存のローテ関連セクションは**削除・圧縮・統合・並べ替え・書き換えしない**。
+
+### A. 対象
+
+| 店舗 | 表 | 状態 |
+|---|---|---|
+| **渋谷新館** | **t2（月間オススメ表①）** | **LOST再現あり → 修正対象** |
+| **渋谷新館** | **t4（月間オススメ表②）** | **LOST再現あり → 修正対象** |
+| **上野本館** | **t2** | **LOST再現あり → 修正対象** |
+| 上野本館 | t4 / t5 | **現在は項目未入力で休眠中**（`if not _active: return` で描画・保存とも走らない）。共通経路のため**将来項目が入れば同じ防御が働く** |
+| 渋谷新館 | **t1（週間）** | **非対象**（後述） |
+
+### B. 発生事象と原因
+
+| | キー |
+|---|---|
+| **widget（session_state）** | **`weekly_ck_{store}_t{tn}_{item}_{列}`＝位置キー（日付を含まない）** |
+| **保存先** | **`date_checks`＝日付キー `{日付: [bool × 項目数]}`** |
+
+表示期間が変わると**同じ列 index が別の日付**を指す。
+旧実装の防御は **`_weekly_prev_start_{store}_t{tn}` の比較1点のみ**で、
+さらに保存が **`st.session_state.get(key, False)`** による一括生成（**フォールバックなし**）だったため、
+
+- **未描画**
+- **widget キー消失（GC）**
+- **古い表示期間由来の False**
+
+がすべて**「ユーザーが明示的にOFFにした False」と同じ**に扱われ、
+**既存の True が False で上書きされて消えた**。
+
+**★t3 旧実装より危険だった点**：t3 には `_cm_dict3` フォールバックがあったが、
+チェックボックス経路には**フォールバックが一切なく、未描画＝False で確定保存**された。
+
+### C. 修正前に LOST を再現したシナリオ（渋谷新館 t2 / t4・上野本館 t2 の3表とも）
+
+| | シナリオ | 修正前 |
+|---|---|---|
+| C | 別期間seed → 期間変更検知なし → 新期間save | **LOST** |
+| D | legacy seed → Excel期間 → 検知なし → save | **LOST** |
+| E | widget未mount → save | **LOST** |
+| F | widget key消失 → save | **LOST** |
+| G | 保存済みTrue ＋ 古い期間由来False → 新日付save | **LOST** |
+| I | 対象行未描画 ＋ 他セル操作 | **LOST** |
+| **H** | **表示中の明示OFF** | **修正前から正常** |
+
+消え方は**日付単位（その日付の行が全 False になり日付ごと消失）**と
+**1セル単位（未描画の1行だけ消失）**の両方が起きた。
+
+### D. 正式仕様：主防御（案1）
+
+`_on_ck_change()` の `_use_excel_date` 分岐は、
+**既存 `date_checks` の当日行を起点**にし、**そのrunで実際に描画したセルだけ**を更新する。
+
+```python
+_drawn_ck: set = set()          # そのrunで描画した (item index, 列index)
+
+_dc_base = _load_weekly_date_checks(store, _tn)
+_dc = {}
+for _cj2 in range(len(_dates)):
+    _diso2 = _dates[_cj2].isoformat()
+    _prev_row = list(_dc_base.get(_diso2, []))
+    _row2 = [(_prev_row[_ci2] if _ci2 < len(_prev_row) else False)
+             for _ci2 in range(_WEEKLY_N_ITEMS)]
+    for _ci2 in range(_WEEKLY_N_ITEMS):
+        if (_ci2, _cj2) not in _drawn_ck:  continue   # 未描画／古いscope → 既存値を保持
+        _ck2 = f"weekly_ck_{store}_t{_tn}_{_ci2}_{_cj2}"
+        if _ck2 not in st.session_state:   continue
+        _row2[_ci2] = bool(st.session_state.get(_ck2, False))   # 描画中＝ユーザーの意思
+    _dc[_diso2] = _row2
+```
+
+**旧 `st.session_state.get(key, False)` による一括生成へ戻してはならない。**
+
+### E. 正式仕様：True / False / 未描画の区別
+
+| 状態 | 動作 |
+|---|---|
+| 現在scopeで描画中 ＋ **True** | **ON として保存** |
+| 現在scopeで描画中 ＋ **False** | **ユーザーの明示OFF として保存** |
+| **未描画** | **既存値を維持** |
+| **widget key 消失 ＋ 未描画** | **既存値を維持** |
+| **古い期間由来の False** | **新日付の False として保存しない** |
+
+### F. 正式仕様：scope 防御（案2）
+
+```python
+_ck_scope_key = f"_weekly_ck_scope_{store}_t{_tn}"     # ★新規 session_state キー
+_ck_scope_cur = ("E" if _use_excel_date else "L") + "|" + ",".join(
+    _d1.isoformat() for _d1 in _dates)                 # 例: E|2026-09-07,...,2026-09-13
+_ck_scope_changed = _use_excel_date and st.session_state.get(_ck_scope_key) != _ck_scope_cur
+...
+if _ck_key not in st.session_state or _ck_scope_changed:   # ★期間が変わった時だけ再seed
+    ...
+if _bk_key not in st.session_state or _ck_scope_changed:   # weekly_blank_* も同条件で再seed
+    ...
+if _use_excel_date:
+    st.session_state[_ck_scope_key] = _ck_scope_cur        # 描画完了後に記録
+```
+
+- **scope が変わった run だけ**、その期間の `date_checks` から再seed。
+  **古い期間の True / False を新しい期間へ持ち越さない。**
+- **`weekly_blank_*`（空欄にする行）も同じ条件で再seed**する。
+- **scope が同じ通常 rerun では再seedしない**（ユーザーの現在の入力を上書きしない）。
+
+### G. `_weekly_prev_start_` との関係
+
+既存の `_weekly_prev_start_{store}_t{tn}` による処理は**互換のためそのまま残している**。
+ただし**今回の防御はこれに依存しない。**
+**旧検知が発火しない run でも、主防御（D）＋ scope 防御（F）で LOST しない。**
+
+### H. 適用条件は `_use_excel_date`（店舗名のベタ書きをしない）
+
+今回の防御は **`_use_excel_date`（＝日付キー保存 `date_checks` を使う表）** にだけ作用する。
+そのため **渋谷新館 t2 / t4 ／ 上野本館 t2 / t4 / t5** へ共通で効き、
+**店舗名や table_num のベタ書きによる限定はしない。**
+
+### I. 渋谷新館 t1 は非対象
+
+t1 は **`checks` ＋ `start_date` という位置キーJSONで完結**しており、
+**位置キーwidget × 日付キー保存のズレが発生しない**。
+**今回の scope 防御を t1 へ機械的に適用しない。**
+（テストで、t1 の legacy 保存が `checks` / `start_date` のままで `date_checks` を作らないことを確認済み。）
+
+### J. 上野本館 t4 / t5
+
+**現在は項目未入力で休眠中**（描画も保存も走らない）。
+今回 **項目追加・有効化・本番データ変更はしていない。**
+scratch 上で「項目あり」を模擬し、**共通経路の防御が働くことを確認済み**。
+将来項目が入った場合も同じ防御が自然に作用する。
+
+### K. テスト結果（**56 PASS / 0 FAIL**・本番JSONはコピーで検証）
+
+**渋谷新館 t2 / 渋谷新館 t4 / 上野本館 t2 の3表すべてで：**
+
+| | シナリオ | 修正前 | 修正後 |
+|---|---|---|---|
+| A | 通常表示 → save（全日付不変） | PASS | **PASS** |
+| B | 期間移動 | 窓外削除 | **窓外削除のまま（既存仕様維持）**※判定枠外 |
+| **C** | 別期間seed → 検知なし → 新期間save | **LOST** | **PASS** |
+| **D** | legacy seed → 検知なし → Excel期間save | **LOST** | **PASS** |
+| **E** | widget未mount → save | **LOST** | **PASS** |
+| **F** | widget key消失 → save | **LOST** | **PASS** |
+| **G** | 古い期間由来False → 新日付save | **LOST** | **PASS** |
+| **H** | **表示中の明示OFF** | PASS | **PASS（正常に削除できる）** |
+| **I** | 対象行未描画 ＋ 他セル操作 | **LOST** | **PASS** |
+| **J** | 複数Trueの片方だけ明示OFF → 他方維持 | — | **PASS** |
+| **K** | 未描画行のTrue維持 ＋ 他セル操作 | — | **PASS** |
+| **L** | 旧 `_weekly_prev_start_` が効かない条件でも scope で再seed | — | **PASS** |
+| **M** | 期間A → 期間B → 期間A で各期間の値を再seed | — | **PASS**（True/False/True） |
+| **N** | 通常rerun で現在値を潰さない | — | **PASS** |
+| **O** | widget key GC ＋ 未描画 ＋ 他セルsave → 既存True維持 | — | **PASS** |
+
+加えて **上野本館 t4 / t5**（scratchで項目ありを模擬）も **C相当が PASS**。
+
+### L. ★案3（窓外日付の保持）は非採用
+
+今回 **「窓外日付を保持する」案3は実装していない。**
+
+- `date_checks` は**従来どおり表示期間分で全置換**する。
+- **窓外の日付が消える既存仕様を維持**する。
+- **保持日数の延長はしない。**
+
+**今回の修正は保存期間の仕様変更ではなく、
+「現在扱っている表示期間内での誤削除防止」だけ**である。
+
+**★将来「窓外日付も保持したい」となった場合は、今回の修正とは別案件として扱う。
+今回の防御と混ぜてはならない。**
+
+### M. t3 正式仕様・120候補との関係
+
+**渋谷新館 t3 の正式実装 `9e137d5` は変更していない**（`_on_ms_save` は AST 一致）。
+**`_drawn3` ／ `_t3_ms_scope_{store}` ／ `cell_date_machines` 防御はすべて維持。**
+**`e507b0d` の 1/1〜15/15 全120候補（`_T3_SPECIAL_OPTS`）も変更していない。**
+
+### N. 変更範囲
+
+| 項目 | 内容 |
+|---|---|
+| 変更ファイル | **`streamlit_app.py` のみ** |
+| 変更関数 | **`show_weekly_table_section()` と その内部 `_on_ck_change()` の2つだけ** |
+| 新規関数 / 削除関数 | **0 / 0** |
+| 新規 session_state キー | **`_weekly_ck_scope_{store}_t{tn}` の1つだけ** |
+| diff | **+37 / −9（4ハンク）** |
+
+### O. 非対象（今回いっさい変更していない）
+
+渋谷新館 t1 ／ 渋谷新館 t3 ／ 120候補 ／ 画像描画 ／ 画像デザイン ／ 結果テキスト ／
+`_save_weekly_items()` ／ `_load_weekly_date_checks()` ／ `_load_t3_cell_date_machines()` ／
+`_load_t3_cell_machines()` ／ `_weekly_table_data()` ／ `_draw_weekly_table_image()` ／
+`_weekly_table_html_image()` ／ `show_rote_page()`（すべて AST 一致）。
+
+### P. 実画面承認
+
+**ローカル実画面でユーザーが確認し「問題なし」と承認済み（2026-09-14）。**
+
+### Q. 今後の判断基準（この経路を修正するとき）
+
+1. **`weekly_ck_*` は位置キーであることを忘れない**
+2. **`date_checks` は日付キー保存**
+3. **未描画 checkbox を False として保存しない**
+4. **widget key 消失を明示OFFと扱わない**
+5. **明示OFFだけは正常に False 保存する**（消せなくしない）
+6. **既存 `date_checks` 行を起点に、描画済み index だけ更新する**
+7. **`_weekly_ck_scope_{store}_t{tn}` を不用意に削除・意味変更しない**
+8. **scope 変更時だけ再seedする**
+9. **通常 rerun ではユーザー値を潰さない**
+10. **`_weekly_prev_start_` だけに依存しない**
+11. **`_use_excel_date` 対象だけに適用する**（店舗名をベタ書きしない）
+12. **渋谷新館 t1 へ機械的に横展開しない**
+13. **渋谷新館 t3 の `9e137d5` 防御を壊さない**
+14. **`e507b0d` の120候補を壊さない**
+15. **窓外日付を保持する仕様へ勝手に変更しない**
+16. **窓外保持は別案件**
+17. **上野本館 t4 / t5 は現在休眠中だが、将来有効化時も同防御が働くことを前提とする**
+18. **正式実装基準は `0de5080`**（このhashへ reset する意味ではない）

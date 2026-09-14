@@ -147,6 +147,14 @@ ROTE_BAN_EMOJI_CONFIG: dict[str, str] = {
     "新大久保": "✨",
 }
 
+# ローテ結果テキストで機種名を「【機種名】」で囲む店舗。
+# 未登録店舗は ROTE_EMOJI_CONFIG の囲み絵文字（例 🌠機種名🌠）のまま。
+# ROTE_EMOJI_CONFIG 自体は画像・他用途でも使うため変更しない（表示側だけで切り替える）。
+_ROTE_BRACKET_NAME_STORES: "frozenset[str]" = frozenset({
+    "新宿歌舞伎町",
+    "新大久保",
+})
+
 # ローテ画像・台番列の背景色 {store: hex}
 # 未登録店舗は "#00FFCC" がデフォルト
 ROTE_BAN_COLOR_CONFIG: dict[str, str] = {
@@ -19947,7 +19955,7 @@ def _generate_rote_result_text(
 
         machine_name = sub[name_col].iloc[0]
         lines.append("")
-        if store == "新宿歌舞伎町":
+        if store in _ROTE_BRACKET_NAME_STORES:
             lines.append(f"【{machine_name}】")
         else:
             lines.append(f"{_re}{machine_name}{_re}")

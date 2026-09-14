@@ -24724,6 +24724,10 @@ _GAP_NEKO_FEATHER = 16     # 輪郭のぼかし半径(px・素材座標)。出�
 _GAP_NEKO_BASE    = 26     # これ以下の濃さは背景のまま（右下猫と同値。白い毛が同化する）
 _GAP_NEKO_CAT     = 200    # ここで減光が最大。実写は階調が広いので右下猫の74より広げる
 _GAP_NEKO_K       = 0.42   # 減光の強さ（右下猫は 0.198。gap猫は大きく出るので濃いめ）
+# 猫だけの表示縮小率。**既存液晶の `_GAP_SCREEN_SHRINK`(0.95) は変更しない。**
+# 合成側へ分岐を足さずに済むよう、猫画像へ四辺均等の透明マージンを足して実現する
+# （`_fit_center_in_box()` が全体を枠へ収めるので、猫本体だけがこの比率で小さくなる）。
+_GAP_NEKO_SHRINK  = 0.82
 
 
 def _gap_neko_soften(img: "Image.Image") -> "Image.Image":
@@ -24753,6 +24757,15 @@ def _gap_neko_soften(img: "Image.Image") -> "Image.Image":
     _m = _m.point(lambda v: int(round(v * _GAP_NEKO_K)))
     _out = Image.new("RGBA", _base.size, (0, 0, 0, 0))   # RGB は黒のまま
     _out.putalpha(_m)
+    # 猫だけ枠内で小さく見せる。四辺均等の透明マージンなので**中央配置と縦横比は不変**。
+    # 合成側（_attach_slump_to_table / _side）と既存液晶の縮小率には一切触れない。
+    _sk = _GAP_NEKO_SHRINK
+    if 0.0 < _sk < 1.0:
+        _ow = max(1, round(_out.width / _sk))
+        _oh = max(1, round(_out.height / _sk))
+        _wrap = Image.new("RGBA", (_ow, _oh), (0, 0, 0, 0))
+        _wrap.paste(_out, ((_ow - _out.width) // 2, (_oh - _out.height) // 2))
+        _out = _wrap
     return _out
 
 

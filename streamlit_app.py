@@ -21306,16 +21306,33 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
 
     else:
         # ── t1/t2: チェックボックス ──────────────────────────────────────
+        # このrunで実際に描画した (item index, 列index)。日付キー保存（date_checks）では
+        # widgetキーが位置キーのため、未描画セル・古い表示期間由来のFalseを
+        # 「ユーザーが明示OFFにした」と誤認して既存Trueを消さないようにする。
+        _drawn_ck: set = set()
+
         def _on_ck_change():
             _bdays = [st.session_state.get(f"weekly_blank_{store}_t{_tn}_{_j2}", False) for _j2 in range(len(_dates))]
             if _use_excel_date:
-                _dc = {
-                    _dates[_cj2].isoformat(): [
-                        st.session_state.get(f"weekly_ck_{store}_t{_tn}_{_ci2}_{_cj2}", False)
-                        for _ci2 in range(_WEEKLY_N_ITEMS)
-                    ]
-                    for _cj2 in range(len(_dates))
-                }
+                # 表示期間内の各日付について、既存の保存値を起点にし、
+                # このrunで描画したセルだけを True/False で更新する。
+                # （表示期間外の日付を書かない既存仕様はそのまま維持する）
+                _dc_base = _load_weekly_date_checks(store, _tn)
+                _dc = {}
+                for _cj2 in range(len(_dates)):
+                    _diso2 = _dates[_cj2].isoformat()
+                    _prev_row = list(_dc_base.get(_diso2, []))
+                    _row2 = [(_prev_row[_ci2] if _ci2 < len(_prev_row) else False)
+                             for _ci2 in range(_WEEKLY_N_ITEMS)]
+                    for _ci2 in range(_WEEKLY_N_ITEMS):
+                        if (_ci2, _cj2) not in _drawn_ck:
+                            continue          # 未描画／古いscope由来 → 既存値を保持
+                        _ck2 = f"weekly_ck_{store}_t{_tn}_{_ci2}_{_cj2}"
+                        if _ck2 not in st.session_state:
+                            continue          # 念のため（描画済みならキーは存在する）
+                        # 描画中widgetの値＝ユーザーの意思（False は明示OFF）
+                        _row2[_ci2] = bool(st.session_state.get(_ck2, False))
+                    _dc[_diso2] = _row2
                 _blank_dc = {_dates[_cj2].isoformat(): _bdays[_cj2] for _cj2 in range(len(_dates))}
                 _save_weekly_items(
                     store,
@@ -21334,6 +21351,14 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
 
         _saved_start_str = st.session_state.get(f"_weekly_init_start_{store}_t{_tn}", "")
         _date_checks_data = _load_weekly_date_checks(store, _tn) if _use_excel_date else {}
+        # checkbox の widgetキーは位置キー（weekly_ck_{item}_{列}）なので、表示期間が
+        # 変わると同じ列indexが別日付を指す。前回描画時の期間と異なる run では
+        # その期間の保存値で必ず再seedする（前期間の値を持ち越さない）。期間が同じ
+        # 通常の rerun では再seedしない（ユーザーの現在の入力を上書きしないため）。
+        _ck_scope_key = f"_weekly_ck_scope_{store}_t{_tn}"
+        _ck_scope_cur = ("E" if _use_excel_date else "L") + "|" + ",".join(
+            _d1.isoformat() for _d1 in _dates)
+        _ck_scope_changed = _use_excel_date and st.session_state.get(_ck_scope_key) != _ck_scope_cur
         _checks: list[list[bool]] = []
         for _i, _item in enumerate(_items):
             if not _item.strip():
@@ -21346,7 +21371,8 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
             for _j in range(len(_dates)):
                 with _row[_j + 1]:
                     _ck_key = f"weekly_ck_{store}_t{_tn}_{_i}_{_j}"
-                    if _ck_key not in st.session_state:
+                    _drawn_ck.add((_i, _j))
+                    if _ck_key not in st.session_state or _ck_scope_changed:
                         if _use_excel_date:
                             _date_iso = _dates[_j].isoformat()
                             _dc_row = _date_checks_data.get(_date_iso, [False] * _WEEKLY_N_ITEMS)
@@ -21368,12 +21394,14 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
         for _j in range(len(_dates)):
             with _blank_row[_j + 1]:
                 _bk_key = f"weekly_blank_{store}_t{_tn}_{_j}"
-                if _bk_key not in st.session_state:
+                if _bk_key not in st.session_state or _ck_scope_changed:
                     if _use_excel_date:
                         st.session_state[_bk_key] = _bdc_loaded.get(_dates[_j].isoformat(), False)
                     else:
                         st.session_state[_bk_key] = st.session_state.get(f"_weekly_init_blank_{store}_t{_tn}_{_j}", False)
                 _blank_days.append(st.checkbox("", key=_bk_key, label_visibility="collapsed", on_change=_on_ck_change))
+        if _use_excel_date:
+            st.session_state[_ck_scope_key] = _ck_scope_cur
 
         # ── t1/t2 PNG出力
         st.markdown("---")

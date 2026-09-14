@@ -49,7 +49,7 @@ import logging as _logging
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageFilter
 
 # components.html(height=0) を使う不可視JSインジェクション用に警告を抑制
 # st.iframe は height=0 を受け付けないためレイアウトが崩れる（2026-06-01削除予定）
@@ -24712,36 +24712,47 @@ _GAP_NEKO_PATH = os.path.join(BASE_DIR, "assets", "slump", "neko_gap_1.png")
 
 _GAP_NEKO_CACHE: dict = {}
 
-# 2026-09-14: 切り抜き感を弱め、グラフエリアのクリーム色（C_SLUMP_AREA_BG）へ
-# なじませるための見た目調整。**素材は純粋な切り抜きのまま保持**し、読み込み時に
-# 一度だけ後処理してキャッシュする（アセットを作り直さないので調整が可逆）。
-_GAP_NEKO_FEATHER = 16     # アルファ境界のぼかし半径(px・素材座標)。出力では約0.3倍で効く
-_GAP_NEKO_TINT    = 0.22   # 全体をクリーム色へ寄せる割合（0=原色）
-_GAP_NEKO_EDGE    = 0.60   # 半透明部ほどクリームへ寄せる強さ（フチのハロー防止）
-_GAP_NEKO_OPACITY = 0.88   # 全体の不透明度
+# 2026-09-14: gap猫は**スランプカード右下の猫と同じ「背景減光」方式**で描く。
+# 右下猫（_slump_neko_alpha / _SL_NEKO_K）は猫のRGBを一切使わず
+#   背景 = 背景 * (1 - alpha * K)
+# として「背景色を暗くするだけ」で猫を出しているため、白い毛が背景へ同化し
+# 色が浮かない。gap猫も RGB=(0,0,0) + 弱いアルファを返すことで、既存の
+# `canvas.paste(fitted, xy, fitted)` がそのまま  背景 * (1 - alpha)  になり、
+# 右下猫と**数学的に同一**の見え方になる（合成関数は変更しない）。
+# **既存の右下猫（_slump_neko_alpha / _SL_NEKO_K=0.198 / neko_5000_1.bmp）は不変。**
+_GAP_NEKO_FEATHER = 16     # 輪郭のぼかし半径(px・素材座標)。出力では約0.3倍で効く
+_GAP_NEKO_BASE    = 26     # これ以下の濃さは背景のまま（右下猫と同値。白い毛が同化する）
+_GAP_NEKO_CAT     = 200    # ここで減光が最大。実写は階調が広いので右下猫の74より広げる
+_GAP_NEKO_K       = 0.42   # 減光の強さ（右下猫は 0.198。gap猫は大きく出るので濃いめ）
 
 
 def _gap_neko_soften(img: "Image.Image") -> "Image.Image":
-    """gap猫をクリーム背景へなじませる（tint→feather→フチのクリーム寄せ→不透明度）。
+    """gap猫を「背景を減光するだけ」の黒＋弱アルファ画像へ変換する。
 
-    ぼかしで端が切れないよう先に透明マージンを足す。位置計算・空き判定は変えず、
-    `_fit_center_in_box()` が縦横比を維持して枠内へ収める点も従来どおり。
+    右下猫と同じ濃さ定義 `d = 255 - min(R, G, B)` を使い、
+    `_GAP_NEKO_BASE`〜`_GAP_NEKO_CAT` で 0→255 へ線形正規化する。
+    **写真のRGBは出力へ一切使わない**（出力RGBは常に黒）。
+
+    切り抜きの外側は元素材のRGBが黒（d≒255）なので、**濃さへ先に cutout alpha を
+    掛けてから**ぼかす。順序を逆にすると輪郭の外の黒を拾って黒い縁取りが出る。
+    ぼかしで端が切れないよう先に透明マージンを足す。位置計算・空き判定・
+    `_fit_center_in_box()` の縦横比維持は従来どおり変更しない。
     """
     _r    = max(0, int(_GAP_NEKO_FEATHER))
     _pad  = _r * 2
     _base = Image.new("RGBA", (img.width + _pad * 2, img.height + _pad * 2), (0, 0, 0, 0))
     _base.paste(img, (_pad, _pad))
-    _rgb   = _base.convert("RGB")
-    _a     = _base.getchannel("A")
-    _cream = Image.new("RGB", _base.size, C_SLUMP_AREA_BG)
-    _rgb = Image.blend(_rgb, _cream, _GAP_NEKO_TINT)
+    _rr, _gg, _bb, _aa = _base.split()
+    _mn  = ImageChops.darker(ImageChops.darker(_rr, _gg), _bb)   # min(R,G,B)
+    _den = max(1, int(_GAP_NEKO_CAT) - int(_GAP_NEKO_BASE))
+    _dk  = _mn.point(lambda v: 0 if (255 - v) <= _GAP_NEKO_BASE
+                     else min(255, round((255 - v - _GAP_NEKO_BASE) / _den * 255)))
+    _m = ImageChops.multiply(_dk, _aa)          # 形は素材の切り抜きalphaで決める
     if _r:
-        _a = _a.filter(ImageFilter.GaussianBlur(_r))
-    _m  = _a.point(lambda v: 255 - int(round((255 - v) * _GAP_NEKO_EDGE)))
-    _rgb = Image.composite(_rgb, _cream, _m)
-    _a  = _a.point(lambda v: int(round(v * _GAP_NEKO_OPACITY)))
-    _out = _rgb.convert("RGBA")
-    _out.putalpha(_a)
+        _m = _m.filter(ImageFilter.GaussianBlur(_r))
+    _m = _m.point(lambda v: int(round(v * _GAP_NEKO_K)))
+    _out = Image.new("RGBA", _base.size, (0, 0, 0, 0))   # RGB は黒のまま
+    _out.putalpha(_m)
     return _out
 
 

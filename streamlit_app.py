@@ -21179,6 +21179,11 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
                             if _plus_lines:
                                 st.markdown("  \n".join(_plus_lines))
 
+        # このrunで実際に描画した t3 セル（item index, 列index）。
+        # _on_ms_save は「このrunで描画したセル」だけを保存対象にする（未描画セルの
+        # session_state 欠落・別期間由来の空値を「ユーザーが解除した」と誤認しないため）。
+        _drawn3: set = set()
+
         def _on_ms_save():
             _new_cm: dict = {}
             for _ci2 in range(_WEEKLY_N_ITEMS):
@@ -21193,18 +21198,26 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
                 _cdm_new = {_k: dict(_v) for _k, _v in _load_t3_cell_date_machines(store).items()}
                 for _cj2 in range(len(_dates)):
                     _diso = _dates[_cj2].isoformat()
-                    _row = {}
+                    # 既存の保存値を起点にし、このrunで描画したセルだけを更新する
+                    _row = dict(_cdm_new.get(_diso, {}))
+                    _touched = False
                     for _ci2 in range(_WEEKLY_N_ITEMS):
+                        if (_ci2, _cj2) not in _drawn3:
+                            continue          # 未描画／別期間由来 → 既存値を保持
                         _msk2 = f"t3_ms_{store}_{_ci2}_{_cj2}"
-                        # キーがある→現在値／キーが無い（未描画・GC済み）→復元値を維持
-                        _sel = (st.session_state.get(_msk2, [])
-                                if _msk2 in st.session_state
-                                else _cm_dict3.get(f"{_ci2},{_cj2}", []))
+                        if _msk2 not in st.session_state:
+                            continue          # 念のため（描画済みならキーは存在する）
+                        _touched = True
+                        _sel = st.session_state.get(_msk2, [])
                         if _sel:
                             _row[str(_ci2)] = list(_sel)
+                        else:
+                            # 描画中のwidgetが空＝ユーザーの明示解除 → そのセルを削除
+                            _row.pop(str(_ci2), None)
                     if _row:
                         _cdm_new[_diso] = _row
-                    else:
+                    elif _touched:
+                        # 描画済みセルがすべて空で、未描画の残存値も無い場合だけ日付ごと削除
                         _cdm_new.pop(_diso, None)
                 _save_weekly_items(
                     store,
@@ -21218,6 +21231,15 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
                 table_num=3, cell_machines=_new_cm, blank_days=_bdays3,
             )
 
+        # t3 の widget キーは位置キー（t3_ms_{item}_{列}）なので、表示期間が変わると
+        # 同じ列indexが別日付を指す。前回描画時の期間と異なる run では、その期間の
+        # 値で必ず再seedする（前期間の値・空値を持ち越さない）。期間が同じ通常の
+        # rerun では再seedしない（ユーザーの現在選択を上書きしないため）。
+        _t3_scope_key = f"_t3_ms_scope_{store}"
+        _t3_scope_cur = ("E" if _use_excel_date else "L") + "|" + ",".join(
+            _d0.isoformat() for _d0 in _dates)
+        _t3_scope_changed = st.session_state.get(_t3_scope_key) != _t3_scope_cur
+
         for _i3, _item3 in enumerate(_items):
             if not _item3.strip():
                 continue
@@ -21228,6 +21250,7 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
             for _j3 in range(7):
                 with _row3[_j3 + 1]:
                     _ms_key = f"t3_ms_{store}_{_i3}_{_j3}"
+                    _drawn3.add((_i3, _j3))
                     _saved_sel3 = _cm_dict3.get(f"{_i3},{_j3}", [])
                     if _is_special3:
                         _opts3 = list(_T3_SPECIAL_OPTS) + [m for m in _saved_sel3 if m not in set(_T3_SPECIAL_OPTS)]
@@ -21235,7 +21258,7 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
                     else:
                         _opts3 = list(_cands3) + [m for m in _saved_sel3 if m not in set(_cands3)]
                         _max_sel3 = 9
-                    if _ms_key not in st.session_state:
+                    if _ms_key not in st.session_state or _t3_scope_changed:
                         st.session_state[_ms_key] = _saved_sel3
                     st.multiselect(
                         "", options=_opts3,
@@ -21243,6 +21266,7 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
                         max_selections=_max_sel3,
                         on_change=_on_ms_save,
                     )
+        st.session_state[_t3_scope_key] = _t3_scope_cur
 
         # ── 空欄にする行（t3）
         _blank_row3 = st.columns(_ratio)

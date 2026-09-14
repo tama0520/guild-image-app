@@ -24712,6 +24712,38 @@ _GAP_NEKO_PATH = os.path.join(BASE_DIR, "assets", "slump", "neko_gap_1.png")
 
 _GAP_NEKO_CACHE: dict = {}
 
+# 2026-09-14: 切り抜き感を弱め、グラフエリアのクリーム色（C_SLUMP_AREA_BG）へ
+# なじませるための見た目調整。**素材は純粋な切り抜きのまま保持**し、読み込み時に
+# 一度だけ後処理してキャッシュする（アセットを作り直さないので調整が可逆）。
+_GAP_NEKO_FEATHER = 16     # アルファ境界のぼかし半径(px・素材座標)。出力では約0.3倍で効く
+_GAP_NEKO_TINT    = 0.22   # 全体をクリーム色へ寄せる割合（0=原色）
+_GAP_NEKO_EDGE    = 0.60   # 半透明部ほどクリームへ寄せる強さ（フチのハロー防止）
+_GAP_NEKO_OPACITY = 0.88   # 全体の不透明度
+
+
+def _gap_neko_soften(img: "Image.Image") -> "Image.Image":
+    """gap猫をクリーム背景へなじませる（tint→feather→フチのクリーム寄せ→不透明度）。
+
+    ぼかしで端が切れないよう先に透明マージンを足す。位置計算・空き判定は変えず、
+    `_fit_center_in_box()` が縦横比を維持して枠内へ収める点も従来どおり。
+    """
+    _r    = max(0, int(_GAP_NEKO_FEATHER))
+    _pad  = _r * 2
+    _base = Image.new("RGBA", (img.width + _pad * 2, img.height + _pad * 2), (0, 0, 0, 0))
+    _base.paste(img, (_pad, _pad))
+    _rgb   = _base.convert("RGB")
+    _a     = _base.getchannel("A")
+    _cream = Image.new("RGB", _base.size, C_SLUMP_AREA_BG)
+    _rgb = Image.blend(_rgb, _cream, _GAP_NEKO_TINT)
+    if _r:
+        _a = _a.filter(ImageFilter.GaussianBlur(_r))
+    _m  = _a.point(lambda v: 255 - int(round((255 - v) * _GAP_NEKO_EDGE)))
+    _rgb = Image.composite(_rgb, _cream, _m)
+    _a  = _a.point(lambda v: int(round(v * _GAP_NEKO_OPACITY)))
+    _out = _rgb.convert("RGBA")
+    _out.putalpha(_a)
+    return _out
+
 
 def _gap_neko_img(store: str) -> "Image.Image | None":
     """空きコマへはめ込む透過猫画像（対象店舗のみ）。非対象・未配置なら None。"""
@@ -24720,7 +24752,7 @@ def _gap_neko_img(store: str) -> "Image.Image | None":
     if "img" in _GAP_NEKO_CACHE:
         return _GAP_NEKO_CACHE["img"]
     try:
-        _img = Image.open(_GAP_NEKO_PATH).convert("RGBA")
+        _img = _gap_neko_soften(Image.open(_GAP_NEKO_PATH).convert("RGBA"))
     except Exception:
         _img = None
     _GAP_NEKO_CACHE["img"] = _img

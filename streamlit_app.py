@@ -10377,6 +10377,8 @@ def show_auto_page(with_slump: bool = False) -> None:
             _tb_rt_items_key      = f"_auto_tb_rt_items_{store}"
             _tb_rt_items_date_key = f"_auto_tb_rt_items_date_{store}"
             _tb_baseline_artid_key = f"_auto_tb_baseline_artid_{store}"  # 収集開始時点の article_id
+            # 取得元表示用（session_state のみ・JSON へは保存しない）
+            _tb_src_key            = f"_auto_tb_src_{store}"
 
             # 収集中かどうか（速報で、今表示中の日付に対して収集を開始済み）
             _is_collecting = _tb_is_rt and st.session_state.get(_tb_collecting_key) == _tb_date_str
@@ -10384,6 +10386,7 @@ def show_auto_page(with_slump: bool = False) -> None:
             # ── ボタン描画 ───────────────────────────────────────────────
             _do_rt_check    = False
             _do_rt_existing = False
+            _do_sg_fetch    = False
             if _is_collecting:
                 _btn_c1, _btn_c2 = st.columns(2)
                 with _btn_c1:
@@ -10402,6 +10405,16 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _do_rt_existing = st.button("📂 既存のデータを取得", key=f"auto_tb_rt_existing_{store}",
                                                 use_container_width=True,
                                                 help="新しい収集を開始せず、過去に取得済みの直近データを読み込みます。")
+            elif store in _SG_FETCH_STORES and _sg_hall_id(store) is not None:
+                # 確定データのみ。左＝既存Pision取得（keyは従来どおり）／右＝slotterguild取得。
+                _btn_c1, _btn_c2 = st.columns(2)
+                with _btn_c1:
+                    _tb_refetch = st.button("🔄 Pisionから取得", key=f"auto_tb_refetch_{store}",
+                                            use_container_width=True)
+                with _btn_c2:
+                    _do_sg_fetch = st.button("🌐 サイトから取得", key=f"auto_tb_sg_{store}",
+                                             use_container_width=True,
+                                             help="slotterguild.com の公開データから取得します（確定データのみ）。")
             else:
                 _tb_refetch = st.button("🔄 取得", key=f"auto_tb_refetch_{store}")
 
@@ -10434,6 +10447,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 st.session_state[_tb_fetched_key]       = _tb_date_str
                 st.session_state[_tb_rt_items_key]      = items
                 st.session_state[_tb_rt_items_date_key] = _tb_date_str
+                st.session_state[_tb_src_key]           = "Pision"
                 st.session_state.pop(_tb_collecting_key, None)
 
             def _is_new_artid(poll_result: dict) -> bool:
@@ -10547,8 +10561,56 @@ def show_auto_page(with_slump: bool = False) -> None:
                     st.session_state[_tb_bytes_key] = _tb_buf.getvalue()
                     st.session_state[_tb_name_key]  = _tb_fname
                     st.session_state[_tb_count_key] = len(_tb_df)
+                    st.session_state[_tb_src_key]   = "Pision"
                 st.session_state[_tb_fetched_key] = _tb_date_str
                 st.rerun()
+
+            # ── slotterguild.com から取得（確定データのみ・_SG_FETCH_STORES 限定）──
+            # 表(xlsx)とスランプ(points)の両方が揃い、台番集合が一致したときだけ
+            # session_state を更新する（半端な状態で既存データを壊さない）。
+            if _do_sg_fetch:
+                _sg_hid = _sg_hall_id(store)
+                _sg_ok  = False
+                with st.spinner(f"{_tb_date_str} のデータを slotterguild.com から取得中..."):
+                    try:
+                        _sg_bytes = _sg_fetch_excel(_sg_hid, _tb_date_str)
+                        _sg_df    = pd.read_excel(io.BytesIO(_sg_bytes))
+                        if len(_sg_df) == 0:
+                            raise _SGError(f"サイトに {_tb_date_str} のデータがありません"
+                                           "（未収集 / 店休日の可能性があります）。")
+                        _sg_bans = {str(int(_v)) for _v in
+                                    pd.to_numeric(_sg_df["台番"], errors="coerce").dropna()}
+                        _sg_nmap = {}
+                        _sg_ncol = next((_c for _c in ("機種名（データサイト表記）", "機種名")
+                                         if _c in _sg_df.columns), None)
+                        if _sg_ncol:
+                            for _bv, _nv in zip(pd.to_numeric(_sg_df["台番"], errors="coerce"),
+                                                _sg_df[_sg_ncol]):
+                                if pd.notna(_bv) and pd.notna(_nv):
+                                    _sg_nmap[str(int(_bv))] = str(_nv).strip()
+                        _sg_items = _sg_fetch_items(_sg_hid, _tb_date_str, _sg_nmap)
+                        if not _sg_items:
+                            raise _SGError("サイトからスランプデータを取得できませんでした。")
+                        _sg_ibans = {str(_it.get("unitId")) for _it in _sg_items}
+                        if _sg_bans != _sg_ibans:
+                            raise _SGError(
+                                f"表データ（{len(_sg_bans)}台）とスランプデータ（{len(_sg_ibans)}台）の"
+                                "台番が一致しませんでした。時間をおいて再取得してください。")
+                        _sg_ok = True
+                    except _SGError as _sg_e:
+                        st.error(f"❌ {_sg_e}")
+                    except Exception as _sg_e2:
+                        st.error(f"❌ サイトからの取得に失敗しました: {_sg_e2}")
+                if _sg_ok:
+                    _slump_apply_names(_sg_items)
+                    st.session_state[_tb_bytes_key]         = _sg_bytes
+                    st.session_state[_tb_name_key]          = f"{_tb_date.strftime('%Y%m%d')}_{store}_20S.xlsx"
+                    st.session_state[_tb_count_key]         = len(_sg_df)
+                    st.session_state[_tb_fetched_key]       = _tb_date_str
+                    st.session_state[_tb_rt_items_key]      = _sg_items
+                    st.session_state[_tb_rt_items_date_key] = _tb_date_str
+                    st.session_state[_tb_src_key]           = "slotterguild.com"
+                    st.rerun()
 
             if st.session_state.get(_tb_fetched_key) == _tb_date_str:
                 _tb_data = st.session_state.get(_tb_bytes_key)
@@ -10556,7 +10618,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _tb_uploaded = io.BytesIO(_tb_data)
                     _tb_uploaded.name = st.session_state.get(_tb_name_key, f"{_tb_date.strftime('%Y%m%d')}_{store}_20S.xlsx")
                     _tb_label = "速報" if _tb_is_rt else "確定"
-                    st.success(f"✅ {_tb_date_str} の{_tb_label}データ（{st.session_state.get(_tb_count_key, '?')}台）を取得し、①にセットしました。")
+                    _tb_src = st.session_state.get(_tb_src_key) or "Pision"
+                    st.success(f"✅ {_tb_date_str} の{_tb_label}データ（{st.session_state.get(_tb_count_key, '?')}台）"
+                               f"を取得し、①にセットしました。／ 取得元: {_tb_src}")
                 elif not _is_collecting:
                     st.info(f"📭 {_tb_date_str} のデータを取得できませんでした（404 / 未公開 / 店休日の可能性があります）。①から手動でアップロードしてください。")
 
@@ -23440,6 +23504,121 @@ def fetch_pision_results(api_key: str, hall_id: str, date: str) -> "list | None"
     if isinstance(data, list):
         return data
     return data.get("details", data.get("data", []))
+
+
+# ── slotterguild.com データ取得（確定データの代替取得元）──────────────────
+# Pision とは別系統の公開エンドポイント（認証不要・GET のみ）。取得後は Pision と
+# 同じ session_state キーへ流し、以降（normalize_df / 画像生成 / スランプ）は共通経路を使う。
+# slotterguild 側の hall_id は Pision 側の hall id とは別体系（稲毛: SG=566 / Pision=4031）。
+_SG_BASE_URL = "https://slotterguild.com/hall_data_db/halldata"
+_SG_FETCH_STORES: "frozenset[str]" = frozenset({"稲毛"})
+_SG_HALL_IDS: "dict[str, int]" = {"稲毛": 566}
+_SG_TIMEOUT = 20
+
+
+class _SGError(Exception):
+    """slotterguild 取得の失敗をユーザー向けメッセージ付きで伝える。"""
+
+
+def _sg_hall_id(store: str) -> "int | None":
+    """店舗名 → slotterguild の hall_id（未登録店舗は None）。"""
+    return _SG_HALL_IDS.get(store)
+
+
+def _sg_get(query: str) -> "object":
+    """slotterguild へ GET する。403 / 4xx / 5xx / タイムアウト / 接続失敗は
+    すべて _SGError（ユーザー向け文面）にして送出する。例外を握り潰さない。"""
+    import requests
+    try:
+        r = requests.get(f"{_SG_BASE_URL}/{query}", timeout=_SG_TIMEOUT)
+    except requests.exceptions.Timeout:
+        raise _SGError(f"サイトへの接続がタイムアウトしました（{_SG_TIMEOUT}秒）。"
+                       "時間をおいて再試行するか、Pisionから取得してください。")
+    except requests.exceptions.RequestException as e:
+        raise _SGError(f"サイトへの接続に失敗しました: {e}")
+    if r.status_code == 403:
+        raise _SGError("slotterguild.com へのアクセスが拒否されました（HTTP 403）。")
+    if r.status_code == 404:
+        raise _SGError("slotterguild.com にページが見つかりません（HTTP 404）。")
+    if r.status_code >= 500:
+        raise _SGError(f"slotterguild.com がエラーを返しました（HTTP {r.status_code}）。")
+    if r.status_code != 200:
+        raise _SGError(f"slotterguild.com が予期しない応答を返しました（HTTP {r.status_code}）。")
+    return r
+
+
+def _sg_fetch_excel(hall_id: int, date_str: str) -> bytes:
+    """download_dedama_s_excel から xlsx bytes を取得する。
+    列は 台番/機種名（データサイト表記）/機種名（name_1）/差枚/BB/RB/ART/G数 で、
+    既存 COLUMN_ALIASES がそのまま解決できるため normalize 層は新設しない。"""
+    r = _sg_get(f"halldata_api.php?download_dedama_s_excel"
+                f"&hall_id={int(hall_id)}&date_at={date_str}&name_col=name_1")
+    ct = str(r.headers.get("Content-Type") or "").lower()
+    if not any(k in ct for k in ("spreadsheet", "excel", "octet-stream")):
+        raise _SGError(f"サイトが想定外の形式を返しました（Content-Type: {ct or '不明'}）。")
+    data = r.content
+    if not data or data[:2] != b"PK":
+        raise _SGError("サイトから正しい Excel ファイルを取得できませんでした。")
+    return data
+
+
+_SG_ROW_RE   = re.compile(r'<tr data-dai="(\d+)" data-coin="(-?\d+)" data-machine="([^"]*)">(.*?)</tr>', re.S)
+_SG_TD_RE    = re.compile(r"<td[^>]*>(.*?)</td>", re.S)
+_SG_GRAPH_RE = re.compile(r"drawMiniGraph\('mg-\d+',(\[.*?\]),(\d+)\);", re.S)
+_SG_TAG_RE   = re.compile(r"<[^>]+>")
+
+
+def _sg_cell_int(cell_html: str) -> int:
+    """hall_all.php のセルHTMLから整数を取り出す（「-1,800」「+2,900」「±0」対応）。"""
+    t = _SG_TAG_RE.sub("", cell_html).replace(",", "").replace("±", "").strip()
+    m = re.match(r"^[+\-]?\d+", t)
+    return int(m.group(0)) if m else 0
+
+
+def _sg_fetch_items(hall_id: int, date_str: str,
+                    name_by_ban: "dict | None" = None) -> list:
+    """hall_all.php を解析して Pision の details と同形の items を返す。
+    {unitId, displayName, modelName, points, diff, games, bb, rb, art}
+    points は [{"x": int, "y": int}, ...] で draw_slump_graph がそのまま受け取れる。
+    name_by_ban（台番→機種名（データサイト表記））を渡すと displayName をそれで上書きし、
+    _slump_apply_names の変換結果が Pision と一致するようにする。"""
+    import html as _html
+    r = _sg_get(f"hall_all.php?hall_id={int(hall_id)}&date_at={date_str}")
+    ct = str(r.headers.get("Content-Type") or "").lower()
+    if "text/html" not in ct:
+        raise _SGError(f"サイトが想定外の形式を返しました（Content-Type: {ct or '不明'}）。")
+    doc = r.text
+    if "data-dai=" not in doc:
+        raise _SGError("サイトのページ構造が変わった可能性があります（台データが見つかりません）。")
+    items: list = []
+    for m in _SG_ROW_RE.finditer(doc):
+        _uid  = m.group(1)
+        _coin = int(m.group(2))
+        _mac  = _html.unescape(m.group(3))
+        _body = m.group(4)
+        _tds  = _SG_TD_RE.findall(_body)
+        if len(_tds) < 10:
+            continue
+        _g = _SG_GRAPH_RE.search(_body)
+        _pts = None
+        if _g:
+            try:
+                _pts = json.loads(_g.group(1))
+            except (ValueError, TypeError):
+                _pts = None
+        _disp = (name_by_ban or {}).get(_uid) or _mac
+        items.append({
+            "unitId":      _uid,
+            "displayName": _disp,   # 機種名変換マスタと整合する表記（データサイト表記）
+            "modelName":   _mac,    # hall_all の data-machine（name_1 表記）
+            "points":      _pts,
+            "diff":        _coin,
+            "bb":          _sg_cell_int(_tds[3]),
+            "rb":          _sg_cell_int(_tds[4]),
+            "art":         _sg_cell_int(_tds[8]),
+            "games":       _sg_cell_int(_tds[9]),
+        })
+    return items
 
 
 # ── 速報データ（realtime ログインアプリ）────────────────────────────────

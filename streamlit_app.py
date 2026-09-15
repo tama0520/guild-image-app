@@ -10405,8 +10405,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _do_rt_existing = st.button("📂 既存のデータを取得", key=f"auto_tb_rt_existing_{store}",
                                                 use_container_width=True,
                                                 help="新しい収集を開始せず、過去に取得済みの直近データを読み込みます。")
-            elif store in _SG_FETCH_STORES and _sg_hall_id(store) is not None:
-                # 確定データのみ。左＝既存Pision取得（keyは従来どおり）／右＝slotterguild取得。
+            elif (with_slump and store in _SG_FETCH_STORES
+                  and _sg_hall_id(store) is not None):
+                # スランプ付き結果ポスト用（auto_slump / auto_slump2）の確定データのみ。
+                # 通常の結果ポスト用（auto・with_slump=False）には出さない。
+                # 左＝既存Pision取得（keyは従来どおり）／右＝slotterguild取得。
                 _btn_c1, _btn_c2 = st.columns(2)
                 with _btn_c1:
                     _tb_refetch = st.button("🔄 Pisionから取得", key=f"auto_tb_refetch_{store}",
@@ -23505,8 +23508,8 @@ def fetch_pision_results(api_key: str, hall_id: str, date: str) -> "list | None"
 # 同じ session_state キーへ流し、以降（normalize_df / 画像生成 / スランプ）は共通経路を使う。
 # slotterguild 側の hall_id は Pision 側の hall id とは別体系（稲毛: SG=566 / Pision=4031）。
 _SG_BASE_URL = "https://slotterguild.com/hall_data_db/halldata"
-_SG_FETCH_STORES: "frozenset[str]" = frozenset({"稲毛"})
-_SG_HALL_IDS: "dict[str, int]" = {"稲毛": 566}
+_SG_FETCH_STORES: "frozenset[str]" = frozenset({"稲毛", "上野新館"})
+_SG_HALL_IDS: "dict[str, int]" = {"稲毛": 566, "上野新館": 570}
 _SG_TIMEOUT = 20
 
 

@@ -12435,8 +12435,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                 _gap_meta_pv[_fn_pv]["fillable"] = _fillable_pv
                                                 if _fillable_pv:
                                                     _gap_base_pv[_fn_pv] = {"table": _img_pv, "graphs": list(_g_imgs_pv), "side": False}
-                                            _merged_pv.append((_fn_pv, _attach_slump_to_table(_img_pv, _g_imgs_pv, _ig_bbb_pv, _gap_img_pv,
-                                                                        gap_neko_img=_gap_neko_img(store))))
+                                            _merged_pv.append((_fn_pv, _attach_slump_to_table(_img_pv, _g_imgs_pv, _ig_bbb_pv, _gap_img_pv)))
                                         if len(_g_imgs_pv) >= 16 and store != "秋葉原":
                                             try:
                                                 _side_fn_pv = os.path.splitext(_fn_pv)[0] + "_side.jpg"
@@ -12446,8 +12445,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                                                 "fillable": _fillable_side_pv}
                                                     if _fillable_side_pv:
                                                         _gap_base_pv[_side_fn_pv] = {"table": _img_pv, "graphs": list(_g_imgs_pv), "side": True}
-                                                _merged_pv.append((_side_fn_pv, _attach_slump_to_table_side(_img_pv, _g_imgs_pv, _ig_bbb_pv, _gap_img_pv,
-                                                                                  gap_neko_img=_gap_neko_img(store))))
+                                                _merged_pv.append((_side_fn_pv, _attach_slump_to_table_side(_img_pv, _g_imgs_pv, _ig_bbb_pv, _gap_img_pv)))
                                             except Exception:
                                                 pass
                                     _prev_img_list = _merged_pv
@@ -13716,13 +13714,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             _gap_img_u2 = _resolve_gap_screen(_gp_u2, _gsel_u2)
                                         else:
                                             _gap_img_u2 = None
-                                        _new_prev[_ui] = (_ufn, _attach_slump_to_table(_uimg, _g_imgs_u2, _upd_bbb, _gap_img_u2,
-                                                                 gap_neko_img=_gap_neko_img(store)))
+                                        _new_prev[_ui] = (_ufn, _attach_slump_to_table(_uimg, _g_imgs_u2, _upd_bbb, _gap_img_u2))
                                     if len(_g_imgs_u2) >= 16 and store != "秋葉原":
                                         try:
                                             _side_ufn = os.path.splitext(_ufn)[0] + "_side.jpg"
-                                            _side_u2  = _attach_slump_to_table_side(_uimg, _g_imgs_u2, _upd_bbb, _gap_img_u2,
-                                                                           gap_neko_img=_gap_neko_img(store))
+                                            _side_u2  = _attach_slump_to_table_side(_uimg, _g_imgs_u2, _upd_bbb, _gap_img_u2)
                                             # 液晶を選び直したときに🔄前のグラフへ戻らないよう、
                                             # 横版の再合成ベースも更新後の表・スランプで差し替える
                                             if _gap_fill_on(store):
@@ -15906,8 +15902,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                 _gap_img_exec = _resolve_gap_screen(_gp_exec, _gsel_exec)
                                             else:
                                                 _gap_img_exec = None
-                                            _combined_exec = _attach_slump_to_table(_t_img_exec, _g_imgs_exec, _ig_bbb_exec, _gap_img_exec,
-                                                                             gap_neko_img=_gap_neko_img(store))
+                                            _combined_exec = _attach_slump_to_table(_t_img_exec, _g_imgs_exec, _ig_bbb_exec, _gap_img_exec)
                                             _cbuf_exec = io.BytesIO()
                                             _combined_exec.save(_cbuf_exec, format="JPEG", quality=92)
                                             _ig_composite.append((_lfn_exec, _cbuf_exec.getvalue()))
@@ -15916,8 +15911,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         # 横レイアウト（16台以上・秋葉原除く）
                                         if len(_g_imgs_exec) >= 16 and store != "秋葉原":
                                             try:
-                                                _side_img_exec = _attach_slump_to_table_side(_t_img_exec, _g_imgs_exec, _ig_bbb_exec, _gap_img_exec,
-                                                                                       gap_neko_img=_gap_neko_img(store))
+                                                _side_img_exec = _attach_slump_to_table_side(_t_img_exec, _g_imgs_exec, _ig_bbb_exec, _gap_img_exec)
                                                 _side_buf_exec = io.BytesIO()
                                                 _side_img_exec.save(_side_buf_exec, format="JPEG", quality=92)
                                                 _side_fn_exec = os.path.splitext(_lfn_exec)[0] + "_side.jpg"
@@ -24310,8 +24304,7 @@ def _composite_slump_onto_images(
                 _gap_img_m = _resolve_gap_screen(_gp_m, _gsel_m)
             else:
                 _gap_img_m = None
-            _merged.append((_fn, _attach_slump_to_table(_img, _g_imgs, _bbb, _gap_img_m,
-                                                   gap_neko_img=_gap_neko_img(store))))
+            _merged.append((_fn, _attach_slump_to_table(_img, _g_imgs, _bbb, _gap_img_m)))
         if len(_g_imgs) >= 16 and store != "秋葉原":
             try:
                 _side_fn = os.path.splitext(_fn)[0] + "_side.jpg"
@@ -24328,8 +24321,7 @@ def _composite_slump_onto_images(
                 else:
                     _gap_img_side = None
                 _merged.append((_side_fn,
-                                _attach_slump_to_table_side(_img, _g_imgs, _bbb, _gap_img_side,
-                                                            gap_neko_img=_gap_neko_img(store))))
+                                _attach_slump_to_table_side(_img, _g_imgs, _bbb, _gap_img_side)))
             except Exception:
                 pass
     if store in _PANEL_STORES:
@@ -24624,7 +24616,6 @@ def _attach_slump_to_table_side(
     graph_imgs: "list[Image.Image]",
     bg_path=None,
     gap_screen_img=None,
-    gap_neko_img=None,
 ) -> "Image.Image":
     """表画像（左）＋スランプグラフ4列（右）の横レイアウト合成（16台以上用）。"""
     COLS = 4
@@ -24677,10 +24668,9 @@ def _attach_slump_to_table_side(
         y = PAD + row * (row_h + GAP)
         canvas.paste(g, (x, y))
 
-    # 最終行の空きコマ（2以上）に液晶／透過猫をはめ込む（既存液晶を優先）
+    # 最終行の空きコマ（2以上）に液晶をはめ込む
     empty = COLS * rows - n
-    _fill = gap_screen_img if gap_screen_img is not None else gap_neko_img
-    if _fill is not None and empty >= 2:
+    if gap_screen_img is not None and empty >= 2:
         last_count = n - (rows - 1) * COLS
         gap_x0 = graph_x0 + PAD + last_count * cell_w + last_count * GAP
         gap_x1 = graph_x0 + graph_area_w - PAD
@@ -24690,11 +24680,9 @@ def _attach_slump_to_table_side(
         if box_w > 0 and box_h > 0:
             _sw = max(1, int(box_w * _GAP_SCREEN_SHRINK))
             _sh = max(1, int(box_h * _GAP_SCREEN_SHRINK))
-            fitted, ox, oy = _fit_center_in_box(_fill, _sw, _sh)
-            _xy = (gap_x0 + (box_w - _sw) // 2 + ox,
-                   gap_y0 + (box_h - _sh) // 2 + oy)
-            # 透過猫(RGBA)は alpha マスクで貼る。既存のRGB液晶画像は従来どおり。
-            canvas.paste(fitted, _xy, fitted if fitted.mode == "RGBA" else None)
+            fitted, ox, oy = _fit_center_in_box(gap_screen_img, _sw, _sh)
+            canvas.paste(fitted, (gap_x0 + (box_w - _sw) // 2 + ox,
+                                  gap_y0 + (box_h - _sh) // 2 + oy))
 
     return canvas
 
@@ -24880,88 +24868,6 @@ def _gap_fill_on(store: str) -> bool:
     return store in _GAP_FILL_STORES
 
 
-# 2026-09-14: スランプ付き結果の「2コマ以上空き」へ透過猫画像をはめ込む店舗。
-# **既存の液晶はめ込み（_GAP_FILL_STORES / _gap_fill_on）とは完全に別管理**で、
-# 液晶ゲートを一切変更しない。対象を広げるときはこの集合へ追記する。
-# スランプカード内部の猫（neko_5000_1.bmp / _slump_neko_alpha / _SL_NEKO_K）とも別物。
-_GAP_NEKO_SLUMP_STORES: "frozenset[str]" = frozenset({"稲毛"})
-
-# 背景除去済みの透過素材（アセットは完成品。実行時に背景除去処理はしない）。
-_GAP_NEKO_PATH = os.path.join(BASE_DIR, "assets", "slump", "neko_gap_1.png")
-
-_GAP_NEKO_CACHE: dict = {}
-
-# 2026-09-14: gap猫は**スランプカード右下の猫と同じ「背景減光」方式**で描く。
-# 右下猫（_slump_neko_alpha / _SL_NEKO_K）は猫のRGBを一切使わず
-#   背景 = 背景 * (1 - alpha * K)
-# として「背景色を暗くするだけ」で猫を出しているため、白い毛が背景へ同化し
-# 色が浮かない。gap猫も RGB=(0,0,0) + 弱いアルファを返すことで、既存の
-# `canvas.paste(fitted, xy, fitted)` がそのまま  背景 * (1 - alpha)  になり、
-# 右下猫と**数学的に同一**の見え方になる（合成関数は変更しない）。
-# **既存の右下猫（_slump_neko_alpha / _SL_NEKO_K=0.198 / neko_5000_1.bmp）は不変。**
-_GAP_NEKO_FEATHER = 16     # 輪郭のぼかし半径(px・素材座標)。出力では約0.3倍で効く
-_GAP_NEKO_BASE    = 26     # これ以下の濃さは背景のまま（右下猫と同値。白い毛が同化する）
-_GAP_NEKO_CAT     = 200    # ここで減光が最大。実写は階調が広いので右下猫の74より広げる
-_GAP_NEKO_K       = 0.42   # 減光の強さ（右下猫は 0.198。gap猫は大きく出るので濃いめ）
-# 猫だけの表示縮小率。**既存液晶の `_GAP_SCREEN_SHRINK`(0.95) は変更しない。**
-# 合成側へ分岐を足さずに済むよう、猫画像へ四辺均等の透明マージンを足して実現する
-# （`_fit_center_in_box()` が全体を枠へ収めるので、猫本体だけがこの比率で小さくなる）。
-_GAP_NEKO_SHRINK  = 0.82
-
-
-def _gap_neko_soften(img: "Image.Image") -> "Image.Image":
-    """gap猫を「背景を減光するだけ」の黒＋弱アルファ画像へ変換する。
-
-    右下猫と同じ濃さ定義 `d = 255 - min(R, G, B)` を使い、
-    `_GAP_NEKO_BASE`〜`_GAP_NEKO_CAT` で 0→255 へ線形正規化する。
-    **写真のRGBは出力へ一切使わない**（出力RGBは常に黒）。
-
-    切り抜きの外側は元素材のRGBが黒（d≒255）なので、**濃さへ先に cutout alpha を
-    掛けてから**ぼかす。順序を逆にすると輪郭の外の黒を拾って黒い縁取りが出る。
-    ぼかしで端が切れないよう先に透明マージンを足す。位置計算・空き判定・
-    `_fit_center_in_box()` の縦横比維持は従来どおり変更しない。
-    """
-    _r    = max(0, int(_GAP_NEKO_FEATHER))
-    _pad  = _r * 2
-    _base = Image.new("RGBA", (img.width + _pad * 2, img.height + _pad * 2), (0, 0, 0, 0))
-    _base.paste(img, (_pad, _pad))
-    _rr, _gg, _bb, _aa = _base.split()
-    _mn  = ImageChops.darker(ImageChops.darker(_rr, _gg), _bb)   # min(R,G,B)
-    _den = max(1, int(_GAP_NEKO_CAT) - int(_GAP_NEKO_BASE))
-    _dk  = _mn.point(lambda v: 0 if (255 - v) <= _GAP_NEKO_BASE
-                     else min(255, round((255 - v - _GAP_NEKO_BASE) / _den * 255)))
-    _m = ImageChops.multiply(_dk, _aa)          # 形は素材の切り抜きalphaで決める
-    if _r:
-        _m = _m.filter(ImageFilter.GaussianBlur(_r))
-    _m = _m.point(lambda v: int(round(v * _GAP_NEKO_K)))
-    _out = Image.new("RGBA", _base.size, (0, 0, 0, 0))   # RGB は黒のまま
-    _out.putalpha(_m)
-    # 猫だけ枠内で小さく見せる。四辺均等の透明マージンなので**中央配置と縦横比は不変**。
-    # 合成側（_attach_slump_to_table / _side）と既存液晶の縮小率には一切触れない。
-    _sk = _GAP_NEKO_SHRINK
-    if 0.0 < _sk < 1.0:
-        _ow = max(1, round(_out.width / _sk))
-        _oh = max(1, round(_out.height / _sk))
-        _wrap = Image.new("RGBA", (_ow, _oh), (0, 0, 0, 0))
-        _wrap.paste(_out, ((_ow - _out.width) // 2, (_oh - _out.height) // 2))
-        _out = _wrap
-    return _out
-
-
-def _gap_neko_img(store: str) -> "Image.Image | None":
-    """空きコマへはめ込む透過猫画像（対象店舗のみ）。非対象・未配置なら None。"""
-    if store not in _GAP_NEKO_SLUMP_STORES:
-        return None
-    if "img" in _GAP_NEKO_CACHE:
-        return _GAP_NEKO_CACHE["img"]
-    try:
-        _img = _gap_neko_soften(Image.open(_GAP_NEKO_PATH).convert("RGBA"))
-    except Exception:
-        _img = None
-    _GAP_NEKO_CACHE["img"] = _img
-    return _img
-
-
 def _fit_center_in_box(img: "Image.Image", box_w: int, box_h: int) -> tuple["Image.Image", int, int]:
     """box(box_w×box_h)内にアスペクト比維持で最大リサイズし、中央配置のオフセットを返す。"""
     iw, ih = img.size
@@ -25112,7 +25018,6 @@ def _attach_slump_to_table(
     bg_path=None,
     gap_screen_img=None,
     hq_scale: float = 1.0,
-    gap_neko_img=None,
 ) -> "Image.Image":
     """表画像の下にスランプグラフを3列で並べて合成する（稲毛スランプ付き専用）。
 
@@ -25159,10 +25064,9 @@ def _attach_slump_to_table(
         y = th + PAD + row * (row_h + GAP)
         canvas.paste(g, (x, y))
 
-    # 最終行の空きコマ（2以上）に液晶／透過猫をはめ込む（既存液晶を優先）
+    # 最終行の空きコマ（2以上）に液晶をはめ込む
     empty = COLS * rows - n
-    _fill = gap_screen_img if gap_screen_img is not None else gap_neko_img
-    if _fill is not None and empty >= 2:
+    if gap_screen_img is not None and empty >= 2:
         last_count = n - (rows - 1) * COLS       # 最終行の埋まっている枚数
         gap_x0 = PAD + last_count * cell_w + last_count * GAP   # 最後のグラフ右端 + GAP
         gap_x1 = tw - PAD
@@ -25172,11 +25076,9 @@ def _attach_slump_to_table(
         if box_w > 0 and box_h > 0:
             _sw = max(1, int(box_w * _GAP_SCREEN_SHRINK))
             _sh = max(1, int(box_h * _GAP_SCREEN_SHRINK))
-            fitted, ox, oy = _fit_center_in_box(_fill, _sw, _sh)
-            _xy = (gap_x0 + (box_w - _sw) // 2 + ox,
-                   gap_y0 + (box_h - _sh) // 2 + oy)
-            # 透過猫(RGBA)は alpha マスクで貼る。既存のRGB液晶画像は従来どおり。
-            canvas.paste(fitted, _xy, fitted if fitted.mode == "RGBA" else None)
+            fitted, ox, oy = _fit_center_in_box(gap_screen_img, _sw, _sh)
+            canvas.paste(fitted, (gap_x0 + (box_w - _sw) // 2 + ox,
+                                  gap_y0 + (box_h - _sh) // 2 + oy))
 
     return canvas
 

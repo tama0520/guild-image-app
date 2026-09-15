@@ -18900,3 +18900,178 @@ slotterguild 取得は **2リクエスト（xlsx と hall_all）**になるた�
 16. **⑰の非変更リストを今回を理由に変更しない**
 17. **本節を「Pision 完全非依存化」と誤記しない**
 18. **正式実装基準は `a51e362`**（この hash へ reset する意味ではない）
+
+## 【正式仕様】稲毛 スランプ付き結果ポスト：空き枠のgap猫撤去・空白維持（2026-09-15・`51008ee`）
+
+**正式仕様。巻き戻し禁止。**対象は**【稲毛】スランプ付き結果ポスト用ページの
+スランプグラフ最終行の空きコマだけ**。
+正式実装 commit は **`51008eeb7314c29dca9fa4f705ca3702a0ba84d8`**
+（`fix: 稲毛スランプ空き枠の猫表示を撤去`・**`streamlit_app.py` の1ファイルのみ**・**+18 / −116**）。
+**ローカル実画面でユーザーが確認し「問題なし」と承認済み。**
+
+既存の CLAUDE.md 各節は**削除・圧縮・統合・並べ替え・書き換えしない**。
+本節は**2026-09-15 の正式仕様として追加**するものである。
+
+### ① 正式仕様
+
+稲毛のスランプ付き結果ポスト用で、**最終行に空きコマが発生しても
+gap猫を表示しない。液晶も表示しない。空き部分はそのまま空白にする。**
+
+```
+猫なし ／ 液晶なし ／ 空きはそのまま
+```
+
+| 空きコマ数 | 表示 |
+|---|---|
+| **0コマ** | 何も入れない |
+| **1コマ** | 何も入れない |
+| **2コマ** | **何も入れない**（従来は猫が入っていた） |
+| **3コマ** | **何も入れない**（従来は猫が入っていた） |
+
+**縦版（`_attach_slump_to_table`・COLS=3）・side版（`_attach_slump_to_table_side`・COLS=4）
+とも同じ。**
+
+空き部分は既存のスランプ結果背景 **`#FFFFCB`（`C_SLUMP_AREA_BG`）のクリーム背景のまま**で、
+**何も追加表示しない。**
+
+### ② ★液晶は復活させない（2026-09-11 正式仕様を維持）
+
+**本節は「液晶システムの削除」でも「液晶の復活」でもない。**
+
+既存正式仕様
+**「【正式仕様】スランプ付き結果ポストの液晶挿入停止（2026-09-11・`ebe881e` / `6fd3991`）」は
+そのまま有効**であり、結果ポスト用途では既存OFFゲートにより液晶が入らない状態を維持する。
+
+**今回いっさい変更していない（AST不変を機械確認済み）:**
+
+`_GAP_FILL_STORES` ／ `_GAP_FILL_OFF_SLUMP_STORES` ／ `_gap_fill_on()` ／
+`_gap_fillable()` ／ `_gap_sel_key()` ／ `_gap_screen_paths_for_bans()` ／
+`_featured_machine_for_bans()` ／ `_resolve_gap_screen()` ／ `_on_gap_screen_change()` ／
+`_fit_center_in_box()` ／ `_GAP_SCREEN_SHRINK`（0.95）／ `_ARTICLE_GAP_FILL_STORES`。
+
+**既存の液晶コードは残す。**`_gap_fill_on()` は**全13店舗で `False`**（結果ポスト経路の液晶は無効）で、
+この値は修正前後で**全店舗一致**することを実行確認済み。
+
+合成部は**猫導入前（`79b3126^`）の形へ復帰**した（AST完全一致）:
+
+```python
+# 最終行の空きコマ（2以上）に液晶をはめ込む
+empty = COLS * rows - n
+if gap_screen_img is not None and empty >= 2:
+    ...
+    fitted, ox, oy = _fit_center_in_box(gap_screen_img, _sw, _sh)
+    canvas.paste(fitted, (...))
+```
+
+結果ポスト用途では `gap_screen_img` が常に `None` になるため、**最終的な稲毛の表示は空白**になる。
+
+### ③ 撤去した gap猫実装（`51008ee`）
+
+| 区分 | 内容 |
+|---|---|
+| **定数（8つ）** | `_GAP_NEKO_SLUMP_STORES` / `_GAP_NEKO_PATH` / `_GAP_NEKO_CACHE` / `_GAP_NEKO_FEATHER` / `_GAP_NEKO_BASE` / `_GAP_NEKO_CAT` / `_GAP_NEKO_K` / `_GAP_NEKO_SHRINK` |
+| **helper（2つ）** | `_gap_neko_soften()` / `_gap_neko_img()` |
+| **引数（2つ）** | `_attach_slump_to_table(..., gap_neko_img=None)` / `_attach_slump_to_table_side(..., gap_neko_img=None)` |
+| **分岐** | `_fill = gap_screen_img if gap_screen_img is not None else gap_neko_img` の**フォールバック**と RGBAマスク貼り |
+| **呼び出し（8箇所）** | `gap_neko_img=_gap_neko_img(store)`（`show_auto_page` 6箇所 ／ `_composite_slump_onto_images` 2箇所） |
+
+**残存参照は `gap_neko` 0件 ／ `_GAP_NEKO` 0件**（撤去前はそれぞれ21件・22件）。
+
+### ④ アセットは残置（削除しない）
+
+**`assets/slump/neko_gap_1.png` は削除していない。**
+コードからは参照しなくなるが、**ファイル自体は残置する。**
+
+### ⑤ ★右下猫は別仕様（絶対に触らない）
+
+**スランプカード内部右下の猫は、今回撤去した gap猫とは完全に別物**である。
+以下は**正式仕様として維持**し、**消さない**：
+
+```
+assets/slump/neko_5000_1.bmp
+_SL_NEKO_K = 0.198
+_slump_neko_alpha()
+_SL_NEKO_PATH / _SL_NEKO_BOX / _SL_NEKO_REF / _SL_NEKO_BASE / _SL_NEKO_CAT / _SL_NEKO_LINE
+```
+
+`draw_slump_graph()` の出力が**画素完全一致（388×472）**であることを確認済み。
+
+> 補足：`neko_5000_1.bmp` の文字列出現数は 5 → 3 になったが、**減った2件は撤去した
+> gap猫ブロック内のコメント**（「右下猫とは別物」と説明していた行）であり、
+> **右下猫の実体は無傷**。猫導入前と**同数の3件**に一致することを確認済み。
+
+### ⑥ 実画面確認（2026-09-15・ローカル・正式HEAD `51008ee`）
+
+**稲毛 → スランプ付き結果ポスト用 → 確定データ → 2026-09-14**
+
+- slotterguild.com から **196台**を取得（`／ 取得元: slotterguild.com`）
+- **⑦プレビュー 6枚生成**
+- **`その他の優秀台ピックアップ.jpg`（19台・COLS=3 → rows=7 → 空き2コマ）の最終行が完全に空白**
+- 拡大確認：**`#FFFFCB` のクリーム背景のみ・gap猫なし・液晶なし・残像なし**
+- **スランプカード内部の右下猫は従来どおり残存**（各カードに薄く表示）
+- 2台構成の画像（かのかり / ヴァルヴレイヴ2 / 真打吉宗_高配分）は空き1コマで従来どおり空白
+
+### ⑦ テスト結果（静的58 ＋ 実画像40 ＝ 98件・実質 FAIL 0）
+
+| ケース | 結果 |
+|---|---|
+| 縦版 空き2コマ（n=4 / n=7） | **猫なし**（旧と差分119,753px＝猫が消えた・**サイズ不変**） |
+| side版 空き2コマ（n=18） | **猫なし**（差分66,351px・サイズ不変 6618×1806） |
+| side版 空き3コマ（n=17） | **猫なし**（差分66,351px・サイズ不変） |
+| 空き0/1コマ（縦 n=6/n=5・side n=16/n=19） | **旧と画素完全一致（差分0px）** |
+| 液晶画像を渡した場合（縦版・side版） | **旧と完全一致**＝液晶経路は壊れていない |
+| 合成2関数の AST | **猫導入前（`79b3126^`）と完全一致** |
+
+### ⑧ 非回帰（すべて確認済み）
+
+| 対象 | 結果 |
+|---|---|
+| **他店舗** | 新小岩 / 上野新館 / 上野本館 / 秋葉原 / 新宿歌舞伎町 / 西武新宿 / 高田馬場 / 渋谷新館 の8店舗で**画素完全一致**（元々猫なし）。秋葉原タイトル型 `_build_slump_title_img`（n=4/7/17）も**完全一致** |
+| **記事用** | `show_auto_article_page` **AST一致**。`hq_scale=1.0 / 2.0` の両経路で**画素完全一致**。`_ARTICLE_GAP_FILL_STORES` 不変。**記事用液晶仕様は別仕様として維持** |
+| ローテ / 結果テキスト / 表デザイン / スランプカード本体デザイン / 保存復元 / JSON / Pision取得 / slotterguild取得 / WordPress / side画像24px余白仕様 | **すべて非変更**（`show_rote_page` / `generate_report_text` / `draw_table_image` / `_paste_slump_area_bg` / `run_auto_pipeline` / `_save_auto_inputs` / `_restore_auto_inputs` / `_sg_fetch_excel` / `_sg_fetch_items` / `fetch_pision_results` / `fetch_pision_realtime` / `normalize_df` / `apply_name_conversion` / `_build_sue_images` / `_apply_panel_to_table_img` が AST 一致） |
+
+**変更関数は `_attach_slump_to_table` / `_attach_slump_to_table_side` / `show_auto_page` /
+`_composite_slump_onto_images` の4つだけ。新規関数0・消失関数は gap猫の2つだけ。**
+
+### ⑨ 過去の gap猫 commit（履歴として残す）
+
+gap猫は以下で段階的に追加されていた。**過去履歴は削除・書き換えしない。**
+
+| commit | 内容 |
+|---|---|
+| `79b3126` | feat: 稲毛スランプ空き枠に透過猫画像を追加 |
+| `e5ed040` | fix: 稲毛の空き枠猫をクリーム背景へなじませる |
+| `cb27bc7` | fix: 稲毛の空き枠猫を背景減光方式へ変更 |
+| `8d03d24` | fix: 稲毛の空き枠猫の表示サイズを縮小 |
+| **`51008ee`** | **fix: 稲毛スランプ空き枠の猫表示を撤去（今回）** |
+
+### ⑩ ★これは既存正式仕様の巻き戻しではない
+
+調査の結果、**gap猫は CLAUDE.md にも MEMORY にも正式仕様化されていなかった**
+（実測：CLAUDE.md 0件 / MEMORY 0件）。
+そのため今回の撤去は**既存正式仕様の巻き戻しに該当しない**。
+
+**今回初めて**「稲毛のスランプ付き結果ポストの空き部分は
+**猫なし・液晶なし・空白**」を**正式仕様として記録**する。
+
+### ⑪ 今後の禁止事項
+
+1. **稲毛のスランプ空き枠へ gap猫を再導入しない**
+2. **空き2コマ・3コマへ何かを自動で入れる実装を復活させない**（猫・別画像を問わず）
+3. **`_GAP_NEKO_*` 定数・`_gap_neko_soften()` / `_gap_neko_img()` を復活させない**
+4. **`gap_neko_img` 引数・`gap_screen_img` が None のときのフォールバック分岐を復活させない**
+5. **`assets/slump/neko_gap_1.png` を削除しない**（参照0でも残置）
+6. **右下猫（`neko_5000_1.bmp` / `_SL_NEKO_K = 0.198` / `_slump_neko_alpha()` / `_SL_NEKO_*`）を
+   今回を理由に変更・削除しない**
+7. **液晶を結果ポスト用途で復活させない**
+   （2026-09-11 の `ebe881e` / `6fd3991` 正式仕様を維持）
+8. **`_GAP_FILL_STORES` / `_GAP_FILL_OFF_SLUMP_STORES` / `_gap_fill_on()` を変更しない**
+9. **液晶システム（`_gap_fillable` / `_gap_sel_key` / `_gap_screen_paths_for_bans` /
+   `_featured_machine_for_bans` / `_resolve_gap_screen` / `_on_gap_screen_change` /
+   `_fit_center_in_box` / `_GAP_SCREEN_SHRINK`）を削除しない**
+10. **記事用（`show_auto_article_page` / `_ARTICLE_GAP_FILL_STORES`）を変更しない**
+11. **空き部分の背景 `#FFFFCB` を変更しない／空きを詰めない**
+12. **他店舗へ横展開しない**（今回の見た目変更対象は稲毛の gap猫のみ）
+13. **過去の gap猫 commit（`79b3126` / `e5ed040` / `cb27bc7` / `8d03d24`）を reset・revert しない**
+14. **正式実装基準は `51008ee`**（この hash へ reset する意味ではない）
+15. **無関係なリファクタ・未使用コード整理をしない**

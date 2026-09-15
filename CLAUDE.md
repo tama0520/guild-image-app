@@ -18621,3 +18621,282 @@ t3の120候補（`_T3_SPECIAL_OPTS`）／ `_t3_ms_scope_` ／ `_weekly_ck_scope_
 10. **他7店舗の囲み表示を維持する**
 11. **実画面確認済み**
 12. **正式実装基準は `bbd869a`**（このhashへ reset する意味ではない）
+
+## 【正式仕様】稲毛 スランプ付き結果ポスト：Pision / slotterguild 2系統データ取得（2026-09-15・`a51e362`）
+
+**正式仕様。巻き戻し禁止。**対象は**【稲毛】スランプ付き結果ポスト用ページの
+「📈 日付からデータを自動取得」の確定データモードだけ**。
+正式実装 commit は **`a51e3628f147ccfccfba9f0ce387cfe7c2b9363f`**
+（`feat: 稲毛にslotterguildデータ取得を追加`・**`streamlit_app.py` の1ファイルのみ**・**+180 / −1**・8ハンク）。
+**ローカル実機確認 → push → ユーザーによる Cloud 実機確認まで完了し「問題なし」と承認済み。**
+
+既存の CLAUDE.md 各節は**削除・圧縮・統合・並べ替え・書き換えしない**。
+本節は**2026-09-15 の正式仕様として追加**するものである。
+
+### ① 対象と目的
+
+| 項目 | 値 |
+|---|---|
+| 店舗 | **稲毛のみ** |
+| ページ | **スランプ付き結果ポスト用**（`show_auto_page(with_slump=True)`） |
+| 対象モード | **確定データのみ** |
+| 目的 | **「取得元を選べるようにする」こと** |
+
+**★「Pision 完全非依存化」ではない。**下記⑫のとおりスランプ合成側には Pision 前提の既存ゲートが
+残っており、それは今回**意図的に変更していない**。Pision 完全非依存化は**別案件**である。
+
+### ② UI 正式仕様
+
+```
+### 📈 日付からデータを自動取得（稲毛）
+データ種別: (●) 確定データ  ( ) 速報データ（当日・営業中）   ← 既存のまま
+日付を選択: [2026/09/14]                                    ← 既存widget 1つを共用
+┌──────────────────────┬──────────────────────┐
+│ 🔄 Pisionから取得    │ 🌐 サイトから取得    │   ← 確定データ時のみ横2列
+└──────────────────────┴──────────────────────┘
+✅ 2026-09-14 の確定データ（196台）を取得し、①にセットしました。／ 取得元: slotterguild.com
+```
+
+- **日付widgetは既存の1つだけ。左右それぞれに日付widgetを作らない。**
+- 左の Pision ボタンは **既存 key `auto_tb_refetch_{store}` を維持**する（新keyへ変えない）。
+- 右は新 key **`auto_tb_sg_{store}`**。
+- 分岐は **`elif store in _SG_FETCH_STORES and _sg_hall_id(store) is not None:`** の1箇所のみ。
+
+### ③ 速報モードは変更しない
+
+**slotterguild.com は確定データのみ。速報モードへは一切手を入れない。**
+
+- 速報時は従来どおり **`⚡ 速報を取得` / `📂 既存のデータを取得`**（`elif _tb_is_rt and _tb_rt_ok:` 経路）
+- 収集中は従来どおり **`⏳ 収集中...` / `🔍 今すぐ確認`**
+- 手動確認・自動ポーリング（30秒）・既存データ取得の3処理ブロックも不変
+
+正式確認時に、**速報ボタンブロックと収集中ボタンブロックが修正前と
+バイト完全一致（586B一致）**であることを機械確認済み。
+
+### ④ 稲毛限定ゲート（他店舗へ横展開しない）
+
+```python
+_SG_BASE_URL = "https://slotterguild.com/hall_data_db/halldata"
+_SG_FETCH_STORES: "frozenset[str]" = frozenset({"稲毛"})
+_SG_HALL_IDS: "dict[str, int]" = {"稲毛": 566}
+_SG_TIMEOUT = 20
+```
+
+**非対象12店舗には「🌐 サイトから取得」を出さない。**従来どおり
+`_tb_refetch = st.button("🔄 取得", key=f"auto_tb_refetch_{store}")` の単一ボタンのまま。
+
+### ⑤ ★hall_id は Pision と別体系（混同禁止）
+
+| 系統 | 稲毛の hall_id |
+|---|---|
+| **slotterguild** | **566** |
+| **Pision** | **4031** |
+
+**この2つを混同しない。**slotterguild 側は `_SG_HALL_IDS` の固定値、
+Pision 側は従来どおり `fetch_pision_halls()` の結果から
+「store名 と エスパス を両方含むホール」を検索して解決する（ハードコードしない）。
+
+### ⑥ 取得元エンドポイント（GET のみ・認証不要）
+
+| 用途 | エンドポイント |
+|---|---|
+| **表データ** | `halldata_api.php?download_dedama_s_excel&hall_id=566&date_at=YYYY-MM-DD&name_col=name_1` |
+| **スランプpoints** | `hall_all.php?hall_id=566&date_at=YYYY-MM-DD` |
+
+**`new.php` からは台データを取らない**（新着一覧ページであり台別データを含まない）。
+**書き込み系API（`set_schedule_onetime` 等）は使わない。GET のみ。**
+
+### ⑦ 表データは既存共通パイプラインへ無加工で流す
+
+slotterguild の xlsx 列は
+
+```
+台番 / 機種名（データサイト表記） / 機種名（name_1） / 差枚 / BB / RB / ART / G数
+```
+
+で、**既存 `COLUMN_ALIASES` がすべて解決できる**（`機種名（データサイト表記）` / `ART` / `G数`
+はいずれも既存 alias に含まれる）。実測で **`normalize_df()` の missing は `[]`**。
+
+- **専用 normalize 層を新設しない。**
+- **`COLUMN_ALIASES` / `normalize_df()` / `apply_name_conversion()` / `_read_uploaded_df()` を変更しない。**
+- **★CSV経路は使わない。** slotterguild の CSV は **UTF-8 BOM** だが既存
+  `_read_csv_raw()` は **`encoding="cp932"` 固定**のため `UnicodeDecodeError` になる。
+  **xlsx を使えば既存コード変更が不要**なので xlsx を正式とする。
+
+### ⑧ 既存 session_state へ流す（新しい保存システムを作らない）
+
+取得成功時は **Pision 確定取得と同じ既存キー**へ入れる。
+
+```python
+st.session_state[_tb_bytes_key]         # = _auto_tb_file_bytes_fix_{store}
+st.session_state[_tb_name_key]          # = "{YYYYMMDD}_{store}_20S.xlsx" 例: 20260914_稲毛_20S.xlsx
+st.session_state[_tb_count_key]
+st.session_state[_tb_fetched_key]
+st.session_state[_tb_rt_items_key]      # = _auto_tb_rt_items_{store}
+st.session_state[_tb_rt_items_date_key] # = _auto_tb_rt_items_date_{store}
+st.session_state[_tb_src_key]           # = _auto_tb_src_{store}（取得元表示・JSON保存しない）
+```
+
+その後 `st.rerun()` し、**既存の `_tb_uploaded` → 手動アップロードと同じ入口**へ乗る。
+以降の **全台系 / 高配分 / 並び / ジャグラー優秀台 / その他優秀台 / 結果テキスト / 画像生成**は
+すべて既存経路を共通利用する。
+
+### ⑨ スランプ points は既存キャッシュへ注入（専用実装を作らない）
+
+`hall_all.php` の各行に埋まっている
+
+```html
+<tr data-dai="355" data-coin="6500" data-machine="...">
+  ... <script>drawMiniGraph('mg-355',[{"x":0,"y":0},...,{"x":3543,"y":6500}],3556);</script>
+```
+
+を解析し、**Pision の details と同形**の items を作る。
+
+```
+{unitId, displayName, modelName, points, diff, games, bb, rb, art}
+points = [{"x": int, "y": int}, ...]
+```
+
+- **`_slump_apply_names(items)` を再利用**する（機種名変換の適用）。
+- `displayName` には **xlsx の「機種名（データサイト表記）」を台番で突き合わせて上書き**する。
+  `hall_all` の `data-machine` は name_1 表記で未登録が出るため。これにより
+  **`_convertedName` が Pision と完全一致**する。
+- **⑦プレビュー・⑧本番は既存の cache-first 経路をそのまま使う**
+  （`_auto_tb_rt_items_{store}` を見る3箇所）。
+  **slotterguild 専用のスランプ生成処理を別実装しない。**
+
+### ⑩ 取得元表示
+
+| session_state | 値 |
+|---|---|
+| **`_auto_tb_src_{store}`** | **`"Pision"` または `"slotterguild.com"`** |
+
+**JSON へは保存しない**（session_state のみ）。成功メッセージ末尾に `／ 取得元: {値}` を表示する。
+Pision 側は確定取得と速報取得（`_save_rt_items_to_session`）の**2箇所**で `"Pision"` を設定する。
+
+### ⑪ エラー処理正式仕様（例外を握り潰さない）
+
+`_sg_get()` が次をすべて **`_SGError`（ユーザー向け文面）** にして送出する。
+
+| 事象 | 表示 |
+|---|---|
+| **HTTP 403** | `❌ slotterguild.com へのアクセスが拒否されました（HTTP 403）。` |
+| HTTP 404 | `❌ slotterguild.com にページが見つかりません（HTTP 404）。` |
+| HTTP 5xx | `❌ slotterguild.com がエラーを返しました（HTTP {code}）。` |
+| その他非200 | `❌ slotterguild.com が予期しない応答を返しました（HTTP {code}）。` |
+| **timeout** | `❌ サイトへの接続がタイムアウトしました（20秒）。時間をおいて再試行するか、Pisionから取得してください。` |
+| 接続失敗 | `❌ サイトへの接続に失敗しました: {e}` |
+| Content-Type不正 | `❌ サイトが想定外の形式を返しました（Content-Type: {ct}）。` |
+| 非xlsx（PKシグネチャ無し） | `❌ サイトから正しい Excel ファイルを取得できませんでした。` |
+| HTML構造変化 | `❌ サイトのページ構造が変わった可能性があります（台データが見つかりません）。` |
+| **0台** | `❌ サイトに {日付} のデータがありません（未収集 / 店休日の可能性があります）。` |
+
+**`requests.get` には必ず有限 timeout（`_SG_TIMEOUT = 20`）を指定する。**
+**失敗時に既存の Pision データ・手動アップロードデータ・既存 session_state を上書きしない。**
+
+### ⑫ ★半端更新禁止（最重要）
+
+slotterguild 取得は **2リクエスト（xlsx と hall_all）**になるため、
+**次の全検証を通過したときだけ** session_state を更新する。
+
+```
+1. xlsx 取得
+2. xlsx 行数 > 0
+3. items 取得
+4. items 件数 > 0
+5. xlsx の台番集合 == items の unitId 集合
+   ↓ すべて成功
+   _sg_ok = True → ここで初めて7キーを更新 → st.rerun()
+```
+
+- **`try` ブロック内に `st.session_state[...]` の書き込みを置かない**（構造テストで0件を機械確認）。
+- **`st.rerun()` も成功時の1回のみ。**
+- **表だけ使うフォールバックは作らない**（表＋points が両方揃ったときだけ成功扱い）。
+
+### ⑬ 正式確認結果（2026-09-14・稲毛）
+
+| 項目 | 結果 |
+|---|---|
+| slotterguild 台数 | **196台** |
+| Pision 台数 | **196台** |
+| 台番集合 | **完全一致** |
+| 差枚 / G数 / BB / RB / ART | **すべて不一致0件** |
+| **normalize後 DataFrame** | **完全一致（`a.equals(b) == True`・7列×196行）** |
+| 機種名（変換後） | **196/196 一致** |
+| 未登録機種 | **0件** |
+| スランプ points | **196/196台 取得（欠損0）** |
+| **points y系列** | **196/196 完全一致** |
+| ①表 | 総差枚 **-11,500** / 平均差枚 **-59** / 平均G数 **2,205** / 勝率 **75/196**（両経路一致） |
+
+純粋テストは **合計75件 PASS / 0 FAIL**（取得36 ＋ 非回帰18 ＋ 等価性21）。
+
+### ⑭ x スケール差は実用上問題なし
+
+| | x の最大値 |
+|---|---|
+| slotterguild | 実G数寄り（0〜3,556） |
+| Pision | 間引き値（0〜809） |
+
+**`draw_slump_graph()` が `max_x = max(p["x"])` で自前正規化する**ため絶対スケールは不問。
+正規化後の相対xズレは最大7.4%・平均1.9%だが、**y系列・点数・終点がすべて同一**で、
+実際に両ソースを `draw_slump_graph()` で描画して比較した結果、
+**山谷の形・到達点・表示差枚は同等**（画素差は横1〜2pxのズレによる0.85〜5.73%のみ）。
+
+### ⑮ 確認状況
+
+| 項目 | 結果 |
+|---|---|
+| ローカル Pision 取得 | **正常** |
+| ローカル slotterguild 取得 | **正常** |
+| ①表 | **一致** |
+| normalize後 DataFrame | **完全一致** |
+| ⑦プレビュー（slotterguild経路） | **6枚正常生成・各台にスランプ合成を目視確認** |
+| **Cloud 実機**（稲毛 → スランプ付き結果ポスト用 → 確定データ → サイトから取得） | **ユーザー確認済み・問題なし → Cloud 利用も正式採用** |
+
+### ⑯ 正式記録する実装要素
+
+| 区分 | 内容 |
+|---|---|
+| **定数** | `_SG_BASE_URL` / `_SG_FETCH_STORES` / `_SG_HALL_IDS` / `_SG_TIMEOUT` ／ 正規表現4種（`_SG_ROW_RE` / `_SG_TD_RE` / `_SG_GRAPH_RE` / `_SG_TAG_RE`）／ 例外 `_SGError` |
+| **新規helper（5つ）** | `_sg_hall_id()` / `_sg_get()` / `_sg_fetch_excel()` / `_sg_cell_int()` / `_sg_fetch_items()` |
+| **変更関数（2つだけ）** | `show_auto_page()` ／ その内部 `_save_rt_items_to_session()`（取得元1行の追加のみ） |
+| **消失関数** | **0** |
+
+### ⑰ 非変更（今回いっさい触れていない）
+
+`COLUMN_ALIASES` ／ `normalize_df` ／ `_read_uploaded_df` ／ `_read_csv_raw` ／
+`_slump_apply_names` ／ `draw_slump_graph` ／ Pision API関数群（`fetch_pision_halls` /
+`fetch_pision_results` / `fetch_pision_realtime` / `_parse_pision_rt_detail` / `_pision_request` /
+`_get_pision_api_key`）／ `run_auto_pipeline` ／ `_save_auto_inputs` ／ `_restore_auto_inputs` ／
+`_merge_auto_entry` ／ `_build_sue_images` ／ `show_auto_article_page` ／ `show_rote_page` ／
+`generate_report_text` ／ `wp_client.py` ／ `requirements.txt` ／ Secrets ／ 各種JSON schema ／
+`機種名変換.xlsx`。
+
+**いずれも AST バイト一致を機械確認済み。**
+
+### ⑱ 今回の正式仕様に含めないもの（別案件）
+
+**Pision 完全非依存化** ／ **他店舗への slotterguild 展開** ／ **slotterguild 速報取得** ／
+**`schedule_onetime` の自動実行** ／ **書き込みAPIの利用** ／ **CSV経路** ／
+**Secrets 変更** ／ **WordPress 連携変更**。
+
+### ⑲ 今後の禁止事項
+
+1. **速報モードの UI・処理を変更しない**（slotterguild は確定データのみ）
+2. **日付widget を左右で分けない**（既存1つを共用する）
+3. **Pision ボタンの key `auto_tb_refetch_{store}` を変えない**
+4. **`_SG_FETCH_STORES` / `_SG_HALL_IDS` を承認なしに他店舗へ広げない**
+5. **slotterguild の 566 と Pision の 4031 を混同しない**
+6. **専用 normalize 層を新設しない**／`COLUMN_ALIASES` を変更しない
+7. **CSV経路を使わない**（`_read_csv_raw` は cp932 固定）
+8. **新しい保存キー・新しいJSONを作らない**（既存 `_auto_tb_file_bytes_fix_*` 系を流用）
+9. **slotterguild 専用のスランプ生成処理を別実装しない**（既存 cache-first 経路を使う）
+10. **`_auto_tb_src_{store}` を JSON へ保存しない**
+11. **例外を握り潰さない**／`requests.get` の timeout を外さない
+12. **半端更新をしない**（全検証成功後にのみ session_state を更新する）
+13. **表だけ使うフォールバックを作らない**
+14. **失敗時に既存 Pision データ・手動アップロードデータを上書きしない**
+15. **`new.php` から台データを取らない**／**書き込みAPIを使わない**
+16. **⑰の非変更リストを今回を理由に変更しない**
+17. **本節を「Pision 完全非依存化」と誤記しない**
+18. **正式実装基準は `a51e362`**（この hash へ reset する意味ではない）

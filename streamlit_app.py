@@ -23508,8 +23508,8 @@ def fetch_pision_results(api_key: str, hall_id: str, date: str) -> "list | None"
 # 同じ session_state キーへ流し、以降（normalize_df / 画像生成 / スランプ）は共通経路を使う。
 # slotterguild 側の hall_id は Pision 側の hall id とは別体系（稲毛: SG=566 / Pision=4031）。
 _SG_BASE_URL = "https://slotterguild.com/hall_data_db/halldata"
-_SG_FETCH_STORES: "frozenset[str]" = frozenset({"稲毛", "上野新館"})
-_SG_HALL_IDS: "dict[str, int]" = {"稲毛": 566, "上野新館": 570}
+_SG_FETCH_STORES: "frozenset[str]" = frozenset({"稲毛", "上野新館", "新小岩"})
+_SG_HALL_IDS: "dict[str, int]" = {"稲毛": 566, "上野新館": 570, "新小岩": 573}
 _SG_TIMEOUT = 20
 
 

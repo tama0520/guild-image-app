@@ -1019,18 +1019,17 @@ def _slump_template_image(template_path) -> "Image.Image":
 # ── 記事用の書体切替（新宿歌舞伎町 × auto_article だけ）────────────────
 # 対象は記事用画像のアプリ描画文字だけ（表・タイトルバー・サマリー・
 # 差枚数ランキング・全台データ・スランプカードの機種名/台番/差枚）。
-# ★HGS創英角ゴシックUB は HGRSGU.TTC の index=2（HGSSoeiKakugothicUB）。
-#   Windows/MS Office 同梱の商用フォントで **再配布不可** のため
-#   fonts/ へ同梱しない（public リポジトリへ追加しない）。
-#   Cloud など HGRSGU.TTC が無い環境では従来の MochiyPopOne へ自動フォールバックする。
+# ★書体は Noto Sans JP Black（SIL Open Font License 1.1・再配布可）。
+#   fonts/NotoSansJP-Black.otf として **リポジトリへ同梱**しているので、
+#   ローカルWindowsでも Streamlit Cloud でも同じファイルを読み、同じ書体になる。
+#   （Windows/MS Office 同梱の商用フォントは public リポジトリへ追加しない）
 _ART_FONT_PAGES:  "frozenset[str]" = frozenset({"auto_article"})
 _ART_FONT_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
-_ART_FONT_HGS_PATH  = r"C:\Windows\Fonts\HGRSGU.TTC"
-_ART_FONT_HGS_INDEX = 2
+_ART_FONT_PATH = os.path.join(_FONTS_DIR, "NotoSansJP-Black.otf")
 
 
 def _art_font_new() -> bool:
-    """記事用画像を HGS創英角ゴシックUB で描くか。
+    """記事用画像を Noto Sans JP Black で描くか。
     page × store の AND で毎回導出する（_table_theme_new / _slump_theme_new と同じ流儀）。
     保存フラグを持たないのでページ遷移・rerun に影響されない。
     Streamlit 外（純粋テスト・subprocess）では False＝従来書体。"""
@@ -1041,28 +1040,27 @@ def _art_font_new() -> bool:
         return False
 
 
-# ★キャッシュキーは (サイズ, 書体ID)。サイズだけにすると HGS と従来書体が
-#   別店舗・別ページへ混入するので戻さないこと。
+# ★キャッシュキーは (サイズ, 書体ID)。サイズだけにすると記事用の書体と
+#   従来書体が別店舗・別ページへ混入するので戻さないこと。
 _font_cache: dict[tuple[int, str], ImageFont.ImageFont] = {}
 
 def load_font(size: int) -> ImageFont.ImageFont:
     """
     日本語フォントを読み込む。
-    優先順: （記事用・新宿歌舞伎町のみ）HGRSGU.TTC index=2
+    優先順: （記事用・新宿歌舞伎町のみ）fonts/NotoSansJP-Black.otf
             → fonts/MochiyPopOne-Regular.ttf → fonts/NotoSansJP-Regular.ttf
             → Windows フォント（ローカル実行時フォールバック）
     fonts/ に何もなければ st.error でどのファイルが不足しているか表示する。
     """
-    _hgs = _art_font_new()
-    _ck = (size, "hgs" if _hgs else "std")
+    _art = _art_font_new()
+    _ck = (size, "art" if _art else "std")
     if _ck in _font_cache:
         return _font_cache[_ck]
 
     candidates = []
-    if _hgs:
-        # ⓪ 記事用（新宿歌舞伎町）のローカルWindowsのみ。
-        #    存在しない環境（Cloud等）は下の従来候補へそのまま落ちる。
-        candidates.append((_ART_FONT_HGS_PATH, _ART_FONT_HGS_INDEX))
+    if _art:
+        # ⓪ 記事用（新宿歌舞伎町）: リポジトリ同梱なのでローカル・Cloud 共通。
+        candidates.append((_ART_FONT_PATH, None))
     candidates += [
         # ① プロジェクト同梱フォント（Cloud・ローカル共通）
         (os.path.join(_FONTS_DIR, "MochiyPopOne-Regular.ttf"), None),
@@ -6012,7 +6010,7 @@ def _patch_and_run_narabi(
     script_path: str, input_path: str, split_dir: str, ranges: list,
     no_bar: bool = False, hq_scale: float = 1.0, col_ranges: list | None = None,
     hq_min_rows: int | None = None, theme_new: bool = False,
-    font_path: str | None = None, font_index: int | None = None,
+    font_path: str | None = None,
 ) -> tuple[bool, str, str]:
     """並びスクリプト専用: INPUT/SPLIT_DIR/RANGES を書き換えて実行する。
     no_bar=True のときは NO_BAR も書き換え、青タイトルバーなしで生成させる
@@ -6037,16 +6035,12 @@ def _patch_and_run_narabi(
         code = re.sub(r'^HQ_MIN_ROWS\s*=\s*\d+', f'HQ_MIN_ROWS = {int(hq_min_rows)}',
                       code, flags=re.MULTILINE)
     # 書体の一時差し替え（既定 None＝スクリプト既定の MochiyPopOne のまま）。
-    # 記事用（新宿歌舞伎町）のローカル実行だけ HGS創英角ゴシックUB を渡し、
+    # 記事用（新宿歌舞伎町）だけ fonts/NotoSansJP-Black.otf を渡し、
     # ⑦プレビュー（_build_machine_img → load_font）と⑧本番の書体を一致させる。
     if font_path:
         code = re.sub(
             r'^FONT_OVERRIDE\s*=\s*r?"[^"]*"',
             lambda m, _v=str(font_path).replace("\\", "/"): f'FONT_OVERRIDE = r"{_v}"',
-            code, flags=re.MULTILINE)
-        code = re.sub(
-            r'^FONT_INDEX\s*=\s*-?\d+',
-            f'FONT_INDEX = {int(font_index) if font_index is not None else -1}',
             code, flags=re.MULTILINE)
 
     for var, val in [("INPUT", input_path), ("SPLIT_DIR", split_dir)]:
@@ -18717,11 +18711,8 @@ def show_auto_article_page() -> None:
                     hq_scale=_art_narabi_hq(store),
                     hq_min_rows=_ART_NARABI_HQ_MIN_ROWS,
                     col_ranges=(retsu_ranges if retsu_ok else None),
-                    # ⑦プレビューと⑧本番で書体を一致させる（対象外・Cloudでは None）
-                    font_path=(_ART_FONT_HGS_PATH
-                               if (_art_font_new()
-                                   and os.path.exists(_ART_FONT_HGS_PATH)) else None),
-                    font_index=_ART_FONT_HGS_INDEX,
+                    # ⑦プレビューと⑧本番で書体を一致させる（対象外では None）
+                    font_path=(_ART_FONT_PATH if _art_font_new() else None),
                 )
                 narabi_result = {"ok": ok_n, "stdout": out_n, "stderr": err_n}
                 st.write(f"{'✅' if ok_n else '❌'} 並び画像{'完了' if ok_n else 'エラー'}")

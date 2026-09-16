@@ -18019,13 +18019,11 @@ def show_auto_article_page() -> None:
                                                                                  "side": False, "hq": _hq_pv2}
                                             else:
                                                 _gap_img_pv2 = None
-                                            # 記事用の高配分だけスランプ外側を薄紫単色にする
-                                            # （bare名は bd9fa40 と同じくインラインで求める）
+                                            # 記事用はスランプ外側を薄紫単色にする（全カテゴリ共通・店舗だけで判定）
                                             _merged_pil.append((_fn_pv2, _attach_slump_to_table(
                                                 _img_pv2, _g_imgs_pv2, _pv_bgg_sl, _gap_img_pv2,
                                                 hq_scale=_hq_pv2,
-                                                bg_color=_art_high_slump_bg(
-                                                    store, re.sub(r"^\d{2}_", "", _fn_pv2)))))
+                                                bg_color=_art_slump_bg(store))))
                                         else:
                                             _merged_pil.append((_fn_pv2, _img_pv2))
                                     _art_pil = _merged_pil
@@ -18482,8 +18480,7 @@ def show_auto_article_page() -> None:
                                                     _merged_anp.append((_fn_u, _attach_slump_to_table(
                                                         _img_u, _g_imgs_u, _upd_bgg, _gap_img_u,
                                                         hq_scale=_hq_u,
-                                                        bg_color=_art_high_slump_bg(
-                                                            store, re.sub(r"^\d{2}_", "", _fn_u)))))
+                                                        bg_color=_art_slump_bg(store))))
                                                 else:
                                                     _merged_anp.append((_fn_u, _img_u))
                                             _anp = _merged_anp
@@ -19482,8 +19479,7 @@ def show_auto_article_page() -> None:
                                 _combined_sl = _attach_slump_to_table(
                                     _t_img_sl, _g_imgs_sl, _art_bgg_sl, _gap_img_sl,
                                     hq_scale=_hq_sl,
-                                    bg_color=_art_high_slump_bg(
-                                        store, re.sub(r"^\d{2}_", "", _fp_sl)))
+                                    bg_color=_art_slump_bg(store))
                                 # 高解像度対象だけ JPEG 目標サイズを引き上げる（他画像は従来どおり）
                                 _save_jpeg(_combined_sl, _fpath_sl,
                                            **({"target_kb": _ART_HQ_TARGET_KB} if _hq_sl > 1.0 else {}))
@@ -25030,19 +25026,21 @@ def _find_slump_bg() -> "object | None":
 C_SLUMP_AREA_BG = (255, 255, 203)   # #FFFFCB
 
 
-# 2026-09-16: 記事用の高配分画像に合成するスランプの「カード外側」背景色。
-# 対象は _ART_HIGH_SLUMP_BG_STORES × _art_is_high_fn() のファイルだけ。
+# 2026-09-16: 記事用（auto_article）でスランプを合成する **全カテゴリ共通**の
+# 「スランプカード外側」背景色。全台系・高配分（自動/手動）・②個別優秀台・
+# ジャグラーシリーズ優秀台・その他優秀台・並び・列・④末尾・バラエティ・⑤オススメなど、
+# ban_map があって `_attach_slump_to_table()` を通る画像すべてが対象。
+# ★カテゴリ・ファイル名では判定しない（店舗だけで決める）。
 # ★既存の C_SL_PURPLE（スランプカード内部の淡紫）/ C_SLUMP_AREA_BG（スランプ付き結果の
 #   #FFFFCB）/ bbb.jpg とは **別用途の専用定数**。値が近くても統合・流用しない。
-C_ART_HIGH_SLUMP_BG: "tuple[int, int, int]" = (216, 198, 227)   # #D8C6E3
-_ART_HIGH_SLUMP_BG_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+# ★高配分の水色バー削除（_ART_HIGH_NO_BAR_STORES）とは**別系統**。混同しない。
+C_ART_SLUMP_AREA_BG: "tuple[int, int, int]" = (216, 198, 227)   # #D8C6E3
+_ART_SLUMP_BG_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 
 
-def _art_high_slump_bg(store: str, bare_fn: str):
-    """記事用の高配分画像のスランプ外側背景色（対象外は None＝従来の bbb.jpg 経路）。"""
-    if store in _ART_HIGH_SLUMP_BG_STORES and _art_is_high_fn(bare_fn or ""):
-        return C_ART_HIGH_SLUMP_BG
-    return None
+def _art_slump_bg(store: str):
+    """記事用スランプの「カード外側」背景色（対象外は None＝従来の bbb.jpg 経路）。"""
+    return C_ART_SLUMP_AREA_BG if store in _ART_SLUMP_BG_STORES else None
 
 
 def _paste_slump_area_bg(canvas: "Image.Image", bg_path, x0: int, y0: int,

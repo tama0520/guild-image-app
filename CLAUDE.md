@@ -19410,3 +19410,341 @@ fe5ac39  update: 機種名変換マスタを更新        ← 機種名変換の
 20. **㉕の非変更リストを今回を理由に変更しない**
 21. **本節を「Pision 完全非依存化」と誤記しない**（取得元を選べるようにしただけ）
 22. **無関係なリファクタ・未使用コード整理をしない**
+
+## 【正式仕様】新宿歌舞伎町 記事用：並び・列のban_map再計算とWordPress狭幅画像の分割（2026-09-16・`77e140d`）
+
+**正式仕様。巻き戻し禁止。**対象は**【新宿歌舞伎町】の記事用ページ（`auto_article`）だけ**。
+2026-09-16 に **ユーザーが Streamlit Cloud 実機で確認し「問題ありませんでした」と正式承認**した。
+
+既存の記事用・WordPress関連セクション（`73db0ba` / `d121e54` / `148d672` / `bd9fa40` /
+`3432a97` / `c31b860`（渋谷新館 全画像nosplit）/ 2026-09-05 の fullwidth A-2a /
+2026-09-09 の 33%幅・左詰め ほか）は**削除・圧縮・統合・並べ替え・書き換えしない**。
+本節は**2026-09-16 の正式仕様として末尾へ追加**するものである。
+
+### A. 正式実装commit
+
+| | commit |
+|---|---|
+| **正式** | **`77e140ddde83822f0fe54510dd8684a7bc9b86c0`**（`fix: 新宿歌舞伎町の記事用画像出力を修正`） |
+
+**`streamlit_app.py` と `wp_client.py` の2ファイルのみ・+108 / −31。**
+**変更関数は `show_auto_article_page()` と `wp_client.plan_split()` の2つだけ。**
+**新規関数は `_art_narabi_items()` と `wp_client.wp_saved_width()` の2つだけ・消失関数0。**
+
+**`77e140d` は正式仕様の根拠となる実装commitであって、HEAD をここへ戻すという意味ではない。
+`77e140d` へ reset してはならない。**
+
+なお `77e140d` の直後の **`e1ad706`（`auto: 画像生成後の設定を保存`）は
+`article_page_inputs.json` だけのアプリ自動commit**であり、コード変更ではない。
+**有効履歴として維持し、reset / revert しない**（`streamlit_app.py` / `wp_client.py` は
+`77e140d` から差分0）。
+
+---
+
+## 不具合1：⑧本番の並び・列画像にパネル・スランプが付かない
+
+### B. 原因（⑦プレビューの session_state スナップショット依存）
+
+**⑧本番の並び・列画像だけ**が、ban_map を
+**`art_preview_narabi_{store}` / `art_preview_col_{store}`**
+（＝⑦プレビューが残した session_state のスナップショット）から作っていた。
+
+他カテゴリ（全台系・高配分・②個別・⑤オススメ・ジャグラー統合・その他優秀台・
+④末尾・バラエティ）は**すべて⑧内で ban_map を再計算**しており、
+**並び・列だけが⑦依存**という非対称だった。
+
+そのため次のいずれかで ban_map が空になり、⑧の合成ループが
+`if not _bans_sl: continue` でスキップ → **並び・列画像が「表のみ」のまま保存**されていた。
+
+```
+・⑦を一度も押さずに⑧を実行
+・⑦の後に並び台番範囲を変更して⑧を実行
+・「🔄 プレビューをクリア」後に⑧を実行
+・Excel（日付）を切り替えて⑧を実行
+・Cloud再起動・ブラウザ再接続などでセッションが変わった後に⑧を実行
+```
+
+**WordPress 側の不具合ではない。**完成データ（ローカル出力）の時点で既にパネル・スランプが
+無く、WordPress はその正しくない完成画像をそのままアップロードしていただけである。
+**この切り分けを今後も誤認しない。**
+
+### C. 正式ゲート `_ART_NARABI_BANMAP_STORES`
+
+```python
+# 記事用⑧で並び・列の ban_map を⑦プレビューの session_state スナップショットに
+# 頼らず、現在の入力値から再計算する店舗。
+_ART_NARABI_BANMAP_STORES: "frozenset[str]" = frozenset({
+    "新宿歌舞伎町",
+})
+```
+
+**対象は新宿歌舞伎町だけ。**
+**高田馬場・渋谷新館・秋葉原は従来経路のままで対象外**（同じ潜在バグがあっても今回は修正しない）。
+店舗を増やす／戻すときは**この集合の編集だけ**で行う。
+
+### D. 共通helper `_art_narabi_items(df, ranges)`
+
+```python
+def _art_narabi_items(df, ranges) -> list[tuple]:
+    """記事用の並び画像の生成対象を
+    (DataFrame, 機種名リスト, タイトル, ファイル名, 掲載台番リスト) で返す。"""
+```
+
+- **副作用なし**（`df` / `ranges` を変更しない・session_state を触らない）。
+- **抽出条件 ／ 台番順 ／ 同名タイトル時の `（開始～終了）` 表記**は従来の⑦と同一規則。
+- **⑦プレビューと⑧本番がこの1本を共用する**ので、ファイル名と掲載台番が構造的にズレない。
+- 列は既存 **`_build_col_items(df, ranges)`** をそのまま再利用する（**列専用helperを新設しない**）。
+
+**★helper化によって⑦の出力を変えてはならない。**
+同じ入力なら **⑦のファイル名・タイトル・機種名リスト・サマリー（総差枚/平均/勝率/台数）・
+DataFrame の内容が修正前と完全一致**すること（純粋テストで機械確認済み）。
+
+### E. ⑦プレビュー
+
+インラインの `_anbm` / `_antit` / `_anbinfos` / 重複タイトル判定を廃止し、
+**`_art_narabi_items()` の戻り値を回すだけ**にした。
+**サマリー計算・`_build_machine_img(..., no_bar=True, hq_scale=_art_narabi_hq(store))` の
+呼び出しは不変。**
+
+### F. ⑧本番（正式）
+
+```python
+if store in _ART_NARABI_BANMAP_STORES:
+    _art_df_nb_sl = result.get("df")
+    if narabi_ok and narabi_ranges and _art_df_nb_sl is not None:
+        for _nbi_sl in _art_narabi_items(_art_df_nb_sl, narabi_ranges):
+            _art_bm_sl[_nbi_sl[3]] = _nbi_sl[4]
+    # 列画像（列仕掛け）
+    if retsu_ok and retsu_ranges and _art_df_nb_sl is not None:
+        for _cbi_sl in _build_col_items(_art_df_nb_sl, retsu_ranges):
+            _art_bm_sl[_cbi_sl[2]] = _cbi_sl[3]
+else:
+    （従来の art_preview_narabi_{store} / art_preview_col_{store} 経路）
+```
+
+- 参照するのは **⑧実行時の現在入力値（`narabi_ranges` / `retsu_ranges`）と `result["df"]`** だけ。
+  **`result["df"]` は `_pipeline_calc_d` 適用後の補正済み差枚**なので、⑦の `_apdf` と同じ基準。
+  **差枚を再補正しない（二重補正の禁止）。**
+- これにより **⑦を押さずに⑧だけ実行しても**、並び・列画像へ正しい掲載台番が渡り、
+  **完成画像・WordPress掲載画像でもプレビューと同じパネル・スランプ合成**が行われる。
+
+### G. ★`art_preview_narabi_{store}` の別参照は据え置き（誤解しないこと）
+
+`show_auto_article_page()` には、上記の else 分岐とは**別に**
+`_arnbm = st.session_state.get(f"art_preview_narabi_{store}", {})` を読む箇所がある。
+
+これは **「⑦でチェックを外した並び画像の +1,000枚台を『その他の優秀台』へ再振り分けする」
+別機能**であり、**ban_map とは無関係**。今回は最小修正のため**意図的に据え置いた**。
+**この箇所を「修正漏れ」と誤認して勝手に書き換えてはならない。**
+
+### H. パネル・スランプ処理は既存のまま
+
+並び・列画像のパネルは**他の記事用画像と同じ既存処理**を使う。
+**並び・列専用のパネル処理・スランプ処理を新設していない。**
+
+`_apply_panel_to_table_img()`（`narabi_like=_art_is_narabi_fn(bare)` /
+`max_panels=_art_panel_max(store, bare)`）／`_build_panel_row()` ／
+`_narabi_panel_names()` ／`draw_slump_graph()` ／`_attach_slump_to_table()` は
+**いずれも本体無変更（AST一致）**。
+
+---
+
+## 不具合2：WordPress上のマイジャグV画像だけ粗い
+
+### I. 原因（縦長かつ狭幅の画像が1枚で保存され、記事表示幅で拡大された）
+
+ローカルの `マイジャグV_高配分.jpg` は **1982 × 11480px**（縦横比 5.79・記事内で最大）で
+**画質に問題はなかった**（HQ 2倍・q95・5.24MB）。
+
+新宿歌舞伎町は **`_ART_WP_NOSPLIT_STORES` 対象**のため1枚のまま送信され、
+WordPress が**長辺2560px**へ縮小する際に**幅が442pxまで巻き添えで潰れた**。
+
+```
+1982 × 11480  →（長辺2560へ縮小）→  442 × 2560 で保存
+→ fullwidth（本文カラム内幅 752px）で 1.70倍に「拡大」表示 → 荒く見える
+```
+
+**画像生成側・JPEG品質・リサイズ処理・srcset・別経路の縮小はいずれも原因ではない。**
+**ローカル保存時点では粗くなく、WordPressアップロード後に粗くなる**という切り分けを維持する。
+
+### J. 正式ゲートと定数
+
+```python
+_ART_WP_SPLIT_NARROW_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+# SWELL 本文カラム内幅（2026-09-05 実測 752px）
+_ART_WP_MIN_KEEP_W = 752
+
+
+def wp_saved_width(w: int, h: int, max_side: int = WP_MAX_SIDE) -> int:
+    """WordPress が長辺 max_side へ縮小して保存したあとの想定幅を返す（副作用なし）。"""
+```
+
+**対象は新宿歌舞伎町だけ。他店舗へ追加しない。**
+**★`_ART_WP_NOSPLIT_STORES`（店舗単位で分割しない）／`WP_NOSPLIT_FILES`（島図を全店舗で1枚絵）／
+`_ART_WP_SPLIT_ALLOW_FILES`（ファイル名単位の例外）とは**すべて別仕様**。統合しない。**
+
+### K. `plan_split()` の正式仕様（判定順に意味がある）
+
+**nosplit 判定より前に実画像サイズを確認する。**
+
+```python
+_nosplit_store = store in _ART_WP_NOSPLIT_STORES
+_narrow_store = store in _ART_WP_SPLIT_NARROW_STORES
+for f in found:
+    if f["file"] in WP_NOSPLIT_FILES:      # 島図など：needs_split すら呼ばない
+        continue
+    try:
+        with Image.open(f["path"]) as im:  # ★ nosplit 判定より前にサイズを見る
+            w, h = im.size
+    except Exception:
+        continue
+    if not needs_split(w, h):              # 既存条件を必ず満たすことが前提
+        continue
+    if (_nosplit_store
+            and f["file"] not in _ART_WP_SPLIT_ALLOW_FILES
+            and not (_narrow_store
+                     and wp_saved_width(w, h) < _ART_WP_MIN_KEEP_W)):
+        continue
+    parts = split_image_for_wp(f["path"], tmp_dir)
+```
+
+判定は **`needs_split(w, h)` を満たし、かつ `wp_saved_width(w, h) < 752`** のときだけ、
+**nosplit 対象でも分割を許可**する。
+
+**★機種名・ファイル名による特例にしない。**掲載機種は日によって変わるため、
+**サイズだけで判定する**。`_ART_WP_SPLIT_ALLOW_FILES` へ機種名を足す方式は採らない。
+
+**★この判定順（サイズ確認 → `needs_split` → nosplit 判定）を入れ替えない。**
+元の順序（nosplit で先に `continue`）に戻すと幅を判定できず、この仕様が成立しない。
+なお `Image.open` / `needs_split()` は副作用のない読み取りなので、
+**対象外店舗の `plan_split()` 結果は順序変更後も完全に同一**である。
+
+### L. 実データでの結果（2026-09-15 新宿歌舞伎町・749台）
+
+| 画像 | 元サイズ | 旧WP保存 | 新WP保存 | 判定 |
+|---|---|---|---|---|
+| **マイジャグV_高配分.jpg** | **1982×11480** | **442×2560（1枚・1.70倍拡大）** | **1982×2256 / 2296 / 2336 / 2296 / 2296（5分割）** | **★分割対象になる** |
+| ファンキー2_高配分.jpg | — | 826×2560 | 826×2560 | 現状維持（分割しない） |
+| ゴージャグ3_高配分.jpg | — | 838×2560 | 838×2560 | 現状維持 |
+| ジャグラーシリーズ優秀台.jpg | — | — | 1760×2560 | 現状維持 |
+| 差枚数ランキング.jpg | — | 1204×2560 | 1204×2560 | 現状維持 |
+| 全台データ.jpg | 748×298 | 748×298 | 748×298 | 現状維持（`needs_split=False`・752px枠で1.005倍＝実質等倍） |
+| その他の優秀台ピックアップ.jpg | — | 10片 | 10片 | **既存例外分割（`_ART_WP_SPLIT_ALLOW_FILES`）を維持** |
+
+**挙動が変わるのは `マイジャグV_高配分.jpg` の1枚だけ。**
+5分割後は**各片の幅1982pxを維持**し、752px枠では**0.38倍の縮小表示**になるため粗さが解消する。
+分割片の高さ合計は元画像の高さと一致（リサイズなし・crop のみ）。
+
+### M. 既存WP仕様は維持
+
+**`needs_split()` / `split_count()` / `split_image_for_wp()` / `WP_MAX_SIDE`(2560) /
+`WP_SPLIT_MAX_H` / `_ART_WP_NOSPLIT_STORES` / `_ART_WP_FULLWIDTH_STORES` /
+`_ART_WP_SPLIT_ALLOW_FILES` / `WP_NOSPLIT_FILES` / `WP_THIRD_WIDTH_FILES`（全台データの33%幅）/
+`build_content()` / `collect_files()` / `blk_image()` / `build_payload()` / `plan_blocks()` は
+いずれも本体無変更（AST一致）。**
+
+fullwidth A-2a（`"width":"100%"` ＋ `wp-block-image size-full is-resized` ＋
+`style="width:100%;height:auto"`）／`linkDestination":"none"`（Luminous）／
+全台データの33%幅・左詰め（`has-text-align-left`）も**分割片を含めて維持**される。
+
+### N. 他店舗の非回帰（実測）
+
+| 店舗 | 結果 |
+|---|---|
+| **高田馬場** | `plan_blocks` **完全一致** ／ 本文HTML **完全一致** ／ `plan_split` 13件一致 |
+| **渋谷新館** | `plan_blocks` **完全一致** ／ 本文HTML **完全一致** ／ `plan_split` 1件一致 |
+| **秋葉原** | `plan_split` 13件一致（**今回対象外**） |
+| **稲毛** | `plan_split` 13件一致 |
+| **`store=""`（既定）** | `plan_split` 13件一致 |
+
+---
+
+## O. 検証結果
+
+**純粋テスト 146 PASS / 0 FAIL。**
+
+⑦のファイル名・台番・タイトル・機種名リスト・サマリー・DataFrame が**修正前と完全一致** ／
+⑦ファイル名＝⑧実ファイル7件と完全一致 ／ **session_state が空でも並び7件の ban_map を再計算** ／
+列も現在入力から生成可 ／ 再現条件5種すべてで ban_map 生成 ／ 並び7枚のパネル＋スランプ合成 ／
+`wp_saved_width(1982, 11480) == 441` ／ **新たに分割対象になったのは1件だけ**（マイジャグV）／
+既存分割が消えない ／ 5分割・各片幅1982px・高さ合計一致 ／ 非対象5画像の現状維持 ／
+他店舗5パターンの `plan_split` 一致 ／ 高田馬場・渋谷新館の `plan_blocks` と本文HTML md5 一致 ／
+AST 非回帰（変更関数2・新規関数2・消失0）。
+
+**非回帰（すべてPASS）**：かぶぱ（`_is_kabupa_page` / `_build_kabupa_result_text`）／
+`auto_slump2`（`_kojin_ns`）／ローテ（`show_rote_page` / `generate_rote_image`）／
+Pision（`fetch_pision_results`）／slotterguild（`_sg_fetch_excel` / `_sg_fetch_items`）／
+記事用液晶（`_art_gap_fill_on`：新宿歌舞伎町=False・高田馬場/渋谷新館=True）／
+島図なし（`_ARTICLE_SHIMAZU_STORES` 不変）／10日区切り（9/15 → `🏆9月11日～9月20日🏆` ＋ `5日目`）／
+記事用パネル（`_ARTICLE_PANEL_STORES` 不変）。
+
+### P. ローカル実機確認（2026-09-15 データ・749台）
+
+`55e7752` の必須手順どおり **アプリ停止 → コードのみ commit → 再起動 → 実機確認**で実施。
+
+**⑦「🔍 プレビュー生成」を一度も押さず、⑧「▶▶ 自動処理を開始」だけを実行**
+（実行前のUIに⑦ボタンが表示されている＝プレビュー未生成状態を確認済み）。
+
+| 並び画像 | 修正前 | 修正後 |
+|---|---|---|
+| SAOII(4台並び).jpg | 1889×**534** | 1889×**2795** |
+| カバネリ海門決戦(3台並び).jpg | 2062×**442** | 2062×**2080** |
+| ゴージャグ3(4台並び).jpg | 2062×**534** | 2062×**3000** |
+| ハピジャグV(3台並び).jpg | 2062×**442** | 2062×**2086** |
+| モンキーターンV(3台並び).jpg | 2062×**442** | 2062×**2080** |
+| 東京喰種(3台並び)（805～807）.jpg | 2062×**442** | 2062×**2086** |
+| 東京喰種(3台並び)（855～857）.jpg | 2062×**442** | 2062×**2086** |
+
+**7/7 でパネル＋スランプ合成済み**（画像を開いて「パネル→表→スランプ」の構成も目視確認）。
+`_git_auto_push()` は「変更なし（push不要）」で自動commitなし。
+
+### Q. WordPress下書きでの確認（62868）
+
+| 項目 | 値 |
+|---|---|
+| post ID | **62868** |
+| status / category / author | **`draft` / 7 / 2（m.takahashi）** |
+| title | `9月15日(火)│エスパス新宿歌舞伎町│` |
+| media | **40枚**（送信対象27枚 → 分割で40） |
+
+- **並び7件すべてがパネル・スランプ付きで掲載**（2062×2080 / 2062×2086 / 1730×2560 / 1760×2560）
+- **マイジャグVは5分割・各片幅1982px**（旧下書き62827では 442×2560 の1枚）→ **粗さが解消**
+- 62827 との比較：共通media 35件中**差分は並び7枚だけ**、他28件は寸法完全一致
+- 752px枠で1.10倍を超えて拡大される media は**0件**
+- media URL のリンク切れ **0件**
+- fullwidth 3点セット・`linkDestination":"none"`・画像用 `<a href>` 0件を維持
+- 10日区切り（`9月11日～9月20日` / `5日目`）・島図なし・差枚数ランキングも維持
+
+**既存下書き 62752 / 62789 / 62827 は未変更**（`created == modified` で一度も更新されていない）。
+**PUT / PATCH / DELETE / publish はすべて0件。新規作成は 62868 の1件のみ。公開していない。**
+
+### R. Cloud 承認
+
+**2026-09-16：ユーザーが Streamlit Cloud 実機で確認し「問題ありませんでした」と正式承認。**
+よって `77e140d` を正式仕様とする。
+
+### S. 今後の禁止事項
+
+1. **⑧の並び・列 ban_map を `art_preview_narabi_{store}` / `art_preview_col_{store}` 依存へ戻さない**
+2. **`_ART_NARABI_BANMAP_STORES` へ高田馬場・渋谷新館・秋葉原を追加しない**（同じ潜在バグがあっても今回は対象外）
+3. **`_art_narabi_items()` を⑦／⑧で別実装に分けない**（1本を共用する）
+4. **helper化を理由に⑦のファイル名・抽出条件・台番順・`（開始～終了）` 表記・画像内容を変えない**
+5. **列専用のhelperを新設しない**（`_build_col_items()` を再利用する）
+6. **`result["df"]` の差枚を再補正しない**（`_pipeline_calc_d` の二重適用禁止）
+7. **「その他へ再振り分けする別機能」の `_arnbm` 参照を修正漏れと誤認して書き換えない**
+8. **並び・列専用のパネル処理・スランプ処理を新設しない**（既存処理を使う）
+9. **不具合2の原因を「画像生成側の画質」「WordPressの再圧縮」と誤認しない**（長辺2560px縮小による幅潰れ）
+10. **`_ART_WP_SPLIT_NARROW_STORES` を他店舗へ広げない**
+11. **`_ART_WP_MIN_KEEP_W = 752` を理由なく変更しない**（SWELL 本文カラム内幅の実測値）
+12. **機種名・ファイル名による特例にしない**（`_ART_WP_SPLIT_ALLOW_FILES` へ機種名を足さない）
+13. **`plan_split()` の判定順（サイズ確認 → `needs_split` → nosplit 判定）を入れ替えない**
+14. **`needs_split()` / `split_count()` / `split_image_for_wp()` / `WP_MAX_SIDE` を変更しない**
+15. **`_ART_WP_NOSPLIT_STORES` / `WP_NOSPLIT_FILES` / `_ART_WP_SPLIT_ALLOW_FILES` /
+    `_ART_WP_FULLWIDTH_STORES` / `WP_THIRD_WIDTH_FILES` と統合・整理しない**
+16. **fullwidth A-2a・Luminous・33%幅左詰め・島図1枚絵などの既存WP仕様を変更しない**
+17. **高田馬場・渋谷新館・秋葉原・稲毛・`store=""` の `plan_split()` 結果を変えない**
+18. **記事用液晶（新宿歌舞伎町OFF）・島図なし・10日区切り・記事用パネルの既存仕様を変更しない**
+19. **かぶぱ（`auto_slump`）／`auto_slump2`／ローテ／Pision／slotterguild へ波及させない**
+20. **`77e140d` / `e1ad706` へ reset・revert しない**
+21. **既存下書き 62752 / 62789 / 62827 / 62868 を公開・編集・削除しない**
+22. **無関係なリファクタ・未使用コード整理をしない**

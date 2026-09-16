@@ -20169,3 +20169,182 @@ def _art_slump_bg(store: str):
 14. **WordPress 本文・UI・分割・fullwidth・nosplit・マイジャグV5分割を変更しない**
 15. **`e53a116` / `61851ca` へ reset して実装をやり直さない**
 16. **無関係なリファクタ・未使用コード整理をしない**
+
+
+## 【正式仕様】新小岩 結果ポスト用テキスト：⑤オススメ機種の機種名先頭を「・」へ統一（2026-09-16・`4b72428`）
+
+**正式仕様。巻き戻し禁止。**対象は**【新小岩】の結果ポスト用テキストだけ**。
+2026-09-16 に **ユーザーが Streamlit Cloud 実機で確認し「問題なし」と正式承認**した。
+
+| 項目 | 値 |
+|---|---|
+| **正式実装 commit** | **`4b724280eb68a00ee41c86c3d092bffba6fd6ce6`** |
+| commit message | **`fix: 新小岩結果ポストの機種名記号を統一`** |
+| 変更ファイル | **`streamlit_app.py` の1ファイルのみ**（+17 / −3） |
+
+**`4b72428` は正式仕様の根拠となる実装commitであって、HEAD をここへ戻すという意味ではない。**
+直前の **`69db84f`（`auto: 画像生成後の設定を保存`）はアプリの `_git_auto_push()` による
+有効な自動commit**（`auto_page_inputs.json` / `store_settings/新小岩.json`）であり、
+**reset・revert・再commitしない。**
+
+既存の結果テキスト関連セクション（2026-09-11 の `1c036e7` / `20bb9ea` / `9f274e8`、
+`252a39b`、`1301431` ほか）は**削除・圧縮・統合・並べ替え・書き換えしない**。
+
+### ① 対象ページ（両方）
+
+| page | ボタン | `with_slump` |
+|---|---|---|
+| **`auto`** | **⚡ 結果ポスト用** | **False** |
+| **`auto_slump`** | **📊 スランプ付き結果ポスト** | **True** |
+
+**新小岩の両ページへ適用する。`with_slump` を条件に含めない。**
+
+**★`auto_slump2` は新宿歌舞伎町専用で、新小岩には存在しない。**
+新小岩のスランプ付きは **`auto_slump`** である（ボタンは「📊 スランプ付き結果ポスト」）。
+**この2つを混同しない。**
+
+### ② 「・」へ統一する対象
+
+新小岩の **⑤オススメ機種**（`generate_recommended_result_text()`）で、
+
+1. **B1〜B6 の機種名の行頭に付くブロック絵文字**（新小岩は `💥` / `🤡` / `🌺`。
+   B1・B5・B6 の `🎖️` は既に「・」へ変換済み）
+2. **⑤カテゴリ内の全台系／高配分サマリーの行頭 `🏅`**（`_rec_category_summaries()` の `head`）
+
+を**すべて中黒「・」**にする。
+
+```
+💥カバネリ海門決戦 → ・カバネリ海門決戦
+🏅ゴージャグ3      → ・ゴージャグ3
+🤡マイジャグV      → ・マイジャグV
+🌺沖ドキBLACK      → ・沖ドキBLACK
+```
+
+- **すでに「・」の箇所はそのまま維持する。**
+- **「・・」の二重中黒を作らない。**
+
+### ③ 対象外（従来どおり）
+
+**⑤カテゴリ見出しの `🍀`** ／ **優秀台一覧見出しの `🎁`** ／ **台番行 `【N番台】+X,XXX枚`** ／
+**差枚行 `+3,000枚、…`** ／ **末尾テキスト** ／ **+1,000枚以上台の羅列** ／ **画像内の文字**。
+
+`✨` `📈` `🏆` `🌋` `💥`（`💥+5,000枚オーバー…`）`💎` `🤡`（`🤡本日のジャグラー全体…`）など、
+**機種名の行頭ではない見出し・文言の絵文字も対象外。**
+
+### ④ ★定義そのものは変更しない（生成時だけ差し替える）
+
+**`STORE_REC_CONFIG["新小岩"]` の `block_emojis`（`["🎖️","💥","🤡","🌺","🎖️","🎖️"]`）・
+`item_emoji`（`"🚩"`）・`section_emoji`（`"🍀"`）の定義、および
+`_REC_CATEGORY_SUMMARY_HEAD = "🏅"` の定数定義は変更しない。**
+
+2026-09-11（`1c036e7` / `20bb9ea`）で確立した
+**「設定定義は残し、生成時に置換する」方式**をそのまま踏襲する。
+
+### ⑤ 正式な店舗ゲートと引数
+
+```python
+# _REC_CATEGORY_SUMMARY_HEAD の直後
+_REC_PLAIN_HEAD_STORES: "frozenset[str]" = frozenset({"新小岩"})
+
+
+def generate_recommended_result_text(..., plain_head: bool = False) -> str:
+    ...
+    emoji = ("・" if plain_head
+             else (_blk_emojis[i] if i < len(_blk_emojis) else "🎯").replace("🎖️", "・"))
+```
+
+- **`plain_head` の既定は必ず `False`＝従来動作。**
+- 呼び出し（`show_auto_page` の⑧・1か所だけ）は
+  **`plain_head=(store in _REC_PLAIN_HEAD_STORES)`**。
+  **`with_slump` を条件に含めない**ので、新小岩の `auto` / `auto_slump` の両方で `True` になる。
+- ⑤カテゴリ内サマリーは
+  **`head=("・" if store in _REC_PLAIN_HEAD_STORES else _REC_CATEGORY_SUMMARY_HEAD)`**。
+- **新小岩以外は `plain_head=False` のまま**（西武新宿の `🍀⚡️⭐🎯` / `📍` も不変）。
+
+### ⑥ 「その他の主役機種」見出しの正式表記
+
+```
+🍀その他の主役機種(カバネリ海門・ゴッド神々・モンキーV・真打吉宗)
+```
+
+- **`STORE_REC_CONFIG["新小岩"]["block_header_names"][1]` を
+  `["カバネリ海門", "ゴッド神々", "モンキーV", "真打吉宗"]` とする。**
+- **「炎炎2」は表示から外す。**「ゴッド神々」を追加。
+- **中黒は1つ。空要素を入れて `・・` にしない。**
+- `block_header_names[0]`（B1）は**不変**。
+
+### ⑦ ★`block_header_names` は見出し表示専用
+
+**抽出判定・対象機種・並び順には一切使わない。**
+⑤の抽出対象は `store_settings/新小岩.json` の `recommended_machines_N`（UIで編集）であり、
+`_rec_category_summaries()` はそこから作った機種名集合と**完全一致**で判定する。
+
+2026-09-16 時点の B2 実設定は
+**カバネリ海門決戦 / ゴッド神々の軌跡 / モンキーターンV / 真打吉宗**（炎炎ノ消防隊2 は含まない）で、
+今回の見出し変更は**この実設定へ表示を合わせたもの**である。
+**2系統は自動同期しないので、`block_header_names` を触るときは
+`recommended_machines_N` との整合を人が確認する。**
+
+### ⑧ 変更しないもの
+
+**`generate_report_text()`**（AST 一致・無変更）／ 末尾仕様 ／ +1,000枚以上台の羅列 ／
+⑤の**抽出条件・対象機種・閾値・並び順** ／ **画像生成**（`generate_recommended_block_image()` ほか）／
+`_rec_category_summaries()` 本体 ／ `_result_summary_lines()` ／
+`filter_recommended_machines()` ／ `_kojin_yushu_filter()` ／ `run_auto_pipeline` ／
+`run_step1〜3` ／ `_build_kabupa_result_text()` ／ `_generate_rote_result_text()` ／
+`show_auto_article_page()`。
+
+### ⑨ 対象外（従来仕様を維持）
+
+**新小岩以外の全店舗** ／ **新宿歌舞伎町の `auto_slump2`** ／ **記事用** ／
+**かぶぱ（`auto_slump`）** ／ **ローテ用** ／ **WordPress** ／ **Pision 表示**。
+
+`wp_client.py` / `convert_narabi_pil.py` / `shimazu_renderer.py` / 機種画像マスタ /
+`機種名変換.xlsx` / `store_settings/` はいずれも**無変更（diff 0）**。
+
+### ⑩ 変更範囲（機械確認）
+
+- **新規関数0 ／ 削除関数0**
+- **本体が変わった関数は `generate_recommended_result_text` と `show_auto_page` の2つだけ**
+- `generate_report_text` / `_rec_category_summaries` / `_result_summary_lines` /
+  `filter_recommended_machines` / `_kojin_yushu_filter` /
+  `generate_recommended_block_image` / `run_auto_pipeline` / `run_step1_main` /
+  `run_step2_juggler` / `run_step3_other` / `_build_kabupa_result_text` /
+  `_generate_rote_result_text` / `show_auto_article_page` / `show_rote_page` /
+  `_attach_slump_to_table` / `_art_slump_bg` ほかは**すべて AST 一致**
+
+### ⑪ 確認結果
+
+**純粋テスト 78 PASS / 0 FAIL**（実 `store_settings/新小岩.json` の26機種で検証）。
+
+新小岩の **`auto` / `auto_slump` の両方**で:
+**行頭の `💥` / `🤡` / `🌺` / `🏅` が0件** ／ **`・` が30行＝機種名26＋サマリー4** ／
+**`・・` の二重0件** ／ 見出しが
+**`🍀その他の主役機種(カバネリ海門・ゴッド神々・モンキーV・真打吉宗)` と完全一致** ／
+`🍀` `🎁` 見出し維持 ／ 台番行26行で不変 ／
+**記号以外の内容（機種・台番・並び順・差枚行）は `plain_head=False` の出力と完全一致**。
+
+**他店舗12店すべてで ⑤テキストが HEAD 版と出力完全一致**（西武新宿の `🍀⚡️⭐🎯`・`📍` も維持）。
+
+**ローカル実機**：`auto` / `auto_slump` の両ページが例外なく表示（Traceback 0件）。
+**Cloud 実機：2026-09-16 にユーザーが両ページを確認し「問題なし」と正式承認。**
+
+### ⑫ 今後の禁止事項
+
+1. **新小岩の⑤で `💥` / `🤡` / `🌺` / `🏅` を機種名・サマリーの行頭へ戻さない**
+2. **`_REC_PLAIN_HEAD_STORES` へ他店舗を勝手に追加しない**
+3. **`plain_head` の既定 `False` を変更しない**（他店舗の従来動作が壊れる）
+4. **呼び出しへ `with_slump` を条件として足さない**（`auto` 側が元へ戻る）
+5. **`STORE_REC_CONFIG` の `block_emojis` / `item_emoji` / `section_emoji` の定義を書き換えない**
+6. **`_REC_CATEGORY_SUMMARY_HEAD = "🏅"` の定数定義を削除・変更しない**
+7. **`🍀` カテゴリ見出し・`🎁` 優秀台一覧見出しを「・」にしない**
+8. **台番行・差枚行・末尾テキスト・+1,000枚以上の羅列・画像内文字を変更しない**
+9. **見出しへ「炎炎2」を戻さない／`・・` の二重中黒にしない／空要素を入れない**
+10. **`block_header_names` を抽出判定へ使わない**（`recommended_machines_N` との整合は人が確認）
+11. **`generate_report_text()` を変更しない**
+12. **⑤の抽出条件・対象機種・閾値・並び順・画像生成を変更しない**
+13. **新小岩以外・新宿歌舞伎町の `auto_slump2`・記事用・かぶぱ・ローテ・WordPress・Pision へ
+    波及させない**
+14. **`auto_slump2` を新小岩のページとして扱わない**
+15. **`4b72428` / `69db84f` へ reset・revert しない**
+16. **無関係なリファクタ・未使用コード整理をしない**

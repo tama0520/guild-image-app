@@ -8538,6 +8538,52 @@ def _col_group_title(machines) -> str:
     return f"{_ms[0]}～{_ms[-1]}{_COL_TITLE_SUFFIX}"
 
 
+# 記事用⑧で並び・列の ban_map を⑦プレビューの session_state スナップショットに
+# 頼らず、現在の入力値から再計算する店舗。
+# ★今回は新宿歌舞伎町の記事用だけ。他店舗（高田馬場・渋谷新館・秋葉原）は
+#   従来どおり art_preview_narabi_{store} / art_preview_col_{store} を使う。
+_ART_NARABI_BANMAP_STORES: "frozenset[str]" = frozenset({
+    "新宿歌舞伎町",
+})
+
+
+def _art_narabi_items(df, ranges) -> list[tuple]:
+    """記事用の並び画像の生成対象を
+    (DataFrame, 機種名リスト, タイトル, ファイル名, 掲載台番リスト) で返す。
+
+    ⑦プレビューと⑧本番でファイル名・掲載台番を構造的に一致させるための共通ヘルパー。
+    副作用なし。抽出・台番順・同名タイトル時の（開始～終了）付与は従来の⑦と同一規則で、
+    同じ入力なら従来と完全に同じファイル名になる。
+    """
+    if df is None or not ranges:
+        return []
+    _nbm = {int(row["台番"]): i for i, row in df.iterrows()}
+
+    def _nbtit(nms, nn):
+        if len(nms) == 1: return f"{nms[0]}({nn}台並び)"
+        if len(nms) == 2: return f"{nms[0]}+{nms[1]}({nn}台並び)"
+        return f"{nms[0]}～{nms[-1]}({nn}台並び)"
+
+    _nbinfos = []
+    for _bs in ranges:
+        _ix = [_nbm[b] for b in _bs if b in _nbm]
+        if not _ix: continue
+        _g = df.loc[_ix].copy().reset_index(drop=True)
+        _nms = list(dict.fromkeys(str(m) for m in _g["機種名"]))
+        _nbinfos.append((_g, _nms, _nbtit(_nms, len(_g))))
+    from collections import Counter as _NbC
+    _nbdup = {t for t, c in _NbC(i[2] for i in _nbinfos).items() if c > 1}
+    _out: list[tuple] = []
+    for _g, _nms, _t in _nbinfos:
+        if _t in _nbdup:
+            _b1, _b2 = int(_g.iloc[0]["台番"]), int(_g.iloc[-1]["台番"])
+            _fn = f"{_t}（{_b1}～{_b2}）"
+        else:
+            _fn = _t
+        _out.append((_g, _nms, _t, f"{_fn}.jpg", [int(b) for b in _g["台番"].tolist()]))
+    return _out
+
+
 def _build_col_items(df, ranges) -> list[tuple]:
     """列画像の生成対象を (DataFrame, タイトル, ファイル名, 台番リスト) で返す。
     抽出・台番順・同名タイトル時の（開始～終了）付与は並び画像とまったく同じ規則。
@@ -17489,33 +17535,17 @@ def show_auto_article_page() -> None:
                                         _cgrp_a, _ctit_a, _cstat_a, no_bar=True,
                                         hq_scale=_art_narabi_hq(store))))
                             if narabi_ok and narabi_ranges and _apdf is not None:
-                                _anbm = {int(row["台番"]): i for i, row in _apdf.iterrows()}
-                                def _antit(nms, nn):
-                                    if len(nms) == 1: return f"{nms[0]}({nn}台並び)"
-                                    if len(nms) == 2: return f"{nms[0]}+{nms[1]}({nn}台並び)"
-                                    return f"{nms[0]}～{nms[-1]}({nn}台並び)"
-                                _anbinfos = []
-                                for _bs2 in narabi_ranges:
-                                    _ix = [_anbm[b] for b in _bs2 if b in _anbm]
-                                    if not _ix: continue
-                                    _ng = _apdf.loc[_ix].copy().reset_index(drop=True)
-                                    _nms2 = list(dict.fromkeys(str(m) for m in _ng["機種名"]))
-                                    _anbinfos.append((_ng, _nms2, _antit(_nms2, len(_ng))))
-                                from collections import Counter as _ArtC
-                                _adt = {t for t, c in _ArtC(i[2] for i in _anbinfos).items() if c > 1}
-                                for _ng, _nms2, _nt in _anbinfos:
+                                # ファイル名・掲載台番の算出は共通ヘルパーへ集約
+                                # （⑧本番と構造的に一致させる。出力は従来と同一）
+                                for _ng, _nms2, _nt, _nfn2, _nbs2 in _art_narabi_items(
+                                        _apdf, narabi_ranges):
                                     _nds2 = _ng["差枚"]
-                                    if _nt in _adt:
-                                        _bs3, _be3 = int(_ng.iloc[0]["台番"]), int(_ng.iloc[-1]["台番"])
-                                        _fnt = f"{_nt}（{_bs3}～{_be3}）"
-                                    else:
-                                        _fnt = _nt
-                                    _art_nb_map[f"{_fnt}.jpg"] = [int(b) for b in _ng["台番"].tolist()]
+                                    _art_nb_map[_nfn2] = _nbs2
                                     _nst = {"total_diff": int(_nds2.sum()), "avg_diff": int(round(_nds2.mean())),
                                             "win_count": int((_nds2 > 0).sum()), "total_count": len(_ng)}
                                     # 記事用の並び画像は青タイトルバーなし（⑧のNO_BAR出力と揃える）
                                     # 掲載台数に関係なく2倍で描く（WordPress掲載用）
-                                    _art_pil.append((f"{_fnt}.jpg",
+                                    _art_pil.append((_nfn2,
                                                      _build_machine_img(
                                                          _ng, _nt, _nst, no_bar=True,
                                                          hq_scale=_art_narabi_hq(store))))
@@ -19212,11 +19242,27 @@ def show_auto_article_page() -> None:
                 _son_bns_sl = sorted({int(_e["ban"]) for _e in result.get("sonota_excellent_list", []) if "ban" in _e})
                 if _son_bns_sl:
                     _art_bm_sl["その他の優秀台ピックアップ.jpg"] = _son_bns_sl
-                for _fn_nb_sl, _bns_nb_sl in st.session_state.get(f"art_preview_narabi_{store}", {}).items():
-                    _art_bm_sl[_fn_nb_sl] = _bns_nb_sl
-                # 列画像（列仕掛け）
-                for _fn_cb_sl, _bns_cb_sl in st.session_state.get(f"art_preview_col_{store}", {}).items():
-                    _art_bm_sl[_fn_cb_sl] = _bns_cb_sl
+                # 並び・列の ban_map。
+                # _ART_NARABI_BANMAP_STORES の店舗だけ、⑦プレビューが残した
+                # session_state のスナップショットではなく **現在の入力値から再計算**する。
+                # （⑦未実行／⑦後に台番範囲を変更／プレビューをクリア／Excel切替／
+                #   セッション再作成でも、パネル・スランプが確実に付くようにするため）
+                # 他店舗は従来どおり art_preview_narabi_{store} / art_preview_col_{store}。
+                if store in _ART_NARABI_BANMAP_STORES:
+                    _art_df_nb_sl = result.get("df")
+                    if narabi_ok and narabi_ranges and _art_df_nb_sl is not None:
+                        for _nbi_sl in _art_narabi_items(_art_df_nb_sl, narabi_ranges):
+                            _art_bm_sl[_nbi_sl[3]] = _nbi_sl[4]
+                    # 列画像（列仕掛け）
+                    if retsu_ok and retsu_ranges and _art_df_nb_sl is not None:
+                        for _cbi_sl in _build_col_items(_art_df_nb_sl, retsu_ranges):
+                            _art_bm_sl[_cbi_sl[2]] = _cbi_sl[3]
+                else:
+                    for _fn_nb_sl, _bns_nb_sl in st.session_state.get(f"art_preview_narabi_{store}", {}).items():
+                        _art_bm_sl[_fn_nb_sl] = _bns_nb_sl
+                    # 列画像（列仕掛け）
+                    for _fn_cb_sl, _bns_cb_sl in st.session_state.get(f"art_preview_col_{store}", {}).items():
+                        _art_bm_sl[_fn_cb_sl] = _bns_cb_sl
                 # ④末尾画像（生成できたものだけ・掲載台番）
                 for _fn_sue_sl, _bns_sue_sl in _art_sue_ban_e.items():
                     if _bns_sue_sl and os.path.exists(os.path.join(output_dir, _fn_sue_sl)):

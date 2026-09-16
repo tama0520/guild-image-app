@@ -485,6 +485,28 @@ _ART_WP_FULLWIDTH_STORES: "frozenset[str]" = frozenset({"渋谷新館", "新宿�
 _ART_WP_SPLIT_ALLOW_FILES: "frozenset[str]" = frozenset({FN_SONOTA})
 
 
+# 記事用WordPressで「WP保存後の幅が本文カラム幅を下回る画像だけ」を
+# 例外的に分割する店舗。
+# nosplit 店舗でも縦横比が極端な画像は WordPress の長辺2560px縮小で幅が潰れ、
+# fullwidth（本文カラム内幅）で **拡大表示** されて荒くなるため、その画像だけ分割する。
+# ★機種名・ファイル名はハードコードしない（掲載機種は日によって変わるため）。
+# ★`_ART_WP_NOSPLIT_STORES`（分割するかどうかの店舗ゲート）／
+#   `WP_NOSPLIT_FILES`（島図を全店舗で1枚絵にする）／
+#   `_ART_WP_SPLIT_ALLOW_FILES`（ファイル名単位の例外）とは **すべて別仕様**。統合しない。
+_ART_WP_SPLIT_NARROW_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+# SWELL 本文カラム内幅（2026-09-05 実測 752px）
+_ART_WP_MIN_KEEP_W = 752
+
+
+def wp_saved_width(w: int, h: int, max_side: int = WP_MAX_SIDE) -> int:
+    """WordPress が長辺 max_side へ縮小して保存したあとの想定幅を返す（副作用なし）。"""
+    _w, _h = int(w), int(h)
+    _long = max(_w, _h)
+    if _long <= max_side or _long <= 0:
+        return _w
+    return int(_w * max_side / _long)
+
+
 def needs_split(w: int, h: int, max_h: int = WP_SPLIT_MAX_H) -> bool:
     """WordPress側の長辺縮小で幅が潰れるか。高さが上限超なら分割対象。"""
     return h > max_h
@@ -1318,19 +1340,19 @@ def plan_split(found: list[dict], tmp_dir: str, store: str = "") -> dict:
 
     `store` が `_ART_WP_NOSPLIT_STORES` の店舗なら、高さに関係なく
     **1枚も分割しない**（`split_image_for_wp()` を1度も呼ばない）。
-    ただし `_ART_WP_SPLIT_ALLOW_FILES` のファイルだけは例外的に分割する
+    ただし `_ART_WP_SPLIT_ALLOW_FILES` のファイル、および
+    `_ART_WP_SPLIT_NARROW_STORES` の店舗で「WP保存後の想定幅が
+    `_ART_WP_MIN_KEEP_W` 未満になる」画像だけは例外的に分割する
     （画質優先。理由は定数のコメント参照）。
     既定 `""` は従来動作なので、引数を渡さない呼び出しは影響を受けない。
     """
     from PIL import Image
     result: dict[str, list[dict]] = {}
     _nosplit_store = store in _ART_WP_NOSPLIT_STORES
+    _narrow_store = store in _ART_WP_SPLIT_NARROW_STORES
     for f in found:
         # 島図など「1枚絵のまま送る」ファイルは分割しない（needs_split は呼ばない）
         if f["file"] in WP_NOSPLIT_FILES:
-            continue
-        # nosplit 店舗では、明示的に許可したファイル以外は分割しない
-        if _nosplit_store and f["file"] not in _ART_WP_SPLIT_ALLOW_FILES:
             continue
         try:
             with Image.open(f["path"]) as im:
@@ -1338,6 +1360,15 @@ def plan_split(found: list[dict], tmp_dir: str, store: str = "") -> dict:
         except Exception:
             continue
         if not needs_split(w, h):
+            continue
+        # nosplit 店舗では、明示的に許可したファイル以外は分割しない。
+        # ただし `_ART_WP_SPLIT_NARROW_STORES` の店舗に限り、
+        # WP保存後の想定幅が本文カラム幅（_ART_WP_MIN_KEEP_W）を下回る画像だけは
+        # 例外的に分割して幅を保つ（機種名は見ない・サイズだけで判定）。
+        if (_nosplit_store
+                and f["file"] not in _ART_WP_SPLIT_ALLOW_FILES
+                and not (_narrow_store
+                         and wp_saved_width(w, h) < _ART_WP_MIN_KEEP_W)):
             continue
         parts = split_image_for_wp(f["path"], tmp_dir)
         if parts:

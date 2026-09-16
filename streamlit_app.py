@@ -2571,6 +2571,15 @@ def show_image_type_page() -> None:
                     background-color: #1565C0 !important;
                     border-color: #1565C0 !important;
                 }
+                .st-key-auto_article_btn button {
+                    background-color: #7B1FA2 !important;
+                    border-color: #6A1B9A !important;
+                    color: white !important;
+                }
+                .st-key-auto_article_btn button:hover {
+                    background-color: #6A1B9A !important;
+                    border-color: #6A1B9A !important;
+                }
                 </style>""",
                 unsafe_allow_html=True,
             )
@@ -2590,12 +2599,24 @@ def show_image_type_page() -> None:
                     use_container_width=True,
                 ):
                     _navigate("auto_slump2")
-            if st.button(
-                "📋 ローテ用",
-                key="rote_mode_btn",
-                use_container_width=True,
-            ):
-                _navigate("rote")
+            # ④記事用を追加（2026-09-16）。開くのは既存の show_auto_article_page()。
+            # ①かぶぱ(auto_slump)・②スランプ付き結果(auto_slump2)・③ローテ(rote)は
+            # **別 page のまま一切変更しない**。記事用は auto_article として追加するだけ。
+            _col_rt, _col_ar = st.columns(2)
+            with _col_rt:
+                if st.button(
+                    "📋 ローテ用",
+                    key="rote_mode_btn",
+                    use_container_width=True,
+                ):
+                    _navigate("rote")
+            with _col_ar:
+                if st.button(
+                    "📰 記事用",
+                    key="auto_article_btn",
+                    use_container_width=True,
+                ):
+                    _navigate("auto_article")
         elif store in ("溝の口本館", "溝の口新館", "西武新宿", "渋谷新館", "新大久保"):
             # ローテあり：2列横並び
             st.markdown(
@@ -3598,7 +3619,7 @@ _ART_HQ_MIN_ROWS = 10      # 掲載台がこの数以上なら画像種別を問
 # 高田馬場用の処理を店舗別に複製しない。
 # 差枚数ランキング（_art_ranking_image）と島図（shimazu_renderer.render）は
 # hq_scale を受け取らない独自解像度の画像なので、この集合の影響を受けない。
-_ART_HQ_STORES = {"高田馬場", "渋谷新館"}
+_ART_HQ_STORES = {"高田馬場", "渋谷新館", "新宿歌舞伎町"}
 
 
 def _art_hq_scale_for(bare_fn: str, store: str, n_rows: int = 0,
@@ -3644,7 +3665,7 @@ def _pipeline_hq(hq_scale: float, n_rows: int) -> float:
 # **_ART_HQ_STORES（既存の10台判定つきHQ）とは別 gate**。ジャグラーシリーズ優秀台・
 # その他の優秀台・並び・列・末尾・バラエティ・⑤オススメの既存HQ仕様は変更しない。
 # 店舗追加はこの集合への追記だけで行う（記事用ページを持つ店舗＝高田馬場・渋谷新館・秋葉原）。
-_ART_ZH_HQ_STORES = frozenset({"高田馬場", "渋谷新館", "秋葉原"})
+_ART_ZH_HQ_STORES = frozenset({"高田馬場", "渋谷新館", "秋葉原", "新宿歌舞伎町"})
 
 
 def _art_zh_hq(store: str) -> float:
@@ -3662,18 +3683,18 @@ def _art_zh_hq(store: str) -> float:
 # とも別 gate**。意味を混ぜない。ジャグラーシリーズ優秀台・その他の優秀台・末尾・
 # バラエティ・⑤オススメ・差枚数ランキング・島図の既存仕様は変更しない。
 # 店舗追加はこの集合への追記だけで行う（記事用ページを持つ3店舗）。
-_ART_NARABI_HQ_STORES = frozenset({"高田馬場", "渋谷新館", "秋葉原"})
+_ART_NARABI_HQ_STORES = frozenset({"高田馬場", "渋谷新館", "秋葉原", "新宿歌舞伎町"})
 
 # 記事用の「📝 WordPress下書きを作成」を出す店舗。
 # 接続先（WP_SITE_URL / WP_USER / WP_APP_PASSWORD）は全店舗共通の1組で、
 # 投稿先カテゴリだけが店舗別（wp_client.WP_STORE_CATEGORY）。
 # **秋葉原は対象外**。店舗追加はこの集合と WP_STORE_CATEGORY の両方が要る。
-_ART_WP_STORES = frozenset({"高田馬場", "渋谷新館"})
+_ART_WP_STORES = frozenset({"高田馬場", "渋谷新館", "新宿歌舞伎町"})
 
 # ジャグラー統合画像（ジャグラーシリーズ優秀台.jpg）の直前へ
 # H3「その他のジャグラーシリーズの優秀台」を入れる店舗。
 # **高田馬場は対象外**（既存のWordPress本文をバイト単位で維持するため）。
-_ART_WP_JUG_H3_STORES = frozenset({"渋谷新館"})
+_ART_WP_JUG_H3_STORES = frozenset({"渋谷新館", "新宿歌舞伎町"})
 
 # ── WordPress本文の独立ジャグラーセクションを廃止する店舗（2026-09-08）────────
 # 渋谷新館は⑤「オススメ機種の優秀台」へジャグラーシリーズを設定でき、
@@ -3686,17 +3707,17 @@ _ART_WP_JUG_H3_STORES = frozenset({"渋谷新館"})
 #     （build_payload へ juggler_series=set() を渡して high/juggler の分割をしない）
 # ★高田馬場・秋葉原など他店舗の既存ジャグラーセクションへは影響させない。
 # ★生成側（run_step2_juggler / osusume_bans / _jug_pool_osu）は変更しない。
-_ART_WP_NO_JUG_SECTION_STORES = frozenset({"渋谷新館"})
+_ART_WP_NO_JUG_SECTION_STORES = frozenset({"渋谷新館", "新宿歌舞伎町"})
 
 # WordPress冒頭へ「ななこポスト」セクションを入れる店舗。
 # **高田馬場は対象外**（既存のWordPress本文をバイト単位で維持するため）。
 # 秋葉原はそもそもWordPress対象外（_ART_WP_STORES に無い）。
-_ART_NANAKO_STORES = frozenset({"渋谷新館"})
+_ART_NANAKO_STORES = frozenset({"渋谷新館", "新宿歌舞伎町"})
 
 # 記事用①冒頭部分へ「ギルドポスト Xリンク」を出す店舗。
 # **高田馬場・秋葉原は対象外**（高田馬場の既存WordPress本文をバイト単位で維持するため）。
 # 対象店舗では手貼り用の空段落×3 を出さず、代わりにX投稿を自動で埋め込む。
-_ART_GUILD_X_STORES = frozenset({"渋谷新館"})
+_ART_GUILD_X_STORES = frozenset({"渋谷新館", "新宿歌舞伎町"})
 # ヒント入力欄の数（固定10枠）。空欄の枠は本文へ出さない。
 # ★logical key は art_nanako_hint_0〜9_{store}。既存の 0〜5 は変更しない（後方互換）。
 #   保存に無い 6〜9 は _restore_article_inputs() が "" を入れるので空欄扱いになる。
@@ -3706,7 +3727,7 @@ _ART_NANAKO_HINTS = 10
 # **高田馬場は対象外**（従来どおり wp_client.WP_AUTHOR_ID = 14 固定）。
 # 秋葉原はそもそもWordPress対象外（_ART_WP_STORES に無い）。
 # 対象店舗では **未選択のまま下書きを作成できない**（14 へのフォールバックは禁止）。
-_ART_WP_AUTHOR_STORES = frozenset({"渋谷新館"})
+_ART_WP_AUTHOR_STORES = frozenset({"渋谷新館", "新宿歌舞伎町"})
 # 選択できる投稿者（表示順＝この順序・縦並び）。保存するのは user ID ではなく username。
 # username → 正式 WordPress user ID の対応は wp_client.WP_AUTHOR_MAP が持つ。
 _ART_WP_AUTHORS = ("t.ito", "r.iio", "k.furukawa", "t.ui", "m.suzuki", "m.takahashi")
@@ -6635,13 +6656,13 @@ def _kojin_default(excel_name: "str | None", store: str, key: str) -> str:
 # 高田馬場・秋葉原は従来どおり（Excel・ポスター・…・プレビュー・実行を通し番号）。
 # 記事構成は店舗ごとに違うので、共通仕様にはせず**この集合に入れた店舗だけ**へ適用する。
 # 今回は見出し・表示可否だけを変える骨格で、抽出・生成・保存処理はいっさい変更しない。
-_ART_STRUCT_V2_STORES = frozenset({"渋谷新館"})
+_ART_STRUCT_V2_STORES = frozenset({"渋谷新館", "新宿歌舞伎町"})
 
 # 記事用⑤「オススメ機種の優秀台」を記入式で使う店舗。
 # 入力した機種のうち **全台系・高配分で画像化されなかった機種だけ**を
 # _kojin_yushu_filter() で優秀台抽出し、機種ごとに1枚生成する。
 # 対象機種の決定に weekly_items.json（ローテ用の月間/週間オススメ表）は使わない。
-_ART_OSUSUME_STORES = frozenset({"渋谷新館"})
+_ART_OSUSUME_STORES = frozenset({"渋谷新館", "新宿歌舞伎町"})
 # ⑤は6ブロック。機種枠はブロック1〜4が6枠、ブロック5・6が9枠（渋谷新館）。
 # 新小岩⑤（6ブロック×9枠・store_settings 保存）とは別体系。
 # widget key: art_osusume_title_{n}_{store} / art_osusume_m_{n}_{i}_{store}
@@ -6655,7 +6676,7 @@ _ART_OSUSUME_PER_BLOCK = 6
 #   店舗・ブロック条件を個別にハードコードしない。
 _ART_OSUSUME_PER_BLOCK_EXTRA = 9
 _ART_OSUSUME_EXTRA_BLOCKS    = frozenset({4, 5})      # 0-based＝ブロック5・6
-_ART_OSUSUME_EXTRA_STORES    = frozenset({"渋谷新館"})
+_ART_OSUSUME_EXTRA_STORES    = frozenset({"渋谷新館", "新宿歌舞伎町"})
 
 
 def _art_osusume_per_block(store: str, n: int) -> int:
@@ -6819,7 +6840,7 @@ def _art_osusume_panel_fn(bare_fn: str, bans: list, ban2mac: dict) -> str:
 # 全台を補正後差枚の降順（同値は台番昇順）に並べ、1位〜指定順位までを1枚にする。
 # 描画は専用の _art_ranking_image() 内で完結させる。**共通の draw_table_image()
 # は変更しない**（黒バー・交互背景を共通側へ入れると全画像へ波及するため）。
-_ART_RANK_STORES  = frozenset({"渋谷新館"})
+_ART_RANK_STORES  = frozenset({"渋谷新館", "新宿歌舞伎町"})
 # ⑥「島図」を生成できる店舗。描画は独立モジュール shimazu_renderer.py が担当し、
 # 座標は masters/shimazu_{店舗}.json、設備画像は assets/shimazu/{店舗}/ を使う
 # （実行時に島図Excelを読まないので Cloud でも動く）。
@@ -6833,7 +6854,7 @@ _ART_RANK_TITLE   = "差枚数ランキング"
 # ランキング自体 `_ART_RANK_STORES` の店舗しか作らないが、**倍率の gate は別に持つ**
 # （`_ART_HQ_STORES` / `_ART_ZH_HQ_STORES` / `_ART_NARABI_HQ_STORES` とも用途が違う）。
 # 通常ページ・他店舗はランキング画像自体を作らないので影響しない。
-_ART_RANK_HQ_STORES = frozenset({"渋谷新館"})
+_ART_RANK_HQ_STORES = frozenset({"渋谷新館", "新宿歌舞伎町"})
 
 
 def _art_rank_hq(store: str) -> float:
@@ -6873,7 +6894,7 @@ _ART_RANK_MIN_COL_W: dict[str, int] = {
 #   `_ART_ZENDAI_MIN_AVG` 以上のときだけ生成し、未達・データ欠損なら画像自体を
 #   作らない（upload / 本文 / ZIP へも入らない）。
 #   例: 2026/9/7 は 生データ平均 +47枚（未達）だが結果テキスト平均 +64枚 → **生成する**。
-_ART_ZENDAI_STORES  = frozenset({"渋谷新館"})
+_ART_ZENDAI_STORES  = frozenset({"渋谷新館", "新宿歌舞伎町"})
 _ART_ZENDAI_FN      = "全台データ.jpg"
 _ART_ZENDAI_TITLE   = "全台データ"
 _ART_ZENDAI_MIN_AVG = 50
@@ -7002,7 +7023,7 @@ def _art_zendai_image(diff_raw, hq_scale: float = _ART_ZENDAI_HQ) -> "Image.Imag
 #     `据え置き`（前日データ未保持）、`○○パネル仕掛け`（機種との紐付け不可）、
 #     取材名・イベント名・イベント評価・次回開催日・新台/復活導入・示唆演出・
 #     稼働（フル稼働）は**データから確実に判定できないため書かない**。
-_ART_COMMENT_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
+_ART_COMMENT_STORES: "frozenset[str]" = frozenset({"渋谷新館", "新宿歌舞伎町"})
 
 # セクション記号 → (見出し, 候補ラベル3種)。**D も 2026-09-08 に3候補方式へ変更**
 # （旧「固定文方式」は supersede。_ART_CMT_D_TEXT / _USE / _SKIP は履歴として残置）。
@@ -8713,6 +8734,10 @@ def generate_recommended_block_image(
 # ── 新宿歌舞伎町専用: ②個別画像で台番の桁数（階）別に分割する機種 ──────────
 # 「・2F」＝台番3桁、「・3F」＝台番4桁。予測変換に基本名＋2F＋3Fを出す。
 _FLOOR_SPLIT_MACHINES: tuple[str, ...] = ("マイジャグV", "ファンキー2")
+
+# 記事用②の予測変換にも階別バリアント（・2F / ・3F）を出す店舗。
+# ★通常ページ側の `store == "新宿歌舞伎町"` 分岐は変更しない（別ページの別仕様）。
+_ART_FLOOR_SPLIT_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 
 
 def _floor_variant_names(base: str) -> list[str]:
@@ -16859,6 +16884,15 @@ def show_auto_article_page() -> None:
     st.session_state["art_kojin_enabled"] = kojin_enabled
     if kojin_enabled:
         _kojin_candidates = load_machine_candidates()
+        # 台番の階（2F=3桁 / 3F=4桁）別に分割する店舗は、予測変換へ
+        # 「基本名・2F」「基本名・3F」も出す（通常ページと同じ _floor_variant_names）。
+        # 抽出は _resolve_kojin_name() が担当するので新しい分割処理は作らない。
+        if store in _ART_FLOOR_SPLIT_STORES:
+            _kj_extra = [_v for _fm in _FLOOR_SPLIT_MACHINES
+                         for _v in _floor_variant_names(_fm)
+                         if _v not in _kojin_candidates]
+            if _kj_extra:
+                _kojin_candidates = list(_kojin_candidates) + _kj_extra
         st.caption("指定した機種の個別画像を生成します。ここに入力した機種はその他の優秀台ピックアップから除外されます。")
         # 未描画 run を挟んだ後の初回描画でブラウザへ初期値を届けるための保存値参照用
         _art_kojin_excel = st.session_state.get("art_current_excel")
@@ -17168,7 +17202,11 @@ def show_auto_article_page() -> None:
     #   その他の優秀台ピックアップ.jpg は run_step3_other() が自動生成する
     #   （設定UI・ON/OFFなし。該当0台なら画像なし）。
     if _art_v2:
-        st.markdown(f"### {_sec_num()} 差枚数ランキング＆島図")
+        # 島図を出さない店舗では見出しからも「島図」を消す
+        # （渋谷新館は _ARTICLE_SHIMAZU_STORES に入るので従来表記のまま）。
+        st.markdown(f"### {_sec_num()} "
+                    + ("差枚数ランキング＆島図" if store in _ARTICLE_SHIMAZU_STORES
+                       else "差枚数ランキング"))
         if store in _ART_RANK_STORES:
             st.markdown("**差枚数ランキング**")
             _rk_key = f"art_ranking_limit_{store}"
@@ -17233,8 +17271,7 @@ def show_auto_article_page() -> None:
                         st.warning("島図にあってデータに無い台番: "
                                    + ", ".join(str(_b) for _b in _sz_res["missing"][:20]))
                     st.image(_sz_res["png"], use_container_width=True)
-        else:
-            st.caption("今後実装予定")
+        # 島図を出さない店舗では島図UIを一切描かない（「今後実装予定」も出さない）。
 
     # ── ⑤ プレビュー ────────────────────────────────────────────────
     # 記事構成で採番する店舗では、プレビュー・実行は記事の内容ではないので番号外。
@@ -17370,9 +17407,11 @@ def show_auto_article_page() -> None:
                                 for _km in kojin_zentai_machines:
                                     _km = _km.strip()
                                     if not _km: continue
-                                    _kg = _apdf[_apdf["機種名"] == _km].copy().reset_index(drop=True)
+                                    # 「・2F」「・3F」の階別指定に対応（無指定なら従来と同一結果）
+                                    _km_base, _kg_src = _resolve_kojin_name(_apdf, _km)
+                                    _kg = _kg_src.copy().reset_index(drop=True)
                                     if _kg.empty: continue
-                                    _kd = _apdi.loc[_apdf[_apdf["機種名"] == _km].index].reset_index(drop=True)
+                                    _kd = _apdi.loc[_kg_src.index].reset_index(drop=True)
                                     _azitems.append((int(round(_kd.mean())), "kojin", (_km, _kg, _kd)))
                             for _av, _tp, _da in sorted(_azitems, key=lambda x: x[0], reverse=True):
                                 if _tp == "pipeline":
@@ -17394,11 +17433,12 @@ def show_auto_article_page() -> None:
                                 for _km in kojin_yushu_machines:
                                     _km = _km.strip()
                                     if not _km: continue
-                                    _kga = _apdf[_apdf["機種名"] == _km]
+                                    # 「・2F」「・3F」の階別指定に対応（無指定なら従来と同一結果）
+                                    _km_base, _kga = _resolve_kojin_name(_apdf, _km)
                                     if _kga.empty: continue
                                     _kda = _apdi.loc[_kga.index]
                                     # 正式な候補台を抽出（抽出条件は変更しない）
-                                    _kgp = _kojin_yushu_filter(_km, _kga, _kda, get_store_config(store)).reset_index(drop=True)
+                                    _kgp = _kojin_yushu_filter(_km_base, _kga, _kda, get_store_config(store)).reset_index(drop=True)
                                     if _kgp.empty: continue
                                     # 🎯掲載台を選ぶ（②個別・優秀台）: 抽出後・画像生成前に台番単位で除外
                                     _ky_fn   = f"{_km}（優秀台）.jpg"
@@ -17865,7 +17905,7 @@ def show_auto_article_page() -> None:
                                             # `_gap_sel_key()`（掲載台番集合単位）/
                                             # `_resolve_gap_screen()` をそのまま再利用し、
                                             # ⑦の液晶セレクタ・再合成ベースにも同じ形で載せる。
-                                            if store in _GAP_FILL_STORES or store in _ARTICLE_GAP_FILL_STORES:
+                                            if _art_gap_fill_on(store):
                                                 _gm_pv2, _gp_pv2 = _gap_screen_paths_for_bans(_bans_pv2, _pv_ban2diff, _pv_ban2mac)
                                                 _gsel_pv2 = st.session_state.get(_gap_sel_key(store, _bans_pv2, _gm_pv2), 0)
                                                 _gap_img_pv2 = _resolve_gap_screen(_gp_pv2, _gsel_pv2)
@@ -18315,7 +18355,7 @@ def show_auto_article_page() -> None:
                                                     except Exception:
                                                         pass
                                                 if _g_imgs_u:
-                                                    if store in _GAP_FILL_STORES or store in _ARTICLE_GAP_FILL_STORES:
+                                                    if _art_gap_fill_on(store):
                                                         _gm_u, _gp_u = _gap_screen_paths_for_bans(_bans_u, _upd_b2diff, _upd_b2mac)
                                                         _gsel_u = st.session_state.get(_gap_sel_key(store, _bans_u, _gm_u), 0)
                                                         _gap_img_u = _resolve_gap_screen(_gp_u, _gsel_u)
@@ -18643,14 +18683,16 @@ def show_auto_article_page() -> None:
                         _km = _km.strip()
                         if not _km:
                             continue
-                        _kgrp = df_k[df_k["機種名"] == _km].copy().reset_index(drop=True)
+                        # 「・2F」「・3F」の階別指定に対応（無指定なら従来と同一結果）
+                        _km_base, _kgrp_src = _resolve_kojin_name(df_k, _km)
+                        _kgrp = _kgrp_src.copy().reset_index(drop=True)
                         if _kgrp.empty:
                             # 自動全台系も生成しないため、前回実行時の同名画像が残らないよう削除する
                             # （②個別が生成する経路では削除しない＝continueする場合のみ）
                             _rm_stale_image(output_dir, f"{_make_safe_fn(_km)}.jpg", _log)
                             _log(f"  個別(全台)「{_km}」: 該当台なし")
                             continue
-                        _kdr = diff_k.loc[df_k[df_k["機種名"] == _km].index].reset_index(drop=True)
+                        _kdr = diff_k.loc[_kgrp_src.index].reset_index(drop=True)
                         _kzh = _art_zh_hq(store)
                         _kimg = _build_article_machine_img(
                             _kgrp, _km, _stat_from_diff(_kdr), hq_scale=_kzh)
@@ -18671,12 +18713,13 @@ def show_auto_article_page() -> None:
                         _km = _km.strip()
                         if not _km:
                             continue
-                        _kgrp_all = df_k[df_k["機種名"] == _km]
+                        # 「・2F」「・3F」の階別指定に対応（無指定なら従来と同一結果）
+                        _km_base_y, _kgrp_all = _resolve_kojin_name(df_k, _km)
                         if _kgrp_all.empty:
                             _log(f"  個別(優秀台)「{_km}」: 該当台なし")
                             continue
                         _kdr_all  = diff_k.loc[_kgrp_all.index]
-                        _kgrp_p   = _kojin_yushu_filter(_km, _kgrp_all, _kdr_all, get_store_config(store))
+                        _kgrp_p   = _kojin_yushu_filter(_km_base_y, _kgrp_all, _kdr_all, get_store_config(store))
                         if _kgrp_p.empty:
                             _log(f"  個別(優秀台)「{_km}」: 条件を満たす台なし")
                             continue
@@ -19305,7 +19348,7 @@ def show_auto_article_page() -> None:
                                 # 専用の液晶処理は作らず、`_gap_screen_paths_for_bans()` /
                                 # `_gap_sel_key()`（掲載台番集合単位）/ `_resolve_gap_screen()` /
                                 # `_attach_slump_to_table()` をそのまま再利用する。
-                                if store == "新宿歌舞伎町" or store in _ARTICLE_GAP_FILL_STORES:
+                                if store in _ARTICLE_GAP_FILL_STORES:
                                     _gm_sl, _gp_sl = _gap_screen_paths_for_bans(_bans_sl, _art_ban2diff_sl, _art_ban2mac_sl)
                                     _gsel_sl = st.session_state.get(_gap_sel_key(store, _bans_sl, _gm_sl), 0)
                                     _gap_img_sl = _resolve_gap_screen(_gp_sl, _gsel_sl)
@@ -19548,7 +19591,25 @@ def show_auto_article_page() -> None:
                     # 未達の日は本文にもupload対象にも入らない。
                     _art_wp_pl["zendai_data"] = ([_ART_ZENDAI_FN]
                                                  if store in _ART_ZENDAI_STORES else [])
-                    _art_wp_pl["shimazu"] = [_ART_SHIMAZU_FN]
+                    # ⑥島図。**⑥を出す店舗のうち島図が無い店舗だけ**を空にする。
+                    # 高田馬場は _ART_RANK_STORES に入らないため、キーの渡し方は
+                    # 従来と完全に同一（shimazu=[島図.jpg] / shimazu_section 未設定）。
+                    _art_no_shimazu = (store in _ART_RANK_STORES
+                                       and store not in _ARTICLE_SHIMAZU_STORES)
+                    _art_wp_pl["shimazu"] = ([] if _art_no_shimazu
+                                             else [_ART_SHIMAZU_FN])
+                    if _art_no_shimazu:
+                        # 「差枚数ランキング&島図」H2を「差枚数ランキング」にする。
+                        # wp_client 側の既定は True なので、このキーを渡さない
+                        # 既存店舗（高田馬場・渋谷新館）は1ブロックも変わらない。
+                        _art_wp_pl["shimazu_section"] = False
+                    # 10日区切り／○日目（新宿歌舞伎町のみ）。
+                    # ★「その他単品優秀台」H2の**直前**へ出す（wp_client 側で位置決め）。
+                    #   文言はローテ結果テキストの正式表現と同一。
+                    if store in _ART_TENDAY_STORES:
+                        _td_date = result.get("date")
+                        if _td_date:
+                            _art_wp_pl["tenday"] = _tenday_article_lines(_td_date)
                     # ジャグラー統合画像の直前へH3を入れる店舗（渋谷新館のみ）。
                     # 実際に出すかは wp_client 側が統合画像の実在で最終判定する。
                     _art_wp_pl["juggler_comb_h3"] = store in _ART_WP_JUG_H3_STORES
@@ -19930,6 +19991,39 @@ _ROTE_NEW_TEXT_STORES: "frozenset[str]" = frozenset({
 })
 
 
+# ── 月内3期間（10日区切り）の共通計算 ────────────────────────────────
+# 1日～10日 / 11日～20日 / 21日～月末（31日がある月は21日～31日）。
+# ★ローテ結果テキスト（_generate_rote_result_text）と記事用が**同じ計算**を使う。
+#   ローテ側は純粋な切り出しで、出力文字列は1文字も変わらない。
+# ★記事用から show_rote_page() は呼ばない（この helper だけを共有する）。
+def _tenday_period(date_obj) -> "tuple[int, int, int]":
+    """(区間開始日, 区間終了日, その区間の何日目か) を返す。副作用なし。"""
+    import calendar as _cal_td
+    d = int(date_obj.day)
+    if d <= 10:
+        return 1, 10, d
+    if d <= 20:
+        return 11, 20, d - 10
+    return 21, _cal_td.monthrange(int(date_obj.year), int(date_obj.month))[1], d - 20
+
+
+# 記事用（WordPress本文）で 10日区切り／○日目 を出す店舗。
+# ★表示位置は「その他単品優秀台」H2の**直前**（wp_client 側で payload 駆動）。
+_ART_TENDAY_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
+def _tenday_article_lines(date_obj) -> "list[str]":
+    """記事用に出す10日区切り／○日目の行。
+
+    文言は **ローテ結果テキストの正式表現をそのまま使う**
+    （`🏆{m}月{開始}日～{m}月{終了}日🏆` ／ `{n}日目`）。別デザインは作らない。
+    ローテのポスター行（`🏆…ポスター🏆`）は記事用には無いので出さない。
+    """
+    _s, _e, _n = _tenday_period(date_obj)
+    _m = int(date_obj.month)
+    return [f"🏆{_m}月{_s}日～{_m}月{_e}日🏆", f"{_n}日目"]
+
+
 def _generate_rote_result_text(
     df: pd.DataFrame,
     machine_inputs: list[str],
@@ -19944,16 +20038,9 @@ def _generate_rote_result_text(
 
     if store == "新宿歌舞伎町":
         # 月内3期間（1～10 / 11～20 / 21～月末）で week_str と day_num を計算
-        d = date_obj.day
+        # 計算は _tenday_period() へ切り出した（出力文字列は従来と完全に同一）。
         m = date_obj.month
-        y = date_obj.year
-        last_day = _cal.monthrange(y, m)[1]
-        if d <= 10:
-            period_start, period_end, day_num = 1, 10, d
-        elif d <= 20:
-            period_start, period_end, day_num = 11, 20, d - 10
-        else:
-            period_start, period_end, day_num = 21, last_day, d - 20
+        period_start, period_end, day_num = _tenday_period(date_obj)
         week_str = f"{m}月{period_start}日～{m}月{period_end}日"
         # 機種名を「×」で結合してポスター行を生成
         _kw_names = [kw.strip() for kw in machine_inputs if (kw or "").strip()]
@@ -24081,7 +24168,7 @@ def _build_panel_row(machine_names: list[str], width: int) -> "Image.Image | Non
 #   _PANEL_STORES         … 通常経路（📝記入部分のみ＝かぶぱポストの結果）でパネルを合成する店舗
 #   _ARTICLE_PANEL_STORES … 記事用ページ経路だけでパネルを合成する店舗（通常ページには適用しない）
 _PANEL_STORES = {"新宿歌舞伎町"}
-_ARTICLE_PANEL_STORES = {"高田馬場", "渋谷新館"}
+_ARTICLE_PANEL_STORES = {"高田馬場", "渋谷新館", "新宿歌舞伎町"}
 
 
 # 記事用で必ず「複数機種画像」として扱う画像（2×2パネル対象）
@@ -24089,7 +24176,7 @@ _ART_MULTI_PANEL_FNS = ("ジャグラーシリーズ優秀台.jpg", "その他�
 
 # 記事用の「ジャグラーシリーズ優秀台.jpg」だけパネルを最大2機種へ絞る店舗。
 # ★高田馬場は従来どおり最大4枚（2×2）。バラエティ・末尾・その他優秀台へは波及させない。
-_ART_JUG_PANEL2_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
+_ART_JUG_PANEL2_STORES: "frozenset[str]" = frozenset({"渋谷新館", "新宿歌舞伎町"})
 
 # ── ⑤「オススメ優秀台_ブロックN.jpg」のパネルを最大2機種へ絞る店舗（2026-09-08）──
 # 3機種のブロックは 2列グリッドだと [1][2] / [3][空白] になり、最下行の右半分が
@@ -24098,7 +24185,7 @@ _ART_JUG_PANEL2_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
 # 空白が出ない。選定順・繰り上げ・表示順は既存のまま（`_build_variety_panel_grid`）。
 # ★`_ART_JUG_PANEL2_STORES`（ジャグラー統合画像用）とは **別仕様。統合しない。**
 # ★表・スランプ・掲載台・抽出条件は減らさない（減るのは上部のパネル枚数だけ）。
-_ART_OSU_PANEL2_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
+_ART_OSU_PANEL2_STORES: "frozenset[str]" = frozenset({"渋谷新館", "新宿歌舞伎町"})
 
 
 def _art_panel_max(store: str, bare_fn: str) -> int:
@@ -24847,6 +24934,23 @@ _GAP_FILL_STORES = {"新宿歌舞伎町", "上野新館", "上野本館", "新�
 # 記事用ページ経路だけで液晶をはめ込む店舗（通常ページには一切適用しない）。
 # session_state も専用キー（_art_gap_meta_/_art_gap_base_）で通常ページと分離する。
 _ARTICLE_GAP_FILL_STORES = {"高田馬場", "渋谷新館"}
+
+# 記事用ページで液晶をはめ込まない店舗（パネルは付けるが液晶は使わない）。
+# ★記事用の正式ゲートは `_ARTICLE_GAP_FILL_STORES`。
+#   `_GAP_FILL_STORES` も見ているのは **秋葉原の既存挙動を1ビットも変えない**ための
+#   互換で、新しい店舗はそこへ頼らない（追加するなら _ARTICLE_GAP_FILL_STORES）。
+# ★結果ポスト側の `_GAP_FILL_STORES` / `_GAP_FILL_OFF_SLUMP_STORES` / `_gap_fill_on()`
+#   は**変更しない**。ここは記事用ページ専用の判定。
+_ART_GAP_FILL_OFF_STORES: "frozenset[str]" = frozenset({
+    "新宿歌舞伎町",   # 記事用は液晶なし（結果ポスト側の液晶仕様とは無関係）
+})
+
+
+def _art_gap_fill_on(store: str) -> bool:
+    """記事用ページで液晶はめ込みを使うか（⑦プレビュー・🔄その他を更新で共用）。"""
+    if store in _ART_GAP_FILL_OFF_STORES:
+        return False
+    return store in _ARTICLE_GAP_FILL_STORES or store in _GAP_FILL_STORES
 
 # 2026-09-11: スランプ付き結果ポスト用（auto_slump / auto_slump2）では液晶を使わない店舗。
 # **記事用（auto_article）は _ARTICLE_GAP_FILL_STORES で独立判定するため影響しない。**

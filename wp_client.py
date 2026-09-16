@@ -57,6 +57,9 @@ WP_STORE_CATEGORY: "dict[str, dict]" = {
     #   id=19 name='エスパス渋谷新館' slug='espace-shibuyashin'
     #   （id=20 は 'エスパス渋谷本館' で別カテゴリ。取り違えないこと）
     "渋谷新館": {"id": 19, "slug": "espace-shibuyashin"},
+    # 2026-09-16 に GET /wp-json/wp/v2/categories で実測（参照のみ・変更通信なし）。
+    #   id=7 name='エスパス新宿歌舞伎町' slug='espace-kabukicho' count=448
+    "新宿歌舞伎町": {"id": 7, "slug": "espace-kabukicho"},
 }
 
 
@@ -453,7 +456,7 @@ WP_NOSPLIT_FILES: "frozenset[str]" = frozenset({"島図.jpg"})
 # **`needs_split()` / `split_count()` / `split_image_for_wp()` は変更しない**
 # （高田馬場の長画像分割は従来どおりの正式仕様）。
 # トレードオフ: 1枚で送ると長辺2560px超はサイト側で `-scaled.jpg` が作られる（許容）。
-_ART_WP_NOSPLIT_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
+_ART_WP_NOSPLIT_STORES: "frozenset[str]" = frozenset({"渋谷新館", "新宿歌舞伎町"})
 
 # 記事用WordPress本文で **画像を本文カラム幅いっぱいに表示する店舗**（2026-09-05 追加）。
 # 原因: nosplit の店舗では縦長画像がそのまま送られ、WordPress が長辺 2560px へ縮小する
@@ -465,7 +468,7 @@ _ART_WP_NOSPLIT_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
 # height:auto を含めるので縦横比は維持される。
 # ★`_ART_WP_NOSPLIT_STORES`（分割するかどうか）とは **別仕様**。統合しない。
 # ★元JPEGの生成サイズ・画質・分割仕様は一切変更しない。
-_ART_WP_FULLWIDTH_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
+_ART_WP_FULLWIDTH_STORES: "frozenset[str]" = frozenset({"渋谷新館", "新宿歌舞伎町"})
 
 # ── nosplit 店舗でも例外的に分割するファイル（2026-09-08 追加）────────────────
 # `その他の優秀台ピックアップ.jpg` だけは掲載台数が多く極端に縦長になるため
@@ -1215,6 +1218,14 @@ def plan_blocks(payload: dict) -> list[dict]:
     # ── その他単品: H2 → 画像1枚 ──
     #    後半の正式順は 並び → ⑤オススメ機種 → その他単品優秀台 → 差枚数ランキング&島図
     #    （2026-09-08）。⑤より前へ戻さない。
+    # ★10日区切り／○日目（payload["tenday"] を渡した店舗だけ）。
+    #   **「その他単品優秀台」H2の直前**に出す。H2より下へ移動しない。
+    #   文言はアプリ側（ローテ結果テキストと同じ正式表現）が決める。
+    #   キーを渡さない店舗は1ブロックも増えない。
+    for _td_line in (payload.get("tenday") or []):
+        _td_t = str(_td_line or "").strip()
+        if _td_t:
+            plan.append({"type": "para", "text": esc(_td_t)})
     plan.append({"type": "h2", "text": H2_SONOTA})
     plan.append({"type": "image", "file": FN_SONOTA,
                  "label": "その他の優秀台ピックアップ", "optional": True})
@@ -1240,7 +1251,11 @@ def plan_blocks(payload: dict) -> list[dict]:
     zendai_files  = _existing_files(payload.get("zendai_data"), out_dir)
     shimazu_files = _existing_files(payload.get("shimazu"), out_dir)
     if rank_files or zendai_files or shimazu_files:
-        plan.append({"type": "h2", "text": H2_RANK_SHIMAZU})
+        # 島図を出さない店舗（payload["shimazu_section"] が False）はH2から
+        # 「島図」を外す。**既定 True** なので、キーを渡さない呼び出しは従来どおり。
+        plan.append({"type": "h2",
+                     "text": (H2_RANK_SHIMAZU if payload.get("shimazu_section", True)
+                              else H2_RANKING)})
         for fn in rank_files:
             plan.append({"type": "image", "file": fn, "label": f"差枚数ランキング {fn}"})
         for fn in zendai_files:

@@ -20000,3 +20000,172 @@ Noto Sans JP Black の metrics は **`(ascent 47, descent 12)`** で
     10日区切りを本節を理由に変更しない**
 16. **他店舗の記事用・通常結果ポスト・かぶぱ・`auto_slump2`・ローテ用・作業用へ波及させない**
 17. **無関係なリファクタ・未使用コード整理をしない**
+
+
+## 【正式仕様】新宿歌舞伎町 記事用：スランプ外側背景を薄紫 #D8C6E3 へ統一（2026-09-16・`61851ca`）
+
+**正式仕様。巻き戻し禁止。**対象は**【新宿歌舞伎町】かつ `page=auto_article` の記事用だけ**。
+2026-09-16 に **ユーザーが Streamlit Cloud 実機で確認し「問題なし」と正式承認**した。
+
+| 項目 | 値 |
+|---|---|
+| **正式実装 commit** | **`61851ca9fac84f98f894c308842a8e335ff6de85`** |
+| commit message | **`feat: 新宿歌舞伎町記事用のスランプ背景を統一`** |
+| 変更ファイル | **`streamlit_app.py` の1ファイルのみ**（+15 / −17） |
+| 前提 commit | **`e53a116`**（`feat: 新宿歌舞伎町高配分画像の表示を調整`） |
+
+**`61851ca` は正式仕様の根拠となる実装commitであって、HEAD をここへ戻すという意味ではない。
+`e53a116` / `61851ca` へ reset してはならない。**
+
+既存の記事用・スランプ関連セクション（`77e140d` / `31f7346` / `5c5c1f2` / `3432a97` /
+`0e49bd9` / `5711df4` ほか）は**削除・圧縮・統合・並べ替え・書き換えしない**。
+
+### ① 正式な背景色
+
+**新宿歌舞伎町の記事用で `_attach_slump_to_table()` によりスランプを合成する全カテゴリで、
+スランプカード外側の背景を薄紫 `#D8C6E3` ＝ RGB `(216, 198, 227)` に統一する。**
+
+**カテゴリ・ファイル名では判定しない（店舗だけで決める）。**
+
+### ② 対象カテゴリ（ban_map があって実際にスランプを合成する画像）
+
+全台系 ／ 高配分（**自動 `{機種名}_高配分.jpg` と手動 `{機種名}（優秀台）.jpg` の両方**）／
+②個別の優秀台 ／ ジャグラーシリーズ優秀台 ／ その他優秀台 ／ 並び ／ 列 ／ ④末尾 ／
+バラエティ ／ ⑤オススメ。
+
+### ③ ★②個別「全台」へスランプ合成を追加しない
+
+**⑧本番では従来から②個別「全台」が ban_map 未登録**（⑦のみ登録）であり、
+**今回もスランプ合成を追加していない。勝手に ban_map 登録を足さないこと。**
+
+### ④ 対象外（スランプを合成しない画像）
+
+**差枚数ランキング ／ 全台データ ／ 島図 ／ ポスター**は ban_map 未登録のため
+合成ループに入らず、今回も対象外。
+
+### ⑤ 正式な定数・helper
+
+```python
+# 記事用（auto_article）でスランプを合成する **全カテゴリ共通**の「カード外側」背景色。
+C_ART_SLUMP_AREA_BG: "tuple[int, int, int]" = (216, 198, 227)   # #D8C6E3
+_ART_SLUMP_BG_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
+def _art_slump_bg(store: str):
+    """記事用スランプの「カード外側」背景色（対象外は None＝従来の bbb.jpg 経路）。"""
+    return C_ART_SLUMP_AREA_BG if store in _ART_SLUMP_BG_STORES else None
+```
+
+- **`_art_slump_bg(store)` は新宿歌舞伎町だけ薄紫を返し、他店舗は `None` を返す。**
+- **引数は `store` だけ。カテゴリ名・ファイル名に依存させない。**
+- 旧名 `C_ART_HIGH_SLUMP_BG` / `_ART_HIGH_SLUMP_BG_STORES` / `_art_high_slump_bg()` は
+  **この commit で廃止**（`e53a116` 時点の高配分限定版）。**復活させない。**
+- ★既存の `C_SL_PURPLE`（スランプカード内部の淡紫）/ `C_SLUMP_AREA_BG`（スランプ付き結果の
+  `#FFFFCB`）/ `bbb.jpg` とは**別用途の専用定数**。値が近くても統合・流用しない。
+
+### ⑥ ⑦・🔄・⑧で同じ判定を使う
+
+**⑦プレビュー ／ 🔄その他を更新 ／ ⑧本番の3経路すべて**で、
+`_attach_slump_to_table()` の **`bg_color` に同じ `_art_slump_bg(store)`** を渡す。
+
+**⑦だけ・⑧だけ・🔄だけ異なる背景にしてはならない。**
+店舗のみの判定なので、ファイル名の綴り違い・連番プレフィックス（`NN_`）の有無による
+不一致が構造的に発生しない。
+
+### ⑦ 既定値は維持（他店舗・他ページを変えない）
+
+**`_paste_slump_area_bg(..., bg_color=None)` と `_attach_slump_to_table(..., bg_color=None)` の
+既定 `None` は維持する。**`bg_color is None` のときは従来どおり
+「`_slump_theme_new()` なら `C_SLUMP_AREA_BG`（#FFFFCB）／それ以外は `bbb.jpg`」になる。
+
+**`_find_slump_bg()` ／ `bbb.jpg` ／ `base_3000_bk.png` ／ `_slump_theme_new()` ／
+`C_SLUMP_AREA_BG` は変更しない。**
+
+### ⑧ 水色バー削除（`e53a116`）は別系統として維持
+
+**高配分画像の水色バー「優秀台ピックアップ」を削除する `e53a116` の正式仕様を維持する。**
+
+| 用途 | ゲート |
+|---|---|
+| **水色バー削除** | **`_ART_HIGH_NO_BAR_STORES = frozenset({"新宿歌舞伎町"})`**（pipeline 2か所＋手動⑦⑧ 2か所） |
+| **スランプ背景** | **`_ART_SLUMP_BG_STORES`**（記事用の attach 3か所） |
+
+**この2つを混同・統合しない。**
+`run_step2_juggler()` / `run_step3_other()` の **`high_bar: bool = True`（既定＝従来動作）**、
+`run_auto_pipeline()` からの `high_bar=(store not in _ART_HIGH_NO_BAR_STORES)`、
+`_art_high_title_bar()` 本体・既定テキスト・既定色も**変更しない**。
+
+### ⑨ `_art_is_high_fn()` は削除しない
+
+背景判定からは外れたが、**既存 helper として残す**
+（`_高配分.jpg` / `（優秀台）.jpg` を判別する。将来の高配分限定処理で使う）。
+**`_ARROW_TRI` / `_ART_CMT_D_TEXT` と同じ「未使用でも残す」扱い。**
+
+### ⑩ 維持する既存正式仕様
+
+記事用パネルあり（`_ARTICLE_PANEL_STORES`）／ **液晶なし**（`_ART_GAP_FILL_OFF_STORES`）／
+**島図なし**（`_ARTICLE_SHIMAZU_STORES = {"渋谷新館"}`）／
+**Noto Sans JP Black**（`31f7346` / `5c5c1f2`・`_ART_FONT_STORES`）／
+**`77e140d` の並び・列 ban_map 再計算＋パネル・スランプ**（`_ART_NARABI_BANMAP_STORES`）／
+**初代ヴァルヴレイヴの `vvv` 紐づけ・ヴァルヴレイヴ2の `vvv2` 紐づけ**／
+**マイジャグVの WordPress 5分割**（`_ART_WP_SPLIT_NARROW_STORES` / `_ART_WP_MIN_KEEP_W = 752`）。
+
+### ⑪ 対象外（従来仕様を維持）
+
+**他店舗の記事用（高田馬場・渋谷新館・秋葉原）／ 通常結果ポスト ／ かぶぱ（`auto_slump`）／
+`auto_slump2` ／ ローテ用 ／ 作業用 ／ WordPress 本文・UI・画像分割・fullwidth・nosplit。**
+
+`wp_client.py` / `convert_narabi_pil.py` / `shimazu_renderer.py` / 機種画像マスタ /
+パネル素材 / フォント / `機種名変換.xlsx` は**いずれも無変更（diff 0）**。
+
+### ⑫ 変更範囲（機械確認）
+
+- **新規関数は `_art_slump_bg` の1つだけ／削除は `_art_high_slump_bg` の1つだけ**
+- **本体が変わった関数は `show_auto_article_page` のみ**
+- `_paste_slump_area_bg` / `_attach_slump_to_table` / `_art_is_high_fn` /
+  `_art_high_title_bar` / `run_step2_juggler` / `run_step3_other` / `run_auto_pipeline` /
+  `_apply_panel_to_table_img` / `draw_slump_graph` / `_build_machine_img_no_bar` /
+  `show_auto_page` / `show_rote_page` ほかは**すべて AST 一致**
+- `bg_color=_art_slump_bg(store)` の3行はいずれも `show_auto_article_page` の行範囲内
+
+### ⑬ 確認結果
+
+**純粋テスト 164 PASS / 0 FAIL。**
+新宿歌舞伎町のみ薄紫・他12店舗＋空文字は `None` ／ `_art_slump_bg()` の本体が
+「`store in _ART_SLUMP_BG_STORES` の判定だけ」（AST 検証）／ 11カテゴリ相当のファイル名で
+**同一画像**（色は薄紫＋カード黒の2色のみ）／ 他店舗は **`colors=5071` のレインボー維持・
+薄紫混入0** ／ `bg_color` 省略時は **HEAD版と画素完全一致** ／ 画像サイズ・表領域・
+カード本体の画素一致 ／ **マイジャグV 5分割維持**。
+
+**ローカル実機（⑦プレビュー・2026/09/15 確定749台・28枚生成）**
+
+スランプ合成のある **26枚すべてで左端が `(217,198,226)`（JPEG誤差±1）**、
+**bbb.jpg 由来のレインボー画素は0件**。内訳は 全台系2（かのかり／ミスジャグ）・
+高配分13・並び6・ジャグラーシリーズ優秀台1・その他優秀台1・⑤オススメ2、
+外側は `差枚数ランキング.jpg`（白）と `全台データ.jpg` が**スランプなしで従来どおり**。
+**水色バー `#0080FF` は26枚すべて0px**（青ブタの231pxはパネル画像内の青でバーではない）。
+**ヴァルヴレイヴは `vvv_panel.png` が付き、構成は `[パネル][表][スランプ]`。**
+黒いスランプカード本体・赤線・軸・機種名・台番・差枚・表・パネルは従来どおり。
+
+**Cloud 実機：2026-09-16 にユーザーが確認し「問題なし」と正式承認。**
+
+### ⑭ 今後の禁止事項
+
+1. **背景判定をカテゴリ・ファイル名依存へ戻さない**（`_art_slump_bg(store)` は store のみ）
+2. **`C_ART_HIGH_SLUMP_BG` / `_ART_HIGH_SLUMP_BG_STORES` / `_art_high_slump_bg()` を復活させない**
+3. **`C_ART_SLUMP_AREA_BG` を `C_SL_PURPLE` / `C_SLUMP_AREA_BG` と統合・流用しない**
+4. **`_ART_SLUMP_BG_STORES` へ他店舗を勝手に追加しない**
+5. **⑦だけ・⑧だけ・🔄だけ変更しない**（3経路で同じ式）
+6. **`bg_color` の既定 `None` を変更しない**（他店舗・他ページの背景が壊れる）
+7. **`_find_slump_bg()` / `bbb.jpg` / `base_3000_bk.png` / `_slump_theme_new()` /
+   `C_SLUMP_AREA_BG` を変更しない**
+8. **水色バー削除（`_ART_HIGH_NO_BAR_STORES` / `high_bar` 既定 True）を巻き戻さない・
+   スランプ背景判定と統合しない**
+9. **`_art_is_high_fn()` を削除しない**
+10. **②個別「全台」へ ban_map 登録・スランプ合成を追加しない**
+11. **差枚数ランキング・全台データ・島図・ポスターへスランプ背景を適用しない**
+12. **パネル・表・タイトル・文字・スランプカード本体・画像サイズ・合成順を変更しない**
+13. **他店舗記事用・通常結果ポスト・かぶぱ・`auto_slump2`・ローテ用・作業用へ波及させない**
+14. **WordPress 本文・UI・分割・fullwidth・nosplit・マイジャグV5分割を変更しない**
+15. **`e53a116` / `61851ca` へ reset して実装をやり直さない**
+16. **無関係なリファクタ・未使用コード整理をしない**

@@ -3781,6 +3781,18 @@ def _art_is_narabi_fn(bare_fn: str) -> bool:
     return bool(_ART_NARABI_FN_RE.search(_b)) or (_ART_RETSU_FN_MARK in _b)
 
 
+def _art_is_high_fn(bare_fn: str) -> bool:
+    """記事用の「高配分画像」のファイル名か（連番プレフィックス除去後を渡す）。
+
+    自動高配分 `{機種名}_高配分.jpg` と手動高配分 `{機種名}（優秀台）.jpg` の両方に一致する。
+    wp_client._resolve_high_images() が両方を高配分として扱う仕様に合わせている。
+    全台系・②個別「全台」・末尾・⑤オススメ・ジャグラー統合・その他優秀台・並び・列・
+    差枚数ランキング・全台データ・島図には一致しない。**副作用なし。**
+    """
+    _b = bare_fn or ""
+    return _b.endswith("_高配分.jpg") or _b.endswith("（優秀台）.jpg")
+
+
 def _art_narabi_hq(store: str) -> float:
     """記事用の並び・列の描画倍率（掲載台数を見ない）。対象外は 1.0。"""
     return _ART_HQ_SCALE if store in _ART_NARABI_HQ_STORES else 1.0
@@ -3853,6 +3865,14 @@ _ART_HIGH_BAR_TEXT   = "優秀台ピックアップ"
 _ART_HIGH_BAR_BG     = (0, 128, 255)     # #0080FF
 _ART_HIGH_BAR_FG     = (255, 255, 255)   # 白
 _ART_HIGH_BAR_FONT_R = 0.72              # フォントサイズ / バー高（aaa.jpg の文字高比 0.742 相当）
+
+# 2026-09-16: 記事用の高配分画像へ水色バー「優秀台ピックアップ」を付けない店舗。
+# 対象は **自動高配分（{機種名}_高配分.jpg）と手動高配分（{機種名}（優秀台）.jpg）だけ**。
+# 全台系・②個別「全台」・④末尾・⑤オススメ・ジャグラー統合・その他優秀台・並び・列・
+# 差枚数ランキング・全台データ・他店舗の記事用・通常結果ポストへは適用しない。
+# ★`_art_high_title_bar()` 本体・既定テキスト・既定色は変更しない
+#   （渋谷新館⑥が text="オススメ機種の優秀台" で使用中）。
+_ART_HIGH_NO_BAR_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 
 
 def _art_high_title_bar(table_img: "Image.Image", hq_scale: float = 1.0,
@@ -4171,6 +4191,7 @@ def run_step2_juggler(
     zh_hq_scale: float = 1.0,
     osusume_bans: set[int] = frozenset(),
     retsu_bans: set[int] = frozenset(),
+    high_bar: bool = True,
 ) -> tuple[list[str], pd.DataFrame | None, pd.Series | None, list[dict], list[dict]]:
     """Step 2: ジャグラーシリーズ優秀台フィルター。
     少数機種は統合画像へ。5台以下なら overflow として Step 3 へ渡す。
@@ -4264,10 +4285,11 @@ def run_step2_juggler(
             if article_mode:
                 # 記事用の高配分は表の上へ細い青タイトルバー「優秀台ピックアップ」を載せる
                 # 掲載台数に関係なく2倍解像度で描画（zh_hq_scale）
+                # high_bar=False（新宿歌舞伎町）はバーを付けず表だけ（既定 True＝従来動作）
                 _zhj = _pipeline_zh_hq(zh_hq_scale, hq_scale, len(_img_j))
-                img = _art_high_title_bar(
-                    _build_machine_img_no_bar(_img_j, hq_scale=_zhj),
-                    hq_scale=_zhj)
+                img = _build_machine_img_no_bar(_img_j, hq_scale=_zhj)
+                if high_bar:
+                    img = _art_high_title_bar(img, hq_scale=_zhj)
             else:
                 _zhj = _pipeline_hq(hq_scale, len(_img_j))
                 img = _build_machine_img(_img_j, machine.replace('･', '・') + "（優秀台）", None)
@@ -4435,6 +4457,7 @@ def run_step3_other(
     zh_hq_scale: float = 1.0,
     osusume_bans: set[int] = frozenset(),
     retsu_bans: set[int] = frozenset(),
+    high_bar: bool = True,
 ) -> tuple[list[str], list[dict], list[dict], list[int]]:
     """Step 3: 非ジャグラー機種の優秀台 + その他の優秀台ピックアップ統合画像。
     戻り値: (generated, high_ratio_list, excellent_list, sonota_bans_all)
@@ -4596,10 +4619,11 @@ def run_step3_other(
                 if article_mode:
                     # 記事用の高配分は表の上へ細い青タイトルバー「優秀台ピックアップ」を載せる
                     # 掲載台数に関係なく2倍解像度で描画（zh_hq_scale）
+                    # high_bar=False（新宿歌舞伎町）はバーを付けず表だけ（既定 True＝従来動作）
                     _zho = _pipeline_zh_hq(zh_hq_scale, hq_scale, len(_img_o))
-                    img = _art_high_title_bar(
-                        _build_machine_img_no_bar(_img_o, hq_scale=_zho),
-                        hq_scale=_zho)
+                    img = _build_machine_img_no_bar(_img_o, hq_scale=_zho)
+                    if high_bar:
+                        img = _art_high_title_bar(img, hq_scale=_zho)
                 else:
                     _zho = _pipeline_hq(hq_scale, len(_img_o))
                     img = _build_machine_img(_img_o, machine.replace('･', '・') + "（優秀台）", None)
@@ -5797,10 +5821,10 @@ def run_auto_pipeline(
         log("② ジャグラーシリーズ優秀台")
         _jug_series = cfg["juggler_series"]
         _zen_dai_jug = {item["name"] for item in zen_dai_list if item["name"] in _jug_series}
-        f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df, jug_bans_all = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude, no_merge_image=jug_no_merge_image, rec_ban_level=rec_ban_level, exclude_units=exclude_units, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans)
+        f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df, jug_bans_all = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude, no_merge_image=jug_no_merge_image, rec_ban_level=rec_ban_level, exclude_units=exclude_units, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans, high_bar=(store not in _ART_HIGH_NO_BAR_STORES))
 
         log("③ その他の優秀台ピックアップ")
-        f3, oth_hr, sonota_excellent, sonota_bans_all = run_step3_other(df, diff_raw, output_dir, cfg, narabi_bans, ov_df, ov_diff, log, recommended_machines, suebangai_bans, article_mode=article_mode, sonota_exclude=sonota_exclude, exclude_units=exclude_units, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans)
+        f3, oth_hr, sonota_excellent, sonota_bans_all = run_step3_other(df, diff_raw, output_dir, cfg, narabi_bans, ov_df, ov_diff, log, recommended_machines, suebangai_bans, article_mode=article_mode, sonota_exclude=sonota_exclude, exclude_units=exclude_units, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans, high_bar=(store not in _ART_HIGH_NO_BAR_STORES))
         _ex_seen: set[tuple] = set()
         excellent_list = []
         for _ex_item in jug_excellent + sonota_excellent:
@@ -17553,9 +17577,12 @@ def show_auto_article_page() -> None:
                                     # _build_machine_img_no_bar() で表を生成後、
                                     # 細い「優秀台ピックアップ」バーを _art_high_title_bar() で後付けする。
                                     _kyhq = _art_hq_scale_for(f"{_kti}.jpg", store, len(_kgp))
-                                    _art_pil.append((f"{_kti}.jpg", _art_high_title_bar(
-                                        _build_machine_img_no_bar(_kgp, hq_scale=_kyhq),
-                                        hq_scale=_kyhq)))
+                                    # _ART_HIGH_NO_BAR_STORES（新宿歌舞伎町）はバーを付けない。
+                                    # ⑧本番と同じゲート式を使い、⑦だけ・⑧だけの変更にしない。
+                                    _kimg_pv = _build_machine_img_no_bar(_kgp, hq_scale=_kyhq)
+                                    if store not in _ART_HIGH_NO_BAR_STORES:
+                                        _kimg_pv = _art_high_title_bar(_kimg_pv, hq_scale=_kyhq)
+                                    _art_pil.append((f"{_kti}.jpg", _kimg_pv))
                                     # ban_map（スランプ合成）用: 除外後の掲載台番
                                     _art_ky_bans[f"{_kti}.jpg"] = [
                                         int(b) for b in _kgp["台番"].dropna()
@@ -17992,9 +18019,13 @@ def show_auto_article_page() -> None:
                                                                                  "side": False, "hq": _hq_pv2}
                                             else:
                                                 _gap_img_pv2 = None
+                                            # 記事用の高配分だけスランプ外側を薄紫単色にする
+                                            # （bare名は bd9fa40 と同じくインラインで求める）
                                             _merged_pil.append((_fn_pv2, _attach_slump_to_table(
                                                 _img_pv2, _g_imgs_pv2, _pv_bgg_sl, _gap_img_pv2,
-                                                hq_scale=_hq_pv2)))
+                                                hq_scale=_hq_pv2,
+                                                bg_color=_art_high_slump_bg(
+                                                    store, re.sub(r"^\d{2}_", "", _fn_pv2)))))
                                         else:
                                             _merged_pil.append((_fn_pv2, _img_pv2))
                                     _art_pil = _merged_pil
@@ -18448,8 +18479,11 @@ def show_auto_article_page() -> None:
                                                             st.session_state[f"_art_gap_base_{store}"] = _abu
                                                     else:
                                                         _gap_img_u = None
-                                                    _merged_anp.append((_fn_u, _attach_slump_to_table(_img_u, _g_imgs_u, _upd_bgg, _gap_img_u,
-                                                                                      hq_scale=_hq_u)))
+                                                    _merged_anp.append((_fn_u, _attach_slump_to_table(
+                                                        _img_u, _g_imgs_u, _upd_bgg, _gap_img_u,
+                                                        hq_scale=_hq_u,
+                                                        bg_color=_art_high_slump_bg(
+                                                            store, re.sub(r"^\d{2}_", "", _fn_u)))))
                                                 else:
                                                     _merged_anp.append((_fn_u, _img_u))
                                             _anp = _merged_anp
@@ -18828,9 +18862,10 @@ def show_auto_article_page() -> None:
                         # 細い「優秀台ピックアップ」バーを _art_high_title_bar() で後付けする。
                         _kyhq_e = _art_hq_scale_for(f"{_make_safe_fn(_km)}（優秀台）.jpg",
                                                     store, len(_kgrp_p))
-                        _kimg   = _art_high_title_bar(
-                            _build_machine_img_no_bar(_kgrp_p, hq_scale=_kyhq_e),
-                            hq_scale=_kyhq_e)
+                        # _ART_HIGH_NO_BAR_STORES（新宿歌舞伎町）はバーを付けない（⑦と同じゲート）
+                        _kimg   = _build_machine_img_no_bar(_kgrp_p, hq_scale=_kyhq_e)
+                        if store not in _ART_HIGH_NO_BAR_STORES:
+                            _kimg = _art_high_title_bar(_kimg, hq_scale=_kyhq_e)
                         _save_jpeg(_kimg, _kout)
                         result["files"].append(_kout)
                         _art_ky_bans_e[f"{_make_safe_fn(_km)}（優秀台）.jpg"] = [
@@ -19446,7 +19481,9 @@ def show_auto_article_page() -> None:
                                     _gap_img_sl = None
                                 _combined_sl = _attach_slump_to_table(
                                     _t_img_sl, _g_imgs_sl, _art_bgg_sl, _gap_img_sl,
-                                    hq_scale=_hq_sl)
+                                    hq_scale=_hq_sl,
+                                    bg_color=_art_high_slump_bg(
+                                        store, re.sub(r"^\d{2}_", "", _fp_sl)))
                                 # 高解像度対象だけ JPEG 目標サイズを引き上げる（他画像は従来どおり）
                                 _save_jpeg(_combined_sl, _fpath_sl,
                                            **({"target_kb": _ART_HQ_TARGET_KB} if _hq_sl > 1.0 else {}))
@@ -24993,14 +25030,34 @@ def _find_slump_bg() -> "object | None":
 C_SLUMP_AREA_BG = (255, 255, 203)   # #FFFFCB
 
 
+# 2026-09-16: 記事用の高配分画像に合成するスランプの「カード外側」背景色。
+# 対象は _ART_HIGH_SLUMP_BG_STORES × _art_is_high_fn() のファイルだけ。
+# ★既存の C_SL_PURPLE（スランプカード内部の淡紫）/ C_SLUMP_AREA_BG（スランプ付き結果の
+#   #FFFFCB）/ bbb.jpg とは **別用途の専用定数**。値が近くても統合・流用しない。
+C_ART_HIGH_SLUMP_BG: "tuple[int, int, int]" = (216, 198, 227)   # #D8C6E3
+_ART_HIGH_SLUMP_BG_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
+def _art_high_slump_bg(store: str, bare_fn: str):
+    """記事用の高配分画像のスランプ外側背景色（対象外は None＝従来の bbb.jpg 経路）。"""
+    if store in _ART_HIGH_SLUMP_BG_STORES and _art_is_high_fn(bare_fn or ""):
+        return C_ART_HIGH_SLUMP_BG
+    return None
+
+
 def _paste_slump_area_bg(canvas: "Image.Image", bg_path, x0: int, y0: int,
-                         w: int, h: int) -> None:
+                         w: int, h: int, bg_color=None) -> None:
     """スランプカードを並べるグラフエリアの背景を塗る。
 
-    スランプ付き結果（_slump_theme_new）は C_SLUMP_AREA_BG の単色、
-    それ以外（記事用など）は従来どおり bg_path（bbb.jpg）を貼る。
+    bg_color が渡された場合だけ**最優先で**その単色を貼る（記事用の高配分専用）。
+    bg_color=None（既定）は従来どおり:
+      スランプ付き結果（_slump_theme_new）は C_SLUMP_AREA_BG の単色、
+      それ以外（記事用など）は bg_path（bbb.jpg）を貼る。
     カード・液晶・表・座標には触れない（背景だけ）。"""
     if w <= 0 or h <= 0:
+        return
+    if bg_color is not None:
+        canvas.paste(Image.new("RGB", (w, h), tuple(bg_color)), (x0, y0))
         return
     if _slump_theme_new():
         canvas.paste(Image.new("RGB", (w, h), C_SLUMP_AREA_BG), (x0, y0))
@@ -25215,6 +25272,7 @@ def _attach_slump_to_table(
     bg_path=None,
     gap_screen_img=None,
     hq_scale: float = 1.0,
+    bg_color=None,
 ) -> "Image.Image":
     """表画像の下にスランプグラフを3列で並べて合成する（稲毛スランプ付き専用）。
 
@@ -25251,7 +25309,7 @@ def _attach_slump_to_table(
     canvas = Image.new("RGB", (tw, th + graph_area_h), (255, 255, 255))
     canvas.paste(table_img, (0, 0))
 
-    _paste_slump_area_bg(canvas, bg_path, 0, th, tw, graph_area_h)
+    _paste_slump_area_bg(canvas, bg_path, 0, th, tw, graph_area_h, bg_color=bg_color)
 
     for i, g in enumerate(scaled):
         row = i // COLS

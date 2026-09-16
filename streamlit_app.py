@@ -259,7 +259,7 @@ STORE_REC_CONFIG: dict[str, dict] = {
         # ブロックインデックス→カッコ内に表示する短縮名リスト（指定なしは「の優秀台」形式）
         "block_header_names": {
             0: ["スマスロ北斗", "北斗転生2", "東京喰種", "ヴヴヴ2", "かぐや様"],
-            1: ["カバネリ海門", "モンキーV", "炎炎2", "真打吉宗"],
+            1: ["カバネリ海門", "ゴッド神々", "モンキーV", "真打吉宗"],
         },
     },
 }
@@ -4904,6 +4904,14 @@ def _high_avg_of(item: dict) -> int:
 # 共通ルールの「・」とは別扱い（個別台・末尾・バラエティ・その他の優秀台は「・」のまま）。
 _REC_CATEGORY_SUMMARY_HEAD = "🏅"
 
+# 2026-09-16: ⑤オススメ機種の**機種名の行頭**を絵文字ではなく「・」で出す店舗。
+# 対象は結果ポスト用（auto）とスランプ付き結果ポスト（auto_slump）の両方＝with_slumpを見ない。
+# ブロック絵文字（新小岩の 💥/🤡/🌺）と⑤カテゴリ内サマリーの 🏅 だけを「・」にする。
+# ★`STORE_REC_CONFIG` の block_emojis / item_emoji / section_emoji の定義と
+#   `_REC_CATEGORY_SUMMARY_HEAD` の定数定義は**変更しない**（生成時に差し替えるだけ）。
+# ★🍀カテゴリ見出し・🎁優秀台一覧見出し・台番行・差枚行・末尾・+1,000枚以上の羅列は対象外。
+_REC_PLAIN_HEAD_STORES: "frozenset[str]" = frozenset({"新小岩"})
+
 
 def _rec_category_summaries(recommended_blocks: list[dict],
                             zen_dai_list: list[dict],
@@ -4946,6 +4954,7 @@ def generate_recommended_result_text(
     exclude_machines: set | None = None,
     store_name: str = "",
     block_summaries: dict | None = None,
+    plain_head: bool = False,
 ) -> str:
     """オススメ機種ブロックから +1,000枚以上の台番をピックアップしたテキストを生成する。
     各ブロックが「{section_emoji}{title}の優秀台」セクションになる。"""
@@ -4965,7 +4974,9 @@ def generate_recommended_result_text(
 
         # 2026-09-11: 機種名の行頭 🎖️ は「・」で出す（結果テキスト共通の記号統一）。
         # STORE_REC_CONFIG の block_emojis 自体は変更せず、🎖️ 以外の絵文字は維持する。
-        emoji = (_blk_emojis[i] if i < len(_blk_emojis) else "🎯").replace("🎖️", "・")
+        # 2026-09-16: plain_head=True（新小岩）は B1〜B6 すべて「・」で出す（既定 False＝従来動作）。
+        emoji = ("・" if plain_head
+                 else (_blk_emojis[i] if i < len(_blk_emojis) else "🎯").replace("🎖️", "・"))
         machine_parts: list[str] = []
 
         for machine in machines:
@@ -16218,7 +16229,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                 _rec_blk_sums, _rec_hide_names = _rec_category_summaries(
                     recommended_blocks, _zen_for_report, _high_for_report,
                     _demoted_high_names(store, _high_for_report),
-                    head=_REC_CATEGORY_SUMMARY_HEAD)
+                    head=("・" if store in _REC_PLAIN_HEAD_STORES
+                          else _REC_CATEGORY_SUMMARY_HEAD))
             report_text = generate_report_text(
                 store_name=store,
                 date=result.get("date"),
@@ -16246,6 +16258,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                         exclude_machines=_memo_machines,
                         store_name=store,
                         block_summaries=_rec_blk_sums or None,
+                        # 新小岩は auto / auto_slump の両方で機種名の行頭を「・」にする
+                        plain_head=(store in _REC_PLAIN_HEAD_STORES),
                     )
                     if _rec_text:
                         report_text = insert_formatted_result_before_other_picks(report_text, _rec_text, store)

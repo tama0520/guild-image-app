@@ -47,6 +47,13 @@ FONT_PATH = os.path.join(_BASE, "fonts", "MochiyPopOne-Regular.ttf")
 if not os.path.exists(FONT_PATH):
     FONT_PATH = r"C:/Users/23-3/AppData/Local/Microsoft/Windows/Fonts/MochiyPopOne-Regular.ttf"
 
+# ── 一時パッチ用の書体差し替え（既定は空＝従来どおり FONT_PATH を使う）──
+# _patch_and_run_narabi() が regex で書き換える。記事用（新宿歌舞伎町）の
+# ローカル実行だけ HGS創英角ゴシックUB（HGRSGU.TTC の index=2）を指す。
+# 存在しない環境（Cloud等）では FONT_PATH へそのままフォールバックする。
+FONT_OVERRIDE = ""
+FONT_INDEX = -1
+
 # --- 機種名変換 ---
 conv = pd.read_excel(r"C:\Users\23-3\Desktop\画像作成\機種名変換.xlsx", header=1)
 name_map = dict(zip(conv.iloc[:, 1], conv.iloc[:, 2]))
@@ -255,6 +262,14 @@ COL_CONTENT_W = {
 }
 
 def _load_font(size):
+    # 差し替え指定があり実在するときだけ使う（TTC は index 指定に対応）。
+    try:
+        if FONT_OVERRIDE and os.path.exists(FONT_OVERRIDE):
+            return (ImageFont.truetype(FONT_OVERRIDE, size, index=FONT_INDEX)
+                    if FONT_INDEX >= 0
+                    else ImageFont.truetype(FONT_OVERRIDE, size))
+    except Exception:
+        pass
     try:
         return ImageFont.truetype(FONT_PATH, size)
     except Exception:

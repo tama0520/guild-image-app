@@ -19748,3 +19748,255 @@ Pision（`fetch_pision_results`）／slotterguild（`_sg_fetch_excel` / `_sg_fet
 20. **`77e140d` / `e1ad706` へ reset・revert しない**
 21. **既存下書き 62752 / 62789 / 62827 / 62868 を公開・編集・削除しない**
 22. **無関係なリファクタ・未使用コード整理をしない**
+
+## 【正式仕様】新宿歌舞伎町 記事用の書体を Noto Sans JP Black へ統一（2026-09-16・`31f7346`）
+
+**正式仕様。巻き戻し禁止。**対象は**【新宿歌舞伎町】かつ `page=auto_article` の記事用画像だけ**。
+2026-09-16 に **ユーザーが ローカル・Streamlit Cloud の両方で実機確認し「問題なく Noto Sans JP Black で
+生成される」と正式承認**した。
+
+既存の記事用・フォント関連セクション（`47e0372` / `77e140d` / `517535b` ほか）は
+**削除・圧縮・統合・並べ替え・書き換えしない**。本節は**2026-09-16 の正式仕様として末尾へ追加**する。
+
+### A. 正式実装commit
+
+| | commit | 扱い |
+|---|---|---|
+| ① | **`137592c`**（`feat: 新宿歌舞伎町記事用の書体を変更`） | **ローカルWindowsのみ HGS創英角ゴシックUB／Cloud は MochiyPopOne という中間実装。有効履歴として維持し reset / revert しない。ただし現在の正式な生成書体ではない** |
+| ② | **`31f734608490044a8f7441bca4dbe6a30b767774`**（`feat: 新宿歌舞伎町記事用のCloud書体を統一`） | **正式。ローカル・Cloud 共通の Noto Sans JP Black へ置き換えた** |
+
+`31f7346` の変更は **`streamlit_app.py` / `convert_narabi_pil.py` / `fonts/NotoSansJP-Black.otf` /
+`fonts/OFL.txt` の4ファイル**（+115 / −35）。
+**変更関数は `load_font()` / `_patch_and_run_narabi()` / `show_auto_article_page()` /
+`convert_narabi_pil._load_font()` だけ。新規関数0・消失関数0。**
+
+**`31f7346` は正式仕様の根拠となる実装commitであって、HEAD をここへ戻すという意味ではない。
+`137592c` / `31f7346` へ reset してはならない。**
+
+### B. 正式な書体
+
+**新宿歌舞伎町かつ `page=auto_article` の記事用画像で、アプリが PIL で描画する文字・数字の
+正式書体は `Noto Sans JP Black`。**
+
+| 項目 | 値 |
+|---|---|
+| 同梱ファイル | **`fonts/NotoSansJP-Black.otf`**（4,855,212 bytes） |
+| 配布元 | **`github.com/notofonts/noto-cjk`（Noto CJK 公式）の `Sans/SubsetOTF/JP/NotoSansJP-Black.otf`** — 日本語サブセットの**静的OTF** |
+| ライセンス | **SIL Open Font License 1.1（再配布可）**。本文は **`fonts/OFL.txt`**（上流 `Sans/LICENSE` の内容をそのまま・OFL標準の慣例名で配置） |
+| フォント内部 | Family `Noto Sans JP Black` ／ PostScript `NotoSansJP-Black` ／ weightClass **900** ／ sfntVersion `OTTO` ／ name(13) に OFL 1.1、name(14) に `http://scripts.sil.org/OFL` |
+| 収録 | 16,732 コードポイント |
+
+**★太字指定は不要**（Black＝weight 900 でフォント自体が太い）。PIL に合成ボールドは無い。
+
+### C. ★HGS創英角ゴシックUB は使わない（ライセンス上の確定事項）
+
+**HGS創英角ゴシックUB（`HGRSGU.TTC` の index=2 ＝ `HGSSoeiKakugothicUB`）は
+Windows/MS Office 同梱の商用フォントで、再配布が許諾されていない。**
+本リポジトリは **public**（`github.com/tama0520/guild-image-app`）であり、
+**public リポジトリへのフォント追加は配布行為にあたる**ため、Cloud との書体統一には使用しない。
+
+**次をリポジトリへ含めてはならない：`HGRSGU.TTC` ／ HGS関連ファイル ／ Windows固有パス。**
+実装からも完全に撤去済みで、`HGRSGU` / `HGS` / `_ART_FONT_HGS` / `FONT_INDEX` / `font_index` の
+**残存は `streamlit_app.py` / `convert_narabi_pil.py` とも0件**（死コードを残していない）。
+
+なお環境内に「HGS創英角ゴシック**B**」は存在せず、実在するのは **UB（Ultra Bold）** だけである
+（`137592c` 時点の調査で確定）。この事実は記録として残す。
+
+### D. `_ART_FONT_PATH`（OS依存パスを使わない）
+
+```python
+_ART_FONT_PATH = os.path.join(_FONTS_DIR, "NotoSansJP-Black.otf")
+```
+
+**`BASE_DIR` 相対のリポジトリ内パス**なので、**ローカルWindowsでも Streamlit Cloud でも
+同じ commit の同じファイル**を読む。**`C:\Windows\Fonts` のような OS依存パスを書かない。**
+
+### E. `_art_font_new()`（ページ×店舗ゲート）
+
+```python
+_ART_FONT_PAGES:  "frozenset[str]" = frozenset({"auto_article"})
+_ART_FONT_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
+def _art_font_new() -> bool:
+    try:
+        return (st.session_state.get("page") in _ART_FONT_PAGES
+                and st.session_state.get("selected_store") in _ART_FONT_STORES)
+    except Exception:
+        return False
+```
+
+- **`page × store` の AND で毎回導出**する（`_table_theme_new()` / `_slump_theme_new()` /
+  `_is_kabupa_page()` と同じ確立済みの流儀）。**保存フラグを持たない**のでページ遷移・rerun に影響されない。
+- **Streamlit 外（純粋テスト・subprocess）では `False`＝従来書体。**
+- 網羅テストで、**10ページ × 13店舗＝130通りのうち ON は
+  `auto_article × 新宿歌舞伎町` の1通りだけ**であることを確認済み。
+
+### F. ★`load_font()` のキャッシュキーは書体識別子を含む
+
+```python
+_font_cache: dict[tuple[int, str], ImageFont.ImageFont] = {}
+...
+    _art = _art_font_new()
+    _ck = (size, "art" if _art else "std")
+```
+
+**キーを「サイズのみ」へ戻してはならない。**戻すと、同じサイズで先に読まれた書体が
+**他店舗・他ページへ混入する**（例：記事用で読んだ Black が通常ページの表にも出る）。
+
+候補の並びは次のとおりで、**述語がTrueのときだけ先頭に同梱フォントを挿す**。
+呼び出し側30箇所は**1行も変更していない**（`load_font()` の1箇所で
+表・タイトルバー・サマリー・差枚数ランキング・全台データ・スランプへ一括適用される）。
+
+```
+（記事用・新宿歌舞伎町のみ）fonts/NotoSansJP-Black.otf
+ → fonts/MochiyPopOne-Regular.ttf → fonts/NotoSansJP-Regular.ttf
+ → Windows フォント（ローカル実行時フォールバック）
+```
+
+### G. ★⑦プレビューと⑧本番で同じ同梱フォントを参照する
+
+**⑧本番の並び・列は `convert_narabi_pil.py` を subprocess 実行するため
+`load_font()` を通らない。必ず両方へ同じフォントを渡すこと。**
+
+| 経路 | フォント取得 |
+|---|---|
+| ⑦プレビュー（および⑧の非並び画像） | `load_font()` → `_ART_FONT_PATH` |
+| ⑧本番の並び・列（subprocess） | `_patch_and_run_narabi(font_path=_ART_FONT_PATH)` → `FONT_OVERRIDE` |
+
+```python
+# 記事用⑧の呼び出し（1箇所だけ）
+font_path=(_ART_FONT_PATH if _art_font_new() else None),
+```
+
+**`_patch_and_run_narabi()` の `font_path` 既定は `None`＝従来書体**。
+`font_index` は OTF に TTC index が不要なため**撤去済み**（死コードを残さない）。
+
+### H. `convert_narabi_pil.py` の既定は従来書体
+
+```python
+FONT_OVERRIDE = ""          # 既定＝従来どおり FONT_PATH（MochiyPopOne）
+
+
+def _load_font(size):
+    try:
+        if FONT_OVERRIDE and os.path.exists(FONT_OVERRIDE):
+            return ImageFont.truetype(FONT_OVERRIDE, size)
+    except Exception:
+        pass
+    try:
+        return ImageFont.truetype(FONT_PATH, size)
+    except Exception:
+        return ImageFont.load_default()
+```
+
+**既定値 `""` を変更しない。**他店舗・他ページの⑧は従来書体のまま。
+**新宿歌舞伎町の記事用⑧だけ**が `_patch_and_run_narabi()` の regex 書き換えで
+`FONT_OVERRIDE` を受け取り、Noto Sans JP Black を使う。
+
+### I. 対象（この書体になるもの）
+
+**全台系 ／ 高配分 ／ ②個別 ／ ④末尾 ／ ⑤オススメ ／ ジャグラーシリーズ優秀台 ／
+その他優秀台 ／ 並び ／ 列 ／ 差枚数ランキング ／ 全台データ、
+および画像へ合成される スランプカード内の機種名・台番・差枚。**
+
+### J. 対象外（従来仕様を維持する）
+
+他店舗の記事用（高田馬場・渋谷新館・秋葉原）／通常結果ポスト（`auto`）／
+かぶぱポスト（`auto_slump`）／スランプ付き結果（`auto_slump2`）／ローテ用（`rote`）／
+作業用ページ（`work`）／**WordPress本文・投稿タイトル・Streamlit UI**／
+**パネル画像・液晶画像・ポスターなど素材へ焼き込まれた文字**（アプリから書体変更不可）／
+**WordPressの分割・画質・fullwidth・nosplit 処理**／
+記事用パネルあり・記事用液晶なし・島図なし・10日区切り。
+
+同一コンテキストで「述語を常に False＝従来挙動」と比較し、次の10通りが
+**画素・サイズ完全一致**であることを確認済み。
+
+```
+auto_article×高田馬場 / auto_article×渋谷新館 / auto_article×秋葉原 /
+auto×新宿歌舞伎町 / auto_slump×新宿歌舞伎町 / auto_slump2×新宿歌舞伎町 /
+rote×新宿歌舞伎町 / work×新宿歌舞伎町 / auto×稲毛 / auto×高田馬場
+```
+
+**`wp_client.py` は無変更**なので、fullwidth A-2a ／ Luminous ／ nosplit ／
+`_ART_WP_SPLIT_NARROW_STORES` ／ `_ART_WP_MIN_KEEP_W = 752` も不変。
+
+### K. `77e140d` の仕様を維持
+
+- **⑦プレビューを押さず⑧だけ実行しても、並び画像へパネル・スランプが付く**
+  （`_ART_NARABI_BANMAP_STORES` ／ `_art_narabi_items()`）。
+- **WordPress用のマイジャグV分割仕様（5分割・各片幅1982px）**
+  （`_ART_WP_SPLIT_NARROW_STORES` ／ `wp_saved_width()` ／ `_ART_WP_MIN_KEEP_W`）。
+
+どちらも本節の書体変更では変えていない。
+
+### L. フォントが読めない環境でのフォールバック
+
+**`fonts/NotoSansJP-Black.otf` が万一読めない環境では、例外を出さず
+従来の MochiyPopOne へフォールバックする。**
+`os.path.exists` で候補をスキップするだけなので、**`st.error` / `st.stop()` も発生しない**
+（`os.path.exists` を差し替えて「フォント無し」を再現したテストで確認済み）。
+⑧の subprocess 側も `FONT_OVERRIDE` の実在チェックで `FONT_PATH` へ落ちる。
+
+### M. レイアウトは調整していない
+
+**文字サイズ係数・`GAP_TITLE`・レイアウトは今回いっさい変更していない。**
+
+Noto Sans JP Black の metrics は **`(ascent 47, descent 12)`** で
+**MochiyPopOne と完全に同一**のため、既存の指定サイズのままで
+行高・バー高・列幅が自然に収まり、破綻が出ない
+（`137592c` の HGS は `(35, 6)` で約30%小さく見えていた）。
+
+### N. 確認結果
+
+**純粋テスト 86 PASS / 0 FAIL。**
+ゲート網羅（130通りでONは1通り）／キャッシュ混入なし／グリフ収録／
+`convert_narabi_pil` の既定維持と差し替え／regexパッチ／AST非回帰。
+
+**ローカル実機（2026-09-15 データ・749台／⑦を押さず⑧だけ実行）**
+
+| 項目 | 結果 |
+|---|---|
+| 並び7件のパネル・スランプ | **7/7**（1889×2795 ／ 2062×2080 ／ 2062×3000 ／ 2062×2086 ×3 ／ 2062×2080） |
+| ⑧並び（subprocess）の書体 | 記事用書体版と画素差分 **0.0001**／従来版とは **0.1044** → 一致 |
+| ⑦（in-app `load_font`） | `Noto Sans JP Black` → **⑦と⑧で一致** |
+| 差枚数ランキング.jpg（2181×4638） | 記事用書体差分 **0.000024** ／ 従来差分 0.0850 |
+| 全台データ.jpg（748×298） | 記事用書体差分 **0.0003** ／ 従来差分 0.1065 |
+| スランプカード内の機種名・台番・差枚 | **目視で変更確認** |
+
+**文字の健全性**：`（805～807）`（全角括弧・波ダッシュ U+301C／U+FF5E）／`（優秀台）`（重なりなし）／
+`+1,300枚` 相当／`1/220.5` 相当／漢字・かな・カナ・英字・全角/半角数字・
+記号（`+ - % ( ) , . : /` と全角版）・丸数字・全角スペース ── **欠落0・豆腐0・はみ出し0**。
+
+**Cloud 実機**：2026-09-16 にユーザーが確認し、**ローカルと同じ Noto Sans JP Black で
+問題なく生成される**ことを承認済み。
+
+### O. Cloud で同じ書体になる根拠
+
+1. **書体ファイルがリポジトリ内にある**（`_ART_FONT_PATH` は `BASE_DIR` 相対）。
+   ローカルでも Cloud でも**同じ commit の同じファイル**を読む。
+2. **⑧の subprocess にも同じパスを渡す**ので、⑦と⑧が同一ファイルを参照する。
+3. **OS依存の分岐が残っていない**（`HGRSGU` / `HGS` / `C:\Windows\Fonts` への参照は0件）。
+4. **SIL OFL 1.1 で再配布可能**なので public リポジトリへ同梱できる。
+
+### P. 今後の禁止事項
+
+1. **`fonts/NotoSansJP-Black.otf` / `fonts/OFL.txt` を削除しない**
+2. **`HGRSGU.TTC` / HGS関連ファイル / Windowsフォントをリポジトリへ追加しない**
+3. **`_ART_FONT_PATH` に OS依存パス（`C:\Windows\Fonts` 等）を書かない**
+4. **`_art_font_new()` のページ×店舗ゲートを外さない／他店舗・他ページへ広げない**
+5. **`_font_cache` のキーをサイズのみへ戻さない**（書体混入が起きる）
+6. **⑦だけ／⑧だけ直さない**（`load_font()` と `_patch_and_run_narabi(font_path=…)` は必ずセット）
+7. **`convert_narabi_pil.FONT_OVERRIDE` の既定 `""` を変更しない**
+8. **`_patch_and_run_narabi()` の `font_path` 既定 `None` を変更しない**
+9. **`font_index` / `FONT_INDEX` を復活させない**（OTF に TTC index は不要）
+10. **`load_font()` の呼び出し側30箇所へ引数を足さない**（1箇所での一括適用を維持）
+11. **文字サイズ係数・`GAP_TITLE`・レイアウトを本節を理由に変更しない**
+12. **フォント未存在時のフォールバックを外さない**（例外・`st.error` を出さない）
+13. **`137592c` を「現在の正式な生成書体」と誤記しない**（`31f7346` が正式）／
+    **`137592c` / `31f7346` へ reset・revert しない**
+14. **`77e140d` の並び ban_map 再計算とマイジャグV分割仕様を壊さない**
+15. **`wp_client.py`・WordPress本文・分割・fullwidth・nosplit・パネル・液晶・島図・
+    10日区切りを本節を理由に変更しない**
+16. **他店舗の記事用・通常結果ポスト・かぶぱ・`auto_slump2`・ローテ用・作業用へ波及させない**
+17. **無関係なリファクタ・未使用コード整理をしない**

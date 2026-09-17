@@ -694,6 +694,28 @@ _SL_LIGHT_V     = 255         # 白 #FFFFFF の max(R,G,B)
 _SL_TMPL_CACHE: dict = {}
 
 
+# ── 記事用スランプカードの白地デザイン（新宿歌舞伎町 × auto_article だけ）──
+# **既存の淡紫デザイン（_SLUMP_THEME_PAGES / _SLUMP_THEME_STORES / _slump_theme_new /
+#   _slump_template_image / 猫 _SL_NEKO_*）とは別仕様。統合・流用しない。**
+# **カード外側の #D8C6E3（C_ART_SLUMP_AREA_BG / _ART_SLUMP_BG_STORES）とも別仕様。**
+# 黒テンプレ base_3000_bk.png を**メモリ上だけ**で反転再配色し、
+#   暗部（#120606 側）→ 白 ／ 白インク（枠・区切り・縦軸・0ライン・補助線・目盛文字）→ 黒
+# にする。**元PNGは読み取るだけで一切変更しない**（全店舗・全ページが共有）。
+C_ART_SL_CARD_BG   = (255, 255, 255)   # #FFFFFF カード地
+C_ART_SL_CARD_LINE = (0,   0,   0)     # #000000 外枠・区切り・ヘッダー帯・縦軸・0ライン・補助線・目盛文字
+C_ART_SL_CARD_TEXT = (0,   0,   0)     # #000000 ヘッダーの機種名／台番・下部機種名
+C_ART_SL_CARD_DIFF = (255, 0,   0)     # #FF0000 グラフ上に描く差枚数
+C_ART_SL_CARD_EDGE = (255, 255, 255)   # 下部機種名の縁取り（白地なので白）
+# グラフ上の差枚数だけ現行指定サイズの85%へ縮小する（表内の差枚・台番・機種名・
+# 下部機種名・折れ線は一切変えない）。丸めは既存の round() に合わせる。
+_ART_SL_DIFF_FONT_RATIO = 0.85
+# 対象ページ・対象店舗（_art_font_new / _slump_theme_new と同じ page × store の AND）
+_ART_SL_CARD_PAGES:  "frozenset[str]" = frozenset({"auto_article"})
+_ART_SL_CARD_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+# ★専用キャッシュ。_SL_TMPL_CACHE と共有すると淡紫版と白版が同じキーで衝突する。
+_ART_SL_TMPL_CACHE: dict = {}
+
+
 # 新宿歌舞伎町だけ「かぶぱポストの結果（auto_slump）」と
 # 「スランプ付き結果（auto_slump2）」の2系統を持つ。両者は store が同じなので
 # **page を含めて判定する**。保存フラグは持たず毎回 page × store から導出するので、
@@ -1010,6 +1032,73 @@ def _slump_template_image(template_path) -> "Image.Image":
                         round(bg[2] + (fg[2] - bg[2]) * t), 255)
 
     _SL_TMPL_CACHE[_key] = dst
+    return dst
+
+
+def _art_slump_card_new() -> bool:
+    """記事用スランプカードを白地・黒罫線で描くか。
+
+    `_art_font_new()` / `_slump_theme_new()` と同じ **page × store の AND** で
+    毎回導出する。保存フラグを持たないのでページ遷移・rerun に影響されない。
+    True になるのは **auto_article × 新宿歌舞伎町 の1通りだけ**。
+    Streamlit 外（純粋テスト・subprocess）では False＝従来の黒テンプレ。
+    """
+    try:
+        return (st.session_state.get("page") in _ART_SL_CARD_PAGES
+                and st.session_state.get("selected_store") in _ART_SL_CARD_STORES)
+    except Exception:
+        return False
+
+
+def _art_slump_card_image(template_path) -> "Image.Image":
+    """base_3000_bk.png を**メモリ上だけ**で「白地＋黒罫線」へ再配色して返す。
+
+    **元PNGは読み取るだけで一切変更しない**（全店舗・全ページ・単体スランプ
+    ページが共有）。**既存の `_slump_template_image()`（淡紫・auto_slump系）は
+    変更しない**ため、専用関数として分けている。
+
+    再配色は `_slump_template_image()` と同じエンジン＝「元画素の明るさ
+    t（0=黒地 #120606／1=白インク）で 背景色→前景色 を線形補間」する。
+    白黒の2値置換ではないので、**文字・破線・角丸のアンチエイリアス階調が
+    そのまま残る**。サイズ・軸位置・補助線位置・目盛位置・文字グリフ・外枠・
+    区切り位置は元PNGのままなので、下流の座標計算
+    （X_START / X_END / Y_ZERO / PX_1000 / DARK_Y1）へ影響しない。
+
+    領域分類は `_slump_template_image()` と同じ座標定数（`_SL_FRAME_PAD` /
+    `_SL_SEP1` / `_SL_SEP2` / `_SL_HDR1` / `_SL_HDR2` / `_SL_AXIS_X` /
+    `Y_ZERO ± k*PX_1000`）で表される領域を指すが、**白カードでは
+    外枠・区切り帯・ヘッダー帯・縦軸・0ライン・補助線・目盛文字のすべてを
+    同じ黒（C_ART_SL_CARD_LINE）として扱う**ため、領域ごとに前景色を
+    分ける必要がない。結果として **白インクが1pxも残らない**
+    （白背景上で見えなくなる白要素をゼロにする）。
+    """
+    _key = str(template_path)
+    try:
+        _key = (_key, os.path.getmtime(_key))
+    except Exception:
+        _key = (_key, 0)
+    # ★_SL_TMPL_CACHE とは共有しない（同じキーで淡紫版と白版が衝突するため）
+    _hit = _ART_SL_TMPL_CACHE.get(_key)
+    if _hit is not None:
+        return _hit
+
+    src = Image.open(str(template_path)).convert("RGB")
+    w, h = src.size
+    sp = src.load()
+    dst = Image.new("RGBA", (w, h))
+    dp = dst.load()
+    _den = float(_SL_LIGHT_V - _SL_DARK_V)
+    _bg, _fg = C_ART_SL_CARD_BG, C_ART_SL_CARD_LINE
+    for y in range(h):
+        for x in range(w):
+            _v = max(sp[x, y])
+            t = (_v - _SL_DARK_V) / _den
+            t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+            dp[x, y] = (round(_bg[0] + (_fg[0] - _bg[0]) * t),
+                        round(_bg[1] + (_fg[1] - _bg[1]) * t),
+                        round(_bg[2] + (_fg[2] - _bg[2]) * t), 255)
+
+    _ART_SL_TMPL_CACHE[_key] = dst
     return dst
 
 # =============================================================================
@@ -24593,9 +24682,17 @@ def draw_slump_graph(
 
     # 新デザイン（稲毛 auto_slump）はメモリ上で再配色したテンプレを使う。
     # **base_3000_bk.png 自体は読み取るだけで変更しない。**
+    # 記事用（新宿歌舞伎町 × auto_article）は白地＋黒罫線の専用テンプレ。
+    # ページが互いに排他（auto_slump系 / auto_article）なので同時に True にならないが、
+    # 既存の淡紫デザインを優先する形で明示的に分岐する。
     _sl_new = _slump_theme_new()
-    base = (_slump_template_image(template_path) if _sl_new
-            else Image.open(str(template_path)).convert("RGBA"))
+    _sl_art = (not _sl_new) and _art_slump_card_new()
+    if _sl_new:
+        base = _slump_template_image(template_path)
+    elif _sl_art:
+        base = _art_slump_card_image(template_path)
+    else:
+        base = Image.open(str(template_path)).convert("RGBA")
     w, h = base.size
 
     # 高解像度キャンバスでアンチエイリアスを強化
@@ -24663,7 +24760,9 @@ def draw_slump_graph(
         return x, y
 
     # 新デザインは淡いヘッダー地なので濃紫、従来デザインは黒地なので純白。
-    _hdr_fg = C_SL_TEXT if _sl_new else (255, 255, 255)
+    # 記事用の白カードは白地なので黒（純白のままだと完全に見えなくなる）。
+    _hdr_fg = (C_SL_TEXT if _sl_new
+               else (C_ART_SL_CARD_TEXT if _sl_art else (255, 255, 255)))
 
     name_x, name_y = _center_xy(display_name, font_name, round(10 * _os), round(41 * _os))
     draw.text((name_x, name_y), display_name, fill=_hdr_fg, font=font_name)
@@ -24674,14 +24773,24 @@ def draw_slump_graph(
 
     # 差枚テキスト（黄色・中央寄せ）
     if points and show_diff:
-        font_diff  = load_font(round(42 * _os))
+        # 記事用の白カードだけ **グラフ上の差枚数** を現行指定サイズの85%へ縮小する。
+        # 丸めは既存と同じ round()。整数サイズなので1px未満の端数は発生せず、
+        # 中央寄せ（diff_x）・下端基準（diff_y）は縮小後の bbox から求め直すため
+        # 既存の配置ロジックのまま位置がずれない。
+        # **表内の差枚数・台番・機種名・下部機種名・折れ線のサイズは変更しない。**
+        _diff_sz = round(42 * _os)
+        if _sl_art:
+            _diff_sz = max(1, round(_diff_sz * _ART_SL_DIFF_FONT_RATIO))
+        font_diff  = load_font(_diff_sz)
         _raw = diff if diff is not None else points[-1]["y"]
         diff_text  = _fmt_diff(_pipeline_calc_d(_raw))
         bb = font_diff.getbbox(diff_text)
         diff_x = (w - (bb[2] - bb[0])) // 2 - bb[0]
         diff_y = (h - round(18 * _os)) - bb[3]
         draw.text((diff_x, diff_y), diff_text,
-                  fill=(C_SL_TEXT if _sl_new else (255, 255, 0)), font=font_diff)
+                  fill=(C_SL_TEXT if _sl_new
+                        else (C_ART_SL_CARD_DIFF if _sl_art else (255, 255, 0))),
+                  font=font_diff)
 
         # 機種名テキスト（差枚数の直上・黄色・縁取り）
         if machine_name:
@@ -24701,8 +24810,11 @@ def draw_slump_graph(
             _mn_y  = diff_y - _mn_h - round(4 * _os) - _mn_bb[1]
             _ow = max(1, round(1 * _os))
             # 新デザインは淡背景なので「濃紫＋白縁」、従来は黒地なので「黄＋黒縁」。
-            _mn_edge = C_SL_TEXT_EDGE if _sl_new else (0, 0, 0)
-            _mn_fill = C_SL_TEXT      if _sl_new else (255, 255, 0)
+            # 記事用の白カードは「黒＋白縁」（黄のままだと白地でほぼ読めない）。
+            _mn_edge = (C_SL_TEXT_EDGE if _sl_new
+                        else (C_ART_SL_CARD_EDGE if _sl_art else (0, 0, 0)))
+            _mn_fill = (C_SL_TEXT if _sl_new
+                        else (C_ART_SL_CARD_TEXT if _sl_art else (255, 255, 0)))
             for _ox, _oy in ((-_ow,-_ow),(_ow,-_ow),(-_ow,_ow),(_ow,_ow),
                              (0,-_ow),(0,_ow),(-_ow,0),(_ow,0)):
                 draw.text((_mn_x + _ox, _mn_y + _oy), machine_name, fill=_mn_edge, font=_mn_font)

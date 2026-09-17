@@ -5144,11 +5144,15 @@ def generate_recommended_result_text(
     plain_head: bool = False,
     bans_by_block: dict | None = None,
     section_emoji: str | None = None,
+    merge_same_title: bool = False,
 ) -> str:
     """オススメ機種ブロックから +1,000枚以上の台番をピックアップしたテキストを生成する。
     各ブロックが「{section_emoji}{title}の優秀台」セクションになる。"""
     name_map, _ = load_name_map()
     sections: list[str] = []
+    # merge_same_title=True のとき、同じ見出しのブロックを1セクションへまとめる
+    # （見出し行 → sections のindex）。既定 False では使わず1ブロック1セクションのまま。
+    _merged_idx: dict[str, int] = {}
     _exclude = exclude_machines or set()
 
     _rec_cfg      = STORE_REC_CONFIG.get(store_name, {})
@@ -5213,7 +5217,15 @@ def generate_recommended_result_text(
                 _body += "\n\n" + f"🎁{title}" + "\n" + "\n\n".join(machine_parts)
             sections.append(_body)
         else:
-            sections.append(header_line + "\n" + "\n\n".join(machine_parts))
+            _body = header_line + "\n" + "\n\n".join(machine_parts)
+            if merge_same_title and header_line in _merged_idx:
+                # 同じ見出しの2ブロック目以降は見出しを繰り返さず、既存セクションの末尾へ
+                # 機種ブロックだけを足す（ブロック順・機種間の空行・書式はそのまま）。
+                sections[_merged_idx[header_line]] += "\n\n" + "\n\n".join(machine_parts)
+            else:
+                if merge_same_title:
+                    _merged_idx[header_line] = len(sections)
+                sections.append(_body)
 
     return "\n\n".join(sections)
 
@@ -19857,6 +19869,9 @@ def show_auto_article_page() -> None:
                         bans_by_block={_bn: _art_osu_bans_e.get(_art_osusume_fn(_bn), [])
                                        for _bn in range(len(art_osusume_blocks))},
                         section_emoji=STORE_EMOJI_CONFIG.get(store, ("💫", "👑"))[1],
+                        # 同じタイトルの⑤ブロックは結果テキストの見出しを1回にまとめる
+                        # （⑤画像・WordPressのH3はブロックごとのまま。結果テキストだけ）
+                        merge_same_title=True,
                     )
                     if _osu_txt_rt:
                         report_text = insert_formatted_result_before_other_picks(

@@ -6960,6 +6960,35 @@ def _art_osusume_per_block(store: str, n: int) -> int:
         return _ART_OSUSUME_PER_BLOCK_EXTRA
     return _ART_OSUSUME_PER_BLOCK
 
+
+# ── 記事用⑤「オススメ機種の優秀台」を **最優先** にする店舗 ──────────────
+# ⑤へ入力済みの機種は、その日に自動全台系・自動高配分の条件を満たしても
+# それらの画像を作らず、必ず⑤ブロック画像へ載せる（＝同じ台を二重掲載しない）。
+# ★対象は auto_article × この店舗だけ。通常ページ・他店舗の記事用・
+#   auto_slump / auto_slump2 / rote は従来どおり（⑤より全台系・高配分が優先）。
+# ★判定条件そのもの（run_step1_main / run_step3_other /
+#   filter_recommended_machines）は変更しない。既存の②個別優先とまったく同じ
+#   抑制機構（recommended_machines / kojin_zentai_machines）を再利用するだけで、
+#   新しい抽出ロジック・生成後の画像削除・機種名の再変換は作らない。
+_ART_OSU_PRIORITY_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
+def _art_osu_priority_machines(store: str, machines) -> set[str]:
+    """⑤を最優先にする店舗の「⑤へ入力済みの機種名」集合（対象外の店舗は空集合）。
+
+    machines : `_art_osusume_flat()` が返す⑤入力機種のフラットリスト。
+    ★機種名はここでハードコードしない（⑤の入力値だけを正とする）。
+    ★入力の無いブロックは入らない（strip() で空を落とす）。
+    戻り値は run_auto_pipeline の
+      recommended_machines  … 自動高配分・ジャグラー統合の抑制（→ high_ratio_list に載らない）
+      kojin_zentai_machines … 自動全台系の抑制（→ zen_dai_list に載らない）
+    の両方へ渡す。⑦フル・📝記入部分のみ・⑧本番で必ず同じ値を使うこと。
+    """
+    if store not in _ART_OSU_PRIORITY_STORES:
+        return set()
+    return {str(m).strip() for m in (machines or []) if str(m or "").strip()}
+
+
 # ⑤の画像タイトルバー文言（③高配分の「優秀台ピックアップ」とは別文言にする）。
 # ★ブロックタイトルは画像へ描かない。画像バーは常にこの固定文言。
 _ART_OSUSUME_BAR_TEXT = "オススメ機種の優秀台"
@@ -17669,6 +17698,10 @@ def show_auto_article_page() -> None:
                             _art_prec |= {m.strip() for m in kojin_yushu_machines if m.strip()}
                         _art_pick_suppress = _kojin_pick_suppressed_machines(uploaded, store, prefix="art_")
                         _art_prec |= _art_pick_suppress
+                        # ⑤「オススメ機種の優秀台」を最優先にする店舗（新宿歌舞伎町の記事用）。
+                        # ⑤入力機種は②個別と同じ抑制機構で自動高配分・自動全台系を作らない。
+                        _art_osu_prio = _art_osu_priority_machines(store, art_osusume_machines)
+                        _art_prec |= _art_osu_prio
                         # 他画像からの末尾台除外（通常ページと同じく末尾①②③＋ジャグラー末尾）
                         _art_stails, _art_jstails = _art_sue_exclude_tails()
                         _art_vbans = (ranges_to_bans(parse_ranges(art_variety_ranges_text.strip()))
@@ -17689,8 +17722,10 @@ def show_auto_article_page() -> None:
                             # 🎯掲載台を選ぶ（高配分／ジャグラー統合／その他）: 記事用stateの投影
                             exclude_units=_art_pipeline_exclude(_art_unit_state),
                             # ②個別画像(全台)の機種は自動全台系を作らない（同名画像の二重生成を防ぐ）
-                            kojin_zentai_machines=({m.strip() for m in kojin_zentai_machines if m.strip()}
-                                                   if kojin_enabled else set()),
+                            # ⑤最優先の店舗では⑤入力機種も自動全台系を作らない（⑤へ載せる）
+                            kojin_zentai_machines=(({m.strip() for m in kojin_zentai_machines if m.strip()}
+                                                    if kojin_enabled else set())
+                                                   | _art_osu_prio),
                             # ③列仕掛けの掲載台はジャグラー統合・その他の優秀台へ重複掲載しない
                             # （案E1: 列画像・列専用ban_map は独立のまま。narabi_bans へは混ぜない）
                             retsu_bans=(ranges_to_bans(retsu_ranges) if retsu_ok else set()),
@@ -18907,6 +18942,10 @@ def show_auto_article_page() -> None:
             }
             _art_pick_suppress_e = _kojin_pick_suppressed_machines(uploaded, store, prefix="art_")
             _kojin_names |= _art_pick_suppress_e
+            # ⑤「オススメ機種の優秀台」を最優先にする店舗（新宿歌舞伎町の記事用）。
+            # ⑦フル・📝記入部分のみと同じ集合を使う（片側だけの変更にしない）。
+            _art_osu_prio_e = _art_osu_priority_machines(store, art_osusume_machines)
+            _kojin_names |= _art_osu_prio_e
             # 他画像からの末尾台除外（通常ページと同じく末尾①②③＋ジャグラー末尾）
             _sue_tails_art, _jug_sue_tails_art = _art_sue_exclude_tails()
             _art_vbans_ex = (ranges_to_bans(parse_ranges(art_variety_ranges_text.strip()))
@@ -18926,8 +18965,10 @@ def show_auto_article_page() -> None:
                 # 🎯掲載台を選ぶ（高配分／ジャグラー統合／その他）: 記事用stateの投影
                 exclude_units=_art_pipeline_exclude(_art_unit_state_e),
                 # ②個別画像(全台)の機種は自動全台系を作らない（同名画像の二重生成を防ぐ）
-                kojin_zentai_machines=({m.strip() for m in kojin_zentai_machines if m.strip()}
-                                       if kojin_enabled else set()),
+                # ⑤最優先の店舗では⑤入力機種も自動全台系を作らない（⑤へ載せる）
+                kojin_zentai_machines=(({m.strip() for m in kojin_zentai_machines if m.strip()}
+                                        if kojin_enabled else set())
+                                       | _art_osu_prio_e),
                 # ③列仕掛けの掲載台はジャグラー統合・その他の優秀台へ重複掲載しない
                 # （案E1: 列画像・列専用ban_map は独立のまま。narabi_bans へは混ぜない）
                 retsu_bans=(ranges_to_bans(retsu_ranges) if retsu_ok else set()),

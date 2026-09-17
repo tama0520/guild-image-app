@@ -20348,3 +20348,276 @@ def generate_recommended_result_text(..., plain_head: bool = False) -> str:
 14. **`auto_slump2` を新小岩のページとして扱わない**
 15. **`4b72428` / `69db84f` へ reset・revert しない**
 16. **無関係なリファクタ・未使用コード整理をしない**
+
+## 【正式仕様】新宿歌舞伎町 記事用：白地スランプカード・右下青差枚・細い最外周罫線・表見出し黒地・カード内機種名なし（2026-09-17・`c1c3bdd` / `56844fe` / `cc695d4`）
+
+**正式仕様。巻き戻し禁止。**対象は**【新宿歌舞伎町】かつ `page=auto_article` の記事用だけ**。
+2026-09-17 に **ユーザーが Streamlit Cloud 実機で確認し「すべて問題なく表示される」と正式承認**した。
+
+既存の記事用・スランプ関連セクション（`77e140d` / `31f7346` / `5c5c1f2` / `61851ca` / `e53a116` /
+`0e49bd9` / `5711df4` / `3432a97` / `a05cb00` ほか）は
+**削除・圧縮・統合・並べ替え・書き換えしない**。本節は**2026-09-17 の正式仕様として末尾へ追加**する。
+
+### A. 正式実装commit（3本でひとつの仕様を構成）
+
+| # | commit | 内容 |
+|---|---|---|
+| ① | **`c1c3bdd90753ec815b994c59da8aa59d7785eda5`** | `feat: 新宿歌舞伎町記事用のスランプを白地化`（`streamlit_app.py` のみ） |
+| ② | **`56844fe88539d4f3bcf8effb2216658b85842bba`** | `feat: 新宿歌舞伎町記事用のスランプ表示を調整`（`streamlit_app.py` / `convert_narabi_pil.py` の2ファイル） |
+| ③ | **`cc695d449e46e8993e8b5d2ac72f4a5eb51eb620`** | `feat: 新宿歌舞伎町記事用スランプの機種名を削除`（`streamlit_app.py` のみ・+13 / −3） |
+
+**いずれも「正式仕様の根拠となる実装commit」であって、HEAD をここへ戻すという意味ではない。
+`c1c3bdd` / `56844fe` / `cc695d4` へ reset してはならない。**
+
+**★`56844fe` は commit メッセージの先頭に `@` が混入している**（Bash に PowerShell の
+here-string 記法を渡したミス）。**push 済みのため force push による書き換えはしていない。
+コード差分は正常で、この `@` を理由に履歴を書き換えてはならない。**
+
+### B. 対象範囲
+
+**対象は `auto_article × 新宿歌舞伎町` の1通りだけ。**
+その記事用で**スランプを合成する全カテゴリ**に適用する。
+
+全台系 ／ 高配分（**自動 `{機種名}_高配分.jpg` と手動 `{機種名}（優秀台）.jpg` の両方**）／
+②個別の優秀台 ／ ジャグラーシリーズ優秀台 ／ その他の優秀台ピックアップ ／ 並び ／ 列 ／
+④末尾 ／ バラエティ ／ ⑤オススメ。
+
+### C. ★②個別「全台」へスランプ合成を追加しない／スランプなし画像は対象外
+
+- **⑧本番では従来から②個別「全台」が ban_map 未登録**（⑦のみ登録）であり、
+  **今回もスランプ合成を追加していない。勝手に ban_map 登録を足さないこと。**
+- **差枚数ランキング ／ 全台データ ／ 島図 ／ ポスター**は ban_map 未登録で
+  スランプ合成ループに入らないため**対象外**。
+
+### D. スランプカード本体の配色
+
+| 対象 | 色 |
+|---|---|
+| **カード地** | **白 `#FFFFFF`**（`C_ART_SL_CARD_BG = (255, 255, 255)`） |
+| **外枠 ／ 区切り線 ／ ヘッダー帯 ／ 縦軸 ／ 0ライン ／ 補助線 ／ 目盛文字** | **黒 `#000000`**（`C_ART_SL_CARD_LINE`） |
+| **カード外側の背景** | **薄紫 `#D8C6E3` RGB `(216, 198, 227)`**（既存正式仕様 `61851ca` の `C_ART_SLUMP_AREA_BG` を維持） |
+| **スランプ折れ線** | **赤 `#FF0000`（維持）** |
+
+### E. 最外周罫線だけ細くする（内部線は太さを維持）
+
+```python
+_ART_SL_OUTER_RATIO = 0.4
+_keep = max(1, round(_SL_FRAME_PAD * _ART_SL_OUTER_RATIO))   # = 4px（黒として残す内側）
+_cut  = max(0, _SL_FRAME_PAD - _keep)                        # = 6px（薄紫で塗る外側）
+```
+
+- 元テンプレの外枠は上下左右とも**厳密に10pxのベタ白帯**で、再配色でそのまま10pxの黒帯になる。
+  その**外側6pxをカード外側と同じ `C_ART_SLUMP_AREA_BG` で塗り、内側4pxだけを黒として残す**
+  ＝**見た目4px相当の細い罫線**。
+- **塗る色は `C_ART_SLUMP_AREA_BG` を関数内でそのまま参照する**（別定数にすると値がズレて境目が見える）。
+- **カード内部の区切り線・グラフ枠・縦軸・0ライン・補助線・目盛線は細くしない**（太さも色も不変）。
+- **`base_3000_bk.png` は読み取るだけで変更しない**（メモリ上の再配色のみ）。
+
+### F. カード内の差枚数は右下・青・85%
+
+| 項目 | 値 |
+|---|---|
+| 位置 | **グラフ囲みの右下へ右寄せ** |
+| 色 | **`C_ART_SL_CARD_DIFF = C_PLUS = "#0000CC"`**（表内のプラス差枚色と同じ青を**参照**する） |
+| サイズ | **既存サイズの85%**（`_ART_SL_DIFF_FONT_RATIO = 0.85`） |
+| 安全余白 | **`_ART_SL_DIFF_PAD = 8`**。`_SL_FRAME_PAD(10) + 8 = 18` なので**下端位置は従来と1pxも変わらない**（横位置だけ中央寄せ→右寄せ） |
+| 可読性 | **8方向の白縁取り**（`C_ART_SL_CARD_EDGE`）を先に描いてから青文字を重ねる |
+
+- 右端は `388 - 10 - 8 = 370` で、**0ライン・補助線の右端(377)より内側**に収まる。
+  目盛文字は左端にあるので当たらない。
+- **右下は折れ線の終点が来る場所でもある**（終端が概ね **−2,800枚以下**だと赤線がテキスト帯を通る）。
+  白縁取りは**可読性のためだけ**で、**色（`C_PLUS`）・サイズ（85%）・位置（右下）は変えない。
+  赤い折れ線自体も消さない。**
+- **新しい青定数を作らず `C_PLUS` を参照する**（表の差枚色と値がズレないため）。
+
+### G. ★カード内に機種名を一切表示しない（`cc695d4`）
+
+**新宿歌舞伎町の記事用では、スランプカード内の機種名を上部・下部とも一切描画しない。**
+
+| 区分 | 従来 | 正式 |
+|---|---|---|
+| **カード上部の機種名**（`display_name`・ヘッダー1帯 `_SL_HDR1 = (10, 50)`） | 無条件で描画 | **描画しない**（`_center_xy()` の**文字位置計算にも入らない**） |
+| **カード下部の複数機種用の機種名**（`machine_name`・差枚数の直上） | `if machine_name:` で描画 | **描画しない**（**フォント計算・白の縁取り・本描画のいずれにも入らない**） |
+
+**カード内に残すもの：台番 ／ 目盛 ／ 赤い折れ線 ／ 右下の青い差枚数。**
+
+### H. 機種名を消してもレイアウトは変えない（案A）
+
+- **上部ヘッダー帯は空白のまま残す。**帯・区切り線（`_SL_SEP1` / `_SL_SEP2`）は従来どおり描かれる。
+- **台番は従来どおりヘッダー2帯（`_SL_HDR2 = (57, 97)`）へ残す。**
+- **カードサイズ 388×472 ／ グラフ座標（`X_START=24` / `X_END=364` / `Y_ZERO=290` /
+  `PX_1000=47` / `DARK_Y1=462`）／ 表との合成位置は一切変更しない。**
+- **カードを詰めない ／ 台番を上へ移動しない ／ テンプレ素材・座標定数を変更しない。**
+
+### I. ★実装は `draw_slump_graph()` 内の `_sl_art` 1本（呼び出し側へ分岐を足さない）
+
+```python
+_sl_new = _slump_theme_new()
+_sl_art = (not _sl_new) and _art_slump_card_new()
+if _sl_new:      base = _slump_template_image(template_path)     # auto_slump系の淡紫
+elif _sl_art:    base = _art_slump_card_image(template_path)     # 記事用の白カード
+else:            base = Image.open(str(template_path)).convert("RGBA")   # 従来の黒テンプレ
+```
+
+機種名の抑止も**この関数内の `_sl_art` 2箇所のガードだけ**で行う。
+
+- **⑦プレビュー・🔄その他を更新・⑧本番の呼び出し側（`show_auto_article_page` 内の3箇所）へ
+  個別分岐を追加しない。**同じ関数を通るので**3経路が構造的に一致**する。
+- **`_show_mn_pv2` / `_show_mn_u` / `_show_mn_sl` / `_osu_multi_pv2` / `_osu_multi_sl` と、
+  呼び出し側で渡す `display_name` / `machine_name` の条件式を変更しない**
+  （他店舗の記事用と共有しているため）。
+- **`show_auto_article_page` に `_sl_art` を持ち込まない。**
+
+### J. ゲートは page × store の AND（保存フラグを持たない）
+
+```python
+_ART_SL_CARD_PAGES:  "frozenset[str]" = frozenset({"auto_article"})
+_ART_SL_CARD_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
+def _art_slump_card_new() -> bool:
+    try:
+        return (st.session_state.get("page") in _ART_SL_CARD_PAGES
+                and st.session_state.get("selected_store") in _ART_SL_CARD_STORES)
+    except Exception:
+        return False
+```
+
+- **True になるのは `auto_article × 新宿歌舞伎町` の1通りだけ**（13店舗 × 12ページ＝156通りで確認）。
+- **Streamlit 外（純粋テスト・subprocess）では `False`＝従来の黒テンプレ。**
+- `_art_font_new()` / `_slump_theme_new()` / `_table_theme_new()` と同じ確立済みの流儀。
+  **保存フラグ方式へ戻さない。**
+- **専用キャッシュ `_ART_SL_TMPL_CACHE` を持つ**（`_SL_TMPL_CACHE` と共有すると
+  淡紫版と白版が同じキーで衝突する）。**キャッシュを統合しない。**
+
+### K. 表の最上段見出しを黒地・白文字・薄灰色罫線
+
+| 対象 | 値 |
+|---|---|
+| **見出しセル背景** | **黒 `#000000`**（`C_ART_TBL_HEADER_BG`） |
+| **見出しセル文字** | **白 `#FFFFFF`**（`C_ART_TBL_HEADER_FG`） |
+| **見出しセル間の罫線** | **薄いグレー `#DDDDDD`**（`C_ART_TBL_HEADER_LINE`）。**白にしない** |
+
+対象は最上段の **「台番」「機種名」「ゲーム数」「REG」「AT」「合算確率」「差枚数」**。
+
+**本文セルの背景・本文文字・本文罫線（`C_BORDER`）・差枚数の値の色（`C_PLUS` / `C_MINUS` /
+`C_ZERO`）・列幅・行高・表高さ・タイトルバー・サマリー・スランプ合成順は変更しない。**
+
+判定は **`_art_table_header_new()`**（`_ART_TBL_HEADER_PAGES` × `_ART_TBL_HEADER_STORES`）。
+**既存の結果ポスト系テーマ（`_table_theme_new()` / `C_NEW_HEADER_*` / `_TABLE_THEME_*`）とは
+別仕様**で、ページが排他（`auto` 系 / `auto_article`）なので同時に成立しない。**統合しない。**
+
+### L. ★⑦・🔄・⑧で表見出しを一致させる（並び・列は subprocess）
+
+⑧本番の並び・列は **`convert_narabi_pil.py` を subprocess 実行**するため `draw_table_image()` を
+通らない。**必ず両経路へ同じ設定を渡すこと。**
+
+| 経路 | 実装 |
+|---|---|
+| ⑦プレビュー（および⑧の非並び画像） | `draw_table_image()` が `_art_table_header_new()` で切替 |
+| ⑧本番の並び・列（subprocess） | **`_patch_and_run_narabi(..., art_header=_art_table_header_new())`** → `convert_narabi_pil.py` の **`ART_HEADER`** を regex で書き換え |
+
+```python
+# convert_narabi_pil.py（既定は必ず False＝従来のクリーム見出し）
+ART_HEADER = False
+HEADER_BG  = ((0, 0, 0) if ART_HEADER else ((41, 0, 104) if THEME_NEW else (243, 230, 200)))
+HEADER_FG  = ((255, 255, 255) if ART_HEADER else ((255, 255, 255) if THEME_NEW else (75, 0, 130)))
+HEADER_LINE_C = (221, 221, 221) if ART_HEADER else BORDER_C
+```
+
+- **`THEME_NEW` は流用しない**（本文文字色・行高・タイトルバー・サマリーまで変わるため）。
+- 見出し行は `draw.rectangle([(0, 0), (img_w - 1, row_y(1) - 2)], fill=HEADER_LINE_C)` で
+  先に帯を塗ってからセルを描くので、**見出し／本文の境界線は `BORDER_C` のまま**。
+- **`ART_HEADER` の既定 `False` を変更しない**（通常ページ・他店舗・ローテ・かぶぱが壊れる）。
+- **⑦だけ／⑧だけ直さない。**
+
+### M. 素材・他ファイルは変更しない
+
+**`base_3000_bk.png` ／ `bbb.jpg` ／ `_slump_template_image()` ／ 機種画像マスタ ／
+パネル素材 ／ フォント素材はいっさい変更しない。**
+
+**`base_3000_bk.png` の sha256 は
+`bbc09ea8a3b24ec880606f36ac89054e38276a78217402834e0a7d3e2bd73618`（不変）。**
+
+`wp_client.py` / `shimazu_renderer.py` / `masters/machine_image_master.xlsx` / `機種名変換.xlsx` も
+**`git diff` 0**（`convert_narabi_pil.py` は `56844fe` の `ART_HEADER` 追加のみ）。
+
+### N. 維持する既存正式仕様（新宿歌舞伎町の記事用）
+
+**記事用パネルあり**（`_ARTICLE_PANEL_STORES`）／ **液晶なし**（`_art_gap_fill_on("新宿歌舞伎町") == False`）／
+**島図なし**（`_ARTICLE_SHIMAZU_STORES` は渋谷新館のみ）／ **Noto Sans JP Black**
+（`_ART_FONT_STORES` / `31f7346` / `5c5c1f2`）／ **高配分の水色バー削除**（`_ART_HIGH_NO_BAR_STORES` / `e53a116`）／
+**薄紫のカード外側背景**（`_ART_SLUMP_BG_STORES` / `61851ca`）／
+**`77e140d` の並び・列 ban_map 再計算＋パネル・スランプ**（`_ART_NARABI_BANMAP_STORES`）／
+**初代ヴァルヴレイヴの `vvv` 紐づけ・ヴァルヴレイヴ2の `vvv2` 紐づけ**／
+**マイジャグVの WordPress 5分割**（`_ART_WP_SPLIT_NARROW_STORES` / `_ART_WP_MIN_KEEP_W = 752`）。
+
+### O. 対象外（従来仕様を維持）
+
+**他店舗の記事用（高田馬場・渋谷新館・秋葉原）／ 新宿歌舞伎町の通常ページ（`auto`）／
+かぶぱ（`auto_slump`）／ `auto_slump2` ／ ローテ（`rote`）／ 単体スランプページ
+（`show_slump_graph_page`）／ 📝記入部分のみ（`_composite_slump_onto_images` 経由）。**
+
+**WordPress 本文・画像分割・fullwidth・nosplit ／ 抽出条件 ／ 台番 ／ ファイル名 ／ ban_map ／
+結果テキスト ／ 表の機種名 ／ パネル画像内の機種名 ／ 記事見出しの機種名**も**対象外で削除しない**。
+
+### P. 確認結果
+
+**純粋テスト**：`c1c3bdd` 時点 ／ `56844fe` **614 PASS / 0 FAIL** ／ `cc695d4` **394 PASS / 0 FAIL**。
+
+- **ゲート網羅**：13店舗 × 12ページ＝156通りで ON は1通りだけ。
+- **全11カテゴリ**で上部の文字画素0、かつ **HEAD版の「名前を渡さない」基準と画素完全一致**、
+  同時に **HEAD版とは差が出る**（＝元は名前が出ていた）ことも確認。
+- **`machine_name` の有無で結果が変わらない**（下部も消えている）。
+- 台番・縦軸・目盛文字・補助線・赤い折れ線・右下の青い差枚数・区切り線が**残存**。
+- **カードサイズ 388×472 不変**、`out_scale=2.0` でも 776×944、
+  帯・外枠の座標定数（`_SL_HDR1` / `_SL_HDR2` / `_SL_SEP1` / `_SL_SEP2` / `_SL_FRAME_PAD`）が不変。
+- **`show_diff=False`**（全台系のマイナス台）でも上部だけ消え、台番・サイズは従来どおり。
+- **最外周は内側4pxが黒・外側6pxが薄紫**、内部罫線は従来どおり。
+- **⑦・🔄・⑧の一致**：3経路は同一関数・同一ゲート。呼び出し数と条件式は HEAD と同数。
+- **対象外の非回帰**：他店舗の記事用・`auto`・`auto_slump`・`auto_slump2`・`rote`・`slump_graph`・
+  `work` などで、`machine_name` の有無 × `show_diff` の4組合せ ＋ `out_scale=2.0` が
+  **HEAD と画素完全一致**。`_attach_slump_to_table(_side)` / `_apply_panel_to_table_img` /
+  `draw_table_image` / `_art_high_title_bar` / `_build_col_items` / `_art_narabi_items` /
+  `_composite_slump_onto_images` / `show_auto_page` / `show_rote_page` /
+  `show_slump_graph_page` ほか **49関数が AST 一致**。
+- **`cc695d4` で本体が変わった関数は `draw_slump_graph` だけ**（新規・消失関数0・
+  `show_auto_article_page` も不変）。
+
+**実機**：ローカル ⑦プレビューで確認後、**2026-09-17 にユーザーが Streamlit Cloud 実機で
+「新宿歌舞伎町の記事用のスランプカード・表見出しの見た目変更がすべて問題なく表示される」と
+正式承認**。白地・黒罫線・細い最外周線・右下の青い差枚数・カード内機種名なし・
+表見出しの黒地／白文字が**新宿歌舞伎町の記事用だけで正常表示**されることを確認済み。
+
+### Q. 今後の禁止事項
+
+1. **記事用のスランプカードを黒地へ戻さない**（`_ART_SL_CARD_PAGES` / `_ART_SL_CARD_STORES` を外さない）
+2. **カード内へ機種名（上部・下部）を復活させない**
+3. **機種名を消したことを理由にカードを詰めない／台番を上へ移動しない／
+   ヘッダー1帯・区切り線を消さない／カードサイズ 388×472・グラフ座標・合成位置を変更しない**
+4. **差枚数を中央寄せ・黄色・100%サイズへ戻さない／`C_PLUS` 以外の新しい青定数を作らない**
+5. **差枚数の白縁取りを外さない**（終端 −2,800枚以下で赤線と重なる）／**赤い折れ線を消さない**
+6. **`_ART_SL_DIFF_PAD = 8` を変更しない**（下端位置が従来からずれる）
+7. **最外周の細線化（`_ART_SL_OUTER_RATIO = 0.4`）を巻き戻さない／
+   カード内部の区切り線・グラフ枠・軸・0ライン・補助線・目盛線を細くしない**
+8. **外側6pxを `C_ART_SLUMP_AREA_BG` 以外の色で塗らない／別定数へコピーしない**
+9. **`_ART_SL_TMPL_CACHE` を `_SL_TMPL_CACHE` と統合しない**
+10. **`_art_slump_card_new()` を保存フラグ方式へ戻さない／店舗名だけの判定にしない**
+11. **呼び出し側（⑦ / 🔄 / ⑧）へ `_sl_art` 分岐を追加しない／
+    `_show_mn_*` / `_osu_multi_*` / `display_name` / `machine_name` の条件式を変更しない**
+12. **②個別「全台」へ ban_map 登録・スランプ合成を追加しない／
+    差枚数ランキング・全台データ・島図・ポスターへスランプを付けない**
+13. **表見出しの罫線を白にしない／本文セル・差枚色・列幅・表高さ・タイトルバー・サマリーを変更しない**
+14. **`convert_narabi_pil.py` の `ART_HEADER` 既定 `False` を変更しない／`THEME_NEW` を流用しない／
+    ⑦だけ・⑧だけ直さない**
+15. **`base_3000_bk.png` / `bbb.jpg` / `_slump_template_image()` / 機種画像マスタ /
+    パネル素材 / フォント素材を変更しない**
+16. **N の既存正式仕様（パネルあり・液晶なし・島図なし・Noto Sans JP Black・
+    高配分の水色バー削除・薄紫背景・`77e140d`・`vvv` 紐づけ・マイジャグV5分割）を壊さない**
+17. **他店舗の記事用・`auto`・`auto_slump`・`auto_slump2`・ローテ・単体スランプ・
+    📝記入部分のみへ波及させない**
+18. **WordPress 本文・画像分割・fullwidth・nosplit・抽出条件・台番・ファイル名・ban_map・
+    結果テキスト・表の機種名・パネル内の機種名・記事見出しの機種名を変更しない**
+19. **`c1c3bdd` / `56844fe` / `cc695d4` へ reset・revert しない／
+    `56844fe` の commit メッセージ先頭の `@` を理由に履歴を書き換えない**
+20. **無関係なリファクタ・未使用コード整理をしない**

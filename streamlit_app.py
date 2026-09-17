@@ -5142,6 +5142,8 @@ def generate_recommended_result_text(
     store_name: str = "",
     block_summaries: dict | None = None,
     plain_head: bool = False,
+    bans_by_block: dict | None = None,
+    section_emoji: str | None = None,
 ) -> str:
     """オススメ機種ブロックから +1,000枚以上の台番をピックアップしたテキストを生成する。
     各ブロックが「{section_emoji}{title}の優秀台」セクションになる。"""
@@ -5150,7 +5152,9 @@ def generate_recommended_result_text(
     _exclude = exclude_machines or set()
 
     _rec_cfg      = STORE_REC_CONFIG.get(store_name, {})
-    _sec_emoji    = _rec_cfg.get("section_emoji", "🍯")
+    # section_emoji=None（既定）は従来どおり STORE_REC_CONFIG の値を使う。
+    # 記事用（新宿歌舞伎町の⑤「10日間オススメポスター」）は他セクションと同じ見出し絵文字を渡す。
+    _sec_emoji    = section_emoji or _rec_cfg.get("section_emoji", "🍯")
     _blk_emojis   = _rec_cfg.get("block_emojis", _REC_BLOCK_EMOJIS)
 
     for i, block in enumerate(recommended_blocks):
@@ -5164,6 +5168,8 @@ def generate_recommended_result_text(
         # 2026-09-16: plain_head=True（新小岩）は B1〜B6 すべて「・」で出す（既定 False＝従来動作）。
         emoji = ("・" if plain_head
                  else (_blk_emojis[i] if i < len(_blk_emojis) else "🎯").replace("🎖️", "・"))
+        # bans_by_block=None（既定）は従来どおり差枚>=1000で抽出する。
+        _blk_bans = None if bans_by_block is None else {int(b) for b in (bans_by_block.get(i) or [])}
         machine_parts: list[str] = []
 
         for machine in machines:
@@ -5173,7 +5179,12 @@ def generate_recommended_result_text(
             if grp.empty:
                 continue
             dr_m = diff_raw.loc[grp.index]
-            good = grp[dr_m >= 1000].copy()
+            if _blk_bans is None:
+                good = grp[dr_m >= 1000].copy()
+            else:
+                # bans_by_block 指定時は「そのブロックで実際に採用された台」に合わせる
+                # （⑤画像の掲載台と完全一致させる。ブロックの抽出条件が変わっても追従する）。
+                good = grp[grp["台番"].apply(lambda b: int(b) in _blk_bans)].copy()
             if good.empty:
                 continue
             short = name_map.get(machine, machine)
@@ -17926,6 +17937,11 @@ def show_auto_article_page() -> None:
                             # 📝の自動抽出で共通に使う除外集合（②ピック・並び・列・台番範囲）。
                             # その他／ジャグラーの両方から参照するためここで1回だけ作る。
                             _exc_mac_a = {m.strip() for m in (kojin_zentai_machines + kojin_yushu_machines) if m.strip()}
+                            # ⑤「オススメ機種の優秀台」を最優先にする店舗（新宿歌舞伎町の記事用）。
+                            # ⑤入力機種は②個別と同じ **機種単位** の除外で「その他の優秀台」へ
+                            # 重複掲載しない（⑧の recommended_machines と同じ結果にする）。
+                            # ⑤の抽出条件が変わっても⑦／📝／🔄／⑧の挙動を一致させるため台番単位にしない。
+                            _exc_mac_a |= _art_osu_prio
                             _exc_ban_a: set[int] = set()
                             for _pt_a, _pb_a in _collect_kojin_pick(store, prefix="art_"):
                                 _exc_ban_a |= set(_pb_a)
@@ -19826,6 +19842,25 @@ def show_auto_article_page() -> None:
                             if (retsu_ok and retsu_ranges and result.get("df") is not None)
                             else None),
             )
+            # ⑤「オススメ機種の優秀台」を結果テキストへ追加（⑤最優先の店舗のみ）。
+            # 書式・改行・差枚整形・台番昇順は新小岩スランプ付きと同じ
+            # generate_recommended_result_text() をそのまま再利用する（新書式は作らない）。
+            # 掲載台は⑤画像が実際に採用した台番（_art_osu_bans_e）＝画像と完全一致。
+            # 空ブロック・掲載0台のブロックは見出しごと出ない（既存の continue 条件）。
+            if _art_osu_prio_e and _art_osu_bans_e:
+                _osu_df_rt = result.get("df")
+                _osu_di_rt = result.get("diff_raw")
+                if _osu_df_rt is not None and _osu_di_rt is not None:
+                    _osu_txt_rt = generate_recommended_result_text(
+                        art_osusume_blocks, _osu_df_rt, _osu_di_rt,
+                        store_name=store, plain_head=True,
+                        bans_by_block={_bn: _art_osu_bans_e.get(_art_osusume_fn(_bn), [])
+                                       for _bn in range(len(art_osusume_blocks))},
+                        section_emoji=STORE_EMOJI_CONFIG.get(store, ("💫", "👑"))[1],
+                    )
+                    if _osu_txt_rt:
+                        report_text = insert_formatted_result_before_other_picks(
+                            report_text, _osu_txt_rt, store)
             for _old, _new in STORE_RESULT_TRANSFORMS.get(store, []):
                 report_text = report_text.replace(_old, _new)
             _date = result.get("date")

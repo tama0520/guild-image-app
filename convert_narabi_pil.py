@@ -41,6 +41,18 @@ COL_SUFFIX = "(列仕掛け)"
 # ⑦プレビュー（streamlit_app._build_machine_img）と同じ配色にすること。
 THEME_NEW = False
 
+# ── 記事用の表見出し（新宿歌舞伎町 × auto_article の⑧本番だけ）────────
+# True のとき **最上段の見出し行だけ** を黒地・白文字にし、見出しセル間の罫線を
+# 薄いグレーへ変える。streamlit_app.py の `_patch_and_run_narabi(art_header=True)`
+# が実行時に書き換える（`FONT_OVERRIDE` / `NO_BAR` / `HQ_SCALE` / `HQ_MIN_ROWS`
+# と同じ方式）。
+# ★THEME_NEW は流用しない。THEME_NEW は本文文字色(DATA_FG)・行高(line_h)・
+#   タイトルバー色・サマリー色(SUMMARY_BG)まで変えるため、今回の要件と合わない。
+# ★既定 False＝通常ページ・他店舗・ローテ・かぶぱ・非記事用は**従来どおり**。
+# ★本文セルの背景(CELL_BG)・本文文字(DATA_FG)・本文の罫線(BORDER_C)・
+#   差枚数の値の色(PLUS_C / MINUS_C / ZERO_C)・列幅・行高は変更しない。
+ART_HEADER = False
+
 # ── フォントパス（cwd = BASE_DIR で subprocess 実行される）──────────
 _BASE = os.getcwd()
 FONT_PATH = os.path.join(_BASE, "fonts", "MochiyPopOne-Regular.ttf")
@@ -239,10 +251,15 @@ PAD_X         = round(8  * SCALE)   # 13px  左右パディング
 ROW_H_TBL     = round(28 * SCALE)   # 44px  行高（28 CSS px × 1.5625）
 PAD_Y         = (ROW_H_TBL - FONT_SIZE_TBL) // 2  # 11px  上下パディング
 
-HEADER_BG  = ((41, 0, 104) if THEME_NEW else (243, 230, 200))   # 新#290068 / 旧#f3e6c8
-HEADER_FG  = ((255, 255, 255) if THEME_NEW else (75, 0, 130))   # 新#FFFFFF / 旧#4B0082
+HEADER_BG  = ((0, 0, 0) if ART_HEADER
+              else ((41, 0, 104) if THEME_NEW else (243, 230, 200)))   # 記事#000000 / 新#290068 / 旧#f3e6c8
+HEADER_FG  = ((255, 255, 255) if ART_HEADER
+              else ((255, 255, 255) if THEME_NEW else (75, 0, 130)))   # 記事・新#FFFFFF / 旧#4B0082
 CELL_BG    = (255, 255, 255)   # white
 BORDER_C   = (170, 170, 170)   # #AAAAAA
+# 見出しセル間の罫線。ART_HEADER のときだけ薄いグレー #DDDDDD へ。
+# **本文セルの罫線は BORDER_C のまま**（この定数は見出し行にしか使わない）。
+HEADER_LINE_C = (221, 221, 221) if ART_HEADER else BORDER_C
 DATA_FG    = ((75, 0, 130) if THEME_NEW else (0, 0, 0))   # 新#4B0082 / 旧 ZERO_C
 PLUS_C     = (0,   0,   204)   # #0000CC
 MINUS_C    = (204, 0,   0  )   # #CC0000
@@ -322,6 +339,11 @@ def build_table_pil(group, diff_raw_s, hq=1.0):
         return 1 + ri * (_row_h + 1)
 
     # ヘッダー行
+    # ART_HEADER のときは、見出し行の帯（上端線＋見出しセル間の縦線）だけを
+    # 先に HEADER_LINE_C で塗ってからセルを描く。見出しと本文の境界線
+    # （row_y(1)-1）は帯の外なので **BORDER_C のまま**＝本文側の罫線は不変。
+    if ART_HEADER:
+        draw.rectangle([(0, 0), (img_w - 1, row_y(1) - 2)], fill=HEADER_LINE_C)
     for ci, col in enumerate(cols):
         _draw_cell(draw, col_x(ci), row_y(0), cell_ow[ci], _row_h,
                    col, HEADER_BG, HEADER_FG, font, "center")

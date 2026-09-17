@@ -704,16 +704,39 @@ _SL_TMPL_CACHE: dict = {}
 C_ART_SL_CARD_BG   = (255, 255, 255)   # #FFFFFF カード地
 C_ART_SL_CARD_LINE = (0,   0,   0)     # #000000 外枠・区切り・ヘッダー帯・縦軸・0ライン・補助線・目盛文字
 C_ART_SL_CARD_TEXT = (0,   0,   0)     # #000000 ヘッダーの機種名／台番・下部機種名
-C_ART_SL_CARD_DIFF = (255, 0,   0)     # #FF0000 グラフ上に描く差枚数
+# グラフ上に描く差枚数は **表内の差枚プラス色と同じ青**（C_PLUS = #0000CC）。
+# 新しい青を作らず既存定数をそのまま参照する（値がズレないようにするため）。
+C_ART_SL_CARD_DIFF = C_PLUS            # "#0000CC"
 C_ART_SL_CARD_EDGE = (255, 255, 255)   # 下部機種名の縁取り（白地なので白）
 # グラフ上の差枚数だけ現行指定サイズの85%へ縮小する（表内の差枚・台番・機種名・
 # 下部機種名・折れ線は一切変えない）。丸めは既存の round() に合わせる。
 _ART_SL_DIFF_FONT_RATIO = 0.85
+# 差枚数を「グラフ囲みの右下」へ寄せるときの安全余白（等倍px・外枠の内側から）。
+# _SL_FRAME_PAD(10) + 8 = 18 なので **下端位置は従来と1pxも変わらない**。
+# 右端は 388-10-8 = 370 で、0ライン／補助線の右端(377)より内側に収まる。
+_ART_SL_DIFF_PAD = 8
+# カード最外周の黒罫線の太さ。元テンプレの白帯は上下左右とも厳密に10pxで、
+# その **内側 round(10*0.4)=4px だけ**を黒として残し、外側6pxはカード外側の
+# 薄紫（C_ART_SLUMP_AREA_BG = #D8C6E3）で塗る＝見た目4px相当の細い罫線になる。
+# **カード内部の区切り線・グラフ枠・縦軸・0ライン・補助線・目盛線は細くしない。**
+_ART_SL_OUTER_RATIO = 0.4
 # 対象ページ・対象店舗（_art_font_new / _slump_theme_new と同じ page × store の AND）
 _ART_SL_CARD_PAGES:  "frozenset[str]" = frozenset({"auto_article"})
 _ART_SL_CARD_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 # ★専用キャッシュ。_SL_TMPL_CACHE と共有すると淡紫版と白版が同じキーで衝突する。
 _ART_SL_TMPL_CACHE: dict = {}
+
+# ── 記事用の表見出し（新宿歌舞伎町 × auto_article だけ）──────────────
+# 表の **最上段の見出し行だけ** を黒地・白文字にし、見出しセル間の罫線を
+# 薄いグレーへ変える。**本文セルの背景・文字・罫線（C_BORDER）・差枚数の値の色
+# （C_PLUS / C_MINUS / C_ZERO）・列幅・行高・タイトルバー・サマリーは変更しない。**
+# ★既存の結果ポスト系テーマ（_TABLE_THEME_* / _table_theme_new / C_NEW_HEADER_*）
+#   とは別仕様。ページが排他（auto 系 / auto_article）なので同時に成立しない。
+C_ART_TBL_HEADER_BG   = "#000000"   # 見出しセル背景（黒）
+C_ART_TBL_HEADER_FG   = "#FFFFFF"   # 見出しセル文字（白）
+C_ART_TBL_HEADER_LINE = "#DDDDDD"   # 見出しセル間の罫線（薄いグレー）
+_ART_TBL_HEADER_PAGES:  "frozenset[str]" = frozenset({"auto_article"})
+_ART_TBL_HEADER_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 
 
 # 新宿歌舞伎町だけ「かぶぱポストの結果（auto_slump）」と
@@ -1050,6 +1073,21 @@ def _art_slump_card_new() -> bool:
         return False
 
 
+def _art_table_header_new() -> bool:
+    """記事用の表の**最上段の見出し行だけ**を黒地・白文字で描くか。
+
+    `_art_font_new()` / `_art_slump_card_new()` と同じ **page × store の AND** で
+    毎回導出する。保存フラグを持たないのでページ遷移・rerun に影響されない。
+    True になるのは **auto_article × 新宿歌舞伎町 の1通りだけ**。
+    Streamlit 外（純粋テスト・subprocess）では False＝従来のクリーム見出し。
+    """
+    try:
+        return (st.session_state.get("page") in _ART_TBL_HEADER_PAGES
+                and st.session_state.get("selected_store") in _ART_TBL_HEADER_STORES)
+    except Exception:
+        return False
+
+
 def _art_slump_card_image(template_path) -> "Image.Image":
     """base_3000_bk.png を**メモリ上だけ**で「白地＋黒罫線」へ再配色して返す。
 
@@ -1097,6 +1135,25 @@ def _art_slump_card_image(template_path) -> "Image.Image":
             dp[x, y] = (round(_bg[0] + (_fg[0] - _bg[0]) * t),
                         round(_bg[1] + (_fg[1] - _bg[1]) * t),
                         round(_bg[2] + (_fg[2] - _bg[2]) * t), 255)
+
+    # ── 最外周の黒罫線だけを細くする ────────────────────────────────
+    # 元テンプレの外枠は上下左右とも**厳密に10pxのベタ白帯**（実測）で、上の
+    # 再配色でそのまま10pxの黒帯になる。その **外側 (10 - 4) = 6px** をカード外側
+    # と同じ薄紫で塗り、**内側 4px だけ**を黒として残す＝見た目4px相当の罫線。
+    # ★カード内部（区切り帯・グラフ枠・縦軸・0ライン・補助線・目盛文字）は
+    #   この処理の対象外なので**太さも色も一切変わらない**。
+    # ★塗る色はカード外側背景 `C_ART_SLUMP_AREA_BG` を**そのまま参照**する
+    #   （別定数にすると値がズレて境目が見えてしまう）。関数内参照なので
+    #   定義順の影響を受けない。
+    _keep = max(1, round(_SL_FRAME_PAD * _ART_SL_OUTER_RATIO))   # 黒として残す内側px
+    _cut  = max(0, _SL_FRAME_PAD - _keep)                        # 薄紫で塗る外側px
+    if _cut > 0:
+        _out = tuple(C_ART_SLUMP_AREA_BG) + (255,)
+        for y in range(h):
+            _edge_row = (y < _cut or y >= h - _cut)
+            for x in range(w):
+                if _edge_row or x < _cut or x >= w - _cut:
+                    dp[x, y] = _out
 
     _ART_SL_TMPL_CACHE[_key] = dst
     return dst
@@ -1866,11 +1923,19 @@ def draw_table_image(
     # 同じ header_bg / header_fg で描かれるため、列ごとのハードコードは不要。
     if _table_theme_new():
         header_bg, header_fg = C_NEW_HEADER_BG, C_NEW_HEADER_FG
+    # 記事用（新宿歌舞伎町 × auto_article）は**見出し行だけ**を黒地・白文字にし、
+    # 見出しセル間の罫線を薄いグレーへ。**本文セルの罫線（C_BORDER）・本文文字・
+    # 差枚数の値の色・列幅・行高・タイトルバー・サマリーは変更しない。**
+    _hdr_line = C_BORDER
+    if _art_table_header_new():
+        header_bg  = C_ART_TBL_HEADER_BG
+        header_fg  = C_ART_TBL_HEADER_FG
+        _hdr_line  = C_ART_TBL_HEADER_LINE
     x = 0
     for ci, h in enumerate(headers):
         draw.rectangle(
             [(x, y), (x + col_w[ci] - 1, y + _header_h - 1)],
-            fill=header_bg, outline=C_BORDER,
+            fill=header_bg, outline=_hdr_line,
         )
         tb = draw.textbbox((0, 0), str(h), font=fn_header)
         tx = x + (col_w[ci] - (tb[2] - tb[0])) // 2 - tb[0]
@@ -6134,7 +6199,7 @@ def _patch_and_run_narabi(
     script_path: str, input_path: str, split_dir: str, ranges: list,
     no_bar: bool = False, hq_scale: float = 1.0, col_ranges: list | None = None,
     hq_min_rows: int | None = None, theme_new: bool = False,
-    font_path: str | None = None,
+    font_path: str | None = None, art_header: bool = False,
 ) -> tuple[bool, str, str]:
     """並びスクリプト専用: INPUT/SPLIT_DIR/RANGES を書き換えて実行する。
     no_bar=True のときは NO_BAR も書き換え、青タイトルバーなしで生成させる
@@ -6151,6 +6216,12 @@ def _patch_and_run_narabi(
     # 既定 False＝従来デザイン。記事用の呼び出しには渡さない。
     if theme_new:
         code = re.sub(r'^THEME_NEW\s*=\s*(True|False)', 'THEME_NEW = True',
+                      code, flags=re.MULTILINE)
+    # 記事用（新宿歌舞伎町）の見出し行だけを黒地・白文字＋薄グレー罫線にする。
+    # **THEME_NEW は流用しない**（本文文字色・行高・タイトルバー・サマリーまで変わるため）。
+    # 既定 False＝通常ページ・他店舗・ローテ・かぶぱは従来どおり。
+    if art_header:
+        code = re.sub(r'^ART_HEADER\s*=\s*(True|False)', 'ART_HEADER = True',
                       code, flags=re.MULTILINE)
     if hq_scale and hq_scale > 1.0:
         code = re.sub(r'^HQ_SCALE\s*=\s*[\d.]+', f'HQ_SCALE = {float(hq_scale)}',
@@ -18847,6 +18918,8 @@ def show_auto_article_page() -> None:
                     col_ranges=(retsu_ranges if retsu_ok else None),
                     # ⑦プレビューと⑧本番で書体を一致させる（対象外では None）
                     font_path=(_ART_FONT_PATH if _art_font_new() else None),
+                    # ⑦プレビュー（draw_table_image）と⑧本番で表見出しを一致させる
+                    art_header=_art_table_header_new(),
                 )
                 narabi_result = {"ok": ok_n, "stdout": out_n, "stderr": err_n}
                 st.write(f"{'✅' if ok_n else '❌'} 並び画像{'完了' if ok_n else 'エラー'}")
@@ -24785,8 +24858,29 @@ def draw_slump_graph(
         _raw = diff if diff is not None else points[-1]["y"]
         diff_text  = _fmt_diff(_pipeline_calc_d(_raw))
         bb = font_diff.getbbox(diff_text)
-        diff_x = (w - (bb[2] - bb[0])) // 2 - bb[0]
-        diff_y = (h - round(18 * _os)) - bb[3]
+        if _sl_art:
+            # 記事用の白カードだけ **グラフ囲みの右下へ右寄せ**する。
+            # 右端・下端とも「外枠の内側（_SL_FRAME_PAD）からさらに _ART_SL_DIFF_PAD」
+            # を安全余白として取るので、細くした最外周の黒罫線に重ならない。
+            # 10 + 8 = 18 なので **下端位置は従来と1pxも変わらず**、横位置だけが
+            # 中央寄せ → 右寄せになる。目盛文字「-3.000」は左端にあるので当たらない。
+            _sl_inset = round(_SL_FRAME_PAD * _os) + max(1, round(_ART_SL_DIFF_PAD * _os))
+            diff_x = w - _sl_inset - bb[2]
+            diff_y = h - _sl_inset - bb[3]
+        else:
+            diff_x = (w - (bb[2] - bb[0])) // 2 - bb[0]
+            diff_y = (h - round(18 * _os)) - bb[3]
+        if _sl_art:
+            # 右下は折れ線の終点が来る場所でもある（終端が概ね -2,800枚以下だと
+            # 赤線がテキスト帯を通る）。**下部機種名と同じ白の縁取り**を先に描いて
+            # から青文字を重ね、赤線の上でも必ず読み取れるようにする。
+            # 縁取りは可読性のためだけで、**色（C_PLUS）・サイズ（85%）・
+            # 位置（右下）は変えない**。折れ線自体も消さない。
+            _dw = max(1, round(1 * _os))
+            for _dox, _doy in ((-_dw, -_dw), (_dw, -_dw), (-_dw, _dw), (_dw, _dw),
+                               (0, -_dw), (0, _dw), (-_dw, 0), (_dw, 0)):
+                draw.text((diff_x + _dox, diff_y + _doy), diff_text,
+                          fill=C_ART_SL_CARD_EDGE, font=font_diff)
         draw.text((diff_x, diff_y), diff_text,
                   fill=(C_SL_TEXT if _sl_new
                         else (C_ART_SL_CARD_DIFF if _sl_art else (255, 255, 0))),

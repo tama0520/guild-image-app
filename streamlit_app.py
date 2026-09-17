@@ -3918,6 +3918,24 @@ _ART_WP_AUTHOR_STORES = frozenset({"渋谷新館", "新宿歌舞伎町"})
 # 選択できる投稿者（表示順＝この順序・縦並び）。保存するのは user ID ではなく username。
 # username → 正式 WordPress user ID の対応は wp_client.WP_AUTHOR_MAP が持つ。
 _ART_WP_AUTHORS = ("t.ito", "r.iio", "k.furukawa", "t.ui", "m.suzuki", "m.takahashi")
+# 別サイトへ送る店舗は、**そのサイトに実在する投稿者だけ**を選ばせる。
+# 送信先が違えば user ID も別物なので、選択肢とマップを店舗別に分ける。
+# 2026-09-17 に GET /wp-json/wp/v2/users?context=edit で実測
+# （espacekabuki-blog.com は i.sasaki / m.takahashi の2名だけ）。
+# **辞書に無い店舗は既定の6択＝渋谷新館は従来どおり。**
+_ART_WP_AUTHORS_BY_STORE: "dict[str, tuple]" = {
+    "新宿歌舞伎町": ("i.sasaki", "m.takahashi"),
+}
+
+
+def _art_wp_authors(store: str) -> tuple:
+    """記事用の「WordPress投稿者」で選べる username の並び（表示順＝この順）。
+
+    radio の選択肢・保存済み初期値の正当性判定・送信直前の正当性判定の
+    **3箇所すべてで同じものを使う**（別々にすると選択が食い違う）。
+    """
+    return _ART_WP_AUTHORS_BY_STORE.get(str(store or ""), _ART_WP_AUTHORS)
+
 
 # 記事用の並び・列を subprocess で描くときの「何台以上でHQか」。
 # 1 にすると台数を見ずに常に HQ_SCALE が効く（スクリプト既定の10台判定を上書きする）。
@@ -16931,18 +16949,19 @@ def show_auto_article_page() -> None:
         _au_wkey = _art_widget_key(_art_excel_w, _au_key)
         # 初期値は **その日付の保存値**から解決する（旧日付の logical 値を使わない）。
         # 6名のいずれでもない値（未保存 / "" / None / 未知）は必ず未選択（index=None）。
+        _au_opts = _art_wp_authors(store)
         _au_saved = _art_saved_value(_art_excel_w, store, _au_key, None)
-        _au_idx = (_ART_WP_AUTHORS.index(_au_saved)
-                   if _au_saved in _ART_WP_AUTHORS else None)
+        _au_idx = (_au_opts.index(_au_saved)
+                   if _au_saved in _au_opts else None)
         _au_cur = st.radio(
-            "WordPress投稿者", _ART_WP_AUTHORS, key=_au_wkey, index=_au_idx,
+            "WordPress投稿者", _au_opts, key=_au_wkey, index=_au_idx,
             label_visibility="collapsed",
             help="ここで選んだ人物が WordPress 下書きの投稿者になります。"
                  "未選択のままでは下書きを作成できません。",
             on_change=_on_article_widget_change,
             args=(store, _au_key, _au_wkey, _art_excel_w, True))
         st.session_state[_au_key] = _au_cur
-        if _au_cur not in _ART_WP_AUTHORS:
+        if _au_cur not in _au_opts:
             st.caption("⚠️ 投稿者が未選択です。選択するまで WordPress下書きは作成できません。")
 
     st.markdown(f"### {_sec_num()} {'冒頭部分' if _art_v2 else 'ポスター画像'}")
@@ -19969,7 +19988,7 @@ def show_auto_article_page() -> None:
             _wp_author = ""
             if store in _ART_WP_AUTHOR_STORES:
                 _wp_author = st.session_state.get(f"art_wp_author_{store}") or ""
-                if _wp_author not in _ART_WP_AUTHORS:
+                if _wp_author not in _art_wp_authors(store):
                     _wp_author = ""
                 _wp_pl["author_user"] = _wp_author
             # コメントも **⑧実行時点で固定しない**。ここで現在日付の確定状態を取り、
@@ -19978,7 +19997,9 @@ def show_auto_article_page() -> None:
             # comments キー自体を持たないので本文は1ブロックも変わらない。
             if store in _ART_COMMENT_STORES:
                 _wp_pl["comments"] = _art_wp_comments(store)
-            _wp_ok, _wp_msg = _wpc.config_ready()
+            # 接続情報の可否も**送信対象の店舗で**判定する（新宿歌舞伎町だけ
+            # 店舗別 Secrets、他店舗は従来の共通 Secrets）。
+            _wp_ok, _wp_msg = _wpc.config_ready(store)
             _wp_cat = _wpc.store_category(store)
             if not _wp_ok:
                 st.warning(f"⚠️ WordPress接続情報が未設定です（{_wp_msg}）。.env を確認してください。")

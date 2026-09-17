@@ -63,9 +63,23 @@ WP_STORE_CATEGORY: "dict[str, dict]" = {
 }
 
 
+# ── 別サイトへ送る店舗の投稿先カテゴリ ───────────────────────────────
+# **`WP_STORE_CATEGORY`（現行サイト slotterguild3.com 用）は書き換えない。**
+# 送信先サイトが違えば term_id も別物なので、辞書ごと分けて持つ。
+# 2026-09-17 に GET /wp-json/wp/v2/categories?slug=espace-kabukicho で実測
+# （espacekabuki-blog.com・1件だけ・parent=0）。**推測で入れてはならない。**
+WP_STORE_CATEGORY_BY_STORE: "dict[str, dict]" = {
+    "新宿歌舞伎町": {"id": 28, "slug": "espace-kabukicho"},
+}
+
+
 def store_category(store: str) -> "dict | None":
-    """店舗の投稿先カテゴリ {"id": int, "slug": str}。未登録なら None。"""
-    c = WP_STORE_CATEGORY.get(str(store or ""))
+    """店舗の投稿先カテゴリ {"id": int, "slug": str}。未登録なら None。
+
+    別サイトへ送る店舗は `WP_STORE_CATEGORY_BY_STORE` を優先する
+    （辞書に無い店舗は従来どおり `WP_STORE_CATEGORY`）。
+    """
+    c = WP_STORE_CATEGORY_BY_STORE.get(str(store or ""))         or WP_STORE_CATEGORY.get(str(store or ""))
     if not c or not c.get("id") or not c.get("slug"):
         return None
     return c
@@ -84,6 +98,21 @@ WP_AUTHOR_MAP: "dict[str, int]" = {
     "m.suzuki":     7,
     "m.takahashi":  2,
 }
+
+# ── 別サイトへ送る店舗の投稿者マップ ─────────────────────────────────
+# **`WP_AUTHOR_MAP`（現行サイト用）は書き換えない。**送信先サイトが違えば
+# user ID も別物で、現行6名のうち4名は新サイトに存在しないため同一辞書では両立しない。
+# 2026-09-17 に GET /wp-json/wp/v2/users?context=edit で実測
+# （espacekabuki-blog.com・i.sasaki=1 / m.takahashi=2 の2名だけ）。
+WP_AUTHOR_MAP_BY_STORE: "dict[str, dict]" = {
+    "新宿歌舞伎町": {"i.sasaki": 1, "m.takahashi": 2},
+}
+
+
+def author_map(store: str = "") -> "dict[str, int]":
+    """店舗の username → user ID 対応。辞書に無い店舗は従来の WP_AUTHOR_MAP。"""
+    return WP_AUTHOR_MAP_BY_STORE.get(str(store or ""), WP_AUTHOR_MAP)
+
 
 # ── サイト側の画像縮小仕様（2026-08-20 実測）────────────────────────
 # slotterguild3.com は **長辺が 2560px を超える画像を 2560px へ縮小**する。
@@ -1456,17 +1485,40 @@ def _secret(name: str) -> str:
     return os.getenv(name, "") or ""
 
 
-def _conf() -> tuple[str, tuple[str, str]]:
+# 別サイトへ送る店舗の Secrets キー名。**値ではなくキー名だけをコードへ置く。**
+# 3つすべて設定されているときだけ採用し、1つでも欠けたら共通キーへフォールバックする
+# （中途半端な組み合わせで別サイトへ送らないため）。
+WP_SECRET_KEYS_BY_STORE: "dict[str, tuple[str, str, str]]" = {
+    "新宿歌舞伎町": ("WP_SITE_URL_KABUKICHO", "WP_USER_KABUKICHO",
+                     "WP_APP_PASSWORD_KABUKICHO"),
+}
+WP_SECRET_KEYS_COMMON = ("WP_SITE_URL", "WP_USER", "WP_APP_PASSWORD")
+
+
+def _conf_keys(store: str = "") -> tuple[str, str, str]:
+    """その店舗で実際に使う Secrets の**キー名**を返す（値は返さない）。
+
+    **送信先を決める唯一の分岐点。**店舗別キーが3つとも揃っているときだけ
+    そのキー名を返し、それ以外は共通キー名を返す（＝従来動作）。
+    """
+    ks = WP_SECRET_KEYS_BY_STORE.get(str(store or ""))
+    if ks and all(_secret(k) for k in ks):
+        return ks
+    return WP_SECRET_KEYS_COMMON
+
+
+def _conf(store: str = "") -> tuple[str, tuple[str, str]]:
     """st.secrets（Cloud）/ .env・環境変数（ローカル）から接続情報を取得する。
-    値はログへ出さない。"""
-    site = _secret("WP_SITE_URL").rstrip("/")
-    return site, (_secret("WP_USER"), _secret("WP_APP_PASSWORD"))
+    値はログへ出さない。store 未指定（既定）は従来どおり共通設定。"""
+    ks, ku, kp = _conf_keys(store)
+    site = _secret(ks).rstrip("/")
+    return site, (_secret(ku), _secret(kp))
 
 
-def config_ready() -> tuple[bool, str]:
-    site, (user, pw) = _conf()
-    missing = [k for k, v in (("WP_SITE_URL", site), ("WP_USER", user),
-                              ("WP_APP_PASSWORD", pw)) if not v]
+def config_ready(store: str = "") -> tuple[bool, str]:
+    ks, ku, kp = _conf_keys(store)
+    site, (user, pw) = _conf(store)
+    missing = [k for k, v in ((ks, site), (ku, user), (kp, pw)) if not v]
     if missing:
         return False, "未設定: " + ", ".join(missing)
     return True, site
@@ -1481,14 +1533,15 @@ def _err_text(resp) -> str:
         return f"(非JSON応答 {len(resp.content)}バイト)"
 
 
-def upload_media(path: str, *, timeout: int = WP_UPLOAD_TIMEOUT) -> dict:
+def upload_media(path: str, *, timeout: int = WP_UPLOAD_TIMEOUT,
+                 store: str = "") -> dict:
     """POST /wp/v2/media を1件。日本語ファイル名は Phase 1 で実証した方式で送る。
 
     WordPress は Content-Disposition の `filename=` しか読まない（RFC 5987 の
     `filename*` は解釈しない）ため、`filename=` に UTF-8 の生バイトを載せる。
     """
     import requests
-    site, auth = _conf()
+    site, auth = _conf(store)
     fn = os.path.basename(path)
     disp = ('attachment; filename="' + fn + '"; filename*=UTF-8\'\'' + quote(fn, safe=""))
     headers = {"Content-Disposition": disp.encode("utf-8"), "Content-Type": "image/jpeg"}
@@ -1514,7 +1567,8 @@ def upload_media(path: str, *, timeout: int = WP_UPLOAD_TIMEOUT) -> dict:
 
 def create_draft(title: str, content: str,
                  category_id: int = WP_CATEGORY_ID,
-                 author_id: int = WP_AUTHOR_ID) -> dict:
+                 author_id: int = WP_AUTHOR_ID,
+                 store: str = "") -> dict:
     """POST /wp/v2/posts。status=draft 固定・publish しない。
 
     既存投稿の更新（PUT/PATCH）は実装しない。常に新規 draft のみ。
@@ -1523,7 +1577,7 @@ def create_draft(title: str, content: str,
     **引数を渡さない呼び出しは修正前と同じ POST body になる。**
     """
     import requests
-    site, auth = _conf()
+    site, auth = _conf(store)
     payload = {
         "title":      title,
         "content":    content,
@@ -1557,14 +1611,18 @@ def create_takadanobaba_draft(payload: dict, progress=None) -> dict:
     縦長画像は送信用の一時コピーへ分割する（原本は変更しない）。
     一時ファイルは **成功・失敗とも自動削除しない**（失敗時の再調査のため）。
     """
-    ok, site_or_msg = config_ready()
+    # 送信先は店舗別。**接続先の決定は _conf_keys(store) の1点だけ**で、
+    # 店舗別 Secrets が3つ揃っている店舗だけ別サイトへ送る（他は共通＝従来動作）。
+    # config_ready より先に店舗を確定させる必要がある。
+    _store = payload.get("store", WP_STORE)
+
+    ok, site_or_msg = config_ready(_store)
     if not ok:
         return {"ok": False, "stage": "config", "error": site_or_msg}
     site = site_or_msg
 
     # 投稿先カテゴリは店舗別。未登録の店舗は**1枚も送らずに中止**する
     # （推測したカテゴリへ投稿しないため）。既定は高田馬場＝従来動作。
-    _store = payload.get("store", WP_STORE)
     _cat = store_category(_store)
     if _cat is None:
         return {"ok": False, "stage": "config", "uploaded": [],
@@ -1578,7 +1636,10 @@ def create_takadanobaba_draft(payload: dict, progress=None) -> dict:
     _author_id = WP_AUTHOR_ID
     if "author_user" in payload:
         _au = str(payload.get("author_user") or "").strip()
-        _author_id = WP_AUTHOR_MAP.get(_au, 0)
+        # 店舗別マップを優先（辞書に無い店舗は従来の WP_AUTHOR_MAP）。
+        # 0（未選択・未登録）なら画像を1枚も送らずここで中止する。
+        # **WP_AUTHOR_ID(14) へのフォールバックは禁止。**
+        _author_id = author_map(_store).get(_au, 0)
         if not _author_id:
             return {"ok": False, "stage": "config", "uploaded": [],
                     "error": ("WordPress投稿者が未選択のため中止しました"
@@ -1630,7 +1691,7 @@ def create_takadanobaba_draft(payload: dict, progress=None) -> dict:
     for i, f in enumerate(send, 1):
         if progress:
             progress(i, total, f["file"])
-        r = upload_media(f["path"])
+        r = upload_media(f["path"], store=_store)
         if not r["ok"]:
             return {"ok": False, "stage": "upload", "failed": r,
                     "uploaded": uploaded, "missing_optional": miss_opt,
@@ -1649,7 +1710,7 @@ def create_takadanobaba_draft(payload: dict, progress=None) -> dict:
                             # 対象店舗だけ本文カラム幅いっぱいで表示する（表示のみ）
                             full_width=(_store in _ART_WP_FULLWIDTH_STORES))
     res = create_draft(title, content, category_id=_cat["id"],
-                       author_id=_author_id)
+                       author_id=_author_id, store=_store)
     if not res["ok"]:
         return {"ok": False, "stage": "post", "uploaded": uploaded,
                 "missing_optional": miss_opt, "tmp_dir": tmp_dir,

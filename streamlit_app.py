@@ -24837,8 +24837,14 @@ def draw_slump_graph(
     _hdr_fg = (C_SL_TEXT if _sl_new
                else (C_ART_SL_CARD_TEXT if _sl_art else (255, 255, 255)))
 
-    name_x, name_y = _center_xy(display_name, font_name, round(10 * _os), round(41 * _os))
-    draw.text((name_x, name_y), display_name, fill=_hdr_fg, font=font_name)
+    # 記事用の白カード（auto_article × 新宿歌舞伎町）だけ **ヘッダー1の機種名を
+    # 描画しない**。ヘッダー1帯・区切り線・カードサイズ・グラフ座標はそのままで、
+    # **文字だけを出さない**（文字位置計算にも入らない）。台番は従来どおり
+    # ヘッダー2帯へ描く。判定は関数内の既存 `_sl_art` をそのまま使うので、
+    # ⑦プレビュー・🔄その他を更新・⑧本番の3経路が構造的に一致する。
+    if not _sl_art:
+        name_x, name_y = _center_xy(display_name, font_name, round(10 * _os), round(41 * _os))
+        draw.text((name_x, name_y), display_name, fill=_hdr_fg, font=font_name)
 
     uid_text = f"{unit_id}番台"
     uid_x, uid_y = _center_xy(uid_text, font_uid, round(57 * _os), round(41 * _os))
@@ -24887,7 +24893,11 @@ def draw_slump_graph(
                   font=font_diff)
 
         # 機種名テキスト（差枚数の直上・黄色・縁取り）
-        if machine_name:
+        # 記事用の白カードだけ **下部の機種名も描画しない**（フォント計算・
+        # 白の縁取り・本描画のいずれにも入らない）。差枚数・折れ線・台番・
+        # 目盛は変更しない。呼び出し側の `_show_mn_*` / `_osu_multi_*` は
+        # 他店舗と共有しているため**条件式を変更しない**。
+        if machine_name and not _sl_art:
             _mn_sz = round(34 * _os)
             _mn_min = round(14 * _os)
             _mn_step = max(1, round(2 * _os))

@@ -199,6 +199,36 @@ NANAKO_OUTRO    = ("このように、ななこポストからは連日仕掛け
 NANAKO_HINT_MARK = "■"          # ヒント行の先頭記号。**この記号だけ赤＋太字**にする
 NANAKO_MARK_COLOR = "#e60012"   # ■ の色（インラインstyle。テーマCSSは変更しない）
 NANAKO_HINT_COUNT = 6           # ヒント入力欄の数（固定）
+
+# ── 店舗別の呼び名（新宿歌舞伎町は「かぶぱポスト」）─────────────────
+# **既存の NANAKO_H2 / NANAKO_LEAD / NANAKO_OUTRO は書き換えない**
+# （渋谷新館の本文をバイト単位で維持するため）。差し替えるのはこの辞書に
+# 載っている店舗だけで、未登録の店舗は必ず既定（ななこポスト）へ落ちる。
+# ★ローカル①冒頭部分のUIも `nanako_texts()["label"]` を使うので、
+#   **WordPress本文とUIの表記が食い違わない**（二重管理を作らない）。
+NANAKO_TEXT_BY_STORE: "dict[str, dict[str, str]]" = {
+    "新宿歌舞伎町": {
+        "label": "かぶぱポスト",
+        "h2":    "かぶぱポストに仕掛けのヒントを確認！",
+        "lead":  ("前日の夜に配信されるかぶぱのポストには仕掛けのヒントが"
+                  "隠されていることが多く、今回もポストから仕掛けのヒントと"
+                  "思しき箇所を複数確認！"),
+        "outro": ("このように、かぶぱポストからは連日仕掛けのヒントを確認できているため、"
+                  "打ちに行く際は必ずチェックしておきましょう！"),
+    },
+}
+
+
+def nanako_texts(store: str = "") -> "dict[str, str]":
+    """ななこポスト系の文言（店舗別）。未登録の店舗は既定＝従来の文言。
+
+    `label` はローカルUIの見出し・入力欄ラベル用。`h2` / `lead` / `outro` は
+    WordPress本文用。**URL案内文・ヒント見出し・■・色・ヒント数は店舗で変えない。**
+    """
+    base = {"label": "ななこポスト", "h2": NANAKO_H2,
+            "lead": NANAKO_LEAD, "outro": NANAKO_OUTRO}
+    base.update(NANAKO_TEXT_BY_STORE.get(str(store or ""), {}))
+    return base
 BUTTON_TEXT = "店舗情報・過去の結果はコチラ"
 
 # 機種H3の接頭辞（2026-08-25 追加）。**全台系と高配分だけ**に付ける。
@@ -1118,15 +1148,16 @@ def plan_blocks(payload: dict) -> list[dict]:
         _nk_url   = normalize_x_url((_nanako or {}).get("url"))
         _nk_hints = [str(h or "").strip() for h in ((_nanako or {}).get("hints") or [])]
         _nk_hints = [h for h in _nk_hints if h]
-        plan.append({"type": "h2", "text": NANAKO_H2})
-        plan.append({"type": "para", "text": NANAKO_LEAD})
+        _nk_t = nanako_texts(payload.get("store", ""))
+        plan.append({"type": "h2", "text": _nk_t["h2"]})
+        plan.append({"type": "para", "text": _nk_t["lead"]})
         if _nk_url:
             plan.append({"type": "para_bold", "text": NANAKO_URL_LEAD})
             plan.append({"type": "embed_x", "url": _nk_url})
         if _nk_hints:
             plan.append({"type": "para", "text": NANAKO_HINT_LEAD})
             plan.append({"type": "para_hints", "hints": _nk_hints})
-            plan.append({"type": "para", "text": NANAKO_OUTRO})
+            plan.append({"type": "para", "text": _nk_t["outro"]})
 
     # ── 全台系: H2 →（H3 + 画像）× 機種数 ──
     # ★⑦でチェックを外した全台系は⑧が output_dir から削除するが、

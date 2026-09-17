@@ -3918,6 +3918,21 @@ _ART_WP_AUTHOR_STORES = frozenset({"渋谷新館", "新宿歌舞伎町"})
 # 選択できる投稿者（表示順＝この順序・縦並び）。保存するのは user ID ではなく username。
 # username → 正式 WordPress user ID の対応は wp_client.WP_AUTHOR_MAP が持つ。
 _ART_WP_AUTHORS = ("t.ito", "r.iio", "k.furukawa", "t.ui", "m.suzuki", "m.takahashi")
+# 記事用の「その他の優秀台ピックアップ」だけ **濃紺のタイトルバー（_build_machine_img
+# のバー・#264CA1）を出さない**店舗。バー領域そのものを作らない `no_bar=True` を使う
+# （生成後の crop は禁止。表の先頭行が欠ける）。
+# ★高配分の水色バー（`_art_high_title_bar()` の #0080FF・`_ART_HIGH_NO_BAR_STORES`）
+#   とは **別仕様**。流用・統合しない。
+# ★対象は「その他の優秀台ピックアップ」（`art_sonota_extra_title` で改名した同画像を
+#   含む）だけ。全台系・並び・列・末尾・ジャグラー統合・⑤オススメ・バラエティ・
+#   他店舗・他ページへは広げない。
+_ART_SONOTA_NO_BAR_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
+def _art_sonota_no_bar(store: str) -> bool:
+    """記事用の「その他の優秀台」画像で濃紺タイトルバーを省くか。"""
+    return str(store or "") in _ART_SONOTA_NO_BAR_STORES
+
 # 別サイトへ送る店舗は、**そのサイトに実在する投稿者だけ**を選ばせる。
 # 送信先が違えば user ID も別物なので、選択肢とマップを店舗別に分ける。
 # 2026-09-17 に GET /wp-json/wp/v2/users?context=edit で実測
@@ -17148,10 +17163,18 @@ def show_auto_article_page() -> None:
     # 保存は既存の article_page_inputs.json（Excel＝日付単位）。②個別画像を
     # 巻き込まないよう on_change は必ず skip_kojin=True で呼ぶ（0e7dc4c の正式仕様）。
     if store in _ART_NANAKO_STORES:
-        st.markdown("**ななこポスト**（WordPress冒頭・「全台系」の直前に入ります）")
+        # 呼び名は店舗別（新宿歌舞伎町は「かぶぱポスト」）。**WordPress本文と同じ
+        # `wp_client.nanako_texts()` から引く**ので、UIと本文の表記がずれない。
+        # wp_client は既存の流儀どおり関数内 import（トップレベル import しない）。
+        try:
+            import wp_client as _wpc_nk
+            _nk_label = _wpc_nk.nanako_texts(store).get("label", "ななこポスト")
+        except Exception:
+            _nk_label = "ななこポスト"
+        st.markdown(f"**{_nk_label}**（WordPress冒頭・「全台系」の直前に入ります）")
         st.caption("見出し・導入文・締め文は固定です。ヒントは先頭の「■」を自動で付けるので"
                    "本文だけ入力してください。空欄のヒントは出力しません。")
-        _art_txt("前日のななこポスト Xリンク（空欄なら「↓前日の夜に…」ごと出力しません）",
+        _art_txt(f"前日の{_nk_label} Xリンク（空欄なら「↓前日の夜に…」ごと出力しません）",
                  f"art_nanako_url_{store}", placeholder="https://x.com/... ")
         _nk_cols = st.columns(2, gap="large")
         for _nk_i in range(_ART_NANAKO_HINTS):
@@ -17913,7 +17936,7 @@ def show_auto_article_page() -> None:
                                             _se_df_a = _se_df_a.iloc[_se_df_a["台番"].argsort()].reset_index(drop=True)
                                             _se_tit_a = art_sonota_extra_title.strip() or "その他の優秀台ピックアップ"
                                             _art_pil.append((_art_son_fn, _build_machine_img(
-                                                _se_df_a, _se_tit_a, None,
+                                                _se_df_a, _se_tit_a, None, no_bar=_art_sonota_no_bar(store),
                                                 hq_scale=_art_hq_scale_for(_art_son_fn, store, len(_se_df_a)))))
                                             _art_son_bans = [int(b) for b in _se_df_a["台番"].tolist()]
                                             _art_son_added = True
@@ -17924,7 +17947,7 @@ def show_auto_article_page() -> None:
                                     if not _se_auto_a.empty:
                                         _se_tit_a = art_sonota_extra_title.strip() or "その他の優秀台ピックアップ"
                                         _art_pil.append((_art_son_fn, _build_machine_img(
-                                            _se_auto_a, _se_tit_a, None,
+                                            _se_auto_a, _se_tit_a, None, no_bar=_art_sonota_no_bar(store),
                                             hq_scale=_art_hq_scale_for(_art_son_fn, store, len(_se_auto_a)))))
                                         _art_son_bans = [int(b) for b in _se_auto_a["台番"].tolist()]
                                         _art_son_added = True
@@ -18490,7 +18513,7 @@ def show_auto_article_page() -> None:
                             _asc = _asc.iloc[_asc["台番"].argsort()].reset_index(drop=True)
                             if not _asc.empty:
                                 _asi = _build_machine_img(
-                                    _asc, "その他の優秀台ピックアップ", None,
+                                    _asc, "その他の優秀台ピックアップ", None, no_bar=_art_sonota_no_bar(store),
                                     hq_scale=_art_hq_scale_for("その他の優秀台ピックアップ.jpg",
                                                                store, len(_asc)))
                                 _upd_bm["その他の優秀台ピックアップ.jpg"] = _bans_from_df(_asc)
@@ -18527,7 +18550,7 @@ def show_auto_article_page() -> None:
                                     _aov_son = _aov_son[~_aov_son["台番"].apply(int).isin(_a_son_ex_upd)].copy()
                                 _aov_son = _aov_son.iloc[_aov_son["台番"].argsort()].reset_index(drop=True)
                                 _aov_img = _build_machine_img(
-                                    _aov_son, "その他の優秀台ピックアップ", None,
+                                    _aov_son, "その他の優秀台ピックアップ", None, no_bar=_art_sonota_no_bar(store),
                                     hq_scale=_art_hq_scale_for("その他の優秀台ピックアップ.jpg",
                                                                store, len(_aov_son)))
                                 _upd_bm["その他の優秀台ピックアップ.jpg"] = _bans_from_df(_aov_son)
@@ -19443,7 +19466,9 @@ def show_auto_article_page() -> None:
                         _aralld = _arxdfs; _aralldi = _arxdis
                     _arsc = pd.concat(_aralld, ignore_index=True)
                     _arsc = _arsc.iloc[_arsc["台番"].argsort()].reset_index(drop=True)
-                    _save_jpeg(_build_machine_img(_arsc, "その他の優秀台ピックアップ", None), _arsonp, target_kb=800)
+                    _save_jpeg(_build_machine_img(_arsc, "その他の優秀台ピックアップ", None,
+                                                  no_bar=_art_sonota_no_bar(store)),
+                               _arsonp, target_kb=800)
                     _log(f"  ✅ その他の優秀台ピックアップ再生成: {len(_arsc)}台")
                 if _arjdfs and _ardf is not None:
                     _arjp    = os.path.join(output_dir, "ジャグラーシリーズ優秀台.jpg")
@@ -19460,7 +19485,9 @@ def show_auto_article_page() -> None:
                         _arson2  = pd.concat(_ardfs2, ignore_index=True)
                         _arson2  = _arson2.drop_duplicates(subset=["台番"])
                         _arson2  = _arson2.iloc[_arson2["台番"].argsort()].reset_index(drop=True)
-                        _save_jpeg(_build_machine_img(_arson2, "その他の優秀台ピックアップ", None), _arsonp2, target_kb=800)
+                        _save_jpeg(_build_machine_img(_arson2, "その他の優秀台ピックアップ", None,
+                                                      no_bar=_art_sonota_no_bar(store)),
+                                   _arsonp2, target_kb=800)
                         _log(f"  ✅ ジャグラー{len(_arjcomb)}台→overflow: その他の優秀台ピックアップに追加({len(_arson2)}台)")
                     else:
                         _arjhkj  = any(m.strip() in _arjss for m in (kojin_zentai_machines + kojin_yushu_machines) if m.strip())
@@ -24858,14 +24885,13 @@ def draw_slump_graph(
     _hdr_fg = (C_SL_TEXT if _sl_new
                else (C_ART_SL_CARD_TEXT if _sl_art else (255, 255, 255)))
 
-    # 記事用の白カード（auto_article × 新宿歌舞伎町）だけ **ヘッダー1の機種名を
-    # 描画しない**。ヘッダー1帯・区切り線・カードサイズ・グラフ座標はそのままで、
-    # **文字だけを出さない**（文字位置計算にも入らない）。台番は従来どおり
-    # ヘッダー2帯へ描く。判定は関数内の既存 `_sl_art` をそのまま使うので、
-    # ⑦プレビュー・🔄その他を更新・⑧本番の3経路が構造的に一致する。
-    if not _sl_art:
-        name_x, name_y = _center_xy(display_name, font_name, round(10 * _os), round(41 * _os))
-        draw.text((name_x, name_y), display_name, fill=_hdr_fg, font=font_name)
+    # ヘッダー1の機種名は **全店舗・全ページで描画する**（記事用の白カードも同じ）。
+    # ★2026-09-17 にいったん記事用だけ非表示にしたが、台番の上の機種名は必要との
+    #   判断で元へ戻した。**非表示のままにするのは差枚数の直上に出る下部の
+    #   `machine_name` だけ**（下の `if machine_name and not _sl_art:` を参照）。
+    #   記事用は `_hdr_fg` が黒（C_ART_SL_CARD_TEXT）に解決されるので白地でも読める。
+    name_x, name_y = _center_xy(display_name, font_name, round(10 * _os), round(41 * _os))
+    draw.text((name_x, name_y), display_name, fill=_hdr_fg, font=font_name)
 
     uid_text = f"{unit_id}番台"
     uid_x, uid_y = _center_xy(uid_text, font_uid, round(57 * _os), round(41 * _os))

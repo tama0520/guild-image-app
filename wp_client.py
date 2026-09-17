@@ -1129,7 +1129,16 @@ def plan_blocks(payload: dict) -> list[dict]:
             plan.append({"type": "para", "text": NANAKO_OUTRO})
 
     # ── 全台系: H2 →（H3 + 画像）× 機種数 ──
-    zen = sorted(payload["zen_dai"], key=lambda x: -int(x.get("all_avg_diff", 0)))
+    # ★⑦でチェックを外した全台系は⑧が output_dir から削除するが、
+    #   `zen_dai_list`（＝payload["zen_dai"]）には残る。実在チェックをしないと
+    #   消えた画像を**必須画像**として要求し、下書き作成が止まる。
+    #   列（retsu）が既に使っているのと同じ `os.path.isfile()` で絞り込み、
+    #   **計画対象から外す**（optional=True で見逃す方式は採らない）。
+    #   実在画像が0件なら H2・H3 ごと出さない（既存の末尾・バラエティと同じ流儀）。
+    zen = sorted([x for x in payload["zen_dai"]
+                  if out_dir and os.path.isfile(
+                      os.path.join(out_dir, f"{app_safe_fn(x['name'])}.jpg"))],
+                 key=lambda x: -int(x.get("all_avg_diff", 0)))
     if zen:
         plan.append({"type": "h2", "text": H2_ZENDAI})
         for it in zen:
@@ -1185,12 +1194,21 @@ def plan_blocks(payload: dict) -> list[dict]:
     #    列のファイル名は **⑧が使うのと同じ `_build_col_items()` の結果**を
     #    呼び出し側から受け取る（ここで再生成・再推測しない）。
     #    H2 は既存の「並び・列仕掛けも！」をそのまま使う（元から列を含む文言）。
-    nami = payload["nami"]
+    # ★並びも全台系と同じ不整合を持つ（⑦で外すと⑧が実ファイルを消すのに
+    #   `nami_list` には残る）。ここでも実在する画像だけへ絞る。
+    #   **`dup` は必ずフィルタ前の全件から作る。**⑧側（convert_narabi_pil.py /
+    #   streamlit_app.py）の重複判定も「生成対象の全並び」基準なので、
+    #   絞り込んだ後に数えると、同名2件の片方を外したときに残った1件が
+    #   非重複扱いになり `（開始～終了）` が落ちて実ファイル名と食い違う。
+    _nami_all = payload["nami"]
+    dup = {t for t, c in Counter(x["title"] for x in _nami_all).items() if c > 1}
+    nami = [x for x in _nami_all
+            if out_dir and os.path.isfile(
+                os.path.join(out_dir, narabi_file_name(x, dup)))]
     retsu = [r for r in (payload.get("retsu") or [])
              if str(r.get("file") or "")
              and out_dir and os.path.isfile(os.path.join(out_dir, str(r["file"])))]
     if nami or retsu:
-        dup = {t for t, c in Counter(x["title"] for x in nami).items() if c > 1}
         plan.append({"type": "h2", "text": H2_NARABI})
         for it in nami:
             plan.append({"type": "h3", "text": h3_narabi(it)})

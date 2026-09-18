@@ -3957,6 +3957,15 @@ _ART_NO_TOP_X_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 #   保存に無い 6〜9 は _restore_article_inputs() が "" を入れるので空欄扱いになる。
 _ART_NANAKO_HINTS = 10
 
+# ①冒頭の「かぶぱポスト」見出しに出す**案内用のプロフィールURL**（新宿歌舞伎町のみ）。
+# 別タブでXのかぶぱアカウントを開き、そこで該当ポストを開いてURLをコピーし、
+# 下の入力欄へ貼り付けてもらうための**案内表示専用**。
+# ★このURLを **WordPress本文・X埋め込みURL・保存値として使ってはならない**。
+#   本文へ入るのは従来どおり **入力欄に貼られた「該当ポストのURL」だけ**。
+_ART_NANAKO_PROFILE_URLS: "dict[str, str]" = {
+    "新宿歌舞伎町": "https://x.com/kabupa777",
+}
+
 # 記事用①冒頭部分より上へ「WordPress投稿者」の選択UIを出す店舗。
 # **高田馬場は対象外**（従来どおり wp_client.WP_AUTHOR_ID = 14 固定）。
 # 秋葉原はそもそもWordPress対象外（_ART_WP_STORES に無い）。
@@ -17610,7 +17619,17 @@ def show_auto_article_page() -> None:
             _nk_label = _wpc_nk.nanako_texts(store).get("label", "ななこポスト")
         except Exception:
             _nk_label = "ななこポスト"
-        st.markdown(f"**{_nk_label}**（WordPress冒頭・「全台系」の直前に入ります）")
+        # 新宿歌舞伎町だけ、見出しの括弧内を**案内用プロフィールURLのリンク**にする。
+        # 別タブで開く（target="_blank" / rel="noopener noreferrer"）。
+        # 登録の無い店舗（渋谷新館など）は**従来の文言のまま**。
+        _nk_prof = _ART_NANAKO_PROFILE_URLS.get(store, "")
+        if _nk_prof:
+            st.markdown(
+                f'<strong>{_nk_label}</strong>（<a href="{_nk_prof}" target="_blank" '
+                f'rel="noopener noreferrer">{_nk_prof}</a>）',
+                unsafe_allow_html=True)
+        else:
+            st.markdown(f"**{_nk_label}**（WordPress冒頭・「全台系」の直前に入ります）")
         st.caption("見出し・導入文・締め文は固定です。ヒントは先頭の「■」を自動で付けるので"
                    "本文だけ入力してください。空欄のヒントは出力しません。")
         _art_txt(f"前日の{_nk_label} Xリンク（空欄なら「↓前日の夜に…」ごと出力しません）",

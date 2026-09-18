@@ -18302,6 +18302,11 @@ def show_auto_article_page() -> None:
                         _art_sue_stat: dict[str, list[int]] = {}
                         # ②個別・優秀台のファイル名 → 掲載台番（🎯除外後）。ban_map用
                         _art_ky_bans: dict[str, list[int]] = {}
+                        # 📝記入部分のみモードの記事コメント用。**実際にプレビューへ
+                        # 描いた記入由来の掲載内容だけ**を集める（自動カテゴリは入れない）。
+                        _art_cmt_zen_manual:  list[str] = []   # ②個別「全台」の機種名
+                        _art_cmt_high_manual: list[str] = []   # ②個別「優秀台」の機種名
+                        _art_cmt_son_manual:  list[dict] = []  # その他の優秀台の掲載台
                         _art_son_added = False
                         _art_son_fn = "その他の優秀台ピックアップ.jpg"
                         _art_son_bans: list[int] = []
@@ -18329,6 +18334,7 @@ def show_auto_article_page() -> None:
                                     if _kg.empty: continue
                                     _kd = _apdi.loc[_kg_src.index].reset_index(drop=True)
                                     _azitems.append((int(round(_kd.mean())), "kojin", (_km, _kg, _kd)))
+                                    _art_cmt_zen_manual.append(_km_base)
                             for _av, _tp, _da in sorted(_azitems, key=lambda x: x[0], reverse=True):
                                 if _tp == "pipeline":
                                     if _art_manual: continue  # 記入部分のみ：自動全台系はスキップ
@@ -18369,6 +18375,7 @@ def show_auto_article_page() -> None:
                                         _kgp = _kgp[_ky_keep.values].copy().reset_index(drop=True)
                                     if _kgp.empty: continue   # 全台除外 → 画像を作らない
                                     _ahitems.append((int(round(_kda.mean())), "kojin", (_km, _kgp)))
+                                    _art_cmt_high_manual.append(_km_base)
                             for _av, _tp, _da in sorted(_ahitems, key=lambda x: x[0], reverse=True):
                                 if _tp == "pipeline":
                                     if _art_manual: continue  # 記入部分のみ：自動高配分はスキップ
@@ -18546,6 +18553,18 @@ def show_auto_article_page() -> None:
                                         _art_son_added = True
                             if not _art_son_added and not _art_manual and "その他の優秀台ピックアップ.jpg" in _art_fpm:
                                 _art_pil.append(_art_fpm["その他の優秀台ピックアップ.jpg"])
+                            # 📝コメント用: その他の優秀台へ**実際に載せた台**だけを控える。
+                            if _art_son_added and _art_son_bans and _apdf is not None and _apdi is not None:
+                                try:
+                                    _sm_df = _apdf[_apdf["台番"].apply(
+                                        lambda b: int(b) in set(_art_son_bans))]
+                                    for _si in _sm_df.index:
+                                        _art_cmt_son_manual.append({
+                                            "name": str(_sm_df.at[_si, "機種名"]),
+                                            "ban":  int(_sm_df.at[_si, "台番"]),
+                                            "diff": int(_apdi.loc[_si])})
+                                except Exception:
+                                    _art_cmt_son_manual = []
                             # バラエティ画像
                             if art_variety_enabled and art_variety_ranges_text.strip() and _apdf is not None and _apdi is not None:
                                 try:
@@ -18889,19 +18908,28 @@ def show_auto_article_page() -> None:
                     #   結果テキスト・全台データ画像とズレる余地がない。
                     # ★JSON へは保存しない（候補は同じ実データから再生成できる）。
                     if store in _ART_COMMENT_STORES:
+                        # ★📝記入部分のみモードは **プレビューへ実際に出た記入由来の掲載内容だけ**
+                        #   を参照する。自動全台系・自動高配分・自動その他はプレビューに出ない
+                        #   ので facts へも入れない（自動カテゴリの機種名・数値を書かせない）。
+                        #   🔍フルプレビュー・⑧本番は従来どおり pipeline の結果を使う。
                         st.session_state[f"_art_cmt_src_{store}"] = {
-                            "zen_names": [it["name"] for it in _art_pr.get("zen_dai_list", [])],
-                            "kojin_zen": ([m.strip() for m in kojin_zentai_machines if (m or "").strip()]
-                                          if kojin_enabled else []),
-                            "high_names": [h["name"] for h in _art_pr.get("high_ratio_list", [])
-                                           if h.get("has_image")],
+                            "zen_names": ([] if _art_manual else
+                                          [it["name"] for it in _art_pr.get("zen_dai_list", [])]),
+                            "kojin_zen": (list(_art_cmt_zen_manual) if _art_manual else
+                                          ([m.strip() for m in kojin_zentai_machines if (m or "").strip()]
+                                           if kojin_enabled else [])),
+                            "high_names": (list(_art_cmt_high_manual) if _art_manual else
+                                           [h["name"] for h in _art_pr.get("high_ratio_list", [])
+                                            if h.get("has_image")]),
                             "nami": [{"machine": x.get("machine"), "count": x.get("count"),
                                       "avg_diff": x.get("avg_diff")}
                                      for x in _art_pr.get("nami_list", [])],
                             "retsu": [list(_b or []) for _b in _art_col_map.values()],
-                            "sonota": [{"name": e.get("name"), "ban": e.get("ban"),
-                                        "diff": e.get("diff")}
-                                       for e in (_art_pr.get("sonota_excellent_list") or [])],
+                            "sonota": (list(_art_cmt_son_manual) if _art_manual else
+                                       [{"name": e.get("name"), "ban": e.get("ban"),
+                                         "diff": e.get("diff")}
+                                        for e in (_art_pr.get("sonota_excellent_list") or [])]),
+                            "manual": bool(_art_manual),
                             "osu_plan": list(st.session_state.get(f"_art_osu_plan_{store}") or []),
                             # D⑤コメントの母集団＝⑤画像へ実際に掲載された台
                             # （_art_osusume_block_images() の bans をそのまま使う）
@@ -19332,6 +19360,15 @@ def show_auto_article_page() -> None:
             _f_osu  = _art_cmt_facts_osusume(_cmt_src.get("osu_rows"))
             _f_oth  = _art_cmt_facts_other(_cmt_df, _cmt_di, _cmt_src.get("sonota"))
             _f_sum  = _art_cmt_facts_summary(_cmt_di, _f_zen, _f_high, _f_nami)
+            # ★📝記入部分のみモードで**記入由来の掲載内容が1件も無い**ときは、
+            #   自動カテゴリへフォールバックせずコメント案も作らない（Fも出さない）。
+            _cmt_manual = bool(_cmt_src.get("manual"))
+            _cmt_empty = (_cmt_manual
+                          and not (_f_zen.get("n_machines") or _f_high.get("n_machines")
+                                   or _f_nami.get("n_boxes") or _f_nami.get("n_retsu")
+                                   or _f_osu.get("n_units") or _f_oth.get("n_units")))
+            if _cmt_empty:
+                _f_sum = None
             _cmt_facts = {"A": _f_zen, "B": _f_high, "C": _f_nami,
                           "D": _f_osu, "E": _f_oth, "F": _f_sum}
             _cmt_cands = {
@@ -19342,6 +19379,13 @@ def show_auto_article_page() -> None:
                 "E": _art_cmt_cands_other(_f_oth),
                 "F": _art_cmt_cands_summary(_f_sum),
             }
+            if _cmt_empty:
+                st.info("📝 記入部分のみプレビューに掲載内容がありません。"
+                        "②個別画像・③並び／列・④末尾などへ掲載内容を入力してください"
+                        "（自動抽出の機種はコメント案に使いません）。")
+            if _cmt_manual:
+                st.caption("📝 記入部分のみモードのため、**プレビューへ実際に出た記入由来の"
+                           "掲載内容だけ**から候補を作っています（自動抽出の機種は使いません）。")
             st.caption("候補は公開記事の書き方ルールと当日の実データから自動生成しています"
                        "（AIは使っていません）。★おすすめは目安で、**選ぶまでは未確定**です。"
                        "　**選んで確定した最終文だけ**が WordPress 本文へ入ります。")

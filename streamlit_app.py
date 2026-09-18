@@ -6160,7 +6160,50 @@ def run_auto_pipeline(
             sonota_bans_all = jug_bans_all = set()
             jug_pool_df = ov_df = ov_diff = None
             excellent_list = []
-            _meta_only_list = []
+            # ⑤最優先で抑制した機種の「判定＋平均差枚」だけを控える専用の受け皿。
+            # 📝でも⑤H3の平均表示（WordPress）に必要なので、**⑤機種だけへ絞った df** を
+            # 一時ディレクトリへ通して Step1/2/3 の**既存の判定をそのまま再利用**する。
+            # ⑤機種は meta_only_machines ＝ recommended_machines に入っているため、
+            # Step1 は meta 追記後に continue、Step2/3 も `machine not in
+            # recommended_machines` が偽で画像も high_ratio_list も触らない
+            # ＝**画像0件・出力フォルダ不変・戻り値は meta 以外すべて破棄**。
+            # zen_dai_list / high_ratio_list / 結果テキスト / ZIP /
+            # 全台系・高配分H3 へは一切混ぜない。既定（空集合）は従来どおり何もしない。
+            _meta_only_list: list[dict] = []
+            if meta_only_machines:
+                try:
+                    _meta_sub = df[df["機種名"].isin(meta_only_machines)]
+                    if not _meta_sub.empty:
+                        _meta_dr  = diff_raw.loc[_meta_sub.index]
+                        _meta_tmp = tempfile.mkdtemp(prefix="_meta_only_")
+                        run_step1_main(_meta_sub, _meta_dr, _meta_tmp, stem, cfg, log,
+                                       article_mode=article_mode, hq_scale=hq_scale,
+                                       zh_hq_scale=zh_hq_scale,
+                                       kojin_zentai_machines=kojin_zentai_machines,
+                                       meta_only_machines=meta_only_machines,
+                                       meta_only_out=_meta_only_list)
+                        _mo2 = run_step2_juggler(
+                            _meta_sub, _meta_dr, _meta_tmp, cfg, narabi_bans, log,
+                            recommended_machines, suebangai_bans | jug_sue_bans,
+                            article_mode=article_mode, sonota_exclude=sonota_exclude,
+                            no_merge_image=jug_no_merge_image, rec_ban_level=rec_ban_level,
+                            exclude_units=exclude_units, hq_scale=hq_scale,
+                            zh_hq_scale=zh_hq_scale, retsu_bans=retsu_bans,
+                            high_bar=(store not in _ART_HIGH_NO_BAR_STORES),
+                            meta_only_machines=meta_only_machines,
+                            meta_only_out=_meta_only_list)
+                        run_step3_other(
+                            _meta_sub, _meta_dr, _meta_tmp, cfg, narabi_bans,
+                            _mo2[1], _mo2[2], log, recommended_machines, suebangai_bans,
+                            article_mode=article_mode, sonota_exclude=sonota_exclude,
+                            exclude_units=exclude_units, hq_scale=hq_scale,
+                            zh_hq_scale=zh_hq_scale, retsu_bans=retsu_bans,
+                            high_bar=(store not in _ART_HIGH_NO_BAR_STORES),
+                            meta_only_machines=meta_only_machines,
+                            meta_only_out=_meta_only_list)
+                except Exception:
+                    # 平均表示だけの補助情報。失敗しても📝の生成物へは影響させない。
+                    _meta_only_list = []
         else:
             # ⑤最優先で抑制した機種の「判定＋平均差枚」だけを控える専用の受け皿。
             # WordPressの⑤H3平均表示だけに使い、zen_dai_list / high_ratio_list /

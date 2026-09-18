@@ -8505,6 +8505,12 @@ _ART_POSTER_LIBRARY: "tuple[tuple[str, int], ...]" = (
     ("強ゾロの日", 39), ("月末", 40), ("土曜日", 41), ("日曜日", 42),
     ("キングぱないなー", 36), ("はぐれキングぱないなー", 38),
 )
+# 22項目の解決から **必ず除外するメディアID**。
+# ★29 = 「10日間ポスター」（元から選択肢に入れない）。
+# ★44 = タイトルが「6日」の重複メディア（ファイル名 `6日-1.jpg`・WPの自動リネーム）。
+#   「6日はID26。ID44は使わない」は既存の正式仕様なので、最新解決の候補からも外す。
+#   6日を差し替えるときは `6日2.jpg` のように **末尾連番**で追加する。
+_ART_POSTER_EXCLUDE_IDS: "frozenset[int]" = frozenset({29, 44})
 _ART_POSTER_PICK_TIMEOUT = 20
 
 
@@ -8579,6 +8585,118 @@ def _art_poster_err_brief(resp) -> str:
         return f" (非JSON応答 {len(resp.content or b'')}バイト)"
     except Exception:
         return ""
+
+
+def _art_poster_name_matches(base: str, name: str) -> bool:
+    """`name` が「基本名そのもの」または「基本名＋末尾連番」かを**厳密一致**で判定する。
+
+    ★部分一致は使わない（`6日` と `6のつく日` を取り違えないため）。
+      許すのは末尾の数字だけで、区切り文字（`-` / `_` / 空白）は許さない。
+        base="7のつく日" → "7のつく日" / "7のつく日2" ○ ／ "7のつく日-1" ×
+        base="6日"       → "6日" / "6日2"           ○ ／ "6のつく日" ×
+    """
+    _b = str(base or "").strip()
+    _n = str(name or "").strip()
+    if not _b or not _n:
+        return False
+    return re.fullmatch(re.escape(_b) + r"\d*", _n) is not None
+
+
+@st.cache_data(show_spinner=False, ttl=3600, max_entries=8)
+def _art_poster_media_index(store: str) -> "tuple[tuple[int, str, str, str], ...]":
+    """メディアライブラリの一覧を **GETだけ**で取り、(id, date, title, filename) を返す。
+
+    ★POST / PUT / PATCH / DELETE・アップロード・編集・削除は一切しない。
+    ★失敗は `_ArtPosterFetchError` を送出する（`st.cache_data` は例外を
+      キャッシュしないので、失敗しても次回すぐ再試行できる）。
+    ★Secrets・パスワード・Authorization・完全URL・クエリは戻り値にも
+      例外メッセージにも入れない。
+    """
+    import requests
+    import wp_client as _wpc_x
+    try:
+        site, auth = _wpc_x._conf(store)     # 値は表示しない
+    except Exception as _e:
+        raise _ArtPosterFetchError(f"secrets: 送信先の取得に失敗 exc={type(_e).__name__}")
+    if not site:
+        _cs = _art_poster_conf_state(store)
+        _mk = ", ".join(_cs.get("missing_used") or []) or "不明"
+        raise _ArtPosterFetchError(f"secrets: 送信先が未設定（未設定キー: {_mk}）")
+    _rows: list = []
+    for _pg in range(1, 11):                 # 100件×10ページで打ち切り（無限ループ防止）
+        try:
+            r = requests.get(
+                f"{site}/wp-json/wp/v2/media",
+                params={"per_page": 100, "page": _pg, "orderby": "id", "order": "asc",
+                        "_fields": "id,date_gmt,date,title,source_url"},
+                auth=auth, timeout=_ART_POSTER_PICK_TIMEOUT)
+        except Exception as _e:
+            raise _ArtPosterFetchError(f"rest: 通信エラー exc={type(_e).__name__}")
+        if r.status_code == 400 and _pg > 1:  # ページ超過は正常終了扱い
+            break
+        if r.status_code != 200:
+            raise _ArtPosterFetchError(
+                f"rest: HTTP {r.status_code}{_art_poster_err_brief(r)}")
+        try:
+            _j = r.json() or []
+        except Exception as _e:
+            raise _ArtPosterFetchError(f"rest: 応答を解釈できません exc={type(_e).__name__}")
+        for _m in _j:
+            try:
+                _id = int(_m.get("id") or 0)
+            except Exception:
+                continue
+            if not _id:
+                continue
+            _ttl = str(((_m.get("title") or {}) or {}).get("rendered") or "")
+            _fn = str(_m.get("source_url") or "").split("?")[0].rsplit("/", 1)[-1]
+            _fn = os.path.splitext(_fn)[0]
+            _dt = str(_m.get("date_gmt") or _m.get("date") or "")
+            _rows.append((_id, _dt, _ttl, _fn))
+        if len(_j) < 100:
+            break
+    if not _rows:
+        raise _ArtPosterFetchError("rest: メディアが1件も取得できません")
+    return tuple(_rows)
+
+
+def _art_poster_resolve(store: str, label: str) -> "tuple[int, str]":
+    """選択ラベルに対応する **最新メディアID** と安全なエラー文を返す。
+
+    ★固定IDを直接使わず、毎回ライブラリから解決する（差し替えにコード変更が不要）。
+      一致条件は `_art_poster_name_matches()`＝**基本名 ＋ 任意の末尾連番だけ**。
+      ファイル名・メディアタイトルのどちらかが一致すれば候補。
+    ★候補が複数なら **最も新しいもの**（アップロード日時 → 同値なら大きいID）。
+    ★候補が1件も無いときだけ、`_ART_POSTER_LIBRARY` の固定IDへフォールバックする。
+      一覧の取得に失敗したときも固定IDへ落とす（安全側）。
+    """
+    _fixed = int(dict(_ART_POSTER_LIBRARY).get(str(label or ""), 0) or 0)
+    if not _fixed:
+        return 0, ""
+    try:
+        _rows = _art_poster_media_index(store)
+    except _ArtPosterFetchError as _e:
+        return _fixed, _e.reason
+    except Exception as _e:
+        return _fixed, f"exc: {type(_e).__name__}"
+    _cand = [(_dt, _id) for (_id, _dt, _ttl, _fn) in _rows
+             if _id not in _ART_POSTER_EXCLUDE_IDS
+             and (_art_poster_name_matches(label, _ttl)
+                  or _art_poster_name_matches(label, _fn))]
+    if not _cand:
+        return _fixed, ""
+    return int(max(_cand)[1]), ""
+
+
+def _art_poster_pick_reload(store: str, label: str) -> None:
+    """選択中ラベルの **解決キャッシュと画像キャッシュだけ** を捨てる（全clearはしない）。"""
+    _mid, _ = _art_poster_resolve(store, label)
+    try:
+        _art_poster_media_index.clear(store)
+    except Exception:
+        pass
+    if _mid:
+        _art_poster_media_reload(store, int(_mid))
 
 
 @st.cache_data(show_spinner=False, ttl=3600, max_entries=32)
@@ -8678,7 +8796,9 @@ def _art_poster_inputs(store: str, excel: str) -> "tuple[list, str]":
     _label = _art_poster_picked(store)
     if not _label:
         return [], ""
-    _mid = dict(_ART_POSTER_LIBRARY).get(_label)
+    # ★固定IDではなく **選択ラベルに対応する最新メディア**を毎回解決する。
+    #   ⑦プレビューと⑧本番は同じ `_art_poster_inputs()` → 同じ解決経路を通る。
+    _mid, _rerr = _art_poster_resolve(store, _label)
     if not _mid:
         return [], f"WordPressメディア「{_label}」の対応IDが未登録です"
     _got, _err = _art_poster_media_try(store, int(_mid))
@@ -17446,8 +17566,11 @@ def show_auto_article_page() -> None:
             elif not _pk_cur:
                 st.caption("🖼️ 画像未選択（右のチェック欄から1件選んでください）")
             else:
-                _pk_mid = int(dict(_ART_POSTER_LIBRARY)[_pk_cur])
+                # ★固定IDではなく、ラベルに対応する最新メディアを解決して使う。
+                _pk_mid, _pk_rerr = _art_poster_resolve(store, _pk_cur)
                 _pk_got, _pk_err = _art_poster_media_try(store, _pk_mid)
+                if _pk_rerr and not _pk_err:
+                    _pk_err = _pk_rerr
                 if _pk_got:
                     st.image(_pk_got["data"], width=320, caption=_pk_cur)
                 else:
@@ -17460,9 +17583,10 @@ def show_auto_article_page() -> None:
                         st.caption(f"失敗内容: {_pk_err}")
                 # 🔄 再取得：選択中IDのキャッシュ1件だけ破棄（全clearはしない）
                 st.button("🔄 再取得", key=f"art_poster_reload_{store}",
-                          help="選択中の画像のキャッシュだけを破棄して取り直します",
-                          on_click=_art_poster_media_reload,
-                          args=(store, _pk_mid))
+                          help="選択中の項目の「最新メディア解決」と画像の"
+                               "キャッシュだけを破棄して取り直します",
+                          on_click=_art_poster_pick_reload,
+                          args=(store, _pk_cur))
         with _pk_rcol:
             _pk_sub = st.columns(2, gap="small")
             for _pi2, (_plab, _pmid) in enumerate(_ART_POSTER_LIBRARY):

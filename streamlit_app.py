@@ -8494,6 +8494,41 @@ _ART_POSTER_LIBRARY: "tuple[tuple[str, int], ...]" = (
 _ART_POSTER_PICK_TIMEOUT = 20
 
 
+class _ArtPosterFetchError(Exception):
+    """WordPressメディア取得の失敗。`reason` は **安全な要約だけ**。
+
+    ★Secrets値・パスワード・Authorization・完全URL・クエリは**絶対に入れない**。
+      入れてよいのは「失敗した段階」「HTTPステータス」「例外クラス名」「WordPressの
+      JSONエラーの code / message」「未設定のSecretsキー名」まで。
+    ★`st.cache_data` は **例外をキャッシュしない**ので、失敗しても次回すぐ再試行できる
+      （戻り値 None を返す実装だと ttl=3600 の間ずっと失敗が残る）。
+    """
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = str(reason)
+
+
+def _art_poster_conf_state(store: str) -> dict:
+    """送信先Secretsの状態を **キー名だけ** で返す（値は一切読まない・出さない）。
+
+    {"ok": bool, "store_keys": (…), "used_keys": (…), "fallback": bool,
+     "missing_store": [キー名], "missing_used": [キー名]}
+    """
+    try:
+        import wp_client as _wpc_c
+        _sk = tuple(_wpc_c.WP_SECRET_KEYS_BY_STORE.get(str(store or "")) or ())
+        _uk = tuple(_wpc_c._conf_keys(store))
+        _ms = [k for k in _sk if not _wpc_c._secret(k)]
+        _mu = [k for k in _uk if not _wpc_c._secret(k)]
+        return {"ok": not _mu, "store_keys": _sk, "used_keys": _uk,
+                "fallback": bool(_sk) and _uk != _sk,
+                "missing_store": _ms, "missing_used": _mu}
+    except Exception as _e:
+        return {"ok": False, "store_keys": (), "used_keys": (), "fallback": False,
+                "missing_store": [], "missing_used": [], "exc": type(_e).__name__}
+
+
 def _art_poster_pick_on() -> bool:
     """記事用①冒頭で「WordPressメディアから選ぶ」を使うか。
 
@@ -8517,37 +8552,94 @@ def _art_poster_pick_key(store: str) -> str:
     return f"art_poster_pick_{store}"
 
 
+def _art_poster_err_brief(resp) -> str:
+    """応答から **安全な要約だけ**を作る（URL・クエリ・認証情報は含めない）。"""
+    try:
+        _j = resp.json() or {}
+        _c, _m = _j.get("code"), str(_j.get("message") or "")[:80]
+        if _c or _m:
+            return f" code={_c} message={_m}"
+    except Exception:
+        pass
+    try:
+        return f" (非JSON応答 {len(resp.content or b'')}バイト)"
+    except Exception:
+        return ""
+
+
 @st.cache_data(show_spinner=False, ttl=3600, max_entries=32)
-def _art_poster_media_fetch(store: str, media_id: int) -> "dict | None":
+def _art_poster_media_fetch(store: str, media_id: int) -> dict:
     """WordPressメディアを **GETだけ**で取得して {"name","data"} を返す。
 
     ★POST / PUT / PATCH / DELETE・アップロード・編集・削除は一切しない。
-    ★Secrets・アプリケーションパスワード・Authorization は表示も保存もしない。
-    ★失敗時は **None**（別画像へのフォールバック・勝手な差し替えは禁止）。
+    ★Secrets・アプリケーションパスワード・Authorization・完全URL・クエリは
+      **戻り値にも例外メッセージにも入れない**。
+    ★失敗は **_ArtPosterFetchError を送出**する（None を返さない）。
+      `st.cache_data` は例外をキャッシュしないので、**失敗しても次回すぐ再試行**
+      できる（None を返すと ttl=3600 の間ずっと失敗が残る）。
+    ★別画像へのフォールバック・勝手な差し替えは禁止。
     """
+    import requests
+    import wp_client as _wpc_m
     try:
-        import requests
-        import wp_client as _wpc_m
         site, auth = _wpc_m._conf(store)     # 値は表示しない
-        if not site:
-            return None
+    except Exception as _e:
+        raise _ArtPosterFetchError(f"secrets: 送信先の取得に失敗 exc={type(_e).__name__}")
+    if not site:
+        _cs = _art_poster_conf_state(store)
+        _mk = ", ".join(_cs.get("missing_used") or []) or "不明"
+        raise _ArtPosterFetchError(f"secrets: 送信先が未設定（未設定キー: {_mk}）")
+    # ① メディア情報（source_url の解決）
+    try:
         r = requests.get(f"{site}/wp-json/wp/v2/media/{int(media_id)}",
                          params={"_fields": "id,source_url,mime_type"},
                          auth=auth, timeout=_ART_POSTER_PICK_TIMEOUT)
-        if r.status_code != 200:
-            return None
+    except Exception as _e:
+        raise _ArtPosterFetchError(f"rest: 通信エラー exc={type(_e).__name__}")
+    if r.status_code != 200:
+        raise _ArtPosterFetchError(
+            f"rest: HTTP {r.status_code}{_art_poster_err_brief(r)}")
+    try:
         _src = str((r.json() or {}).get("source_url") or "")
-        if not _src:
-            return None
+    except Exception as _e:
+        raise _ArtPosterFetchError(f"rest: 応答を解釈できません exc={type(_e).__name__}")
+    if not _src:
+        raise _ArtPosterFetchError("src: source_url が空です")
+    # ② 画像本体
+    try:
         ri = requests.get(_src, auth=auth, timeout=_ART_POSTER_PICK_TIMEOUT)
-        if ri.status_code != 200 or not ri.content:
-            return None
-        _nm = _src.split("?")[0].rstrip("/").rsplit("/", 1)[-1] or f"wpmedia_{media_id}.jpg"
-        if not os.path.splitext(_nm)[1]:
-            _nm += ".jpg"
-        return {"name": _nm, "data": ri.content}
+    except Exception as _e:
+        raise _ArtPosterFetchError(f"img: 通信エラー exc={type(_e).__name__}")
+    if ri.status_code != 200:
+        raise _ArtPosterFetchError(
+            f"img: HTTP {ri.status_code}{_art_poster_err_brief(ri)}")
+    if not ri.content:
+        raise _ArtPosterFetchError("img: 応答が空です（0バイト）")
+    _nm = _src.split("?")[0].rstrip("/").rsplit("/", 1)[-1] or f"wpmedia_{media_id}.jpg"
+    if not os.path.splitext(_nm)[1]:
+        _nm += ".jpg"
+    return {"name": _nm, "data": ri.content}
+
+
+def _art_poster_media_try(store: str, media_id: int) -> "tuple[dict | None, str]":
+    """`_art_poster_media_fetch` を呼び、(画像 or None, 安全なエラー文) を返す。
+
+    失敗はキャッシュされないので、次の rerun / 🔄 再取得で自動的に再試行される。
+    """
+    try:
+        return _art_poster_media_fetch(store, int(media_id)), ""
+    except _ArtPosterFetchError as _e:
+        return None, _e.reason
+    except Exception as _e:                      # 想定外も安全な形だけ返す
+        return None, f"exc: {type(_e).__name__}"
+
+
+def _art_poster_media_reload(store: str, media_id: int) -> None:
+    """選択中メディア **1件分のキャッシュだけ** を捨てる（全clearはしない）。"""
+    try:
+        _art_poster_media_fetch.clear(store, int(media_id))
     except Exception:
-        return None
+        pass
 
 
 def _art_poster_picked(store: str) -> str:
@@ -8575,9 +8667,10 @@ def _art_poster_inputs(store: str, excel: str) -> "tuple[list, str]":
     _mid = dict(_ART_POSTER_LIBRARY).get(_label)
     if not _mid:
         return [], f"WordPressメディア「{_label}」の対応IDが未登録です"
-    _got = _art_poster_media_fetch(store, int(_mid))
+    _got, _err = _art_poster_media_try(store, int(_mid))
     if not _got:
-        return [], (f"WordPressメディア「{_label}」（ID {_mid}）を取得できませんでした")
+        return [], (f"WordPressメディア「{_label}」（ID {_mid}）を取得できませんでした"
+                    + (f"［{_err}］" if _err else ""))
     return [{"name": _got["name"], "fid": f"wpmedia:{int(_mid)}",
              "data": _got["data"]}], ""
 
@@ -17311,6 +17404,20 @@ def show_auto_article_page() -> None:
             for _i in range(len(_ART_POSTER_LIBRARY)))
 
         st.markdown("**WordPressメディアから選ぶ**")
+        # 送信先Secretsの状態を **キー名だけ** 表示する（値・パスワードは絶対に出さない）
+        _pk_cs = _art_poster_conf_state(store)
+        _pk_sk = "／".join(_pk_cs.get("store_keys") or []) or "（未定義）"
+        if _pk_cs.get("missing_used"):
+            st.error("❌ 送信先Secretsが未設定です（未設定キー: "
+                     + "／".join(_pk_cs["missing_used"]) + "）。")
+        elif _pk_cs.get("fallback"):
+            st.warning("⚠️ 新宿歌舞伎町専用Secretsが揃っていないため、**共通キーへ"
+                       "フォールバック中**です（未設定キー: "
+                       + ("／".join(_pk_cs.get("missing_store") or []) or "不明")
+                       + " ／ 使用中: "
+                       + "／".join(_pk_cs.get("used_keys") or []) + "）。")
+        else:
+            st.caption(f"✅ 送信先Secretsは設定済みです（{_pk_sk}）。")
         if _pk_lock:
             st.info("🖼️ 手動アップロード画像を優先中です"
                     "（WordPressメディアの選択は使用しません）。"
@@ -17325,14 +17432,23 @@ def show_auto_article_page() -> None:
             elif not _pk_cur:
                 st.caption("🖼️ 画像未選択（右のチェック欄から1件選んでください）")
             else:
-                _pk_got = _art_poster_media_fetch(
-                    store, int(dict(_ART_POSTER_LIBRARY)[_pk_cur]))
+                _pk_mid = int(dict(_ART_POSTER_LIBRARY)[_pk_cur])
+                _pk_got, _pk_err = _art_poster_media_try(store, _pk_mid)
                 if _pk_got:
                     st.image(_pk_got["data"], width=320, caption=_pk_cur)
                 else:
                     # ★チェック状態は消さない。別画像へのフォールバックもしない。
-                    st.error(f"❌ プレビュー不可：「{_pk_cur}」の画像を取得できませんでした"
-                             "（選択は保持しています）。")
+                    st.error(f"❌ プレビュー不可：「{_pk_cur}」（ID {_pk_mid}）の画像を"
+                             "取得できませんでした（選択は保持しています）。")
+                    if _pk_err:
+                        # ★安全な要約だけ（Secrets値・パスワード・Authorization・
+                        #   完全URL・クエリは出さない）
+                        st.caption(f"失敗内容: {_pk_err}")
+                # 🔄 再取得：選択中IDのキャッシュ1件だけ破棄（全clearはしない）
+                st.button("🔄 再取得", key=f"art_poster_reload_{store}",
+                          help="選択中の画像のキャッシュだけを破棄して取り直します",
+                          on_click=_art_poster_media_reload,
+                          args=(store, _pk_mid))
         with _pk_rcol:
             _pk_sub = st.columns(2, gap="small")
             for _pi2, (_plab, _pmid) in enumerate(_ART_POSTER_LIBRARY):

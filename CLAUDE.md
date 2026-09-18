@@ -20832,3 +20832,305 @@ else:
 13. **`generate_report_text()` の既存書式・一般ロジックを変更しない**
 14. **`51dde3a` / `b5d0f73` / `eacc532` / `db659aa` へ reset・revert しない**
 15. **無関係なリファクタ・未使用コード整理をしない**
+
+## 【正式仕様】新宿歌舞伎町 記事用：①冒頭のギルドポストXリンク削除・ピンクバー内文字の中央寄せ（2026-09-18・`9f0f363`）
+
+**正式仕様。巻き戻し禁止。**対象は**【新宿歌舞伎町】かつ `page=auto_article` の記事用だけ**。
+2026-09-18 に **ユーザーが Streamlit Cloud 実機で確認し承認**した。
+
+既存の記事用・ピンクバー関連セクション（`77e140d` / `31f7346` / `5c5c1f2` / `e53a116` /
+`61851ca` / `c1c3bdd` / `56844fe` / `cc695d4` / `51dde3a` / `b5d0f73` / `eacc532` ほか）は
+**削除・圧縮・統合・並べ替え・書き換えしない**。本節は**2026-09-18 の正式仕様として末尾へ追加**する。
+
+### A. 正式実装commit
+
+| | commit |
+|---|---|
+| **正式** | **`9f0f363c532e7cc25adcca7c81b80d979853a0fc`**（`fix: 新宿歌舞伎町記事用のギルドX削除とピンクバー中央寄せ`） |
+
+**変更ファイルは `streamlit_app.py`（+90/−7）と `convert_narabi_pil.py`（+22/−2）の2つだけ。**
+**`wp_client.py` は diff 0。**
+**`9f0f363` は正式仕様の根拠となる実装commitであって、HEAD をここへ戻すという意味ではない。
+`9f0f363` へ reset・revert してはならない。**
+
+### B. 対象範囲
+
+**`auto_article × 新宿歌舞伎町` の1通りだけ。**
+
+**対象外（従来仕様を維持）**：他店舗の記事用（高田馬場・渋谷新館・秋葉原）／
+通常結果ポスト（`auto`）／かぶぱ（`auto_slump`）／`auto_slump2` ／ローテ（`rote`）／
+作業用（`work`）。
+
+判定は **`_ART_NO_TOP_X_STORES`（①冒頭）**と
+**`_ART_SUM_CENTER_PAGES` × `_ART_SUM_CENTER_STORES`（ピンクバー）**の2ゲート。
+`_art_summary_center()` は `_art_font_new()` / `_art_slump_card_new()` /
+`_art_table_header_new()` と同じ **page × store の AND** で毎回導出し、保存フラグを持たない。
+**Streamlit 外（純粋テスト・subprocess）では False＝従来の左寄せ。**
+**12ページ × 13店舗＝156通りで ON は1通りだけ**であることを機械確認済み。
+
+---
+
+## 1. ①冒頭のギルドポストXリンク削除
+
+### C. 削除するもの
+
+新宿歌舞伎町の記事用①冒頭から、次の2項目を**表示・新規保存・WordPress本文出力のいずれもしない**。
+
+- **ギルドポスト Xリンク（空欄・不正URLなら埋め込みません）**
+- **Xリンク下の文章（改行で段落／空欄なら出力しません）**
+
+あわせて、この分岐の caption（「自動で埋め込まれます」「空段落3行へ手で貼り付け」）も出さない。
+
+### D. 維持するもの
+
+**その日の見出し ／ ポスター画像 ／ ポスター下の文章 ／
+かぶぱポストのXリンク・ヒント1〜10 ／ WordPress投稿者UI（2択）。**
+
+### E. ★`_ART_GUILD_X_STORES` から新宿歌舞伎町を外してはならない（最重要）
+
+`wp_client.plan_blocks()` は
+
+```python
+_has_guild_key = "guild_x" in payload
+...
+if _has_guild_key:
+    if _guild_x: plan.append({"type": "embed_x", "url": _guild_x})
+else:
+    for _ in range(X_EMPTY_PARAS):      # ← キーが無い店舗は手貼り用の空段落×3
+        plan.append({"type": "empty_para"})
+```
+
+という既存仕様なので、**payload から `guild_x` キー自体を落とすと空段落3行が復活する。**
+
+**正しくは「キーは残したまま値を `""` 固定」**し、
+「キーあり・空欄＝何も出さない」既存経路を使う。**`wp_client.py` は変更しない。**
+
+```python
+_ART_GUILD_X_STORES  = frozenset({"渋谷新館", "新宿歌舞伎町"})   # 変更しない
+_ART_NO_TOP_X_STORES = frozenset({"新宿歌舞伎町"})               # 今回追加
+```
+
+### F. payload の固定（出力抑止の正）
+
+```python
+_art_wp_pl["top_text_x"] = ("" if store in _ART_NO_TOP_X_STORES
+                            else st.session_state.get(f"art_wp_top_text_x_{store}", ""))
+if store in _ART_GUILD_X_STORES:
+    _art_wp_pl["guild_x"] = ("" if store in _ART_NO_TOP_X_STORES
+                             else st.session_state.get(f"art_guild_x_url_{store}", ""))
+```
+
+- **`top_text_x` も `""` 固定**する。
+- **★`_restore_article_inputs()` は `saved.items()` の全キーを session_state へ戻す**
+  （`_article_input_keys()` の外のキーも入る）。したがって
+  **`_article_input_keys()` から外すだけでは過去の保存値が payload へ拾われ得る。
+  出力抑止の正は payload 側の `""` 固定である。**
+- これにより、過去の `article_page_inputs.json` に旧保存値が残っていて session_state へ
+  復元されても、**WordPress本文へ出ない。**
+
+### G. 既存JSONは削除・一括変更しない
+
+`_article_input_keys()` は対象店舗でのみ該当2キーを**新規保存の対象から外す**だけ。
+
+```python
+if store in _ART_NO_TOP_X_STORES:
+    _no_x = {f"art_wp_top_text_x_{store}", f"art_guild_x_url_{store}"}
+    keys = [k for k in keys if k not in _no_x]
+```
+
+- `_save_article_inputs()` は**マージ保存**なので、**既存JSONの値は削除も変更もされない**。
+- **非対象店舗の keys は順序まで従来と完全に同一**（12店舗で機械確認済み）。
+- **`article_page_inputs.json` を編集・一括変更しない。**
+
+### H. 他店舗の非回帰（実UI＋純粋テストで確認済み）
+
+| 店舗 | ①冒頭 |
+|---|---|
+| **渋谷新館** | **ギルドX入力・Xリンク下文章・「自動で埋め込まれます」caption すべてあり**。payload・本文計画が HEAD と完全一致、`embed_x` 1件・Xリンク下文章の para あり |
+| **高田馬場** | 2カラムUI・Xリンク下文章あり・**空段落3行 caption あり**、本文の `empty_para` **3件で不変** |
+| **秋葉原** | 同上（`empty_para` 3件・HEAD一致） |
+
+**`X_EMPTY_PARAS = 3` は変更しない。**
+
+---
+
+## 2. 表画像 最下段ピンクバー内文字の中央寄せ
+
+### I. 正式仕様
+
+新宿歌舞伎町の記事用だけ、**表画像最下段のピンクバー内の文字をバー幅の中央へ配置する。**
+
+### J. 対象（実際にピンクバーを持つものだけ）
+
+- **並び**
+- **列（列仕掛け）**
+- **②個別の並び台番範囲①（ピンクバーあり）など、既存 `_build_machine_img()` が
+  `summary_stat` を受け取ってピンクバーを描く画像**
+
+### K. 対象外（ピンクバーが無い画像へ新規追加しない）
+
+**全台系（白サマリー）／ 高配分 ／ ②全台・②優秀台・②個別ピック ／
+ジャグラーシリーズ優秀台 ／ その他の優秀台 ／ 末尾 ／ ⑤オススメ ／
+差枚数ランキング ／ 全台データ ／ 島図。**
+
+述語ONでもこれらは **HEAD と画素完全一致・ピンクバーの新規追加0** であることを機械確認済み。
+
+### L. 変更してよいのは開始X座標だけ
+
+**ピンクバーの色 ／ 高さ ／ 枠線 ／ 文字内容 ／ 文字サイズ ／ 書体 ／
+既存 `GAP_SUM` のカーニング ／ 表本体 ／ パネル ／ スランプ ／ 白地カード ／
+表見出しの黒地・白文字 は一切変更しない。**
+
+左寄せから中央寄せへ変わるのは **対象ピンクバー内の文字の開始X座標だけ**。
+**左端余白 8px（×hq）を最低値として維持する**（長文で右へはみ出さない）。
+
+```python
+_pad_sum = round(8 * _hq)
+if _art_summary_center():
+    _bb2c = pd_.textbbox((0, 0), part2, font=font_sum)
+    _tw_sum = ((bb1[2]-bb1[0]) + round(GAP_SUM * _hq) + (_bb2c[2]-_bb2c[0]))
+    _pad_sum = max(_pad_sum, (w - _tw_sum) // 2)
+```
+
+下流の `x2 = _pad_sum + (bb1[2]-bb1[0]) + round(GAP_SUM * _hq)` が追従するので、
+**part1 と part2 の相対位置（文字間隔）は変わらない。**
+
+**実測**：文字ビットマップは OFF と完全一致し、**開始Xだけが平行移動**する
+（並び 16→281px ／ 列 16→263px ／ ②台番範囲① 8→157px）。
+
+### M. 実インクの左右差について（誤記しないこと）
+
+中央計算は **`textbbox` の span（part1 ＋ GAP_SUM ＋ part2）** で行う。
+PIL の `textbbox` は末尾グリフの advance を含むため、
+**末尾「）」の右サイドベアリングぶん（バー幅の1〜2%程度）だけ右に余りが出る。**
+これは HEAD の左寄せ実装と同じ計測値を使っていることの帰結で、**⑦と⑧で同一**。
+**「ピクセル単位で完全対称」ではないことを不具合として扱わない。**
+
+---
+
+## 3. ⑦プレビューと⑧本番の一致
+
+### N. 2経路
+
+| 経路 | 描画 |
+|---|---|
+| **⑦プレビュー（および②台番範囲①は⑧も）** | アプリ内 `_build_machine_img()` → `_art_summary_center()` |
+| **⑧本番の並び・列** | **`convert_narabi_pil.py` の subprocess** → `ART_SUM_CENTER` |
+
+**⑦だけ・⑧だけ直してはならない。**
+
+### O. `convert_narabi_pil.py`
+
+```python
+ART_SUM_CENTER = False   # 既定＝従来の左寄せ
+...
+sum_x0 = 8
+if ART_SUM_CENTER:
+    _bb2c = _textbbox(draw_pink, sum_part2, font_sum)
+    _tw_sum = (bb1[2] - bb1[0]) + GAP_SUM + (_bb2c[2] - _bb2c[0])
+    sum_x0 = max(8, (w - _tw_sum) // 2)
+draw_pink.text((sum_x0, y_text), sum_part1, ...)
+x2  = sum_x0 + (bb1[2] - bb1[0]) + GAP_SUM
+```
+
+- **既定 `False` を変更しない**（通常ページ・他店舗・ローテ・かぶぱが壊れる）。
+- `SUMMARY_BG` / `row_h_sum` / `font_sum` / `GAP_SUM` / `pink_rgba` は**再定義しない**。
+- **関数本体の変更は0**（ピンクバーはトップレベルの生成ループ内）。
+
+### P. `_patch_and_run_narabi()`
+
+`ART_HEADER` / `FONT_OVERRIDE` / `NO_BAR` / `HQ_SCALE` と**同じ regex パッチ方式**で
+`art_sum_center: bool = False` を追加し、**記事用⑧の呼び出し1箇所だけ**へ
+`art_sum_center=_art_summary_center()` を渡す。
+
+**通常ページ（`show_auto_page` の呼び出し）・他店舗・ローテは引数を渡さず既定 False のまま。**
+**実測：`art_sum_center=False` でも、引数を渡さない既定呼び出しでも、
+生成JPEGが HEAD と SHA256 完全一致。**
+
+### Q. ⑦⑧一致の実測
+
+同一データで **⑦の文字中心 0.4914 ／ ⑧の文字中心 0.4930（幅比・差0.16%）**。
+ピンクバーより上（表・見出し・パネル）は⑦⑧とも **OFF と画素完全一致**、画像サイズも不変。
+
+---
+
+## 4. 維持する既存仕様（今回いっさい変更していない）
+
+**新宿歌舞伎町 記事用**：パネルあり ／ **液晶なし** ／ **島図なし** ／
+**Noto Sans JP Black**（`_ART_FONT_STORES`）。
+
+**スランプカード**：白地カード ／ **上部の機種名あり** ／ **下部の機種名なし** ／
+**右下の青い差枚数** ／ **薄紫のカード外側背景**（`C_ART_SLUMP_AREA_BG`）。
+
+**表・画像**：**高配分の水色バーなし**（`_ART_HIGH_NO_BAR_STORES`）／
+**その他の優秀台の濃紺タイトルバーなし**（`_art_sonota_no_bar`）／
+表見出しの黒地・白文字（`_art_table_header_new()` / `ART_HEADER`）。
+
+**本文**：**かぶぱポスト表記**（`nanako_texts()`）／
+**⑤最優先・その他との重複排除・結果テキストの⑤見出し統合**
+（`_art_osu_priority_machines` / `merge_same_title`）。
+
+**WordPress**：**新サイト送信先** ／ **カテゴリ28** ／ **投稿者2択（`i.sasaki` / `m.takahashi`）** ／
+**実在画像だけ本文へ載せる** ／ **分割・nosplit・fullwidth・マイジャグV5分割**
+（`_ART_WP_NOSPLIT_STORES` / `_ART_WP_FULLWIDTH_STORES` / `_ART_WP_SPLIT_NARROW_STORES` /
+`_ART_WP_MIN_KEEP_W = 752`）。
+
+**`77e140d` の並び・列 ban_map 再計算（⑦未実行でも⑧でパネル・スランプが付く）** も維持。
+
+---
+
+## 5. 検証結果
+
+**純粋テスト 168 PASS / 0 FAIL**（ギルドX削除・ゲート網羅・keys・payload・本文計画・
+ピンクバー画素・subprocess・静的確認）。
+
+- **変更関数は `_article_input_keys` / `_build_machine_img` / `_patch_and_run_narabi` /
+  `show_auto_article_page` の4つだけ。新規関数は `_art_summary_center` の1つだけ。消失0。**
+- `draw_table_image` / `_build_article_machine_img` / `_build_machine_img_no_bar` /
+  `_art_high_title_bar` / `_attach_slump_to_table(_side)` / `_build_sue_images` /
+  `_art_osusume_block_images` / `_art_ranking_image` / `_art_zendai_image` /
+  `show_auto_page` / `show_rote_page` / `show_work_page` / `_save_article_inputs` /
+  `_restore_article_inputs` / `_art_widget_key` / `generate_report_text` /
+  `run_step1_main` / `run_step2_juggler` / `run_step3_other` / `run_auto_pipeline` /
+  `generate_rote_image` / `_art_narabi_items` / `_build_col_items` /
+  `_apply_panel_to_table_img` / `draw_slump_graph` / `_paste_slump_area_bg` /
+  `_art_slump_bg` ── **すべて AST 一致**
+- **`wp_client.py` / `shimazu_renderer.py` の差分0**、`article_page_inputs.json` の差分0
+- `git diff --check` クリーン
+
+### R. Cloud 確認済み（2026-09-18・ユーザー承認）
+
+- 新宿歌舞伎町の①冒頭で**ギルドポスト Xリンク・Xリンク下の文章が出ない**
+- **ポスター下の文章・かぶぱポスト・ヒント・投稿者2択が残る**
+- **並び・列・②台番範囲①のピンクバー文字が中央寄せ**
+- **⑦と⑧が同じ見た目**
+- **対象外の既存仕様（渋谷新館のギルドX、高田馬場・秋葉原の空段落3行、
+  パネル・液晶なし・島図なし・フォント・白地カード・水色バーなし・WordPress仕様）が維持**
+
+---
+
+## 6. 今後の禁止事項
+
+1. **`_ART_GUILD_X_STORES` から新宿歌舞伎町を外さない**（空段落3行が復活する）
+2. **payload から `guild_x` キーを落とさない**（値の `""` 固定で抑止する）
+3. **`top_text_x` の `""` 固定を外さない**
+4. **`_article_input_keys()` から外すだけで済ませない**（payload 固定が出力抑止の正）
+5. **`article_page_inputs.json` の既存値を削除・一括変更しない**
+6. **`wp_client.py` を変更しない／`X_EMPTY_PARAS = 3` を変えない**
+7. **渋谷新館のギルドX・Xリンク下文章、高田馬場・秋葉原の空段落3行を変えない**
+8. **新宿歌舞伎町の①冒頭から「ポスター下の文章」「その日の見出し」
+   「かぶぱポストのXリンク・ヒント1〜10」「WordPress投稿者UI」を消さない**
+9. **ピンクバーが無い画像へピンクバーを新規追加しない**
+10. **ピンクバーの色・高さ・枠線・文字内容・文字サイズ・書体・`GAP_SUM`・表本体・
+    パネル・スランプ・白地カード・表見出しを変更しない**（変えるのは開始Xだけ）
+11. **左端余白 8px（×hq）の最低値を外さない**
+12. **実インクの左右差（末尾「）」の右サイドベアリング由来）を不具合として扱わない**
+13. **⑦だけ・⑧だけ直さない**（`_art_summary_center()` と `ART_SUM_CENTER` はセット）
+14. **`convert_narabi_pil.py` の `ART_SUM_CENTER` 既定 `False` を変更しない**
+15. **`_patch_and_run_narabi()` の `art_sum_center` 既定 `False` を変更しない／
+    記事用⑧以外の呼び出しへ渡さない**
+16. **`_art_summary_center()` を保存フラグ方式へ戻さない／店舗名だけの判定にしない**
+17. **他店舗の記事用・通常ページ・かぶぱ・`auto_slump2`・ローテ・作業用へ波及させない**
+18. **「4. 維持する既存仕様」を今回を理由に変更しない**
+19. **`9f0f363` へ reset・revert しない**
+20. **無関係なリファクタ・未使用コード整理をしない**

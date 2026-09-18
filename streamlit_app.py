@@ -3982,11 +3982,16 @@ def _art_sonota_no_bar(store: str) -> bool:
 
 # 別サイトへ送る店舗は、**そのサイトに実在する投稿者だけ**を選ばせる。
 # 送信先が違えば user ID も別物なので、選択肢とマップを店舗別に分ける。
-# 2026-09-17 に GET /wp-json/wp/v2/users?context=edit で実測
-# （espacekabuki-blog.com は i.sasaki / m.takahashi の2名だけ）。
+# 2026-09-18 に GET /wp-json/wp/v2/users?context=edit で実測し、
+# **新宿歌舞伎町は guild / m.takahashi の2択だけ**とする（正式仕様）。
+#   guild        = id 4（editor）
+#   m.takahashi  = id 2（administrator）
+# ★i.sasaki（id 1）は選択肢・許可投稿者・保存済み初期値の候補から**外す**。
+#   既存保存値が i.sasaki でも選択肢に無いため **未選択**となり、送信は安全に止まる。
+# ★t.ito / r.iio / k.furukawa / t.ui / m.suzuki は**追加しない**。
 # **辞書に無い店舗は既定の6択＝渋谷新館は従来どおり。**
 _ART_WP_AUTHORS_BY_STORE: "dict[str, tuple]" = {
-    "新宿歌舞伎町": ("i.sasaki", "m.takahashi"),
+    "新宿歌舞伎町": ("guild", "m.takahashi"),
 }
 
 

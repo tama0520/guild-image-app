@@ -102,10 +102,12 @@ WP_AUTHOR_MAP: "dict[str, int]" = {
 # ── 別サイトへ送る店舗の投稿者マップ ─────────────────────────────────
 # **`WP_AUTHOR_MAP`（現行サイト用）は書き換えない。**送信先サイトが違えば
 # user ID も別物で、現行6名のうち4名は新サイトに存在しないため同一辞書では両立しない。
-# 2026-09-17 に GET /wp-json/wp/v2/users?context=edit で実測
-# （espacekabuki-blog.com・i.sasaki=1 / m.takahashi=2 の2名だけ）。
+# 2026-09-18 に GET /wp-json/wp/v2/users?context=edit で実測し、
+# **新宿歌舞伎町は guild=4（editor）/ m.takahashi=2（administrator）の2名だけ**とする。
+# ★i.sasaki（id 1）は許可投稿者から**外す**。未登録扱いになるので、
+#   保存値が i.sasaki のままでも画像を1枚も送らずに中止する（フォールバック禁止）。
 WP_AUTHOR_MAP_BY_STORE: "dict[str, dict]" = {
-    "新宿歌舞伎町": {"i.sasaki": 1, "m.takahashi": 2},
+    "新宿歌舞伎町": {"guild": 4, "m.takahashi": 2},
 }
 
 

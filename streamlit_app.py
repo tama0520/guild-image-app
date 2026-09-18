@@ -19908,6 +19908,11 @@ def show_auto_article_page() -> None:
             # ⑧でも保存しないと出力・ZIP・WordPress payload がズレる
             # （「生成後に削除」ではなく、必要なときだけ正しく生成する）。
             # ★🔍フルモード（_art_exec_manual=False）では従来どおり何もしない。
+            # ⑧📝で作った画像の掲載台番。**⑦と同じパネル・スランプ合成へ乗せる**ために
+            # 後段の ban_map（_art_bm_sl）へ登録する（⑧だけ簡易描画にしない）。
+            _man_son_fn_e: str = ""
+            _man_son_bans_e: list[int] = []
+            _man_jug_bans_e: list[int] = []
             if _art_exec_manual and result["ok"]:
                 _mdf_e = result.get("df")
                 _mdi_e = result.get("diff_raw")
@@ -19942,6 +19947,8 @@ def show_auto_article_page() -> None:
                                 hq_scale=_art_hq_scale_for(_jg_fn_m, store, len(_jg_df_m))),
                                 _jg_out_m)
                             result["files"].append(_jg_out_m)
+                            _man_jug_bans_e = [int(b) for b in _jg_df_m["台番"].dropna()
+                                               if str(b).split(".")[0].lstrip("-").isdigit()]
                             _log(f"  ✅ ジャグラーシリーズ優秀台（記入部分のみ）: {len(_jg_df_m)}台")
                     # ⑤ その他の優秀台ピックアップ（台番テキスト貼付 or 自動抽出）
                     _se_tit_m = art_sonota_extra_title.strip() or "その他の優秀台ピックアップ"
@@ -19967,6 +19974,9 @@ def show_auto_article_page() -> None:
                             hq_scale=_art_hq_scale_for(_se_fn_m, store, len(_se_df_m))),
                             _se_out_m, target_kb=800)
                         result["files"].append(_se_out_m)
+                        _man_son_fn_e = _se_fn_m
+                        _man_son_bans_e = [int(b) for b in _se_df_m["台番"].dropna()
+                                           if str(b).split(".")[0].lstrip("-").isdigit()]
                         _log(f"  ✅ {_se_tit_m}（記入部分のみ）: {len(_se_df_m)}台")
 
             # ── ④ 末尾・ジャグラー末尾画像（記事用）────────────────────────
@@ -20282,6 +20292,13 @@ def show_auto_article_page() -> None:
                 _son_bns_sl = sorted({int(_e["ban"]) for _e in result.get("sonota_excellent_list", []) if "ban" in _e})
                 if _son_bns_sl:
                     _art_bm_sl["その他の優秀台ピックアップ.jpg"] = _son_bns_sl
+                # 📝記入部分のみで作った その他／ジャグラー統合も **同じ合成経路**へ。
+                # （manual_mode では pipeline の sonota_excellent_list / jug_pool_df が
+                #   空なので、ここで登録しないとパネル・スランプが付かない）
+                if _man_son_fn_e and _man_son_bans_e:
+                    _art_bm_sl[_man_son_fn_e] = _man_son_bans_e
+                if _man_jug_bans_e:
+                    _art_bm_sl["ジャグラーシリーズ優秀台.jpg"] = _man_jug_bans_e
                 # 並び・列の ban_map。
                 # _ART_NARABI_BANMAP_STORES の店舗だけ、⑦プレビューが残した
                 # session_state のスナップショットではなく **現在の入力値から再計算**する。

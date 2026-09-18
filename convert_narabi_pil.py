@@ -53,6 +53,17 @@ THEME_NEW = False
 #   差枚数の値の色(PLUS_C / MINUS_C / ZERO_C)・列幅・行高は変更しない。
 ART_HEADER = False
 
+# ── 記事用の最下段ピンクサマリーバーの中央寄せ（新宿歌舞伎町 × auto_article の⑧本番）──
+# True のとき **ピンクバー内の文字の開始X座標だけ**を横幅中央へ寄せる。
+# streamlit_app.py の `_patch_and_run_narabi(art_sum_center=True)` が実行時に
+# 書き換える（`ART_HEADER` / `FONT_OVERRIDE` / `NO_BAR` / `HQ_SCALE` と同じ方式）。
+# ★既定 False＝通常ページ・他店舗・ローテ・かぶぱ・非記事用は**従来の左寄せのまま**。
+# ★バー色(SUMMARY_BG)・バー高(row_h_sum)・枠線・文字内容・文字サイズ・書体・
+#   GAP_SUM のカーニング・表本体は変更しない。
+# ★⑦プレビュー（streamlit_app._build_machine_img の _art_summary_center()）と
+#   同じ「part1 ＋ GAP_SUM ＋ part2 の合計幅」から開始Xを求めて一致させる。
+ART_SUM_CENTER = False
+
 # ── フォントパス（cwd = BASE_DIR で subprocess 実行される）──────────
 _BASE = os.getcwd()
 FONT_PATH = os.path.join(_BASE, "fonts", "MochiyPopOne-Regular.ttf")
@@ -462,8 +473,15 @@ for run_idx, (run, title, _dup_set) in enumerate(_JOBS):
 
     bb1    = _textbbox(draw_pink, sum_part1, font_sum)
     y_text = (row_h_sum - (bb1[3] - bb1[1])) // 2 - bb1[1]
-    draw_pink.text((8, y_text), sum_part1, fill=(0, 0, 0, 255), font=font_sum)
-    x2  = 8 + (bb1[2] - bb1[0]) + GAP_SUM
+    # 開始X。既定は従来どおり左端余白8px。ART_SUM_CENTER のときだけ
+    # part1 ＋ GAP_SUM ＋ part2 の合計幅から中央へ寄せる（8px を最低値として維持）。
+    sum_x0 = 8
+    if ART_SUM_CENTER:
+        _bb2c = _textbbox(draw_pink, sum_part2, font_sum)
+        _tw_sum = (bb1[2] - bb1[0]) + GAP_SUM + (_bb2c[2] - _bb2c[0])
+        sum_x0 = max(8, (w - _tw_sum) // 2)
+    draw_pink.text((sum_x0, y_text), sum_part1, fill=(0, 0, 0, 255), font=font_sum)
+    x2  = sum_x0 + (bb1[2] - bb1[0]) + GAP_SUM
     bb2 = _textbbox(draw_pink, sum_part2, font_sum)
     draw_pink.text((x2 - bb2[0], y_text), sum_part2, fill=(0, 0, 0, 255), font=font_sum)
 

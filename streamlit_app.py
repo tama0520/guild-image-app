@@ -738,6 +738,18 @@ C_ART_TBL_HEADER_LINE = "#DDDDDD"   # 見出しセル間の罫線（薄いグレ
 _ART_TBL_HEADER_PAGES:  "frozenset[str]" = frozenset({"auto_article"})
 _ART_TBL_HEADER_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 
+# ── 記事用の最下段ピンクサマリーバーの文字を中央寄せにする店舗／ページ ────
+# 対象は **auto_article × 新宿歌舞伎町 の1通りだけ**。
+# 変えるのは**ピンクバー内の文字の開始X座標だけ**で、バー色・高さ・枠線・
+# 文字内容・文字サイズ・書体・GAP_SUM のカーニング・表本体・パネル・スランプ・
+# 白地カード・表見出しの黒地/白文字は一切変更しない。
+# ★既定（対象外）は従来の左寄せ（左端余白8px）のまま。
+# ★⑧本番の並び・列は convert_narabi_pil.py の subprocess 経路を通るため、
+#   同ファイルの ART_SUM_CENTER も `_patch_and_run_narabi(art_sum_center=...)`
+#   でセットして⑦プレビューと一致させる（片方だけ直さない）。
+_ART_SUM_CENTER_PAGES:  "frozenset[str]" = frozenset({"auto_article"})
+_ART_SUM_CENTER_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
 
 # 新宿歌舞伎町だけ「かぶぱポストの結果（auto_slump）」と
 # 「スランプ付き結果（auto_slump2）」の2系統を持つ。両者は store が同じなので
@@ -1084,6 +1096,21 @@ def _art_table_header_new() -> bool:
     try:
         return (st.session_state.get("page") in _ART_TBL_HEADER_PAGES
                 and st.session_state.get("selected_store") in _ART_TBL_HEADER_STORES)
+    except Exception:
+        return False
+
+
+def _art_summary_center() -> bool:
+    """記事用の最下段ピンクサマリーバーの文字を中央寄せで描くか。
+
+    `_art_font_new()` / `_art_slump_card_new()` / `_art_table_header_new()` と同じ
+    **page × store の AND** で毎回導出する。保存フラグを持たないのでページ遷移・
+    rerun に影響されない。True になるのは **auto_article × 新宿歌舞伎町 の1通りだけ**。
+    Streamlit 外（純粋テスト・subprocess）では False＝従来の左寄せ。
+    """
+    try:
+        return (st.session_state.get("page") in _ART_SUM_CENTER_PAGES
+                and st.session_state.get("selected_store") in _ART_SUM_CENTER_STORES)
     except Exception:
         return False
 
@@ -3759,6 +3786,15 @@ def _build_machine_img(
         bb1  = pd_.textbbox((0, 0), part1, font=font_sum)
         ty_p = (pink_h - (bb1[3]-bb1[1])) // 2 - bb1[1]
         _pad_sum = round(8 * _hq)
+        # 記事用（新宿歌舞伎町）だけ、ピンクバー内の文字を横幅中央へ寄せる。
+        # part1 ＋ 既存 GAP_SUM ＋ part2 の合計幅から**開始Xだけ**を求めるので、
+        # 文字間隔（GAP_SUM）・文字サイズ・書体・色・バー高・枠線は変わらない。
+        # 左端余白 8px(×_hq) を最低値として維持する（長文で右へはみ出さない）。
+        if _art_summary_center():
+            _bb2c = pd_.textbbox((0, 0), part2, font=font_sum)
+            _tw_sum = ((bb1[2]-bb1[0]) + round(GAP_SUM * _hq)
+                       + (_bb2c[2]-_bb2c[0]))
+            _pad_sum = max(_pad_sum, (w - _tw_sum) // 2)
         pd_.text((_pad_sum, ty_p), part1, fill=(0, 0, 0, 255), font=font_sum)
         x2   = _pad_sum + (bb1[2]-bb1[0]) + round(GAP_SUM * _hq)
         bb2  = pd_.textbbox((0, 0), part2, font=font_sum)
@@ -3905,6 +3941,17 @@ _ART_NANAKO_STORES = frozenset({"渋谷新館", "新宿歌舞伎町"})
 # **高田馬場・秋葉原は対象外**（高田馬場の既存WordPress本文をバイト単位で維持するため）。
 # 対象店舗では手貼り用の空段落×3 を出さず、代わりにX投稿を自動で埋め込む。
 _ART_GUILD_X_STORES = frozenset({"渋谷新館", "新宿歌舞伎町"})
+
+# 記事用①冒頭から「ギルドポスト Xリンク」と「Xリンク下の文章」を出さない店舗。
+# ★この集合の店舗を `_ART_GUILD_X_STORES` から外してはならない。
+#   payload の "guild_x" キー自体を落とすと wp_client.plan_blocks() の既存仕様
+#   （キーが無い店舗＝手貼り用の空段落×3 を出す）に落ちて空段落3行が復活する。
+#   正しくは **"guild_x" キーは残したまま値を "" 固定**して、
+#   「キーあり・空欄＝何も出さない」既存経路を使う（wp_client.py は変更しない）。
+# ★payload 側の "" 固定が出力抑止の正。_restore_article_inputs() は saved の
+#   **全キー**を session_state へ戻すため、_article_input_keys() から外すだけでは
+#   過去の保存値が payload へ拾われ得る。
+_ART_NO_TOP_X_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 # ヒント入力欄の数（固定10枠）。空欄の枠は本文へ出さない。
 # ★logical key は art_nanako_hint_0〜9_{store}。既存の 0〜5 は変更しない（後方互換）。
 #   保存に無い 6〜9 は _restore_article_inputs() が "" を入れるので空欄扱いになる。
@@ -6256,6 +6303,7 @@ def _patch_and_run_narabi(
     no_bar: bool = False, hq_scale: float = 1.0, col_ranges: list | None = None,
     hq_min_rows: int | None = None, theme_new: bool = False,
     font_path: str | None = None, art_header: bool = False,
+    art_sum_center: bool = False,
 ) -> tuple[bool, str, str]:
     """並びスクリプト専用: INPUT/SPLIT_DIR/RANGES を書き換えて実行する。
     no_bar=True のときは NO_BAR も書き換え、青タイトルバーなしで生成させる
@@ -6278,6 +6326,13 @@ def _patch_and_run_narabi(
     # 既定 False＝通常ページ・他店舗・ローテ・かぶぱは従来どおり。
     if art_header:
         code = re.sub(r'^ART_HEADER\s*=\s*(True|False)', 'ART_HEADER = True',
+                      code, flags=re.MULTILINE)
+    # 記事用（新宿歌舞伎町）の最下段ピンクサマリーバーの文字だけを中央寄せにする。
+    # ⑦プレビュー（_build_machine_img の _art_summary_center()）と一致させるため、
+    # 記事用⑧の呼び出し1箇所だけへ渡す。既定 False＝通常ページ・他店舗・ローテは
+    # 従来の左寄せのまま（バー色・高さ・枠線・文字サイズ・書体は変更しない）。
+    if art_sum_center:
+        code = re.sub(r'^ART_SUM_CENTER\s*=\s*(True|False)', 'ART_SUM_CENTER = True',
                       code, flags=re.MULTILINE)
     if hq_scale and hq_scale > 1.0:
         code = re.sub(r'^HQ_SCALE\s*=\s*[\d.]+', f'HQ_SCALE = {float(hq_scale)}',
@@ -8323,6 +8378,13 @@ def _article_input_keys(store: str) -> list[str]:
     #   （旧キー art_osusume_title_* / art_osusume_m_* は過去の
     #    article_page_inputs.json に残るが、以後参照しない。削除もしない。）
     #   保存・復元は _save_art_osusume() / _art_osu_settings() が担当する。
+    # ★①冒頭の「Xリンク下の文章」「ギルドポスト Xリンク」は
+    #   _ART_NO_TOP_X_STORES の店舗（新宿歌舞伎町）では**新規保存の対象から外す**。
+    #   マージ保存（_save_article_inputs）なので **既存JSONの値は削除・変更されない**。
+    #   非対象店舗の keys は順序まで従来と完全に同一（ここで絞るだけ）。
+    if store in _ART_NO_TOP_X_STORES:
+        _no_x = {f"art_wp_top_text_x_{store}", f"art_guild_x_url_{store}"}
+        keys = [k for k in keys if k not in _no_x]
     return keys
 
 
@@ -17185,7 +17247,14 @@ def show_auto_article_page() -> None:
     _art_txt("その日の見出し（空欄なら出力しません）",
              f"art_wp_top_heading_{store}",
              placeholder="記事の一番上に入る見出し")
-    if store in _ART_GUILD_X_STORES:
+    if store in _ART_NO_TOP_X_STORES:
+        # ①冒頭は「その日の見出し」と「ポスター下の文章」だけ。
+        # ギルドポスト Xリンク／Xリンク下の文章の入力UIと caption は出さない。
+        # ★渋谷新館の既存3段UI（elif）・他店舗の2カラムUI（else）は変更しない。
+        # ★手貼り用の空段落×3 も出ない（payload で "guild_x" を "" のまま渡す）。
+        _art_txt("ポスター下の文章（改行で段落／空欄なら出力しません）",
+                 f"art_wp_top_text_poster_{store}", area=True)
+    elif store in _ART_GUILD_X_STORES:
         # ギルドポストXを自動で埋め込む店舗は、本文と同じ縦並びで入力させる
         # （ポスター下の文章 → ギルドポスト Xリンク → Xリンク下の文章）。
         # 「Xリンク下の文章」は**既存キーをそのまま流用**する（新設しない）。
@@ -19031,6 +19100,9 @@ def show_auto_article_page() -> None:
                     font_path=(_ART_FONT_PATH if _art_font_new() else None),
                     # ⑦プレビュー（draw_table_image）と⑧本番で表見出しを一致させる
                     art_header=_art_table_header_new(),
+                    # ⑦プレビュー（_build_machine_img）と⑧本番でピンクバーの
+                    # 文字位置（中央寄せ）を一致させる
+                    art_sum_center=_art_summary_center(),
                 )
                 narabi_result = {"ok": ok_n, "stdout": out_n, "stderr": err_n}
                 st.write(f"{'✅' if ok_n else '❌'} 並び画像{'完了' if ok_n else 'エラー'}")
@@ -19974,13 +20046,21 @@ def show_auto_article_page() -> None:
                         f"art_wp_top_heading_{store}", "")
                     _art_wp_pl["top_text_poster"] = st.session_state.get(
                         f"art_wp_top_text_poster_{store}", "")
-                    _art_wp_pl["top_text_x"] = st.session_state.get(
-                        f"art_wp_top_text_x_{store}", "")
+                    # ★_ART_NO_TOP_X_STORES（新宿歌舞伎町）は "" 固定。
+                    #   _restore_article_inputs() は saved の全キーを session_state へ
+                    #   戻すため、過去の保存値が残っていても本文へ出ないようここで断つ。
+                    _art_wp_pl["top_text_x"] = (
+                        "" if store in _ART_NO_TOP_X_STORES
+                        else st.session_state.get(f"art_wp_top_text_x_{store}", ""))
                     # ギルドポストX（渋谷新館のみ）。キーを渡した店舗だけ
                     # 「空段落×3 → X埋め込み」へ切り替わる（高田馬場は渡さない）。
+                    # ★_ART_NO_TOP_X_STORES でも**キーは必ず残す**（落とすと
+                    #   wp_client 側の既存仕様で手貼り用の空段落×3 が復活する）。
+                    #   値を "" にすることで「キーあり・空欄＝何も出さない」経路になる。
                     if store in _ART_GUILD_X_STORES:
-                        _art_wp_pl["guild_x"] = st.session_state.get(
-                            f"art_guild_x_url_{store}", "")
+                        _art_wp_pl["guild_x"] = (
+                            "" if store in _ART_NO_TOP_X_STORES
+                            else st.session_state.get(f"art_guild_x_url_{store}", ""))
                     # ④末尾・⑥バラエティ（2026-08-25 追加）。
                     # **⑧が実際に保存した正式画像のファイル名をそのまま渡す**
                     # （wp_client 側でファイル名を再生成・再推測しない）。

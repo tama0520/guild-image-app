@@ -18871,7 +18871,8 @@ def show_auto_article_page() -> None:
                                             _merged_pil.append((_fn_pv2, _attach_slump_to_table(
                                                 _img_pv2, _g_imgs_pv2, _pv_bgg_sl, _gap_img_pv2,
                                                 hq_scale=_hq_pv2,
-                                                bg_color=_art_slump_bg(store))))
+                                                bg_color=_art_slump_bg(store),
+                                                cols=_art_slump_cols(store, len(_g_imgs_pv2)))))
                                         else:
                                             _merged_pil.append((_fn_pv2, _img_pv2))
                                     _art_pil = _merged_pil
@@ -19337,7 +19338,8 @@ def show_auto_article_page() -> None:
                                                     _merged_anp.append((_fn_u, _attach_slump_to_table(
                                                         _img_u, _g_imgs_u, _upd_bgg, _gap_img_u,
                                                         hq_scale=_hq_u,
-                                                        bg_color=_art_slump_bg(store))))
+                                                        bg_color=_art_slump_bg(store),
+                                                        cols=_art_slump_cols(store, len(_g_imgs_u)))))
                                                 else:
                                                     _merged_anp.append((_fn_u, _img_u))
                                             _anp = _merged_anp
@@ -20460,7 +20462,8 @@ def show_auto_article_page() -> None:
                                 _combined_sl = _attach_slump_to_table(
                                     _t_img_sl, _g_imgs_sl, _art_bgg_sl, _gap_img_sl,
                                     hq_scale=_hq_sl,
-                                    bg_color=_art_slump_bg(store))
+                                    bg_color=_art_slump_bg(store),
+                                    cols=_art_slump_cols(store, len(_g_imgs_sl)))
                                 # 高解像度対象だけ JPEG 目標サイズを引き上げる（他画像は従来どおり）
                                 _save_jpeg(_combined_sl, _fpath_sl,
                                            **({"target_kb": _ART_HQ_TARGET_KB} if _hq_sl > 1.0 else {}))
@@ -26113,6 +26116,21 @@ C_ART_SLUMP_AREA_BG: "tuple[int, int, int]" = (216, 198, 227)   # #D8C6E3
 _ART_SLUMP_BG_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 
 
+# 記事用のスランプ合成をカード数で4列にする店舗としきい値。
+# ★18件以下は従来どおり横3列。19件以上だけ横4列（最大5段）にして縦長を抑える。
+#   カテゴリでは分けず **カード数だけ**で共通判定する（全台系・高配分・②個別優秀台・
+#   ジャグラー統合・その他優秀台・並び／列・末尾・バラエティ・⑤すべて同じ基準）。
+_ART_SLUMP_4COL_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+_ART_SLUMP_4COL_MIN = 19
+
+
+def _art_slump_cols(store: str, n: int) -> int:
+    """記事用スランプの列数（対象外の店舗・18件以下は従来どおり3列）。"""
+    if store in _ART_SLUMP_4COL_STORES and int(n or 0) >= _ART_SLUMP_4COL_MIN:
+        return 4
+    return 3
+
+
 def _art_slump_bg(store: str):
     """記事用スランプの「カード外側」背景色（対象外は None＝従来の bbb.jpg 経路）。"""
     return C_ART_SLUMP_AREA_BG if store in _ART_SLUMP_BG_STORES else None
@@ -26346,14 +26364,17 @@ def _attach_slump_to_table(
     gap_screen_img=None,
     hq_scale: float = 1.0,
     bg_color=None,
+    cols: int = 3,
 ) -> "Image.Image":
-    """表画像の下にスランプグラフを3列で並べて合成する（稲毛スランプ付き専用）。
+    """表画像の下にスランプグラフを指定列数で並べて合成する。
 
-    * グラフは表幅に収まるよう3列グリッドにスケール（縦横比維持）。
-    * 最終行が3未満の場合は中央寄せ。
+    * グラフは表幅に収まるよう cols 列グリッドにスケール（縦横比維持）。
+    * 最終行が cols 未満の場合は中央寄せ。
     * bg_path が指定されている場合、グラフエリアの背景に貼り付ける。
+    * cols の既定は 3 ＝従来動作。カード数が多い記事用だけ 4 を渡して
+      縦長を抑える（列数以外のレイアウト・順序・サイズは変更しない）。
     """
-    COLS = 3
+    COLS = max(1, int(cols or 3))
     # hq_scale>1（記事用の高解像度画像）では余白も同じ倍率にしてレイアウト比率を保つ。
     # 列数・行数・中央寄せ・液晶のはめ込み位置は変更しない。
     _hq  = hq_scale if hq_scale and hq_scale > 0 else 1.0

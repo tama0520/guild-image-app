@@ -4322,9 +4322,16 @@ def run_step1_main(
     hq_scale: float = 1.0,
     zh_hq_scale: float = 1.0,
     kojin_zentai_machines: set[str] = set(),
+    meta_only_machines: set[str] = frozenset(),
+    meta_only_out: "list[dict] | None" = None,
 ) -> tuple[list[str], list[dict]]:
     """Step 1: 全台系PNG + 全台プラス機種別JPG を生成する。
     戻り値: (generated, zen_dai_list)
+    meta_only_machines（⑤オススメ最優先で抑制した機種）: **画像も既存リストも作らず**、
+      判定が成立したことと平均差枚だけを `meta_only_out` へ記録する。
+      WordPressの⑤H3平均表示だけに使う値で、zen_dai_list / high_ratio_list /
+      画像 / その他の優秀台 / excellent_list / 結果テキストへは**一切混ぜない**。
+      既定は空集合＝従来動作。
 
     kojin_zentai_machines: ②個別画像（全台）へ入力された機種（記事用ページのみ渡す）。
       同名画像が自動全台系と②個別の2経路で作られるのを防ぐため、候補段階で除外する。
@@ -4362,7 +4369,8 @@ def run_step1_main(
 
     # ── 機種別 JPG（全台プラスのみ）──────────────────────────────
     for machine, grp in df.groupby("機種名", sort=False):
-        if machine in kojin_zentai_machines:
+        _meta_only_s1 = machine in meta_only_machines
+        if machine in kojin_zentai_machines and not _meta_only_s1:
             # ②個別画像（全台）で生成するため、自動全台系では作らない
             log(f"  {machine} →②個別画像(全台)指定のため自動全台系から除外")
             continue
@@ -4401,6 +4409,18 @@ def run_step1_main(
             all_plus = bool((dr_all >= 0).all())
         if not all_plus or len(dr_m) <= 1:
             continue  # 条件未達・1台以下 はStep3で処理
+        if _meta_only_s1:
+            # ⑤最優先で抑制した機種。**画像も zen_dai_list も作らない**。
+            # 全台系と判定されたことと平均差枚だけを専用リストへ残す。
+            if meta_only_out is not None:
+                meta_only_out.append({
+                    "name":         machine,
+                    "kind":         "zen",
+                    "count":        int((dr_m > 0).sum()),
+                    "total":        total_raw,
+                    "all_avg_diff": int(round(dr_all.mean())),
+                })
+            continue
         title = machine.replace('\uff65', '\u30fb')
         if article_mode:
             # 記事用: 全台系は掲載台数に関係なく最初から2倍解像度で描画（zh_hq_scale）
@@ -4447,6 +4467,8 @@ def run_step2_juggler(
     osusume_bans: set[int] = frozenset(),
     retsu_bans: set[int] = frozenset(),
     high_bar: bool = True,
+    meta_only_machines: set[str] = frozenset(),
+    meta_only_out: "list[dict] | None" = None,
 ) -> tuple[list[str], pd.DataFrame | None, pd.Series | None, list[dict], list[dict]]:
     """Step 2: ジャグラーシリーズ優秀台フィルター。
     少数機種は統合画像へ。5台以下なら overflow として Step 3 へ渡す。
@@ -4519,6 +4541,19 @@ def run_step2_juggler(
             _cnt_1k_all = int((_dr_all >= 1000).sum())
             if _plus_all >= math.ceil(total_all / 2) and _cnt_1k_all >= _small_rule["min_1k"]:
                 _meets_small_jug = True
+        _meets_jug_meta = (_meets_small_jug or
+                           (len(filtered) >= 2 and
+                            (len(filtered) >= total_all / 2 or len(filtered) >= 10)))
+        if machine in meta_only_machines and _meets_jug_meta:
+            # ⑤最優先で抑制した機種。**画像も high_ratio_list も統合プールも触らない**。
+            if meta_only_out is not None:
+                meta_only_out.append({
+                    "name":         machine,
+                    "kind":         "high",
+                    "count":        count_orig,
+                    "total":        total_orig,
+                    "all_avg_diff": int(round(_dr_all_orig.mean())),
+                })
         if machine not in recommended_machines and (_meets_small_jug or (len(filtered) >= 2 and (len(filtered) >= total_all / 2 or len(filtered) >= 10))):
             # ⑦掲載台の台番単位除外。画像カテゴリの判定（上の条件式）は除外前の台数で
             # 済ませてあるため、除外しても「高配分でなくなる」「その他へ回る」ことはない。
@@ -4713,6 +4748,8 @@ def run_step3_other(
     osusume_bans: set[int] = frozenset(),
     retsu_bans: set[int] = frozenset(),
     high_bar: bool = True,
+    meta_only_machines: set[str] = frozenset(),
+    meta_only_out: "list[dict] | None" = None,
 ) -> tuple[list[str], list[dict], list[dict], list[int]]:
     """Step 3: 非ジャグラー機種の優秀台 + その他の優秀台ピックアップ統合画像。
     戻り値: (generated, high_ratio_list, excellent_list, sonota_bans_all)
@@ -4853,6 +4890,16 @@ def run_step3_other(
         _min7_machines = cfg.get("min7_machines", set())
         _meets_min7 = machine in _min7_machines and count_f >= 7
         if _meets_thr or _meets_small or _meets_min7:
+            if machine in meta_only_machines and meta_only_out is not None:
+                # ⑤最優先で抑制した機種。**画像も high_ratio_list も作らず**、
+                # WordPressの⑤H3平均表示だけに使う判定と平均差枚を控える。
+                meta_only_out.append({
+                    "name":         machine,
+                    "kind":         "high",
+                    "count":        int((dr_m > 0).sum()),
+                    "total":        total,
+                    "all_avg_diff": int(round(dr_m.mean())),
+                })
             if machine not in recommended_machines:
                 # ⑦掲載台の台番単位除外。カテゴリ判定（_meets_*）は除外前の count_f で
                 # 済ませてあるため、除外しても高配分から外れたりその他へ回ったりしない。
@@ -4901,6 +4948,15 @@ def run_step3_other(
             # 勝率50%以上 → テキストのみ high_ratio_list に追加（画像なし）
             # 表示差枚は+1,000枚以上のみ（稲毛指示と同様）
             plus_count = int((dr_m > 0).sum())
+            if (total >= 2 and plus_count >= math.ceil(total / 2)
+                    and machine in meta_only_machines and meta_only_out is not None):
+                meta_only_out.append({
+                    "name":         machine,
+                    "kind":         "high",
+                    "count":        plus_count,
+                    "total":        total,
+                    "all_avg_diff": int(round(dr_m.mean())),
+                })
             if total >= 2 and plus_count >= math.ceil(total / 2) and machine not in recommended_machines:
                 high_ratio_list.append({
                     "name":         machine,
@@ -6021,6 +6077,7 @@ def run_auto_pipeline(
     osusume_machines: set[str] = set(),
     retsu_bans: set[int] = frozenset(),
     manual_mode: bool = False,
+    meta_only_machines: set[str] = frozenset(),
 ) -> dict:
     """3ステップパイプラインを実行する。
     exclude_units: ⑦プレビューで台番単位に外した掲載台
@@ -6103,10 +6160,16 @@ def run_auto_pipeline(
             sonota_bans_all = jug_bans_all = set()
             jug_pool_df = ov_df = ov_diff = None
             excellent_list = []
+            _meta_only_list = []
         else:
+            # ⑤最優先で抑制した機種の「判定＋平均差枚」だけを控える専用の受け皿。
+            # WordPressの⑤H3平均表示だけに使い、zen_dai_list / high_ratio_list /
+            # 画像 / 結果テキスト / 全台系・高配分H3 へは一切混ぜない。
+            _meta_only_list: list[dict] = []
             log("① 全台系PNG ＋ 全台プラス機種別JPG")
             f1, zen_dai_list = run_step1_main(df, diff_raw, output_dir, stem, cfg, log, article_mode=article_mode, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale,
-                                              kojin_zentai_machines=kojin_zentai_machines)
+                                              kojin_zentai_machines=kojin_zentai_machines,
+                                              meta_only_machines=meta_only_machines, meta_only_out=_meta_only_list)
 
             # ⑤オススメ機種の優秀台（渋谷新館の記事用）の掲載台番。
             # ⑤画像と同じ _kojin_yushu_filter() を再利用し、パイプラインが既に持つ
@@ -6130,10 +6193,10 @@ def run_auto_pipeline(
             log("② ジャグラーシリーズ優秀台")
             _jug_series = cfg["juggler_series"]
             _zen_dai_jug = {item["name"] for item in zen_dai_list if item["name"] in _jug_series}
-            f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df, jug_bans_all = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude, no_merge_image=jug_no_merge_image, rec_ban_level=rec_ban_level, exclude_units=exclude_units, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans, high_bar=(store not in _ART_HIGH_NO_BAR_STORES))
+            f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df, jug_bans_all = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude, no_merge_image=jug_no_merge_image, rec_ban_level=rec_ban_level, exclude_units=exclude_units, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans, high_bar=(store not in _ART_HIGH_NO_BAR_STORES), meta_only_machines=meta_only_machines, meta_only_out=_meta_only_list)
 
             log("③ その他の優秀台ピックアップ")
-            f3, oth_hr, sonota_excellent, sonota_bans_all = run_step3_other(df, diff_raw, output_dir, cfg, narabi_bans, ov_df, ov_diff, log, recommended_machines, suebangai_bans, article_mode=article_mode, sonota_exclude=sonota_exclude, exclude_units=exclude_units, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans, high_bar=(store not in _ART_HIGH_NO_BAR_STORES))
+            f3, oth_hr, sonota_excellent, sonota_bans_all = run_step3_other(df, diff_raw, output_dir, cfg, narabi_bans, ov_df, ov_diff, log, recommended_machines, suebangai_bans, article_mode=article_mode, sonota_exclude=sonota_exclude, exclude_units=exclude_units, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans, high_bar=(store not in _ART_HIGH_NO_BAR_STORES), meta_only_machines=meta_only_machines, meta_only_out=_meta_only_list)
             _ex_seen: set[tuple] = set()
             excellent_list = []
             for _ex_item in jug_excellent + sonota_excellent:
@@ -6211,6 +6274,7 @@ def run_auto_pipeline(
             "date":                  date_obj,
             "df":             df,
             "diff_raw":       diff_raw,
+            "meta_only_list": _meta_only_list,
         }
     except Exception:
         return {"ok": False, "files": [], "error": traceback.format_exc()}
@@ -19627,6 +19691,9 @@ def show_auto_article_page() -> None:
                 #   出力フォルダ・ZIP・WordPress payload・結果テキストを⑦📝と一致させる。
                 #   🔍フルプレビュー後の⑧は _art_exec_manual=False＝従来どおり全カテゴリ。
                 manual_mode=_art_exec_manual,
+                # ⑤最優先で抑制した機種の「判定＋平均差枚」だけを別キーで受け取る。
+                # 画像・zen_dai_list・high_ratio_list・結果テキストへは混ざらない。
+                meta_only_machines=_art_osu_prio_e,
             )
 
             # 記事用の全台系・高配分は掲載台数に関係なく2倍で描く（合成側と共有）。
@@ -20771,8 +20838,13 @@ def show_auto_article_page() -> None:
                         # ★`_wpc` はこの時点で未 import（import は下の送信ブロック）。
                         #   ここで参照すると NameError になるため使わない。
                         _osu_avg_e: dict[str, int] = {}
+                        # ★⑤最優先で抑制された機種は zen_dai_list / high_ratio_list へ
+                        #   入らないため、専用キー meta_only_list からも引く（案B）。
+                        #   meta_only_list は平均表示専用で、画像・結果テキスト・
+                        #   全台系／高配分H3 には一切使わない。
                         for _it_av in (list(result.get("zen_dai_list") or [])
-                                       + list(result.get("high_ratio_list") or [])):
+                                       + list(result.get("high_ratio_list") or [])
+                                       + list(result.get("meta_only_list") or [])):
                             _nm_av = str(_it_av.get("name") or "").strip()
                             if not _nm_av:
                                 continue

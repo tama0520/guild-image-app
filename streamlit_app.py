@@ -10670,6 +10670,16 @@ def _art_osusume_flat(blocks: list[dict]) -> list[str]:
     return [_m for _b in blocks for _m in _b.get("machines", []) if (_m or "").strip()]
 
 
+def _art_osu_norm(name: str) -> str:
+    """⑤機種名の照合用キー（簡略名・正式名・表記ゆれの差を吸収する）。
+
+    前後空白を落とし、NFKC 正規化して、全角/半角スペースを除去するだけ。
+    **機種名変換や別名辞書は使わない**（判定・平均値は pipeline 結果のまま）。
+    """
+    import unicodedata as _ud
+    return _ud.normalize("NFKC", str(name or "").strip()).replace(" ", "").replace("　", "")
+
+
 def _art_osusume_plan(blocks: list[dict], gen_map: dict) -> list[dict]:
     """生成された⑤ブロック画像を入力ブロックへ引き当てる（WordPress payload用）。
 
@@ -20752,14 +20762,27 @@ def show_auto_article_page() -> None:
                     # （平均は既存の all_avg_diff をそのまま使い、再計算しない）。
                     # ★⑤の入力内容・ブロック順・画像・優先／重複排除は変更しない。
                     if store in _ART_WP_TITLE2_STORES:
+                        # ★平均差枚は **当日の pipeline 結果（zen_dai_list / high_ratio_list）**
+                        #   の all_avg_diff をそのまま使う（WordPress用に再計算しない）。
+                        #   ②個別「全台」「優秀台」も⑧が同じリストへ追記済みなので、
+                        #   自動・手動のどちらで高配分/全台系になった機種も拾える。
+                        # ★照合は簡略名・正式名・表記ゆれに耐えるよう
+                        #   `_art_osu_norm()`（strip＋NFKC＋空白除去）でも引けるようにする。
+                        # ★`_wpc` はこの時点で未 import（import は下の送信ブロック）。
+                        #   ここで参照すると NameError になるため使わない。
                         _osu_avg_e: dict[str, int] = {}
-                        for _it_av in list(result.get("zen_dai_list") or []) +                                       list(result.get("high_ratio_list") or []):
+                        for _it_av in (list(result.get("zen_dai_list") or [])
+                                       + list(result.get("high_ratio_list") or [])):
                             _nm_av = str(_it_av.get("name") or "").strip()
-                            if _nm_av and _nm_av not in _osu_avg_e:
-                                try:
-                                    _osu_avg_e[_nm_av] = int(_it_av.get("all_avg_diff", 0))
-                                except Exception:
-                                    pass
+                            if not _nm_av:
+                                continue
+                            try:
+                                _v_av = int(_it_av.get("all_avg_diff", 0))
+                            except Exception:
+                                continue
+                            for _k_av in (_nm_av, _art_osu_norm(_nm_av)):
+                                if _k_av and _k_av not in _osu_avg_e:
+                                    _osu_avg_e[_k_av] = _v_av
                         _osu_pl_e = []
                         for _bi_e, _blk_e in enumerate(art_osusume_blocks):
                             _names_e = [str(_m).strip()
@@ -20776,9 +20799,17 @@ def show_auto_article_page() -> None:
                             if not _nms_e:
                                 continue
                             _ttl_e = "・".join(_nms_e)
-                            _av_e = next((_osu_avg_e[_n] for _n in _nms_e if _n in _osu_avg_e), None)
+                            _av_e = None
+                            for _n_e in _nms_e:
+                                for _k_e in (_n_e, _art_osu_norm(_n_e)):
+                                    if _k_e in _osu_avg_e:
+                                        _av_e = _osu_avg_e[_k_e]
+                                        break
+                                if _av_e is not None:
+                                    break
                             if _av_e is not None:
-                                _ttl_e += f"　平均{_wpc.fmt_signed(int(_av_e))}枚"
+                                # 書式は wp_client.fmt_signed と同じ（`+1,200` / `-800`）。
+                                _ttl_e += f"　平均{int(_av_e):+,}枚"
                             _b_e["title"] = _ttl_e
                     # ⑥差枚数ランキング / 島図（固定ファイル名）
                     _art_wp_pl["ranking"] = [_ART_RANK_FN]
@@ -20805,7 +20836,11 @@ def show_auto_article_page() -> None:
                     if store in _ART_TENDAY_STORES:
                         _td_date = result.get("date")
                         if _td_date:
-                            _art_wp_pl["tenday"] = _tenday_article_lines(_td_date)
+                            # ★新宿歌舞伎町の記事用WordPress本文では、10日区切りの
+                            #   期間（🏆9月11日～9月20日🏆）と「○日目」を一切出さない。
+                            #   画像生成・⑤の機種選択・H3・結果テキストは従来どおり。
+                            if store not in _ART_WP_TITLE2_STORES:
+                                _art_wp_pl["tenday"] = _tenday_article_lines(_td_date)
                     # ジャグラー統合画像の直前へH3を入れる店舗（渋谷新館のみ）。
                     # 実際に出すかは wp_client 側が統合画像の実在で最終判定する。
                     _art_wp_pl["juggler_comb_h3"] = store in _ART_WP_JUG_H3_STORES

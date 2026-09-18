@@ -167,6 +167,11 @@ H2_SHIMAZU  = "シマズをチェック！"
 # これらは payload に該当キーがある店舗でだけ出る。高田馬場は payload に無いので
 # 1ブロックも増えない（本文はバイト単位で従来と一致する）。
 H2_OSUSUME  = "オススメ機種の優秀台"
+# payload["h2_alt"] が真の店舗だけ使う別文言（2026-09-18 追加）。
+# キーを渡さない店舗は上の従来文言のまま（他店舗へ波及させない）。
+H2_HIGH_ALT    = "高配分機種も複数"
+H2_OSUSUME_ALT = "オススメポスター機種の優秀台"
+H2_SONOTA_ALT  = "その他の単品優秀台"
 # 差枚数ランキングと島図は **1つのH2へ統合**する（2026-09-04）。
 # `&` は raw のままだと Gutenberg のブロック検証で不一致になるため実体参照で持つ
 # （表示は「差枚数ランキング&島図」）。
@@ -239,6 +244,9 @@ BUTTON_TEXT = "店舗情報・過去の結果はコチラ"
 # 括弧は全角隅付き（U+3010 / U+3011）。**機種名との間にスペースを入れない。**
 H3_PREFIX_ZENDAI = "【全台系濃厚】"
 H3_PREFIX_HIGH   = "【高配分】"
+# payload["h3_zendai_alt"] が真の店舗だけ使う別表記（2026-09-18 追加）。
+# 既定（キーなし）は上の従来表記のまま＝他店舗は完全に不変。
+H3_PREFIX_ZENDAI_ALT = "【全台系】"
 
 # 58963 実データで確認した「画像を隙間なく縦連結する」SWELLユーティリティクラス。
 # 連続画像群のうち **最後の1枚を除く全て** に付与する。
@@ -423,7 +431,7 @@ def ban_range_str(bans) -> str:
     return "+".join(parts) + "番台"
 
 
-def h3_zendai(item: dict) -> str:
+def h3_zendai(item: dict, count_style: str = "slash") -> str:
     """`戦国乙女4(3/3台+)→平均+5,317枚`。
 
     **全台系・高配分・ジャグラーで共通に使う**。zen_dai_list と high_ratio_list は
@@ -442,7 +450,12 @@ def h3_zendai(item: dict) -> str:
     `int()` は fmt_signed() と同じ丸めにして、表示と分岐の判定をずらさないために掛ける。
     """
     avg = int(item['all_avg_diff'])
-    base = f"{item['name']}({item['count']}/{item['total']}台+)"
+    # count_style="total_first" は `(16台中11台+)` 形式（payload["h3_zendai_alt"] 用）。
+    # 既定 "slash" は従来の `(11/16台+)`。平均差枚の算出・マイナス時の非表示は共通。
+    if count_style == "total_first":
+        base = f"{item['name']}({item['total']}台中{item['count']}台+)"
+    else:
+        base = f"{item['name']}({item['count']}/{item['total']}台+)"
     if avg < 0:
         return base
     return f"{base}{_ARROW_R2}平均{fmt_signed(avg)}枚"
@@ -489,8 +502,17 @@ def h3_retsu(item: dict) -> str:
             f"{_ARROW_R2}平均{fmt_signed(item['avg_diff'])}枚")
 
 
-def build_title(date_obj, store: str = WP_STORE) -> str:
-    """`8月8日(土)│エスパス高田馬場│`。後半は人間が編集画面で追記する。"""
+def build_title(date_obj, store: str = WP_STORE, simple: bool = False) -> str:
+    """`8月8日(土)│エスパス高田馬場│`。後半は人間が編集画面で追記する。
+
+    simple=True（payload["title_simple"]）は `9月17日(木)の結果`。
+    **店舗名・区切りの│を入れない**。既定 False＝従来表記（他店舗は不変）。
+    """
+    if simple:
+        if date_obj is None:
+            return "結果"
+        return (f"{date_obj.month}月{date_obj.day}日"
+                f"({_WEEKDAY_JP[date_obj.weekday()]})の結果")
     if date_obj is None:
         return f"エスパス{store}{_SEP_TITLE}"
     wd = _WEEKDAY_JP[date_obj.weekday()]
@@ -1095,7 +1117,19 @@ def plan_blocks(payload: dict) -> list[dict]:
 
     画像項目は {"type":"image","file":…,"label":…} を持ち、
     実ファイルの解決とアップロードは呼び出し側が行う。
+
+    payload の表記フラグ（2026-09-18 追加・**キーを渡さない店舗は従来どおり**）:
+      h3_zendai_alt : 全台系H3を【全台系】＋`(総台数中プラス台数+)` にする
+      h2_alt        : 高配分／⑤オススメ／その他単品のH2を別文言にする
+      no_button     : 記事末尾の案内ボタンを出さない
     """
+    _h3_alt   = bool(payload.get("h3_zendai_alt"))
+    _h3_zen_pre = H3_PREFIX_ZENDAI_ALT if _h3_alt else H3_PREFIX_ZENDAI
+    _h3_cnt   = "total_first" if _h3_alt else "slash"
+    _h2_alt   = bool(payload.get("h2_alt"))
+    _h2_high  = H2_HIGH_ALT if _h2_alt else H2_HIGH
+    _h2_osu   = H2_OSUSUME_ALT if _h2_alt else H2_OSUSUME
+    _h2_son   = H2_SONOTA_ALT if _h2_alt else H2_SONOTA
     out_dir = payload.get("output_dir", "")
     plan: list[dict] = []
 
@@ -1177,7 +1211,7 @@ def plan_blocks(payload: dict) -> list[dict]:
         for it in zen:
             # 接頭辞のみ付ける。h3_zendai() 本体は変更しない
             # （マイナス平均の非表示・0の +0枚・_ARROW_R2・fmt_signed をそのまま維持）。
-            plan.append({"type": "h3", "text": H3_PREFIX_ZENDAI + h3_zendai(it)})
+            plan.append({"type": "h3", "text": _h3_zen_pre + h3_zendai(it, _h3_cnt)})
             plan.append({"type": "image",
                          "file": f"{app_safe_fn(it['name'])}.jpg",
                          "label": f"全台系 {it['name']}"})
@@ -1197,12 +1231,13 @@ def plan_blocks(payload: dict) -> list[dict]:
     high_imgs = sorted(high_imgs,
                        key=lambda h: -int(h["entry"].get("all_avg_diff", 0)))
     if high_imgs:
-        plan.append({"type": "h2", "text": H2_HIGH})
+        plan.append({"type": "h2", "text": _h2_high})
         for h in high_imgs:
             # 全台系とまったく同じ h3_zendai() を流用する（新書式は作らない）。
             # 自動・手動どちらも high_ratio_list の name/count/total/all_avg_diff を使う。
             # 接頭辞のみ付ける（ジャグラー個別高配分には付けない）。
-            plan.append({"type": "h3", "text": H3_PREFIX_HIGH + h3_zendai(h["entry"])})
+            plan.append({"type": "h3",
+                         "text": H3_PREFIX_HIGH + h3_zendai(h["entry"], _h3_cnt)})
             plan.append({"type": "image", "file": h["file"],
                          "label": ("手動高配分 " if h["manual"] else "自動高配分 ") + h["name"]})
         # Bコメントは **統合後の高配分セクションの最後に1回だけ**
@@ -1308,7 +1343,7 @@ def plan_blocks(payload: dict) -> list[dict]:
         if _files:
             osu_blocks.append((str((_b or {}).get("title") or "").strip(), _files))
     if osu_blocks:
-        plan.append({"type": "h2", "text": H2_OSUSUME})
+        plan.append({"type": "h2", "text": _h2_osu})
         for _t, _files in osu_blocks:
             if _t:
                 plan.append({"type": "h3", "text": _t})
@@ -1328,7 +1363,7 @@ def plan_blocks(payload: dict) -> list[dict]:
         _td_t = str(_td_line or "").strip()
         if _td_t:
             plan.append({"type": "para", "text": esc(_td_t)})
-    plan.append({"type": "h2", "text": H2_SONOTA})
+    plan.append({"type": "h2", "text": _h2_son})
     plan.append({"type": "image", "file": FN_SONOTA,
                  "label": "その他の優秀台ピックアップ", "optional": True})
     # Eコメントは **その他単品セクションの最後に1回だけ**。
@@ -1380,7 +1415,10 @@ def plan_blocks(payload: dict) -> list[dict]:
         plan.append({"type": "h2", "text": H2_SHIMAZU})
 
     # ── 店舗情報ボタン ──
-    plan.append({"type": "button"})
+    # 記事末尾の案内ボタン。payload["no_button"] の店舗だけ出さない
+    # （画像内リンク・X埋め込み・本文中リンク・画像クリック拡大には触れない）。
+    if not payload.get("no_button"):
+        plan.append({"type": "button"})
     return plan
 
 
@@ -1755,7 +1793,8 @@ def create_takadanobaba_draft(payload: dict, progress=None) -> dict:
         uploaded.append({"file": f["file"], "id": r["id"], "src": r["src"],
                          "sec": r["sec"], "bytes": f["bytes"]})
 
-    title   = build_title(payload.get("date"), _store)
+    title   = build_title(payload.get("date"), _store,
+                          simple=bool(payload.get("title_simple")))
     content = build_content(plan, media_map, site=site, split_map=split_map,
                             category_slug=_cat["slug"],
                             # 対象店舗だけ本文カラム幅いっぱいで表示する（表示のみ）

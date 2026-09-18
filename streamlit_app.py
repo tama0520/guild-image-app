@@ -3971,6 +3971,13 @@ _ART_NANAKO_PROFILE_URLS: "dict[str, str]" = {
 # 秋葉原はそもそもWordPress対象外（_ART_WP_STORES に無い）。
 # 対象店舗では **未選択のまま下書きを作成できない**（14 へのフォールバックは禁止）。
 _ART_WP_AUTHOR_STORES = frozenset({"渋谷新館", "新宿歌舞伎町"})
+
+# WordPress下書きの表記を新表記にする店舗（2026-09-18 追加）。
+# タイトル `9月17日(木)の結果` ／【全台系】＋`(総台数中プラス台数+)` ／
+# H2「高配分機種も複数」「オススメポスター機種の優秀台」「その他の単品優秀台」／
+# 記事末尾の案内ボタンなし。**payload のキーで wp_client へ渡す**ので、
+# キーを渡さない他店舗は従来表記のまま（wp_client 側に店舗名を持たせない）。
+_ART_WP_TITLE2_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 # 選択できる投稿者（表示順＝この順序・縦並び）。保存するのは user ID ではなく username。
 # username → 正式 WordPress user ID の対応は wp_client.WP_AUTHOR_MAP が持つ。
 _ART_WP_AUTHORS = ("t.ito", "r.iio", "k.furukawa", "t.ui", "m.suzuki", "m.takahashi")
@@ -10678,7 +10685,9 @@ def _art_osusume_plan(blocks: list[dict], gen_map: dict) -> list[dict]:
         _fn = (gen_map or {}).get(_n)
         if not _fn:
             continue
-        _plan.append({"title": _b.get("title", ""), "images": [_fn]})
+        # "block" は 0-based のブロックindex（追加キー・payload構造は従来と互換）。
+        # 画像の無いブロックは plan に入らないため、位置ではこのindexを復元できない。
+        _plan.append({"title": _b.get("title", ""), "images": [_fn], "block": _n})
     return _plan
 
 
@@ -20670,6 +20679,12 @@ def show_auto_article_page() -> None:
                     # ので、古い ジャグラーシリーズ優秀台.jpg が出力フォルダに残っていても
                     # plan / upload / 本文のどこにも入らない。
                     _art_wp_pl["juggler_section"] = store not in _ART_WP_NO_JUG_SECTION_STORES
+                    # WordPress表記の新仕様（対象店舗だけキーを渡す＝他店舗は不変）
+                    if store in _ART_WP_TITLE2_STORES:
+                        _art_wp_pl["title_simple"]   = True
+                        _art_wp_pl["h3_zendai_alt"]  = True
+                        _art_wp_pl["h2_alt"]         = True
+                        _art_wp_pl["no_button"]      = True
                     # 記事上部（見出し／ポスター下文章／Xリンク下文章）。
                     # 空欄ならブロックごと出力されない（wp_client 側で判定）。
                     _art_wp_pl["top_heading"] = st.session_state.get(
@@ -20730,6 +20745,41 @@ def show_auto_article_page() -> None:
                     # ⑤オススメ機種の優秀台: ブロックタイトル＋画像の対応（⑧で保存済み）
                     _art_wp_pl["osusume"] = list(
                         st.session_state.get(f"_art_osu_plan_{store}") or [])
+                    # ⑤のH3を**⑤へ記入した実際の機種名**にする店舗（新宿歌舞伎町）。
+                    # ブロックタイトル（例「10日間オススメポスター」）ではなく機種名を出し、
+                    # 同一ブロックに複数記入した場合は「・」区切りで並べる。
+                    # 全台系／高配分にも該当する機種は `平均+〇枚` を後ろへ足す
+                    # （平均は既存の all_avg_diff をそのまま使い、再計算しない）。
+                    # ★⑤の入力内容・ブロック順・画像・優先／重複排除は変更しない。
+                    if store in _ART_WP_TITLE2_STORES:
+                        _osu_avg_e: dict[str, int] = {}
+                        for _it_av in list(result.get("zen_dai_list") or []) +                                       list(result.get("high_ratio_list") or []):
+                            _nm_av = str(_it_av.get("name") or "").strip()
+                            if _nm_av and _nm_av not in _osu_avg_e:
+                                try:
+                                    _osu_avg_e[_nm_av] = int(_it_av.get("all_avg_diff", 0))
+                                except Exception:
+                                    pass
+                        _osu_pl_e = []
+                        for _bi_e, _blk_e in enumerate(art_osusume_blocks):
+                            _names_e = [str(_m).strip()
+                                        for _m in (_blk_e.get("machines") or [])
+                                        if str(_m or "").strip()]
+                            _osu_pl_e.append(_names_e)
+                        for _i_e, _b_e in enumerate(_art_wp_pl["osusume"]):
+                            _idx_e = _b_e.get("block")
+                            if _idx_e is None:
+                                _idx_e = _i_e
+                            _nms_e = (_osu_pl_e[_idx_e]
+                                      if isinstance(_idx_e, int) and 0 <= _idx_e < len(_osu_pl_e)
+                                      else [])
+                            if not _nms_e:
+                                continue
+                            _ttl_e = "・".join(_nms_e)
+                            _av_e = next((_osu_avg_e[_n] for _n in _nms_e if _n in _osu_avg_e), None)
+                            if _av_e is not None:
+                                _ttl_e += f"　平均{_wpc.fmt_signed(int(_av_e))}枚"
+                            _b_e["title"] = _ttl_e
                     # ⑥差枚数ランキング / 島図（固定ファイル名）
                     _art_wp_pl["ranking"] = [_ART_RANK_FN]
                     # ⑥全台データ（渋谷新館のみ・条件成立時だけ⑧が保存している）。
@@ -20842,7 +20892,7 @@ def show_auto_article_page() -> None:
                 _wp_mb = sum(_f["bytes"] for _f in _wp_found) / 1024 / 1024
                 st.caption(
                     f"送信対象 {len(_wp_found)}枚 / 合計 {_wp_mb:.2f} MB　"
-                    f"タイトル: {_wpc.build_title(_wp_pl.get('date'), store)}　"
+                    f"タイトル: {_wpc.build_title(_wp_pl.get('date'), store, simple=bool(_wp_pl.get('title_simple')))}　"
                     f"（status=draft / category={_wp_cat['id']} / author="
                     + ((_wp_author or "未選択") if store in _ART_WP_AUTHOR_STORES
                        else str(_wpc.WP_AUTHOR_ID)) + "）"

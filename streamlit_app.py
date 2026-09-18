@@ -8385,6 +8385,11 @@ def _article_input_keys(store: str) -> list[str]:
     if store in _ART_NO_TOP_X_STORES:
         _no_x = {f"art_wp_top_text_x_{store}", f"art_guild_x_url_{store}"}
         keys = [k for k in keys if k not in _no_x]
+    # ★①冒頭の「WordPressメディアから選ぶ」（新宿歌舞伎町のみ・最大1件）。
+    #   保存するのは**表示名の文字列**だけ。画像バイナリ・URL・Secretsは保存しない。
+    #   店舗ゲート必須（外すと他店舗のエントリへ空キーが増える）。
+    if store in _ART_POSTER_PICK_STORES:
+        keys += [_art_poster_pick_key(store)]
     return keys
 
 
@@ -8462,6 +8467,121 @@ def _save_article_inputs(store: str, skip_kojin: bool = False) -> None:
 # ★キーに 店舗 と Excel名（日付）を含めるので、別日のポスターは構造上混ざらない。
 # ★画像は session_state のみに置く。JSON へは保存しない（正式仕様）。
 
+# ── 記事用①冒頭の「WordPressメディアから選ぶ」ポスター（新宿歌舞伎町のみ）────
+# 対象は **auto_article × 新宿歌舞伎町 の1通りだけ**。他店舗・他ページは
+# 従来の手動アップロードUIとポスター処理を**完全に維持**する。
+# ★最優先仕様: **手動アップロードに画像が1枚でもあれば手動だけを使う**。
+#   その間は22個のチェックを使わず、**WordPressメディアの取得もしない**
+#   （保存済み選択が残っていても、読み込み・プレビュー・⑧への受け渡しをしない）。
+# ★2種類を1枚のポスターへ結合しない（手動があるときは手動だけ）。
+_ART_POSTER_PICK_PAGES:  "frozenset[str]" = frozenset({"auto_article"})
+_ART_POSTER_PICK_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+# 表示名 → WordPress メディアID。2026-09-18 に
+# GET /wp-json/wp/v2/media?per_page=100 で実測した対応表をそのまま使う。
+# ★実行時に名前・ファイル名で検索しない。IDを推測しない。
+# ★「6日」は重複2件（id 26 / id 44 `6日-1.jpg`）のうち **26** を使う。
+# ★「はぐれキングぱないなー」はメディア側タイトルが「はぐれキングぱないな」
+#   （末尾の長音なし）だが、**UI表示はユーザー指定どおり長音付き**で id 38 を使う。
+# ★「10日間ポスター」(id 29) は対象外＝この表へ入れない。
+_ART_POSTER_LIBRARY: "tuple[tuple[str, int], ...]" = (
+    ("1日", 21), ("2日", 22), ("6日", 26), ("12日", 30),
+    ("21日", 31), ("23日", 32), ("24日", 33), ("29日", 34),
+    ("4のつく日", 23), ("5のつく日", 24), ("6のつく日", 25), ("7のつく日", 27),
+    ("8のつく日", 28), ("0のつく日", 20), ("39の日", 35), ("ゾロ目の日", 37),
+    ("強ゾロの日", 39), ("月末", 40), ("土曜日", 41), ("日曜日", 42),
+    ("キングぱないなー", 36), ("はぐれキングぱないなー", 38),
+)
+_ART_POSTER_PICK_TIMEOUT = 20
+
+
+def _art_poster_pick_on() -> bool:
+    """記事用①冒頭で「WordPressメディアから選ぶ」を使うか。
+
+    `_art_font_new()` / `_art_summary_center()` と同じ **page × store の AND** で
+    毎回導出する（保存フラグを持たない）。True は auto_article × 新宿歌舞伎町 だけ。
+    Streamlit 外では False。
+    """
+    try:
+        return (st.session_state.get("page") in _ART_POSTER_PICK_PAGES
+                and st.session_state.get("selected_store") in _ART_POSTER_PICK_STORES)
+    except Exception:
+        return False
+
+
+def _art_poster_pick_key(store: str) -> str:
+    """選択中のWordPressメディア（表示名・最大1件）の保存キー。
+
+    値は**人間が読める表示名の文字列**（未選択は ""）。
+    画像バイナリ・URL・Secrets は JSON へ保存しない（既存の正式仕様）。
+    """
+    return f"art_poster_pick_{store}"
+
+
+@st.cache_data(show_spinner=False, ttl=3600, max_entries=32)
+def _art_poster_media_fetch(store: str, media_id: int) -> "dict | None":
+    """WordPressメディアを **GETだけ**で取得して {"name","data"} を返す。
+
+    ★POST / PUT / PATCH / DELETE・アップロード・編集・削除は一切しない。
+    ★Secrets・アプリケーションパスワード・Authorization は表示も保存もしない。
+    ★失敗時は **None**（別画像へのフォールバック・勝手な差し替えは禁止）。
+    """
+    try:
+        import requests
+        import wp_client as _wpc_m
+        site, auth = _wpc_m._conf(store)     # 値は表示しない
+        if not site:
+            return None
+        r = requests.get(f"{site}/wp-json/wp/v2/media/{int(media_id)}",
+                         params={"_fields": "id,source_url,mime_type"},
+                         auth=auth, timeout=_ART_POSTER_PICK_TIMEOUT)
+        if r.status_code != 200:
+            return None
+        _src = str((r.json() or {}).get("source_url") or "")
+        if not _src:
+            return None
+        ri = requests.get(_src, auth=auth, timeout=_ART_POSTER_PICK_TIMEOUT)
+        if ri.status_code != 200 or not ri.content:
+            return None
+        _nm = _src.split("?")[0].rstrip("/").rsplit("/", 1)[-1] or f"wpmedia_{media_id}.jpg"
+        if not os.path.splitext(_nm)[1]:
+            _nm += ".jpg"
+        return {"name": _nm, "data": ri.content}
+    except Exception:
+        return None
+
+
+def _art_poster_picked(store: str) -> str:
+    """現在選択中のWordPressメディアの表示名（未選択・対象外は ""）。"""
+    if not _art_poster_pick_on():
+        return ""
+    _v = str(st.session_state.get(_art_poster_pick_key(store)) or "").strip()
+    return _v if _v in dict(_ART_POSTER_LIBRARY) else ""
+
+
+def _art_poster_inputs(store: str, excel: str) -> "tuple[list, str]":
+    """ポスターの元画像リストと、エラー文（無ければ ""）を返す。
+
+    ★**手動アップロードが1枚でもあれば手動だけ**を返し、WordPressメディアは
+      **取得もしない**（保存済み選択が残っていても使わない）。
+    ★手動が0枚のときだけ、選択済みWordPressメディア1件を GET して返す。
+    ★取得に失敗したら **空リスト＋エラー文**を返す（欠けたまま build_poster へ渡さない）。
+    """
+    _manual = _art_poster_list(store, excel)
+    if _manual:
+        return list(_manual), ""
+    _label = _art_poster_picked(store)
+    if not _label:
+        return [], ""
+    _mid = dict(_ART_POSTER_LIBRARY).get(_label)
+    if not _mid:
+        return [], f"WordPressメディア「{_label}」の対応IDが未登録です"
+    _got = _art_poster_media_fetch(store, int(_mid))
+    if not _got:
+        return [], (f"WordPressメディア「{_label}」（ID {_mid}）を取得できませんでした")
+    return [{"name": _got["name"], "fid": f"wpmedia:{int(_mid)}",
+             "data": _got["data"]}], ""
+
+
 def _art_poster_key(store: str, excel: str) -> str:
     """保存済みポスター（元画像リスト）のキー。"""
     return f"_art_poster_imgs_{store}_{excel or ''}"
@@ -8491,6 +8611,28 @@ def _art_poster_delete(store: str, excel: str, fid: str) -> None:
 def _art_poster_clear(store: str, excel: str) -> None:
     """その日付の保存済みポスターをすべて削除する（on_click コールバック）。"""
     st.session_state[_art_poster_key(store, excel)] = []
+
+
+def _on_art_poster_pick(store: str, excel: str, label: str,
+                        wkey: str, all_wkeys: "tuple[str, ...]") -> None:
+    """WordPressメディア選択チェックの on_change（**最大1件**にそろえる）。
+
+    ONにしたら その表示名を logical キーへ入れ、**他のチェックを自動で外す**。
+    OFFにしたら（それが現在の選択なら）未選択へ戻す。
+    保存は既存の `_save_article_inputs(store, skip_kojin=True)`（Excel＝日付単位）。
+    ★旧日付の遅延コールバックで現在日付へ書かないよう expected_excel を見る。
+    """
+    if st.session_state.get("art_current_excel") != excel:
+        return
+    _lk = _art_poster_pick_key(store)
+    if st.session_state.get(wkey):
+        st.session_state[_lk] = label
+        for _k in all_wkeys:
+            if _k != wkey and st.session_state.get(_k):
+                st.session_state[_k] = False
+    elif str(st.session_state.get(_lk) or "") == label:
+        st.session_state[_lk] = ""
+    _save_article_inputs(store, True)
 
 
 def _save_article_enabled(store: str) -> None:
@@ -17147,8 +17289,63 @@ def show_auto_article_page() -> None:
                           use_container_width=(not _art_v2))
         st.button("すべて削除", key=f"art_poster_clear_{_art_excel_now}",
                   on_click=_art_poster_clear, args=(store, _art_excel_now))
-    else:
+    elif not _art_poster_pick_on():
         st.info("ℹ️ ポスター未アップロードのため、ポスターなしで作成します")
+
+    # ── WordPressメディアから選ぶ（新宿歌舞伎町の記事用のみ・最大1件）────────
+    # ★手動アップロードが1枚でもある間は **最優先で手動だけ**を使う。
+    #   チェック欄は無効化し、**WordPressメディアの取得（GET）もしない**。
+    #   保存済みの選択値は消さない（勝手な削除・上書きをしない）。
+    # ★左に大きなプレビュー枠、右に22個のチェック欄。複数選択用の縦積み・
+    #   グリッド・合成プレビューは作らない（常に最大1件）。
+    if _art_poster_pick_on():
+        _pk_key   = _art_poster_pick_key(store)
+        _pk_lock  = bool(_poster_saved)          # 手動アップロード優先
+        _pk_saved = _art_saved_value(_art_excel_now, store, _pk_key, "")
+        if _pk_key not in st.session_state:
+            st.session_state[_pk_key] = (_pk_saved
+                                         if _pk_saved in dict(_ART_POSTER_LIBRARY) else "")
+        _pk_cur = str(st.session_state.get(_pk_key) or "")
+        _pk_wkeys = tuple(
+            _art_widget_key(_art_excel_now, f"{_pk_key}__{_i}")
+            for _i in range(len(_ART_POSTER_LIBRARY)))
+
+        st.markdown("**WordPressメディアから選ぶ**")
+        if _pk_lock:
+            st.info("🖼️ 手動アップロード画像を優先中です"
+                    "（WordPressメディアの選択は使用しません）。"
+                    "上の手動アップロード画像をすべて削除すると選べるようになります。")
+        else:
+            st.caption("チェックは**1件だけ**。別の項目を選ぶと前のチェックは自動で外れます。")
+
+        _pk_lcol, _pk_rcol = st.columns([1, 1], gap="large")
+        with _pk_lcol:
+            if _pk_lock:
+                st.caption("プレビューは手動アップロード画像（上のサムネイル）が有効です。")
+            elif not _pk_cur:
+                st.caption("🖼️ 画像未選択（右のチェック欄から1件選んでください）")
+            else:
+                _pk_got = _art_poster_media_fetch(
+                    store, int(dict(_ART_POSTER_LIBRARY)[_pk_cur]))
+                if _pk_got:
+                    st.image(_pk_got["data"], width=320, caption=_pk_cur)
+                else:
+                    # ★チェック状態は消さない。別画像へのフォールバックもしない。
+                    st.error(f"❌ プレビュー不可：「{_pk_cur}」の画像を取得できませんでした"
+                             "（選択は保持しています）。")
+        with _pk_rcol:
+            _pk_sub = st.columns(2, gap="small")
+            for _pi2, (_plab, _pmid) in enumerate(_ART_POSTER_LIBRARY):
+                with _pk_sub[_pi2 % 2]:
+                    st.checkbox(
+                        _plab, key=_pk_wkeys[_pi2],
+                        value=(_pk_cur == _plab),
+                        disabled=(_pk_lock or uploaded is None),
+                        on_change=_on_art_poster_pick,
+                        args=(store, _art_excel_now, _plab,
+                              _pk_wkeys[_pi2], _pk_wkeys))
+        if not _pk_lock and not _pk_cur and uploaded is not None:
+            st.info("ℹ️ ポスター未選択のため、ポスターなしで作成します")
 
     # ── 記事上部テキスト（B2: 表示キーは日付スコープ・初期値はその日付の保存値）──
     def _art_txt(label: str, logical: str, *, area: bool = False,
@@ -19970,9 +20167,18 @@ def show_auto_article_page() -> None:
             # 複数枚は横結合して1枚にする。元画像は個別に保存・送信しない。
             # 日付スコープは file_uploader の key（Excel名入り）で担保済み。
             # 正は「その日付の保存済み元画像」。file_uploader の現在値は見ない。
-            _art_poster_src = _art_poster_list(store, _art_excel_now)
+            # ★手動アップロードが1枚でもあれば手動だけを使う（WordPressメディアは
+            #   取得もしない）。手動0枚のときだけ選択済みWordPressメディア1件をGETする。
+            #   取得失敗時は **欠けたまま build_poster() へ渡さず**、古いポスターも
+            #   使わせない（_rm_stale_image で同名画像だけ削除する）。
+            _art_poster_src, _art_poster_err = _art_poster_inputs(store, _art_excel_now)
             _art_poster_info = None
-            if _art_poster_src:
+            if _art_poster_err:
+                st.error(f"❌ {_art_poster_err}。ポスターなしで続行します"
+                         "（選択は保持しています）。")
+                import wp_client as _wpc_pe
+                _rm_stale_image(output_dir, _wpc_pe.POSTER_FN)
+            elif _art_poster_src:
                 _pf_tmp = tempfile.mkdtemp(prefix="wp_poster_src_")
                 try:
                     _pf_paths = []

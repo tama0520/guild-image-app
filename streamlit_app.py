@@ -5991,7 +5991,7 @@ def generate_report_text(
             f"💎{over_1k}台が+1,000枚オーバー！",
         ])
 
-    header = f"{date_str}📝分析結果📝" if date_str else "📝分析結果📝"
+    header = f"{date_str}📝結果📝" if date_str else "📝結果📝"
     e1, e2 = STORE_EMOJI_CONFIG.get(store_name, ("💫", "👑"))
     _STORE_DISPLAY_NAMES: dict[str, str] = {
         "西武新宿": "エスパス 西武 新宿",

@@ -4582,6 +4582,7 @@ def run_step2_juggler(
     high_bar: bool = True,
     meta_only_machines: set[str] = frozenset(),
     meta_only_out: "list[dict] | None" = None,
+    jug_title_by_image: bool = False,
 ) -> tuple[list[str], pd.DataFrame | None, pd.Series | None, list[dict], list[dict]]:
     """Step 2: ジャグラーシリーズ優秀台フィルター。
     少数機種は統合画像へ。5台以下なら overflow として Step 3 へ渡す。
@@ -4828,7 +4829,13 @@ def run_step2_juggler(
         df["台番"].isin(narabi_bans) & df["機種名"].isin(juggler_series_set)
     ].empty
     juggler_recommended = {m for m in recommended_machines if m in juggler_series_set}
-    has_other_jug_img = bool(high_ratio_list) or bool(zen_dai_juggler_machines) or has_narabi_jug or bool(juggler_recommended)
+    # jug_title_by_image=True（「その他」配下）は **自前の画像を持つジャグラー機種**が
+    # あるときだけ「その他の…」にする。high_ratio_list には統合画像へ入った機種も
+    # has_image=False で入るため、bool(high_ratio_list) だと全台系・高配分が無くても
+    # 「その他の…」になってしまう。既定 False は従来動作のまま（既存店舗は不変）。
+    _hr_jug_img = (any(_h.get("has_image") for _h in high_ratio_list)
+                   if jug_title_by_image else bool(high_ratio_list))
+    has_other_jug_img = _hr_jug_img or bool(zen_dai_juggler_machines) or has_narabi_jug or bool(juggler_recommended)
     if article_mode:
         # hq_scale>1（記事用の高解像度対象）は最初から高解像度で描画する
         img = _build_machine_img_no_bar(combined, hq_scale=hq_scale)
@@ -6352,7 +6359,7 @@ def run_auto_pipeline(
             log("② ジャグラーシリーズ優秀台")
             _jug_series = cfg["juggler_series"]
             _zen_dai_jug = {item["name"] for item in zen_dai_list if item["name"] in _jug_series}
-            f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df, jug_bans_all = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude, no_merge_image=jug_no_merge_image, rec_ban_level=rec_ban_level, exclude_units=exclude_units, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans, high_bar=(store not in _ART_HIGH_NO_BAR_STORES), meta_only_machines=meta_only_machines, meta_only_out=_meta_only_list)
+            f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df, jug_bans_all = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude, no_merge_image=jug_no_merge_image, rec_ban_level=rec_ban_level, exclude_units=exclude_units, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans, high_bar=(store not in _ART_HIGH_NO_BAR_STORES), meta_only_machines=meta_only_machines, meta_only_out=_meta_only_list, jug_title_by_image=_is_other_store(store))
 
             log("③ その他の優秀台ピックアップ")
             f3, oth_hr, sonota_excellent, sonota_bans_all = run_step3_other(df, diff_raw, output_dir, cfg, narabi_bans, ov_df, ov_diff, log, recommended_machines, suebangai_bans, article_mode=article_mode, sonota_exclude=sonota_exclude, exclude_units=exclude_units, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans, high_bar=(store not in _ART_HIGH_NO_BAR_STORES), meta_only_machines=meta_only_machines, meta_only_out=_meta_only_list)
@@ -16260,7 +16267,14 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _log(f"  ✅ ジャグラー{len(_jug_comb)}台→overflow: その他の優秀台ピックアップに追加({len(_ov_son)}台)")
                     else:
                         _has_kojin_jug_ex = any(m.strip() in _ex_jug_series_set for m in (kojin_zentai_machines + kojin_yushu_machines) if m.strip())
-                        _jug_has_other = _has_kojin_jug_ex or bool(result.get("high_ratio_list")) or bool(result.get("zen_dai_list") and any(
+                        # 「その他」配下は pipeline と同じ判定（ジャグラー機種で**自前の
+                        # 画像を持つもの**があるときだけ「その他の…」）にする。
+                        # 既存店舗は従来どおり bool(high_ratio_list) のまま。
+                        _jug_hr_other = (
+                            any(_i.get("has_image") and _i.get("name") in _ex_jug_series_set
+                                for _i in result.get("high_ratio_list", []))
+                            if _is_other_store(store) else bool(result.get("high_ratio_list")))
+                        _jug_has_other = _has_kojin_jug_ex or _jug_hr_other or bool(result.get("zen_dai_list") and any(
                             item["name"] in _ex_jug_series_set for item in result.get("zen_dai_list", [])))
                         _jug_t = "その他のジャグラーシリーズの優秀台" if _jug_has_other else "ジャグラーシリーズの優秀台"
                         _jug_img_r = _build_machine_img(_jug_comb, _jug_t, None)
@@ -25786,6 +25800,29 @@ def _insert_panel_under_bar(
     return _vstack_images(_bar, _tbl2), _mn, _ok
 
 
+_OTHER_JUG_FN = "ジャグラーシリーズ優秀台.jpg"
+
+
+def _other_panel_max(bare_fn: str, bans: list, ban2mac: dict) -> int:
+    """「その他」配下のパネル上限枚数。
+
+    ジャグラーシリーズ優秀台で **パネル登録のある機種がちょうど3機種**のときだけ
+    2（上位2機種の横並び）にする。2×2グリッドは2枚ずつ折り返すため、3枚だと
+    右下が空欄になる。1〜2機種・4機種以上は従来どおり 4（既存ルール不変）。
+    ★対象はジャグラー統合画像だけ。その他の優秀台・全台系・高配分へは広げない。"""
+    if bare_fn != _OTHER_JUG_FN:
+        return 4
+    _macs: list[str] = []
+    for _b in (bans or []):
+        _m = ban2mac.get(str(_b))
+        if not _m or _m in _macs:
+            continue
+        _info = get_machine_images(_m)
+        if (_info or {}).get("panel"):
+            _macs.append(_m)
+    return 2 if len(_macs) == 3 else 4
+
+
 def _other_apply_panel(store: str, img: "Image.Image", bare_fn: str, bans: list,
                        ban2mac: dict, ban2diff: dict, show_mn: bool) -> "Image.Image":
     """「その他」店舗のスランプ付き画像へ `バー + パネル + 表` を適用する。
@@ -25798,7 +25835,8 @@ def _other_apply_panel(store: str, img: "Image.Image", bare_fn: str, bans: list,
         _out, _, _ = _insert_panel_under_bar(
             img, bare_fn, bans, ban2mac, ban2diff, show_mn, ("末尾" in bare_fn),
             is_multi=_art_is_multi_machine(bare_fn, bans, ban2mac),
-            narabi_like=_art_is_narabi_fn(bare_fn))
+            narabi_like=_art_is_narabi_fn(bare_fn),
+            max_panels=_other_panel_max(bare_fn, bans, ban2mac))
         return _out
     except Exception:
         return img

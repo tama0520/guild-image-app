@@ -21577,3 +21577,161 @@ Noto Sans JP Black ／ 白地スランプカード ／ 高配分の水色バー�
 13. **Jの未実装項目を完了扱いにしない**
 14. **A の各commitへ reset・revert しない**
 15. **無関係なリファクタ・未使用コード整理をしない**
+
+## 【正式仕様】「その他」配下のスランプ付き結果（2026-09-19・`53a4890` / `1b80b4b` / `f436054`）
+
+**正式仕様。巻き戻し禁止。**対象は**「その他」配下（エスパス以外）のスランプ付き結果だけ**。
+2026-09-19 に **ユーザーが Streamlit Cloud 実機で確認し「問題なかった」と承認**した。
+
+| commit | 内容 |
+|---|---|
+| **`53a4890`** | `feat: 「その他」配下のスランプ付き結果を追加`（`streamlit_app.py` ／ `store_settings/_other_stores.json` 新規） |
+| **`1b80b4b`** | `fix: 「その他」店舗選択で検索後も旧選択が残る問題を修正` |
+| **`f436054`** | `fix: 「その他」配下のジャグラー統合画像のタイトルとパネル枚数` |
+
+**3commitとも現HEADの祖先であることを確認済み。いずれへも reset・revert しない。**
+
+### ① 導線
+
+```
+TOP（既存13店舗 ＋ 末尾に「その他」ボタン1つ）
+ → page="other"        … show_other_store_page()（検索テキスト ＋ 店舗selectbox）
+ → page="other_slump"  … show_auto_page(with_slump=True)
+```
+
+- **既存の `auto` / `auto_slump` / `auto_slump2` / `auto_article` とは別 page**。既存店舗の導線・
+  機能ボタン・WordPress導線は**1ビットも変更しない**。
+- `_navigate()` の store 保持タプル・パンくず・`main()` ルーティングへ `other_slump` を追加。
+- **店舗選択の selectbox に固定 key を付けない**（`1b80b4b`）。固定 key だと検索で options を
+  絞り込んでも直前の選択値が widget 状態として残り、候補外の店舗が選ばれたまま表示される
+  （実機で確認）。key なしなら options が変わった時点で widget が作り直される。
+
+### ② 対象店舗と設定ファイル
+
+| 店舗 | Pision hall_id |
+|---|---|
+| プレサス飯田橋 | **306** |
+| BEAM新井薬師 | **171** |
+| ラ・カータ鶴ヶ島 | **3709** |
+
+- 管理は **`store_settings/_other_stores.json`** の1枚だけ。**店舗追加はこのJSONへ1ブロック
+  足すだけ**（コード変更不要）。
+- **`STORES` へは追加しない**（TOPの店舗一覧・⑥個別生成ページは従来どおり13店舗のまま）。
+- 設定キー：`display_name` / `pision_hall_id` / `slotterguild` / `realtime` / `panel` / `side` /
+  `image_types`。
+- 判定ヘルパー：`_load_other_stores()` / `_other_store_cfg()` / `_is_other_store()` /
+  `_other_hall_id()` / `_other_panel_on()` / `_image_types_of()` / `_other_display_name()`。
+  **既存13店舗ではすべて False / None を返す**（`_is_other_store` は `store not in STORES` が前提）。
+- **`store_settings` は Cloud→GitHub の同期経路が無い**（2026-08-10 正式運用ルール）。
+  編集はローカルで行い、push → **Cloud Reboot** で反映する。
+
+### ③ データ取得
+
+- **Pision 確定データは設定の `pision_hall_id` を直接使う。**
+  **既存エスパス店舗の hall 解決（ホール名に店舗名と「エスパス」を含む）は変更しない**
+  ── ⓪取得・⑦・⑧・📝合成の4経路とも、既存ループの**前に**「その他」分岐を置くだけ。
+- **速報（realtime）・slotterguild は現時点で対象外**。⓪では
+  **確定データのみ**（速報ラジオ・「🌐 サイトから取得」を表示しない・`🔄 取得` の1ボタン）。
+- **xlsx / csv の手動アップロードは既存仕様のまま利用可能**（`_read_uploaded_df` /
+  `normalize_df` / `apply_name_conversion` は店舗非依存・無変更）。
+- 結果テキストの店名は **`display_name` をそのまま使う**（**「エスパス」を勝手に付けない**）。
+  既存店舗は従来の `エスパス{store}` 経路のまま。
+
+### ④ 画像構成
+
+**`タイトルバー + 機種パネル + 表 + スランプ`** を正式とする。
+
+- 新helper **`_insert_panel_under_bar()`**：`_bar_crop_h()` でバーを分離し、**タイトルバーを
+  残したまま**その下へパネルを挿入する。
+  **★既存 `_insert_panel_into_machine_img()` は青バーを crop してパネルへ置換する
+  「かぶぱ」仕様なので流用しない**（バーが消える）。
+- パネル選定は既存 **`_apply_panel_to_table_img(crop_bar=False)`** をそのまま再利用
+  （単一機種／2×2グリッド／並び・列）。**新しいパネル選定ロジックは作らない。**
+- **パネル未登録機種は例外にせず、その機種だけパネルなしで元画像を返す。**
+- 適用は共通 **`_other_apply_panel()`** 1本で、**⑦プレビュー・🔄その他を更新・⑧本番の
+  3経路すべて**から呼ぶ（経路ごとに構成がズレないようにするため）。
+- **16台以上は既存どおり `{元ファイル名}_side.jpg`**（左＝バー＋パネル＋表／右＝スランプ4列）、
+  **16台未満は既存の表下スランプ（3列）**。`_attach_slump_to_table(_side)` は**無変更**。
+- 表テーマ・スランプカードは既存の新デザインを使う
+  （`_TABLE_THEME_PAGES` / `_SLUMP_THEME_PAGES` へ `other_slump` を追加し、
+  `_table_theme_new()` / `_slump_theme_new()` の店舗判定へ `_is_other_store()` を OR）。
+
+### ⑤ ジャグラー統合画像のタイトル（`f436054`）
+
+| ジャグラーシリーズに**自前の画像**（全台系・高配分）が | タイトル |
+|---|---|
+| **ない** | **`ジャグラーシリーズの優秀台`** |
+| **ある** | **`その他のジャグラーシリーズの優秀台`** |
+
+**★原因**：`run_step2_juggler` の `high_ratio_list` には**統合画像へ入った機種も
+`has_image=False` で追加される**ため、`bool(high_ratio_list)` だと自前画像が1枚も無くても
+「その他の…」になっていた（BEAM新井薬師 9/16 で発生）。
+
+- 実装は **`run_step2_juggler(..., jug_title_by_image: bool = False)`**。
+  True のときだけ **`any(h.get("has_image") for h in high_ratio_list)`** で判定する。
+  **既定 False ＝ 従来動作**なので既存店舗は不変。
+- `run_auto_pipeline` から **`jug_title_by_image=_is_other_store(store)`** を渡す。
+- **⑧の再生成経路（`_jug_has_other`）も「その他」のときだけ同じ判定へ揃える**
+  （`has_image=True` かつジャグラー機種のみ）。既存店舗は従来の `bool(high_ratio_list)` のまま。
+- 🔄の判定（`_still_jug_other`）は元からジャグラー限定で正しいため**無変更**。
+- `zen_dai_juggler_machines` / `has_narabi_jug` / `juggler_recommended` の各条件は**変更しない**。
+
+### ⑥ ジャグラー統合画像のパネル枚数（`f436054`）
+
+| パネル登録のある掲載機種数 | パネル |
+|---|---|
+| 1〜2機種 | **従来どおり**（最大4の既存ルール） |
+| **ちょうど3機種** | **最高差枚順の上位2機種のみ（1行2枚）** |
+| 4機種以上 | **従来どおり 2×2（4枚）** |
+
+- **右下が空欄の 2×2 を作らない**（`_build_variety_panel_grid` は2枚ずつ折り返すため、
+  3枚だと `[2枚][1枚]` になり右下が白く空く）。
+- 実装は **`_other_panel_max(bare_fn, bans, ban2mac)`**。
+  **対象は `ジャグラーシリーズ優秀台.jpg` だけ**で、その他の優秀台・全台系・高配分・並びへは
+  広げない。**パネル未登録機種は機種数に数えない。**
+- **選定順位（機種ごとの最高差枚降順）・未登録機種の繰り上げ・表示順は既存のまま。**
+  `_build_variety_panel_grid` 本体・`_art_panel_max` は**無変更**。
+
+### ⑦ 対象外（今回いっさい変更していない）
+
+**既存エスパス13店舗 ／ 記事用（`auto_article`）／ 新宿歌舞伎町（かぶぱ・`auto_slump2`）／
+通常結果ポスト（`auto`）／ ローテ（`rote`）／ WordPress（`wp_client.py`）／
+`masters/machine_image_master.xlsx` ／ パネル素材 ／ フォント ／ `機種名変換.xlsx`。**
+
+`_build_variety_panel_grid` / `_apply_panel_to_table_img` / `_insert_panel_into_machine_img` /
+`_art_panel_max` / `_attach_slump_to_table(_side)` / `draw_slump_graph` / `run_step1_main` /
+`run_step3_other` / `_manual_jug_title` / `show_auto_article_page` / `normalize_df` /
+`_read_uploaded_df` / `apply_name_conversion` / `fetch_pision_*` / `_sg_*` は**AST一致（無変更）**。
+`_SG_FETCH_STORES` / `_PANEL_STORES` / `_ART_JUG_PANEL2_STORES` / `STORE_NARABI_SCRIPT` も不変。
+
+### ⑧ 検証
+
+- 構造・非回帰 **96 PASS**／画像構成 **26 PASS**／実データ **28 PASS**／
+  修正2件 **44 PASS**（いずれも FAIL 0）。
+- 実データ（Pision確定 GET のみ）：プレサス飯田橋 204台 ／ BEAM新井薬師 192台 ／
+  ラ・カータ鶴ヶ島 258台。**`normalize_df` の欠損列なし**、pipeline・パネル・スランプ正常。
+  **BEAM の points なし40台は全て `games=0`** で既存どおり安全に除外。
+- **side は プレサス飯田橋（その他の優秀台35台）で `_side.jpg` の生成を実機確認。**
+- **ローカル実機**：BEAM新井薬師 9/16 で
+  **タイトル「ジャグラーシリーズの優秀台」・パネル2枚横並び（右下空欄なし）**を目視確認。
+- **Cloud 実機確認済み（2026-09-19・ユーザー承認）。**
+
+### ⑨ 今後の禁止事項
+
+1. **`STORES` へ「その他」店舗を追加しない**
+2. **`store_settings/_other_stores.json` 以外の場所へ店舗定義を書かない**
+3. **既存エスパス店舗の hall 解決（名前一致）を変更しない**
+4. **「その他」配下へ速報・slotterguild の導線を勝手に出さない**
+5. **結果テキストの店名へ「エスパス」を付けない**
+6. **`_insert_panel_into_machine_img()`（バー置換）を「その他」のパネルへ流用しない**
+7. **パネル未登録機種を例外にしない**（その機種だけパネルなしで継続）
+8. **⑦／🔄／⑧のいずれか1経路だけ変更しない**（`_other_apply_panel` 経由を維持）
+9. **side の条件（16台以上）・ファイル名 `_side.jpg`・4列/3列レイアウトを変更しない**
+10. **`jug_title_by_image` の既定 `False` を変更しない**（既存店舗の挙動が変わる）
+11. **`bool(high_ratio_list)` だけでタイトルを決める実装へ戻さない**
+12. **`_other_panel_max` の対象を `ジャグラーシリーズ優秀台.jpg` 以外へ広げない**
+13. **パネル選定順位（機種ごとの最高差枚降順）を変更しない／1〜2機種・4機種以上のルールを変えない**
+14. **`_build_variety_panel_grid` / `_apply_panel_to_table_img` / `_art_panel_max` を変更しない**
+15. **記事用・かぶぱ・通常結果・ローテ・WordPress・機種画像マスタ・パネル素材へ波及させない**
+16. **`53a4890` / `1b80b4b` / `f436054` へ reset・revert しない**
+17. **無関係なリファクタ・未使用コード整理をしない**

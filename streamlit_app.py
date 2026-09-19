@@ -546,6 +546,26 @@ def _image_types_of(store: str) -> list:
     return list(_other_store_cfg(store).get("image_types", []) or [])
 
 
+def _narabi_script_for(store: str) -> "str | None":
+    """③並び・列画像で使う並びスクリプトのパス（対象外の店舗は None）。
+
+    既存13店舗は `STORE_NARABI_SCRIPT` の値をそのまま返す（**この dict は変更しない**）。
+    「その他」配下は汎用の `convert_narabi_pil.py` を使う。None を返す店舗は
+    ③のUIも subprocess 実行も行わない（記事用の経路とは無関係）。"""
+    if store in STORE_NARABI_SCRIPT:
+        return STORE_NARABI_SCRIPT[store]
+    return _NARABI_GENERIC if _is_other_store(store) else None
+
+
+def _rec_pickup_on(store: str) -> bool:
+    """⑤オススメ機種ピックアップを使う店舗か。
+
+    既存は `EXTENDED_FEATURE_STORES`（**この集合は変更しない**）。
+    「その他」配下も同じ入力・抽出・画像・結果テキストの経路をそのまま使う。
+    ★⑥結果テキスト素材メモは対象外（従来どおり EXTENDED_FEATURE_STORES のまま）。"""
+    return store in EXTENDED_FEATURE_STORES or _is_other_store(store)
+
+
 def _other_display_name(store: str) -> "str | None":
     """「その他」店舗の表示名（結果テキスト等。「エスパス」を勝手に付けない）。
 
@@ -12107,7 +12127,7 @@ def show_auto_page(with_slump: bool = False) -> None:
     # 列画像（列仕掛け）: 並びとは独立にON/OFFできる追加画像
     retsu_ok      = False
     retsu_ranges: list[list[int]] = []
-    if store in STORE_NARABI_SCRIPT:
+    if _narabi_script_for(store):
         st.markdown(f"### {_sec_num()} 並び画像")
         narabi_enabled = st.checkbox("並び画像も生成する", key="narabi_enabled",
                                      on_change=_save_auto_inputs, args=(store,))
@@ -12532,7 +12552,7 @@ def show_auto_page(with_slump: bool = False) -> None:
     # ── ⑤ オススメ機種ピックアップ（拡張機能店舗）──────────────────────
 
     recommended_blocks: list[dict] = []
-    if store in EXTENDED_FEATURE_STORES and not _is_kabupa_pg:
+    if _rec_pickup_on(store) and not _is_kabupa_pg:
         # 保存済み機種名を受け取り、ウィジェットのキー不在時の seed に使う
         # （default="" のままだと ⑤OFF→ON の再描画で空文字が焼き付く）
         _rec_saved_m = _init_recommended_settings(store)
@@ -14904,7 +14924,7 @@ def show_auto_page(with_slump: bool = False) -> None:
         # 実行時に必ず保存（on_changeが発火しなかった場合のフォールバック）
         _save_auto_inputs(store)
         # オススメ機種設定をJSON保存（次回起動時に復元する）
-        if store in EXTENDED_FEATURE_STORES:
+        if _rec_pickup_on(store):
             _s = load_store_settings(store)
             _s["rec_enabled"] = bool(st.session_state.get(f"rec_enabled_{store}", False))
             if recommended_blocks:
@@ -16288,7 +16308,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 st.write(f"⏳ 並び画像スクリプトを実行中…")
                 os.makedirs(narabi_dir, exist_ok=True)
                 ok_n, out_n, err_n = _patch_and_run_narabi(
-                    STORE_NARABI_SCRIPT[store], excel_path, narabi_dir,
+                    _narabi_script_for(store), excel_path, narabi_dir,
                     narabi_ranges if narabi_ok else [],
                     col_ranges=(retsu_ranges if retsu_ok else None),
                     # ⑦プレビュー（_build_machine_img）と⑧本番の色を必ず一致させる
@@ -16328,7 +16348,7 @@ def show_auto_page(with_slump: bool = False) -> None:
 
             # ── オススメ機種ピックアップ画像（拡張機能店舗）─────────────
             _exec_rec_ban_map: dict[str, list[int]] = {}
-            if store in EXTENDED_FEATURE_STORES and result["ok"] and recommended_blocks:
+            if _rec_pickup_on(store) and result["ok"] and recommended_blocks:
                 df_pipe   = result.get("df")
                 diff_pipe = result.get("diff_raw")
                 if df_pipe is not None and diff_pipe is not None:
@@ -17223,7 +17243,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 hide_summary_names=_rec_hide_names or None,
             )
             # オススメ機種ブロックの優秀台（+1000枚以上）を挿入（拡張機能店舗）
-            if store in EXTENDED_FEATURE_STORES and recommended_blocks:
+            if _rec_pickup_on(store) and recommended_blocks:
                 _rec_df       = result.get("df")
                 _rec_diff_raw = result.get("diff_raw")
                 if _rec_df is not None and _rec_diff_raw is not None:

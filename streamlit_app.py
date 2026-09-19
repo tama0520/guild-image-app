@@ -2727,11 +2727,12 @@ def show_other_store_page() -> None:
         if not _cands:
             st.info("該当する店舗がありません。検索条件を変えてください。")
             _cands = _names
-        # 検索で候補が変わったときに selectbox の保存値が options 外にならないようにする
-        if st.session_state.get("other_store_select") not in _cands:
-            st.session_state.pop("other_store_select", None)
-        _sel = st.selectbox(f"店舗を選択（{len(_cands)} / {len(_names)} 件）",
-                            _cands, key="other_store_select")
+        # ★selectbox に固定 key を付けない。固定 key を付けると、検索で options を
+        #   絞り込んでも直前の選択値が widget 状態として残り、候補外の店舗が
+        #   選ばれたまま表示される（実機で確認）。key なしなら options が変わった
+        #   時点で widget が作り直され、先頭候補が選ばれる。ユーザーが選び直した
+        #   値は options が同じ間は保持されるので、ボタン押下の rerun でも失われない。
+        _sel = st.selectbox(f"店舗を選択（{len(_cands)} / {len(_names)} 件）", _cands)
         st.markdown("")
         if st.button("📊 スランプ付き結果", key="other_slump_btn",
                      type="primary", use_container_width=True):

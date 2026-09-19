@@ -489,6 +489,73 @@ def get_store_config(store: str) -> dict:
     return cfg
 
 
+# ── 「その他」配下（エスパス以外）の店舗 ────────────────────────────────
+# ★STORES へは足さない。TOPの店舗一覧・⑥個別生成ページ・既存店舗の導線を
+#   1ビットも変えないため。店舗の追加・変更は
+#   store_settings/_other_stores.json の編集だけで行う（コード変更不要）。
+# ★store_settings は Cloud→GitHub の同期経路が無い（2026-08-10 正式運用ルール）。
+#   編集はローカルで行い、push → Cloud Reboot で反映する。
+_OTHER_STORES_PATH = os.path.join(BASE_DIR, "store_settings", "_other_stores.json")
+
+
+@st.cache_data(show_spinner=False)
+def _load_other_stores() -> dict:
+    """store_settings/_other_stores.json を読み込む（読み取り専用・失敗時は空 dict）。"""
+    try:
+        with open(_OTHER_STORES_PATH, encoding="utf-8") as _f:
+            _data = json.load(_f)
+        _stores = _data.get("stores", {})
+        return _stores if isinstance(_stores, dict) else {}
+    except Exception:
+        return {}
+
+
+def _other_store_cfg(store: str) -> dict:
+    """「その他」店舗の設定 dict（未登録・既存店舗なら空 dict）。"""
+    if not store:
+        return {}
+    try:
+        return _load_other_stores().get(store, {}) or {}
+    except Exception:
+        return {}
+
+
+def _is_other_store(store: str) -> bool:
+    """「その他」配下の店舗か（既存13店舗は必ず False）。"""
+    return bool(store) and store not in STORES and bool(_other_store_cfg(store))
+
+
+def _other_hall_id(store: str) -> "str | None":
+    """「その他」店舗の Pision 確定API hall_id（設定値をそのまま使う）。
+
+    ★既存エスパス店舗の hall 解決（ホール名に店舗名と「エスパス」を含む）は
+      変更しない。ここで None を返す店舗は従来どおり名前一致で解決される。"""
+    _hid = str(_other_store_cfg(store).get("pision_hall_id") or "").strip()
+    return _hid or None
+
+
+def _other_panel_on(store: str) -> bool:
+    """「その他」店舗でスランプ付き画像へ機種パネルを差し込むか。"""
+    return _is_other_store(store) and bool(_other_store_cfg(store).get("panel", True))
+
+
+def _image_types_of(store: str) -> list:
+    """店舗が扱う画像種別（既存は STORES、「その他」は設定ファイル）。"""
+    if store in STORES:
+        return STORES.get(store, [])
+    return list(_other_store_cfg(store).get("image_types", []) or [])
+
+
+def _other_display_name(store: str) -> "str | None":
+    """「その他」店舗の表示名（結果テキスト等。「エスパス」を勝手に付けない）。
+
+    既存店舗は None を返し、従来の `エスパス{store}` 経路をそのまま使う。"""
+    _c = _other_store_cfg(store)
+    if not _c:
+        return None
+    return str(_c.get("display_name") or store).strip() or store
+
+
 # 自動処理: 店舗 → 並びスクリプト（並び画像オプション用・subprocess）
 _NARABI_GENERIC = os.path.join(BASE_DIR, "convert_narabi_pil.py")
 STORE_NARABI_SCRIPT: dict[str, str] = {
@@ -571,7 +638,8 @@ _TABLE_THEME_STORES: frozenset[str] = frozenset(STORES)
 #   auto_slump  … スランプ付き結果ポスト用（新宿歌舞伎町かぶぱ・秋葉原を含む）
 #   work        … ⑥個別に生成（全台データ画像・高配分データ画像・並び画像・末尾画像・
 #                  その他の優秀台画像）。記事用ではない表画像ページなので対象に含める。
-_TABLE_THEME_PAGES:  frozenset[str] = frozenset({"auto", "auto_slump", "auto_slump2", "work"})
+_TABLE_THEME_PAGES:  frozenset[str] = frozenset({"auto", "auto_slump", "auto_slump2",
+                                                 "other_slump", "work"})
 
 C_NEW_TITLE_BG_RGBA   = (112, 0, 224, 255)     # #7000E0 タイトルバー背景
 C_NEW_HEADER_BG       = "#290068"              # 列見出しバー背景
@@ -592,8 +660,9 @@ def _table_theme_new() -> bool:
     * Streamlit 外（純粋テスト・subprocess）では例外を握って False を返す。
     """
     try:
+        _st = st.session_state.get("selected_store")
         return (st.session_state.get("page") in _TABLE_THEME_PAGES
-                and st.session_state.get("selected_store") in _TABLE_THEME_STORES)
+                and (_st in _TABLE_THEME_STORES or _is_other_store(_st)))
     except Exception:
         return False
 
@@ -623,7 +692,7 @@ _SLUMP_THEME_STORES: frozenset[str] = frozenset({
 # 対象ページはスランプ付き結果ポスト用のみ。
 # 記事用(auto_article)・単体スランプページ(slump_graph)は**含めない**。
 # 通常結果ポスト用(auto)と⑥個別(work)は `if with_slump:` によりスランプを生成しない。
-_SLUMP_THEME_PAGES:  frozenset[str] = frozenset({"auto_slump", "auto_slump2"})
+_SLUMP_THEME_PAGES:  frozenset[str] = frozenset({"auto_slump", "auto_slump2", "other_slump"})
 
 C_SL_GRAPH_BG  = (253, 249, 246)   # #FDF9F6 旧グラフ地（ベタ塗り）。現在はグラデーションを使うため未使用・履歴として残す
 C_SL_HEADER_BG = (239, 227, 245)   # #EFE3F5 グラデーションの最も濃い側（旧: ヘッダー2帯のベタ塗り）
@@ -797,8 +866,9 @@ def _slump_theme_new() -> bool:
     on_change の順序に依存しない。Streamlit 外では False（従来の黒背景）。
     """
     try:
+        _st = st.session_state.get("selected_store")
         return (st.session_state.get("page") in _SLUMP_THEME_PAGES
-                and st.session_state.get("selected_store") in _SLUMP_THEME_STORES)
+                and (_st in _SLUMP_THEME_STORES or _is_other_store(_st)))
     except Exception:
         return False
 
@@ -2588,7 +2658,7 @@ def _navigate(page: str, store: str | None = None, itype: str | None = None) -> 
     s = st.session_state.get("selected_store", "")
     t = st.session_state.get("selected_image_type", "")
     if page in ("image_type", "work", "auto", "auto_slump", "auto_slump2",
-                "rote", "auto_article") and s:
+                "other_slump", "rote", "auto_article") and s:
         params["store"] = s
     if page == "work" and t:
         params["type"] = t
@@ -2628,6 +2698,48 @@ def show_store_page() -> None:
         with cols[i % len(cols)]:
             if st.button(store, key=f"store_{store}", use_container_width=True):
                 _navigate("image_type", store=store)
+
+    # 既存13店舗の次に「その他」（エスパス以外）を1つだけ追加する。
+    # 既存の店舗ボタン・並び・キーは一切変更しない。
+    if _load_other_stores():
+        with cols[len(store_list) % len(cols)]:
+            if st.button("その他", key="store_other", use_container_width=True):
+                _navigate("other")
+
+
+def show_other_store_page() -> None:
+    """画面: 「その他」配下の店舗選択（検索 ＋ セレクトボックス）。
+
+    店舗が増えても TOP のボタンを増やさずに済む構成。対象店舗は
+    store_settings/_other_stores.json だけで管理する。"""
+    st.markdown("## 【その他】")
+    st.caption("エスパス以外の店舗です。店舗の追加は `store_settings/_other_stores.json` へ追記してください。")
+    st.markdown("---")
+    _others = _load_other_stores()
+    if not _others:
+        st.warning("`store_settings/_other_stores.json` に店舗が登録されていません。")
+    else:
+        _names = list(_others.keys())
+        _q = st.text_input("店舗を検索", key="other_store_query",
+                           placeholder="店舗名の一部を入力（例: 飯田橋）")
+        _qn = _normalize_key(_q) if _q else ""
+        _cands = [_nm for _nm in _names if not _qn or _qn in _normalize_key(_nm)]
+        if not _cands:
+            st.info("該当する店舗がありません。検索条件を変えてください。")
+            _cands = _names
+        # 検索で候補が変わったときに selectbox の保存値が options 外にならないようにする
+        if st.session_state.get("other_store_select") not in _cands:
+            st.session_state.pop("other_store_select", None)
+        _sel = st.selectbox(f"店舗を選択（{len(_cands)} / {len(_names)} 件）",
+                            _cands, key="other_store_select")
+        st.markdown("")
+        if st.button("📊 スランプ付き結果", key="other_slump_btn",
+                     type="primary", use_container_width=True):
+            _navigate("other_slump", store=_sel)
+
+    st.markdown("---")
+    if st.button("← 店舗選択に戻る", key="back_to_store_from_other"):
+        _navigate("store")
 
 
 def show_image_type_page() -> None:
@@ -5996,7 +6108,10 @@ def generate_report_text(
     _STORE_DISPLAY_NAMES: dict[str, str] = {
         "西武新宿": "エスパス 西武 新宿",
     }
-    store_display = _STORE_DISPLAY_NAMES.get(store_name, f"エスパス{store_name}")
+    # 「その他」配下（エスパス以外）は設定の display_name をそのまま使う。
+    # 既存店舗は _other_display_name() が None を返し、従来経路のまま。
+    store_display = (_other_display_name(store_name)
+                     or _STORE_DISPLAY_NAMES.get(store_name, f"エスパス{store_name}"))
     parts = [
         header,
         store_display,
@@ -11288,20 +11403,27 @@ def show_auto_page(with_slump: bool = False) -> None:
 
     # ── ⓪ pision.io から日付データを自動取得（全店舗・その店舗のデータ）──────
     _tb_uploaded = None
-    if store in STORES:
+    _is_other = _is_other_store(store)
+    if store in STORES or _is_other:
         st.markdown(f"### 📈 日付からデータを自動取得（{store}）")
         api_key = _get_pision_api_key()
         if not api_key:
             st.caption("⚠️ PISION_API_KEY が未設定のため利用できません。①から手動でアップロードしてください。")
         else:
-            _tb_mode = st.radio(
-                "データ種別",
-                ["確定データ", "速報データ（当日・営業中）"],
-                horizontal=True,
-                key=f"auto_tb_mode_{store}",
-                help="確定データ＝前日まで（X-Api-Key）。速報データ＝当日の営業中データ（realtimeログインが必要）。",
-            )
-            _tb_is_rt = _tb_mode.startswith("速報")
+            if _is_other:
+                # 「その他」配下は確定データのみ対応（速報・slotterguild は未対応）。
+                # 既存店舗の radio・キー・既定値は一切変更しない。
+                st.caption("確定データのみ対応です（速報・slotterguild.com は未対応）。")
+                _tb_is_rt = False
+            else:
+                _tb_mode = st.radio(
+                    "データ種別",
+                    ["確定データ", "速報データ（当日・営業中）"],
+                    horizontal=True,
+                    key=f"auto_tb_mode_{store}",
+                    help="確定データ＝前日まで（X-Api-Key）。速報データ＝当日の営業中データ（realtimeログインが必要）。",
+                )
+                _tb_is_rt = _tb_mode.startswith("速報")
             _tb_rt_ok = True
             if _tb_is_rt:
                 _rt_user, _rt_pass = _get_pision_rt_credentials()
@@ -11501,12 +11623,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                         except Exception as e:
                             st.error(f"❌ ホール一覧取得失敗: {e}")
                             _tb_halls = []
-                        _tb_hall_id = None
-                        for h in _tb_halls:
-                            _hn = h.get("name") or h.get("displayName") or ""
-                            if store in _hn and "エスパス" in _hn:
-                                _tb_hall_id = str(h.get("id") or h.get("hallId") or "")
-                                break
+                        _tb_hall_id = _other_hall_id(store)
+                        if _tb_hall_id is None:
+                            for h in _tb_halls:
+                                _hn = h.get("name") or h.get("displayName") or ""
+                                if store in _hn and "エスパス" in _hn:
+                                    _tb_hall_id = str(h.get("id") or h.get("hallId") or "")
+                                    break
                         if _tb_hall_id is not None:
                             try:
                                 _tb_fetched = fetch_pision_results(api_key, _tb_hall_id, _tb_date_str)
@@ -12046,7 +12169,7 @@ def show_auto_page(with_slump: bool = False) -> None:
             "retsu_enabled", "retsu_ranges_input", _save_auto_inputs, store)
 
     # ── ④ 末尾画像オプション（末尾画像を持つ店舗）──────────────────────
-    if "末尾画像" in STORES.get(store, []):
+    if "末尾画像" in _image_types_of(store):
         st.markdown(f"### {_sec_num()} 末尾画像")
         suebangai_enabled = st.checkbox("末尾画像も生成する", key="suebangai_enabled",
                                         on_change=_save_auto_inputs, args=(store,))
@@ -13309,13 +13432,14 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 if _rt_cached_pv and _rt_cached_date_pv == _ig_date_pv:
                                     _ig_pision_items_pv = _rt_cached_pv  # _slump_apply_names は取得時に適用済み
                                 else:
-                                    _ig_halls_pv = fetch_pision_halls(_ig_api_key_pv)
-                                    _ig_hall_id_pv = None
-                                    for _igh_pv in _ig_halls_pv:
-                                        _ighn_pv = _igh_pv.get("name") or _igh_pv.get("displayName") or ""
-                                        if store in _ighn_pv and "エスパス" in _ighn_pv:
-                                            _ig_hall_id_pv = str(_igh_pv.get("id") or _igh_pv.get("hallId") or "")
-                                            break
+                                    _ig_hall_id_pv = _other_hall_id(store)
+                                    if _ig_hall_id_pv is None:
+                                        _ig_halls_pv = fetch_pision_halls(_ig_api_key_pv)
+                                        for _igh_pv in _ig_halls_pv:
+                                            _ighn_pv = _igh_pv.get("name") or _igh_pv.get("displayName") or ""
+                                            if store in _ighn_pv and "エスパス" in _ighn_pv:
+                                                _ig_hall_id_pv = str(_igh_pv.get("id") or _igh_pv.get("hallId") or "")
+                                                break
                                     _ig_pision_items_pv = fetch_pision_results(_ig_api_key_pv, _ig_hall_id_pv, _ig_date_pv) if _ig_hall_id_pv else None
                                     if _ig_pision_items_pv:
                                         _slump_apply_names(_ig_pision_items_pv)
@@ -13360,6 +13484,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                         _ban2diff_pv[_bp] = int(_pv_diff.loc[_idx_p])
                                                     except Exception:
                                                         pass
+                                        # 「その他」配下: タイトルバー + パネル + 表 にする
+                                        _img_pv = _other_apply_panel(
+                                            store, _img_pv, _bare_pv, _bans_pv,
+                                            _ig_ban2mac_pv, _ban2diff_pv, _show_mn_pv)
                                         _is_gap_pv = _gap_fill_on(store)
                                         _gap_img_pv = None
                                         if _is_gap_pv:
@@ -14663,6 +14791,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                                                machine_name=_dn_u2))
                                         except Exception:
                                             pass
+                                    # 「その他」配下: タイトルバー + パネル + 表 にする
+                                    _uimg = _other_apply_panel(
+                                        store, _uimg, re.sub(r"^\d{2}_", "", _ufn), _bans_u2,
+                                        _upd_ban2mac, _upd_ban2diff, True)
                                     if store == "秋葉原":
                                         _u2_bare  = re.sub(r"^\d{2}_", "", _ufn)
                                         if _u2_bare.startswith("その他の優秀台"):
@@ -16766,15 +16898,16 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _ig_date_exec = st.session_state.get(f"_inagawa_date_{store}", "")
                         _log(f"📡 スランプ: pisionデータ取得中（日付={_ig_date_exec}）")
                         try:
-                            _ig_halls_exec = fetch_pision_halls(_ig_api_key_exec)
-                            _ig_hall_id_exec = None
+                            _ig_hall_id_exec = _other_hall_id(store)
                             _ig_all_hall_names: list[str] = []
-                            for _igh_exec in _ig_halls_exec:
-                                _ighn_exec = _igh_exec.get("name") or _igh_exec.get("displayName") or ""
-                                _ig_all_hall_names.append(_ighn_exec)
-                                if store in _ighn_exec and "エスパス" in _ighn_exec:
-                                    _ig_hall_id_exec = str(_igh_exec.get("id") or _igh_exec.get("hallId") or "")
-                                    break
+                            if _ig_hall_id_exec is None:
+                                _ig_halls_exec = fetch_pision_halls(_ig_api_key_exec)
+                                for _igh_exec in _ig_halls_exec:
+                                    _ighn_exec = _igh_exec.get("name") or _igh_exec.get("displayName") or ""
+                                    _ig_all_hall_names.append(_ighn_exec)
+                                    if store in _ighn_exec and "エスパス" in _ighn_exec:
+                                        _ig_hall_id_exec = str(_igh_exec.get("id") or _igh_exec.get("hallId") or "")
+                                        break
                             if not _ig_hall_id_exec:
                                 _log(f"⚠️ スランプ: '{store}' に対応するホールが見つかりません。pisionホール一覧: {_ig_all_hall_names}")
                             else:
@@ -16853,6 +16986,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                 ))
                                             except Exception:
                                                 pass
+                                        # 「その他」配下: タイトルバー + パネル + 表 にする
+                                        _t_img_exec = _other_apply_panel(
+                                            store, _t_img_exec, _bare_exec, _bans_exec,
+                                            _ig_ban2mac_exec, _ban2diff_exec, _show_mn_exec)
                                         if store == "秋葉原":
                                             if _g_imgs_exec:
                                                 _ex_title = st.session_state.get(f"_inagawa_title_map_{store}", {}).get(_bare_exec, os.path.splitext(_bare_exec)[0])
@@ -25621,6 +25758,51 @@ def _apply_panel_to_table_img(
     return img, None, False
 
 
+def _insert_panel_under_bar(
+    img: "Image.Image", bare_fn: str, bans: list,
+    ban2mac: dict, ban2diff: dict, show_mn: bool, is_sue: bool,
+    is_multi: bool = False, narabi_like: bool = False, max_panels: int = 4,
+) -> "tuple[Image.Image, str | None, bool]":
+    """タイトルバーを**残したまま**、バーと表の間へ機種パネルを差し込む。
+
+    完成構成は `タイトルバー + 機種パネル + 表`（この後にスランプを結合する）。
+    ★既存の `_insert_panel_into_machine_img()` は青バーを crop してパネルへ
+      置換する「かぶぱ」仕様なので流用しない（バーが消えてしまう）。
+    パネルの選定（単一機種／2×2グリッド／並び・列）は既存
+    `_apply_panel_to_table_img(crop_bar=False)` をそのまま再利用する。
+    パネル未登録機種は例外にせず、その機種だけパネルなしで元の画像を返す。"""
+    _h = _bar_crop_h(img.width)
+    if _h <= 0 or _h >= img.height:
+        return img, None, False
+    _bar = img.crop((0, 0, img.width, _h))
+    _tbl = img.crop((0, _h, img.width, img.height))
+    _tbl2, _mn, _ok = _apply_panel_to_table_img(
+        _tbl, bare_fn, bans, ban2mac, ban2diff, show_mn, is_sue,
+        crop_bar=False, is_multi=is_multi, narabi_like=narabi_like,
+        max_panels=max_panels)
+    if _tbl2 is _tbl:
+        return img, _mn, _ok                     # パネルなし → 元画像のまま
+    return _vstack_images(_bar, _tbl2), _mn, _ok
+
+
+def _other_apply_panel(store: str, img: "Image.Image", bare_fn: str, bans: list,
+                       ban2mac: dict, ban2diff: dict, show_mn: bool) -> "Image.Image":
+    """「その他」店舗のスランプ付き画像へ `バー + パネル + 表` を適用する。
+
+    ⑦プレビュー・🔄その他を更新・⑧本番の3経路すべてから同じ関数を呼ぶ
+    （経路ごとに構成がズレないようにするため）。対象外店舗は素通し。"""
+    if not _other_panel_on(store):
+        return img
+    try:
+        _out, _, _ = _insert_panel_under_bar(
+            img, bare_fn, bans, ban2mac, ban2diff, show_mn, ("末尾" in bare_fn),
+            is_multi=_art_is_multi_machine(bare_fn, bans, ban2mac),
+            narabi_like=_art_is_narabi_fn(bare_fn))
+        return _out
+    except Exception:
+        return img
+
+
 def _composite_slump_onto_images(
     img_list: list[tuple[str, "Image.Image"]],
     ban_map: dict[str, list[int]],
@@ -25648,13 +25830,14 @@ def _composite_slump_onto_images(
                 _key = api_key or _get_pision_api_key()
                 if not _key:
                     return img_list
-                _halls = fetch_pision_halls(_key)
-                _hall_id = None
-                for _h in _halls:
-                    _hn = _h.get("name") or _h.get("displayName") or ""
-                    if store in _hn and "エスパス" in _hn:
-                        _hall_id = str(_h.get("id") or _h.get("hallId") or "")
-                        break
+                _hall_id = _other_hall_id(store)
+                if _hall_id is None:
+                    _halls = fetch_pision_halls(_key)
+                    for _h in _halls:
+                        _hn = _h.get("name") or _h.get("displayName") or ""
+                        if store in _hn and "エスパス" in _hn:
+                            _hall_id = str(_h.get("id") or _h.get("hallId") or "")
+                            break
                 _items = fetch_pision_results(_key, _hall_id, date_str) if _hall_id else None
                 if _items:
                     _slump_apply_names(_items)
@@ -27346,6 +27529,12 @@ def main() -> None:
         elif page == "auto_slump2":
             st.markdown(f"📍 **{st.session_state.selected_store}**")
             st.markdown("　→ **📈 スランプ付き結果**")
+        elif page == "other":
+            st.markdown("📍 **その他**")
+        elif page == "other_slump":
+            st.markdown("📍 **その他**")
+            st.markdown(f"　→ **{st.session_state.selected_store}**")
+            st.markdown("　→ **📊 スランプ付き結果**")
         elif page == "rote":
             st.markdown(f"📍 **{st.session_state.selected_store}**")
             st.markdown("　→ **📋 ローテ用**")
@@ -27376,6 +27565,12 @@ def main() -> None:
     elif st.session_state.page == "auto_slump2":
         # 新宿歌舞伎町の②スランプ付き結果（上野新館型）。①かぶぱと同じ関数を
         # 共有し、_is_kabupa_page() が False になることで挙動が切り替わる。
+        show_auto_page(with_slump=True)
+    elif st.session_state.page == "other":
+        show_other_store_page()
+    elif st.session_state.page == "other_slump":
+        # 「その他」配下のスランプ付き結果。既存 auto_slump / auto_slump2 とは
+        # **別 page** なので、既存店舗の挙動は 1 ビットも変わらない。
         show_auto_page(with_slump=True)
     elif st.session_state.page == "rote":
         show_rote_page()

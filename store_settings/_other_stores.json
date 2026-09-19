@@ -1,0 +1,32 @@
+{
+  "_comment": "「その他」配下（エスパス以外）の店舗設定。店舗追加はこのファイルへ1ブロック足すだけでよい（コード変更不要）。STORES へは追加しないこと（TOPの店舗一覧・⑥個別生成ページは従来どおり13店舗のまま）。Cloud では store_settings の GitHub 同期経路が無いため、編集はローカルで行い push → Reboot で反映する。",
+  "stores": {
+    "プレサス飯田橋": {
+      "display_name": "プレサス飯田橋",
+      "pision_hall_id": "306",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": true,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "BEAM新井薬師": {
+      "display_name": "BEAM新井薬師",
+      "pision_hall_id": "171",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": true,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "ラ・カータ鶴ヶ島": {
+      "display_name": "ラ・カータ鶴ヶ島",
+      "pision_hall_id": "3709",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": true,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    }
+  }
+}

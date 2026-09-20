@@ -9807,6 +9807,32 @@ def generate_recommended_block_image(
     return _build_machine_img(combined, title, None)
 
 
+def _rec_block_bans(
+    machines: list[str],
+    df: pd.DataFrame,
+    diff_raw: pd.Series,
+    narabi_bans: set[int] = set(),
+    min_diff: int = 1,
+    exclude_bans: set[int] = frozenset(),
+) -> list[int]:
+    """⑤オススメ機種ブロック画像へ実際に掲載される台番（スランプ合成用 ban_map）。
+
+    抽出条件は generate_recommended_block_image と完全に同じにすること。
+    （⑦プレビュー・🔄その他を更新・⑧本番で同じ台番・同じ見た目にするため）"""
+    bans: list[int] = []
+    for machine in machines:
+        grp = df[df["機種名"] == machine].copy()
+        if narabi_bans:
+            grp = grp[~grp["台番"].isin(narabi_bans)]
+        if exclude_bans:
+            grp = grp[~grp["台番"].isin(exclude_bans)]
+        if grp.empty:
+            continue
+        dr_m = diff_raw.loc[grp.index]
+        bans.extend([int(b) for b in grp[dr_m >= min_diff]["台番"].dropna()])
+    return sorted(bans)
+
+
 # ── 新宿歌舞伎町専用: ②個別画像で台番の桁数（階）別に分割する機種 ──────────
 # 「・2F」＝台番3桁、「・3F」＝台番4桁。予測変換に基本名＋2F＋3Fを出す。
 _FLOOR_SPLIT_MACHINES: tuple[str, ...] = ("マイジャグV", "ファンキー2")
@@ -14709,6 +14735,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _new_prev.append(("ジャグラーシリーズ優秀台.jpg", _jug_img))
                                     _pv_set_on(store, uploaded.name, _new_prev[-1][0])
                                 _updated = True
+                        # 🔄で作り直した⑤オススメ画像の掲載台番（スランプ合成用）。
+                        # ⑦は _rec_ban_map、⑧は _exec_rec_ban_map で同じものを持つ。
+                        _upd_rec_bans: dict[str, list[int]] = {}
                         # オススメ機種ピックアップ再生成（チェック外し機種がオススメに含まれる場合）
                         if _rec_unchecked_machines and _pv_df is not None and _pv_diff is not None:
                             _pv_zen_r  =set(st.session_state.get(_aprev_zen_key, {}).values())
@@ -14752,6 +14781,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         continue
                                     _sfx_r = _sfx_map_r.get(_thr_r, str(_thr_r))
                                     _tgt_r = f"オススメ_{_make_safe_fn(_bt_r)}_{_sfx_r}.jpg"
+                                    # スランプグラフ合成用：画像に含まれる台番を収集
+                                    _rb_r = _rec_block_bans(_valid_r, _pv_df, _pv_diff, _upd_nb,
+                                                            min_diff=_thr_r, exclude_bans=_upd_pub_bans)
+                                    if _rb_r:
+                                        _upd_rec_bans[_tgt_r] = _rb_r
                                     for _ri, (_rpn, _) in enumerate(_new_prev):
                                         if _rpn == _tgt_r:
                                             _new_prev[_ri] = (_rpn, _rec_img_r)
@@ -14780,6 +14814,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                     pass
                                 # 更新対象画像のban_mapを「その他を更新」時のDataFrameから動的に構築
                                 _upd_dyn_ban_map: dict[str, list[int]] = {}
+                                # ⑤オススメ画像（オススメ_*.jpg）も合成対象にする。
+                                # これが無いと再生成した⑤画像だけ表のままスランプが消える。
+                                _upd_dyn_ban_map.update(_upd_rec_bans)
                                 if _jug_extra_dfs and not (with_slump and store == "秋葉原"):
                                     _jug_bans_upd = []
                                     for _jdf in ([_pv_jug_pool.copy()] if _pv_jug_pool is not None and not _pv_jug_pool.empty else []) + _jug_extra_dfs:

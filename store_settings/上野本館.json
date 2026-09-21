@@ -1,20 +1,20 @@
 {
   "recommended_title_1": "月間オススメ機種の優秀台",
   "recommended_machines_1": [
-    "北斗転生2",
-    "東京喰種",
     "カバネリ海門決戦",
-    "ゴッド神々の軌跡",
+    "東京喰種",
+    "",
+    "",
     "",
     "",
     "",
     "",
     ""
   ],
-  "recommended_title_2": "",
+  "recommended_title_2": "週間オススメ機種の優秀台",
   "recommended_machines_2": [
-    "",
-    "",
+    "戦国乙女5",
+    "SAOII",
     "",
     "",
     "",
@@ -47,7 +47,7 @@
     "",
     ""
   ],
-  "rec_enabled": false,
+  "rec_enabled": true,
   "recommended_filter_1": "プラス台",
   "recommended_filter_2": "プラス台",
   "recommended_filter_3": "プラス台",

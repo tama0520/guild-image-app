@@ -534,6 +534,28 @@ def _other_hall_id(store: str) -> "str | None":
     return _hid or None
 
 
+def _other_realtime_on(store: str) -> bool:
+    """「その他」店舗で Pision速報（realtime）を使うか（設定 realtime=true のみ）。
+
+    ★realtime 用 hallId は設定値ではなく /realtime の店舗 select から解決する
+      （確定API の hall_id を流用しない）。既存エスパス店舗はこの関数を通らない。"""
+    return _is_other_store(store) and bool(_other_store_cfg(store).get("realtime"))
+
+
+def _other_sg_hall_id(store: str) -> "int | None":
+    """「その他」店舗の slotterguild hall_id（設定 slotterguild が整数のときのみ）。
+
+    ★slotterguild の hall_id は Pision の hall id とは別体系。未確認の店舗は
+      設定を false のままにして None を返し、UI へ取得元を出さない。"""
+    _v = _other_store_cfg(store).get("slotterguild")
+    if _v is None or isinstance(_v, bool):
+        return None
+    try:
+        return int(_v)
+    except (TypeError, ValueError):
+        return None
+
+
 def _other_panel_on(store: str) -> bool:
     """「その他」店舗でスランプ付き画像へ機種パネルを差し込むか。"""
     return _is_other_store(store) and bool(_other_store_cfg(store).get("panel", True))
@@ -11479,10 +11501,24 @@ def show_auto_page(with_slump: bool = False) -> None:
             st.caption("⚠️ PISION_API_KEY が未設定のため利用できません。①から手動でアップロードしてください。")
         else:
             if _is_other:
-                # 「その他」配下は確定データのみ対応（速報・slotterguild は未対応）。
+                # 「その他」配下は設定ファイルで確認できた取得元だけを出す。
                 # 既存店舗の radio・キー・既定値は一切変更しない。
-                st.caption("確定データのみ対応です（速報・slotterguild.com は未対応）。")
-                _tb_is_rt = False
+                # ★未検証（realtime=false / slotterguild=false）の取得元は有効化しない。
+                if _other_realtime_on(store):
+                    _tb_mode = st.radio(
+                        "データ種別",
+                        ["確定データ", "速報データ（当日・営業中）"],
+                        horizontal=True,
+                        key=f"auto_tb_mode_{store}",
+                        help="確定データ＝前日まで（X-Api-Key）。速報データ＝当日の営業中データ（realtimeログインが必要）。",
+                    )
+                    _tb_is_rt = _tb_mode.startswith("速報")
+                else:
+                    _tb_is_rt = False
+                    if not _sg_enabled(store):
+                        st.caption("確定データのみ対応です（速報・slotterguild.com は未対応）。")
+                    else:
+                        st.caption("確定データのみ対応です（速報は未対応）。")
             else:
                 _tb_mode = st.radio(
                     "データ種別",
@@ -11565,8 +11601,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _do_rt_existing = st.button("📂 既存のデータを取得", key=f"auto_tb_rt_existing_{store}",
                                                 use_container_width=True,
                                                 help="新しい収集を開始せず、過去に取得済みの直近データを読み込みます。")
-            elif (with_slump and store in _SG_FETCH_STORES
-                  and _sg_hall_id(store) is not None):
+            elif with_slump and _sg_enabled(store):
                 # スランプ付き結果ポスト用（auto_slump / auto_slump2）の確定データのみ。
                 # 通常の結果ポスト用（auto・with_slump=False）には出さない。
                 # 左＝既存Pision取得（keyは従来どおり）／右＝slotterguild取得。
@@ -11729,7 +11764,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 st.session_state[_tb_fetched_key] = _tb_date_str
                 st.rerun()
 
-            # ── slotterguild.com から取得（確定データのみ・_SG_FETCH_STORES 限定）──
+            # ── slotterguild.com から取得（確定データのみ・_sg_enabled() の店舗限定）──
             # 表(xlsx)とスランプ(points)の両方が揃い、台番集合が一致したときだけ
             # session_state を更新する（半端な状態で既存データを壊さない）。
             if _do_sg_fetch:
@@ -25176,8 +25211,16 @@ class _SGError(Exception):
 
 
 def _sg_hall_id(store: str) -> "int | None":
-    """店舗名 → slotterguild の hall_id（未登録店舗は None）。"""
-    return _SG_HALL_IDS.get(store)
+    """店舗名 → slotterguild の hall_id（未登録店舗は None）。
+    既存エスパス店舗は _SG_HALL_IDS、「その他」配下は設定ファイルの値を使う。"""
+    if store in _SG_HALL_IDS:
+        return _SG_HALL_IDS[store]
+    return _other_sg_hall_id(store)
+
+
+def _sg_enabled(store: str) -> bool:
+    """slotterguild 取得を UI へ出す店舗か（hall_id を確認できた店舗だけ）。"""
+    return _sg_hall_id(store) is not None
 
 
 def _sg_get(query: str) -> "object":

@@ -4,8 +4,8 @@
     "プレサス飯田橋": {
       "display_name": "プレサス飯田橋",
       "pision_hall_id": "306",
-      "slotterguild": false,
-      "realtime": false,
+      "slotterguild": 136,
+      "realtime": true,
       "panel": true,
       "side": true,
       "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]

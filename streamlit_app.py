@@ -25839,6 +25839,7 @@ def _apply_panel_to_table_img(
     ban2mac: dict, ban2diff: dict, show_mn: bool, is_sue: bool,
     crop_bar: bool = True, is_multi: bool = False,
     narabi_like: bool = False, max_panels: int = 4,
+    panel_names: "list | None" = None,
 ) -> "tuple[Image.Image, str | None, bool]":
     """表画像の上部へパネル画像を合成して返す。
 
@@ -25853,6 +25854,8 @@ def _apply_panel_to_table_img(
     ★既定は必ず False。この関数は新宿歌舞伎町かぶぱ（通常ページ）とも共用なので、
       関数内で無条件に列＝並び扱いにすると かぶぱの列画像まで挙動が変わる。
     max_panels は 2×2 グリッド分岐へそのまま渡す上限枚数（既定4＝従来動作）。
+    panel_names は並び・列分岐で使うパネル機種名の明示リスト。
+    ★既定 None は従来どおり _narabi_panel_names() を使う（挙動不変）。
 
     戻り値: (加工後img, 照合した機種名 or None, パネル成否)"""
     _bar_h = _bar_crop_h(img.width)  # 青バー(BAR_H)＋赤ライン(LINE_H)。新デザインは赤ラインなし
@@ -25882,7 +25885,8 @@ def _apply_panel_to_table_img(
             img = _vstack_images(_pgrid, img)
     # 並び・列画像は 1機種→その機種／2機種→2枚横／3機種以上→差枚最大の機種 のパネルを上に
     elif _is_narabi:
-        _pnames = _narabi_panel_names(bans, ban2mac, ban2diff)
+        _pnames = (list(panel_names) if panel_names is not None
+                   else _narabi_panel_names(bans, ban2mac, ban2diff))
         if _pnames:
             _prow = _build_panel_row(_pnames, img.width)
             if _prow is not None:
@@ -25894,6 +25898,7 @@ def _insert_panel_under_bar(
     img: "Image.Image", bare_fn: str, bans: list,
     ban2mac: dict, ban2diff: dict, show_mn: bool, is_sue: bool,
     is_multi: bool = False, narabi_like: bool = False, max_panels: int = 4,
+    panel_names: "list | None" = None,
 ) -> "tuple[Image.Image, str | None, bool]":
     """タイトルバーを**残したまま**、バーと表の間へ機種パネルを差し込む。
 
@@ -25911,7 +25916,7 @@ def _insert_panel_under_bar(
     _tbl2, _mn, _ok = _apply_panel_to_table_img(
         _tbl, bare_fn, bans, ban2mac, ban2diff, show_mn, is_sue,
         crop_bar=False, is_multi=is_multi, narabi_like=narabi_like,
-        max_panels=max_panels)
+        max_panels=max_panels, panel_names=panel_names)
     if _tbl2 is _tbl:
         return img, _mn, _ok                     # パネルなし → 元画像のまま
     return _vstack_images(_bar, _tbl2), _mn, _ok
@@ -25940,6 +25945,23 @@ def _other_panel_max(bare_fn: str, bans: list, ban2mac: dict) -> int:
     return 2 if len(_macs) == 3 else 4
 
 
+def _other_panel_macs(bans: list, ban2mac: dict) -> list[str]:
+    """掲載台の機種のうち **パネル登録がある機種**を台番昇順で返す（重複なし）。
+
+    並び・列画像で「未登録機種を飛ばして登録済みを繰り上げる」ために使う。
+    選定順位そのものは既存 _build_variety_panel_grid（機種ごとの最高差枚降順）へ
+    任せ、この関数は候補の洗い出しと表示順（台番昇順）だけを担う。"""
+    _out: list[str] = []
+    for _b in sorted(bans or [], key=lambda x: int(x)):
+        _m = ban2mac.get(str(_b))
+        if not _m or _m in _out:
+            continue
+        _info = get_machine_images(_m)
+        if (_info or {}).get("panel"):
+            _out.append(_m)
+    return _out
+
+
 def _other_apply_panel(store: str, img: "Image.Image", bare_fn: str, bans: list,
                        ban2mac: dict, ban2diff: dict, show_mn: bool) -> "Image.Image":
     """「その他」店舗のスランプ付き画像へ `バー + パネル + 表` を適用する。
@@ -25949,11 +25971,29 @@ def _other_apply_panel(store: str, img: "Image.Image", bare_fn: str, bans: list,
     if not _other_panel_on(store):
         return img
     try:
+        _narabi = _art_is_narabi_fn(bare_fn) or ("台並び" in bare_fn)
+        _multi  = _art_is_multi_machine(bare_fn, bans, ban2mac)
+        _mx     = _other_panel_max(bare_fn, bans, ban2mac)
+        _names  = None
+        if _narabi:
+            # 並び・列：1機種→1枚／2機種→2枚／3機種→差枚上位2枚／4機種以上→最大4枚。
+            # ★既存 _narabi_panel_names は「3機種以上→差枚最大の1機種」なので
+            #   3機種並びが1枚になっていた。登録済み機種数で分岐して振り分ける。
+            _regs = _other_panel_macs(bans, ban2mac)
+            if len(_regs) >= 3:
+                # 既存の2×2グリッド（選定＝機種ごとの最高差枚降順・未登録は繰り上げ・
+                # 表示＝台番昇順）へ回す。3機種は上限2で右下の空欄を作らない。
+                # ★narabi_like は True のまま渡す。False にすると列画像
+                #   （ファイル名に「台並び」を含まない）が単一機種分岐へ落ち、
+                #   ファイル名から機種名を復元できずパネルが消える。
+                _multi = True
+                _mx = 2 if len(_regs) == 3 else 4
+            else:
+                _names = _regs   # 1〜2機種は従来どおり横一列（未登録は繰り上げ済み）
         _out, _, _ = _insert_panel_under_bar(
             img, bare_fn, bans, ban2mac, ban2diff, show_mn, ("末尾" in bare_fn),
-            is_multi=_art_is_multi_machine(bare_fn, bans, ban2mac),
-            narabi_like=_art_is_narabi_fn(bare_fn),
-            max_panels=_other_panel_max(bare_fn, bans, ban2mac))
+            is_multi=_multi, narabi_like=_narabi,
+            max_panels=_mx, panel_names=_names)
         return _out
     except Exception:
         return img

@@ -5725,7 +5725,7 @@ def generate_report_text(
 
     # 2026-09-21: 結果テキストの表記（既存エスパス店舗のみ）。
     #   ①「{e2}全台系濃厚機種」→「{e2}優秀機種」
-    #   ② 優秀機種内は1機種ごとに空行で区切る
+    #   ② 優秀機種／高配分機種は1機種ごとに空行で区切る
     #   ③ 並び仕掛けの機種名行頭へ「・」
     # ★「その他」配下（プレサス飯田橋／BEAM新井薬師／ラ・カータ鶴ヶ島）は
     #   _is_other_store() が True になり、従来表記のまま（対象外）。
@@ -5769,8 +5769,10 @@ def generate_report_text(
             reverse=True,
         )
         for item in sorted_list:
-            lines += _result_summary_lines(item, _high_avg_of(item), _avg_show_thr)
-        return "\n".join(lines)
+            # 1機種分を1ブロックにまとめる（差枚の折返し行は同じブロック内）。
+            lines.append("\n".join(
+                _result_summary_lines(item, _high_avg_of(item), _avg_show_thr)))
+        return ("\n\n" if _espa_txt else "\n").join(lines)
 
     def _nami_like_section(items: list[dict], name_head: str = "") -> str:
         """並び仕掛け／列仕掛け共通の整形。抽出・順序・数値は従来どおり。

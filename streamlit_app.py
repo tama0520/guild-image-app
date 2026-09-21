@@ -126,7 +126,7 @@ STORE_RESULT_TRANSFORMS: dict[str, list[tuple[str, str]]] = {
     "赤坂見附": [
         ("👑高配分機種",    "👑高配分以上機種👑"),
         ("👑並び仕掛け",    "👑並び👑"),
-        ("👑全台系濃厚機種", "👑全台系濃厚機種👑"),
+        ("👑優秀機種", "👑優秀機種👑"),
         ("👑その他の優秀台", "👑その他の優秀台👑"),
         ("→", "➡"),
     ],
@@ -5303,12 +5303,12 @@ def insert_formatted_result_before_other_picks(
     result_text: str, formatted_text: str, store_name: str = ""
 ) -> str:
     """formatted_text を「{e2}その他の優秀台」直前に挿入して返す。
-    新小岩は「{e2}全台系濃厚機種」の前に挿入する。"""
+    新小岩は「{e2}優秀機種」（旧「全台系濃厚機種」）の前に挿入する。"""
     if not formatted_text.strip():
         return result_text
     e2 = STORE_EMOJI_CONFIG.get(store_name, ("💫", "👑"))[1]
     if store_name == "新小岩":
-        marker = f"{e2}全台系濃厚機種"
+        marker = f"{e2}優秀機種"
     else:
         marker = f"{e2}その他の優秀台"
     idx = result_text.find(marker)
@@ -5723,6 +5723,14 @@ def generate_report_text(
     # 全店舗: プラス（平均>0）の機種すべてに平均差枚を表示
     _avg_show_thr = 0
 
+    # 2026-09-21: 結果テキストの表記（既存エスパス店舗のみ）。
+    #   ①「{e2}全台系濃厚機種」→「{e2}優秀機種」
+    #   ② 優秀機種内は1機種ごとに空行で区切る
+    #   ③ 並び仕掛けの機種名行頭へ「・」
+    # ★「その他」配下（プレサス飯田橋／BEAM新井薬師／ラ・カータ鶴ヶ島）は
+    #   _is_other_store() が True になり、従来表記のまま（対象外）。
+    _espa_txt = not _is_other_store(store_name)
+
     # 末尾一覧へ掲載する+1,000枚台の台番集合（その他の優秀台からの二重掲載防止用）。
     # 台番は店舗内で一意な物理台番号のため、機種名表記差異の影響を受けない ban 単独キーで除外する。
     _sue_plus_bans: set[int] = set()
@@ -5743,8 +5751,10 @@ def generate_report_text(
             reverse=True,
         )
         for item in sorted_list:
-            lines += _result_summary_lines(item, int(item.get("all_avg_diff", 0)), _avg_show_thr)
-        return "\n".join(lines)
+            # 1機種分を1ブロックにまとめる（差枚の折返し行は同じブロック内）。
+            lines.append("\n".join(
+                _result_summary_lines(item, int(item.get("all_avg_diff", 0)), _avg_show_thr)))
+        return ("\n\n" if _espa_txt else "\n").join(lines)
 
     def high_ratio_section() -> str:
         _hr_list = [it for it in high_ratio_list
@@ -5762,9 +5772,11 @@ def generate_report_text(
             lines += _result_summary_lines(item, _high_avg_of(item), _avg_show_thr)
         return "\n".join(lines)
 
-    def _nami_like_section(items: list[dict]) -> str:
+    def _nami_like_section(items: list[dict], name_head: str = "") -> str:
         """並び仕掛け／列仕掛け共通の整形。抽出・順序・数値は従来どおり。
-        2026-09-11: 行頭の🍡を出さず、台数表記は「(N台)」（「並び」を付けない）。"""
+        2026-09-11: 行頭の🍡を出さず、台数表記は「(N台)」（「並び」を付けない）。
+        name_head: 機種名行の行頭記号。既定「」＝従来どおり。並び仕掛けのみ
+          既存エスパス店舗が「・」を渡す（台番範囲行へは付けない）。"""
         if not items:
             return "（なし）"
         if any("machine" in item and "ban_range" in item for item in items):
@@ -5778,7 +5790,7 @@ def generate_report_text(
                 grouped[m].append(item)
             lines = []
             for m in machine_order:
-                lines.append(f"{m}")
+                lines.append(f"{name_head}{m}")
                 for item in grouped[m]:
                     br = item.get("ban_range", "")
                     n = item["count"]
@@ -5789,7 +5801,7 @@ def generate_report_text(
         return "\n".join(lines)
 
     def nami_section() -> str:
-        return _nami_like_section(nami_list)
+        return _nami_like_section(nami_list, name_head=("・" if _espa_txt else ""))
 
     def retsu_section() -> str:
         # ③列画像（列仕掛け）。並び仕掛けと同じ整形で出す。
@@ -6162,7 +6174,7 @@ def generate_report_text(
             "",
         ]
     parts += [
-        f"{e2}全台系濃厚機種",
+        f"{e2}優秀機種" if _espa_txt else f"{e2}全台系濃厚機種",
         zen_dai_section(),
         "",
         f"{e2}高配分機種",

@@ -24884,7 +24884,14 @@ def show_name_conversion_page() -> None:
         else:
             _nc_col1, _nc_col2 = st.columns(2)
             with _nc_col1:
-                _nc_store = st.selectbox("店舗を選択", list(STORES.keys()), key="nc_pision_store")
+                # 既存13店舗（STORES）はそのままの順序で、その下へ「その他」配下を追加する。
+                # 設定ファイル（store_settings/_other_stores.json）から動的に読むので、
+                # 店舗が増えてもコード変更は不要。表示は display_name（「エスパス」を付けない）。
+                _nc_opts = list(STORES.keys()) + [
+                    _s for _s in _load_other_stores().keys() if _s not in STORES]
+                _nc_store = st.selectbox(
+                    "店舗を選択", _nc_opts, key="nc_pision_store",
+                    format_func=lambda _s: _other_display_name(_s) or _s)
             with _nc_col2:
                 _nc_mode = st.radio(
                     "データ種別",
@@ -24964,6 +24971,21 @@ def show_name_conversion_page() -> None:
                         else:
                             if _nc_rt.get("error"):
                                 st.error(f"❌ {_nc_rt['error']}")
+                    elif _is_other_store(_nc_store):
+                        # 「その他」配下は設定の pision_hall_id を直接使う。
+                        # ★既存エスパス店舗の名前一致ロジックへは落とさない
+                        #   （未設定・不正なら安全にエラー表示して他店舗の結果へ混ぜない）。
+                        _nc_hall_id = _other_hall_id(_nc_store)
+                        if not _nc_hall_id:
+                            st.error(f"❌ {_other_display_name(_nc_store) or _nc_store} の "
+                                     "Pision hall_id が未設定です"
+                                     "（store_settings/_other_stores.json を確認してください）。")
+                        else:
+                            try:
+                                _nc_fetched = fetch_pision_results(
+                                    _nc_api_key, _nc_hall_id, _nc_date_str)
+                            except Exception as _e:
+                                st.error(f"❌ データ取得失敗: {_e}")
                     else:
                         try:
                             _nc_halls = fetch_pision_halls(_nc_api_key)

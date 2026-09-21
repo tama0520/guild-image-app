@@ -574,16 +574,6 @@
       "title": "月間オススメ カバネリ海門決戦",
       "machine_name": "カバネリ海門決戦",
       "date_checks": {
-        "2026-09-14": [
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false
-        ],
         "2026-09-15": [
           false,
           false,
@@ -643,16 +633,26 @@
           false,
           false,
           false
+        ],
+        "2026-09-21": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
         ]
       },
       "blank_date_checks": {
-        "2026-09-14": true,
         "2026-09-15": false,
         "2026-09-16": false,
         "2026-09-17": false,
         "2026-09-18": false,
         "2026-09-19": true,
-        "2026-09-20": false
+        "2026-09-20": false,
+        "2026-09-21": true
       }
     }
   },

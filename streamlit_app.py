@@ -11983,8 +11983,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                 _vg  = int(round((_single["平均G数"] * _single["台数"]).sum() / _vn)) if _vn else 0
                 _rows.append(("バラエティ", _vn, _vw, _vtd, _vad, _vg))
             _m = re.match(r"(\d{4})(\d{2})(\d{2})", os.path.basename(uploaded.name))
-            _title = (f"{int(_m.group(1))}/{int(_m.group(2))}/{int(_m.group(3))} エスパス{store}"
-                      if _m else f"エスパス{store}")
+            # 「その他」配下（エスパス以外）は設定の display_name をそのまま使う。
+            # 既存エスパス店舗は _other_display_name() が None を返し従来どおり。
+            _store_disp = _other_display_name(store) or f"エスパス{store}"
+            _title = (f"{int(_m.group(1))}/{int(_m.group(2))}/{int(_m.group(3))} {_store_disp}"
+                      if _m else _store_disp)
             st.caption("📋 pisionの代わりに照合用（2台以上を平均差枚順・1台機種はバラエティに集約／数値はpisionの生データと一致）")
             _units_df = st.session_state.get(_vt_units_key)
             _snames = set(_single["機種名"].tolist()) if not _single.empty else None

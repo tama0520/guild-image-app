@@ -4466,6 +4466,39 @@ def _unit_ex_apply(df_img, dr_img, bans: set[int]):
             dr_img[keep.values].reset_index(drop=True))
 
 
+# ■ 🎯掲載台を選ぶ（高配分）で「掲載台を増やせる」店舗（試験実装）
+# 対象は結果ポスト用（with_slump=False）のみ。スランプ付き結果ポスト用・記事用・
+# 他店舗・「その他」配下はすべて従来どおり（掲載台を減らすだけ）。
+# 既定 False = 従来動作なので、ゲート外の経路は 1 ビットも変わらない。
+_HIGH_UNIT_ADD_STORES: "frozenset[str]" = frozenset({"高田馬場"})
+
+
+def _high_unit_add_on(store: str, with_slump: bool = False) -> bool:
+    """高配分画像の🎯で「候補台の追加」を許可するか（結果ポスト用の対象店舗だけ True）。"""
+    return (not with_slump) and (store in _HIGH_UNIT_ADD_STORES)
+
+
+def _unit_ex_add_pick(cand_df, cand_dr, base_df, exclude_units, machine: str):
+    """高配分画像の掲載行を「既定掲載台 ∪ 🎯で追加された台」へ差し替える。
+
+    cand_df は **その画像の機種の対象範囲**（Step2＝G数条件を満たす台 mdf／
+    Step3＝その機種の全台 grp）。別機種は決して混ざらない。
+    base_df は既存の高配分マスク通過台（filtered）で、追加が無ければ
+    戻り値の行・順序は base_df と完全に一致する（＝従来動作）。
+    戻り値: (掲載候補DataFrame, 対応差枚Series, パネル用の候補台番リスト)
+    抽出判定（_meets_*）はここでは一切行わない。掲載する行を選ぶだけ。"""
+    _c_df = cand_df.copy().reset_index(drop=True)
+    _c_dr = cand_dr.reset_index(drop=True)
+    _bans_all = [int(b) for b in _c_df["台番"].tolist()]
+    _base = {int(b) for b in base_df["台番"].tolist()}
+    _add  = _unit_ex_get(exclude_units, "high_add", machine) & set(_bans_all)
+    _sel  = _base | _add
+    _m    = _c_df["台番"].apply(lambda b: int(b) in _sel)
+    return (_c_df[_m.values].copy().reset_index(drop=True),
+            _c_dr[_m.values].reset_index(drop=True),
+            _bans_all)
+
+
 def run_step1_main(
     df: pd.DataFrame,
     diff_raw: pd.Series,
@@ -4625,6 +4658,7 @@ def run_step2_juggler(
     meta_only_machines: set[str] = frozenset(),
     meta_only_out: "list[dict] | None" = None,
     jug_title_by_image: bool = False,
+    high_add_on: bool = False,
 ) -> tuple[list[str], pd.DataFrame | None, pd.Series | None, list[dict], list[dict]]:
     """Step 2: ジャグラーシリーズ優秀台フィルター。
     少数機種は統合画像へ。5台以下なら overflow として Step 3 へ渡す。
@@ -4714,7 +4748,14 @@ def run_step2_juggler(
             # ⑦掲載台の台番単位除外。画像カテゴリの判定（上の条件式）は除外前の台数で
             # 済ませてあるため、除外しても「高配分でなくなる」「その他へ回る」ことはない。
             _bans_all_j = [int(b) for b in filtered["台番"].tolist()]
-            _img_j, _img_dr_j = _unit_ex_apply(filtered, dr_f, _unit_ex_get(exclude_units, "high", machine))
+            _sel_j, _sel_dr_j = filtered, dr_f
+            if high_add_on:
+                # 🎯で候補台を追加できる店舗。候補の対象範囲は「その機種のG数条件を満たす台」
+                # （＝高配分判定に使う mdf）。判定（_meets_*）は除外前の filtered で確定済みで、
+                # ここでは掲載する行を差し替えるだけなので抽出判定は変わらない。
+                _sel_j, _sel_dr_j, _bans_all_j = _unit_ex_add_pick(
+                    mdf, dr_m, filtered, exclude_units, machine)
+            _img_j, _img_dr_j = _unit_ex_apply(_sel_j, _sel_dr_j, _unit_ex_get(exclude_units, "high", machine))
             if _img_j.empty:
                 # 全台除外: 画像を作らず、機種全体の集計行だけ残す（その他の優秀台へは回さない）
                 log(f"  {machine} 高配分: 全台除外のため画像なし")
@@ -4726,6 +4767,8 @@ def run_step2_juggler(
                     "all_avg_diff": int(round(diff_raw.loc[all_for_m_orig.index].mean())),
                     "has_image":  False,
                     "bans_all":   _bans_all_j,
+                    **({"bans_base": [int(b) for b in filtered["台番"].tolist()]}
+                       if high_add_on else {}),
                 })
                 continue
             if article_mode:
@@ -4753,6 +4796,8 @@ def run_step2_juggler(
                 "has_image":  True,
                 "bans":       [int(b) for b in _img_j["台番"].tolist()],
                 "bans_all":   _bans_all_j,
+                **({"bans_base": [int(b) for b in filtered["台番"].tolist()]}
+                   if high_add_on else {}),
             })
         else:
             if machine in recommended_machines:
@@ -4912,6 +4957,7 @@ def run_step3_other(
     high_bar: bool = True,
     meta_only_machines: set[str] = frozenset(),
     meta_only_out: "list[dict] | None" = None,
+    high_add_on: bool = False,
 ) -> tuple[list[str], list[dict], list[dict], list[int]]:
     """Step 3: 非ジャグラー機種の優秀台 + その他の優秀台ピックアップ統合画像。
     戻り値: (generated, high_ratio_list, excellent_list, sonota_bans_all)
@@ -5066,7 +5112,14 @@ def run_step3_other(
                 # ⑦掲載台の台番単位除外。カテゴリ判定（_meets_*）は除外前の count_f で
                 # 済ませてあるため、除外しても高配分から外れたりその他へ回ったりしない。
                 _bans_all_o = [int(b) for b in filtered["台番"].tolist()]
-                _img_o, _img_dr_o = _unit_ex_apply(filtered, dr_f, _unit_ex_get(exclude_units, "high", machine))
+                _sel_o, _sel_dr_o = filtered, dr_f
+                if high_add_on:
+                    # 🎯で候補台を追加できる店舗。候補の対象範囲は「その機種の全台」（grp）。
+                    # 高配分は並び台・末尾台も含めて数える既存仕様なので grp_ex ではなく grp。
+                    # 判定（_meets_*）は除外前の count_f で確定済みで、ここは掲載行の差し替えだけ。
+                    _sel_o, _sel_dr_o, _bans_all_o = _unit_ex_add_pick(
+                        grp, dr_m, filtered, exclude_units, machine)
+                _img_o, _img_dr_o = _unit_ex_apply(_sel_o, _sel_dr_o, _unit_ex_get(exclude_units, "high", machine))
                 if _img_o.empty:
                     # 全台除外: 画像を作らず、機種全体の集計行だけ残す（その他へは回さない）
                     log(f"  {machine}: 全台除外のため画像なし")
@@ -5078,6 +5131,8 @@ def run_step3_other(
                         "all_avg_diff": int(round(dr_m.mean())),
                         "has_image":    False,
                         "bans_all":     _bans_all_o,
+                        **({"bans_base": [int(b) for b in filtered["台番"].tolist()]}
+                           if high_add_on else {}),
                     })
                     continue
                 if article_mode:
@@ -5105,6 +5160,8 @@ def run_step3_other(
                     "has_image":    True,
                     "bans":         [int(b) for b in _img_o["台番"].tolist()],
                     "bans_all":     _bans_all_o,
+                    **({"bans_base": [int(b) for b in filtered["台番"].tolist()]}
+                       if high_add_on else {}),
                 })
         else:
             # 勝率50%以上 → テキストのみ high_ratio_list に追加（画像なし）
@@ -6259,6 +6316,7 @@ def run_auto_pipeline(
     retsu_bans: set[int] = frozenset(),
     manual_mode: bool = False,
     meta_only_machines: set[str] = frozenset(),
+    high_add_on: bool = False,
 ) -> dict:
     """3ステップパイプラインを実行する。
     exclude_units: ⑦プレビューで台番単位に外した掲載台
@@ -6417,10 +6475,10 @@ def run_auto_pipeline(
             log("② ジャグラーシリーズ優秀台")
             _jug_series = cfg["juggler_series"]
             _zen_dai_jug = {item["name"] for item in zen_dai_list if item["name"] in _jug_series}
-            f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df, jug_bans_all = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude, no_merge_image=jug_no_merge_image, rec_ban_level=rec_ban_level, exclude_units=exclude_units, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans, high_bar=(store not in _ART_HIGH_NO_BAR_STORES), meta_only_machines=meta_only_machines, meta_only_out=_meta_only_list, jug_title_by_image=_is_other_store(store))
+            f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df, jug_bans_all = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude, no_merge_image=jug_no_merge_image, rec_ban_level=rec_ban_level, exclude_units=exclude_units, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans, high_bar=(store not in _ART_HIGH_NO_BAR_STORES), meta_only_machines=meta_only_machines, meta_only_out=_meta_only_list, jug_title_by_image=_is_other_store(store), high_add_on=high_add_on)
 
             log("③ その他の優秀台ピックアップ")
-            f3, oth_hr, sonota_excellent, sonota_bans_all = run_step3_other(df, diff_raw, output_dir, cfg, narabi_bans, ov_df, ov_diff, log, recommended_machines, suebangai_bans, article_mode=article_mode, sonota_exclude=sonota_exclude, exclude_units=exclude_units, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans, high_bar=(store not in _ART_HIGH_NO_BAR_STORES), meta_only_machines=meta_only_machines, meta_only_out=_meta_only_list)
+            f3, oth_hr, sonota_excellent, sonota_bans_all = run_step3_other(df, diff_raw, output_dir, cfg, narabi_bans, ov_df, ov_diff, log, recommended_machines, suebangai_bans, article_mode=article_mode, sonota_exclude=sonota_exclude, exclude_units=exclude_units, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans, high_bar=(store not in _ART_HIGH_NO_BAR_STORES), meta_only_machines=meta_only_machines, meta_only_out=_meta_only_list, high_add_on=high_add_on)
             _ex_seen: set[tuple] = set()
             excellent_list = []
             for _ex_item in jug_excellent + sonota_excellent:
@@ -10608,6 +10666,9 @@ def _unit_ex_state(store: str, excel_stem: str) -> dict:
     _st.setdefault("high", {})
     _st.setdefault("sonota", set())
     _st.setdefault("juggler", {})
+    # 高配分画像で🎯から**追加**した台番（_HIGH_UNIT_ADD_STORES の結果ポスト用だけ使う）。
+    # 既定掲載台の除外は従来どおり "high"（除外集合）が持つ。ここは追加集合で意味が逆。
+    _st.setdefault("high_add", {})
     _st.setdefault("art_kojin", {})
     _st.setdefault("art_variety", {})
     # 記事用の追加系統（通常ページの high/juggler/sonota/suebangai とは別キー）
@@ -10684,6 +10745,25 @@ def _unit_ex_mark(state: dict, kind: str, machine: "str | None", ban: int, exclu
             _d.pop(machine, None)   # 空キーを残さない
 
 
+def _unit_ex_is_on(state: dict, kind: str, machine: "str | None", ban: int,
+                   base_bans: "set[int] | None") -> bool:
+    """🎯パネルのチェックON/OFF（掲載するか）。
+    base_bans=None（従来）または既定掲載候補の台 → 除外集合に無ければON。
+    base_bans を渡した場合の**候補外の台** → 追加集合（{kind}_add）に有ればON。"""
+    if base_bans is None or int(ban) in base_bans:
+        return int(ban) not in _unit_ex_bans(state, kind, machine)
+    return int(ban) in _unit_ex_bans(state, f"{kind}_add", machine)
+
+
+def _unit_ex_set_on(state: dict, kind: str, machine: "str | None", ban: int,
+                    on: bool, base_bans: "set[int] | None") -> None:
+    """🎯パネルのチェック結果を正式な辞書へ書く（_unit_ex_is_on と対。意味を揃える）。"""
+    if base_bans is None or int(ban) in base_bans:
+        _unit_ex_mark(state, kind, machine, ban, not on)      # 除外集合
+    else:
+        _unit_ex_mark(state, f"{kind}_add", machine, ban, on)  # 追加集合
+
+
 def _unit_ex_row_machine(kind: str, panel_machine: "str | None", row_machine: str) -> "str | None":
     """除外辞書のキーに使う機種名。
     高配分＝画像の機種、その他＝機種を持たない、ジャグラー統合＝その行の機種。
@@ -10708,17 +10788,21 @@ def _unit_ex_keep_open(store: str, excel_stem: str, kind: str, machine: "str | N
 
 def _on_unit_ex_change(store: str, excel_stem: str, kind: str,
                        machine: "str | None", ban: int, wkey: str,
-                       panel_machine: "str | None" = None) -> None:
+                       panel_machine: "str | None" = None,
+                       base_bans: "set[int] | None" = None) -> None:
     """チェック変更を正式な除外辞書へ反映する（st.rerun() は呼ばない）。
     machine は除外辞書のキー（ジャグラー統合画像では行ごとの機種名）、
-    panel_machine はパネル識別用（ジャグラー統合画像では None）で別物。"""
+    panel_machine はパネル識別用（ジャグラー統合画像では None）で別物。
+    base_bans は「既定掲載候補の台番集合」。None（既定）なら従来どおり除外だけを扱う。"""
     _state = _unit_ex_state(store, excel_stem)
-    _unit_ex_mark(_state, kind, machine, ban, not bool(st.session_state.get(wkey, True)))
+    _unit_ex_set_on(_state, kind, machine, ban,
+                    bool(st.session_state.get(wkey, True)), base_bans)
     _unit_ex_keep_open(store, excel_stem, kind, panel_machine)
 
 
 def _on_unit_ex_bulk(store: str, excel_stem: str, kind: str, machine: "str | None",
-                     items: list, sig: str, select: bool) -> None:
+                     items: list, sig: str, select: bool,
+                     base_bans: "set[int] | None" = None) -> None:
     """表示中（絞り込み後）の台だけをまとめて選択/解除する。非表示の台は変更しない。
     items は (台番, 除外辞書キーの機種名) のリスト（ジャグラー統合画像は行ごとに機種が異なる）。
     ウィジェット値はコールバック内で「代入」して更新する。
@@ -10727,7 +10811,7 @@ def _on_unit_ex_bulk(store: str, excel_stem: str, kind: str, machine: "str | Non
       除外辞書を古い値で上書きしてしまう。"""
     _state = _unit_ex_state(store, excel_stem)
     for _b, _m in items:
-        _unit_ex_mark(_state, kind, _m, int(_b), not select)
+        _unit_ex_set_on(_state, kind, _m, int(_b), bool(select), base_bans)
         st.session_state[_unit_ex_wkey(sig, int(_b))] = bool(select)
     _unit_ex_keep_open(store, excel_stem, kind, machine)
 
@@ -10860,12 +10944,18 @@ def _unit_ex_norm_fn(name: str) -> str:
 
 
 def _render_unit_ex_panel(store: str, excel_stem: str, kind: str, machine: "str | None",
-                          bans_all: list, df, diff_raw, apply_label: str) -> None:
-    """🎯 掲載台を選ぶ パネル。ネイティブ部品のみ（components.html / 独自JS / st.rerun 不使用）。"""
+                          bans_all: list, df, diff_raw, apply_label: str,
+                          base_bans: "list | None" = None) -> None:
+    """🎯 掲載台を選ぶ パネル。ネイティブ部品のみ（components.html / 独自JS / st.rerun 不使用）。
+
+    base_bans を渡すと bans_all は「候補台の全体」、base_bans は「既定で掲載される台」を表し、
+    候補外の台はチェックOFFで並び、ONにすると画像へ追加される（追加集合 {kind}_add）。
+    None（既定）なら bans_all が掲載候補そのもので、従来どおり減らす操作だけになる。"""
     if not bans_all or df is None or diff_raw is None:
         return
     _state = _unit_ex_state(store, excel_stem)
     _sig   = _unit_ex_sig(store, excel_stem, kind, machine)
+    _base  = None if base_bans is None else {int(b) for b in base_bans}
 
     # 台番 → (機種名, 差枚, 除外辞書キーの機種名, 除外中か)。台番昇順（画像の並びと一致）
     _rows: list[tuple[int, str, int, "str | None", bool]] = []
@@ -10876,7 +10966,7 @@ def _render_unit_ex_panel(store: str, excel_stem: str, kind: str, machine: "str 
         _rm  = str(_r.iloc[0]["機種名"])
         _key = _unit_ex_row_machine(kind, machine, _rm)
         _rows.append((_b, _rm, int(diff_raw.loc[_r.index[0]]),
-                      _key, _b in _unit_ex_bans(_state, kind, _key)))
+                      _key, not _unit_ex_is_on(_state, kind, _key, _b, _base)))
     if not _rows:
         return
 
@@ -10908,16 +10998,21 @@ def _render_unit_ex_panel(store: str, excel_stem: str, kind: str, machine: "str 
         with _c_all:
             st.button("✅ 表示中を全選択", key=f"unit_ex_all_{_sig}", use_container_width=True,
                       disabled=not _view_items, on_click=_on_unit_ex_bulk,
-                      args=(store, excel_stem, kind, machine, _view_items, _sig, True))
+                      args=(store, excel_stem, kind, machine, _view_items, _sig, True, _base))
         with _c_none:
             st.button("⬜ 表示中を全解除", key=f"unit_ex_none_{_sig}", use_container_width=True,
                       disabled=not _view_items, on_click=_on_unit_ex_bulk,
-                      args=(store, excel_stem, kind, machine, _view_items, _sig, False))
+                      args=(store, excel_stem, kind, machine, _view_items, _sig, False, _base))
 
         if not _view:
             st.caption("該当する台がありません")
         for _b, _mc, _d, _rkey, _excluded in _view:
-            _txt = f"{_b}　{_mc}　{fmt_diff(_d)}" + ("（除外）" if _excluded else "")
+            _extra = _base is not None and _b not in _base
+            _txt = f"{_b}　{_mc}　{fmt_diff(_d)}"
+            if _excluded:
+                _txt += "（未掲載）" if _extra else "（除外）"
+            elif _extra:
+                _txt += "（追加）"
             _wk = _unit_ex_wkey(_sig, _b)
             # 既存の auto_prev_ck_ と同じ方式: 未登録のときだけ初期値を入れ、
             # value= は渡さない（session_state と value= の優先順位を発生させない）。
@@ -10925,7 +11020,7 @@ def _render_unit_ex_panel(store: str, excel_stem: str, kind: str, machine: "str 
                 st.session_state[_wk] = not _excluded
             st.checkbox(_txt, key=_wk,
                         on_change=_on_unit_ex_change,
-                        args=(store, excel_stem, kind, _rkey, _b, _wk, machine))
+                        args=(store, excel_stem, kind, _rkey, _b, _wk, machine, _base))
         st.caption(f"ℹ️ チェック変更後は「{apply_label}」を押すと反映されます")
 
 
@@ -13008,6 +13103,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                             # ③列仕掛けの掲載台はジャグラー統合・その他の優秀台へ重複掲載しない
                             # （案E1: 列画像・列専用ban_map は独立のまま。narabi_bans へは混ぜない）
                             retsu_bans=(ranges_to_bans(retsu_ranges) if retsu_ok else set()),
+                            # 🎯高配分で候補台を追加できる店舗（結果ポスト用のみ・既定False）
+                            high_add_on=_high_unit_add_on(store, with_slump),
                         )
                         # スランプ付き: その他の優秀台ピックアップ①②(③)生成（プレビュー用・秋葉原/上野新館）
                         if _sonota_split and _prev_result.get("ok"):
@@ -13696,6 +13793,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                         if _bu:
                             _unit_src[f"{_make_safe_fn(_hu['name'])}_高配分.jpg"] = {
                                 "kind": "high", "machine": _hu["name"], "bans": list(_bu),
+                                # 候補台の追加を許可した店舗のみ: 既定掲載台（無ければ従来どおり None）
+                                **({"base": list(_hu["bans_base"])}
+                                   if _hu.get("bans_base") is not None else {}),
                             }
                     # ジャグラーシリーズ優秀台（統合画像が生成された場合のみ）
                     _jg_bans = _prev_result.get("jug_bans_all") or []
@@ -14162,6 +14262,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _u_src.get("bans", []),
                                     _unit_pdf, _unit_pdi,
                                     "🔄 その他を更新",
+                                    _u_src.get("base"),
                                 )
             # 全台除外で画像が消えた対象は、グリッドに出せる画像が無くパネルも消えてしまう。
             # 掲載台を戻せるよう、画像が無い対象のパネルだけをここに描画する。
@@ -14176,6 +14277,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _ov.get("bans", []),
                         _unit_pdf, _unit_pdi,
                         "🔄 その他を更新",
+                        _ov.get("base"),
                     )
             # 新宿歌舞伎町（かぶぱポストの結果）：画像の下に結果テキストをコピー可能な形で表示
             _kabupa_prev_text = st.session_state.get(f"_kabupa_prev_text_{store}")
@@ -15834,6 +15936,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                 # ③列仕掛けの掲載台はジャグラー統合・その他の優秀台へ重複掲載しない
                 # （案E1: 列画像・列専用ban_map は独立のまま。narabi_bans へは混ぜない）
                 retsu_bans=(ranges_to_bans(retsu_ranges) if retsu_ok else set()),
+                # 🎯高配分で候補台を追加できる店舗（結果ポスト用のみ・既定False）
+                high_add_on=_high_unit_add_on(store, with_slump),
             )
 
             # スランプ付き: その他の優秀台ピックアップ①②(③)生成（秋葉原/上野新館）

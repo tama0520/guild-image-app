@@ -25794,7 +25794,7 @@
     "kojin_pick_bans_2_プレサス飯田橋": ""
   },
   "20260921_プレサス飯田橋_20S.xlsx": {
-    "kojin_enabled": false,
+    "kojin_enabled": true,
     "narabi_enabled": false,
     "narabi_ranges_input": "",
     "retsu_enabled": false,
@@ -25821,7 +25821,7 @@
     "kojin_z_9_プレサス飯田橋": "",
     "kojin_z_10_プレサス飯田橋": "",
     "kojin_z_11_プレサス飯田橋": "",
-    "kojin_y_0_プレサス飯田橋": "",
+    "kojin_y_0_プレサス飯田橋": "東京リベンジャーズ",
     "kojin_y_1_プレサス飯田橋": "",
     "kojin_y_2_プレサス飯田橋": "",
     "kojin_y_3_プレサス飯田橋": "",
@@ -25873,7 +25873,7 @@
     "kojin_narabi_title_プレサス飯田橋": "",
     "kojin_narabi2_range_プレサス飯田橋": "",
     "kojin_narabi2_title_プレサス飯田橋": "",
-    "sonota_extra_title_プレサス飯田橋": "",
+    "sonota_extra_title_プレサス飯田橋": "その他の優秀台ピックアップ",
     "sonota_extra_text_プレサス飯田橋": "",
     "sonota_extra_auto_プレサス飯田橋": "なし",
     "jug_extra_auto_プレサス飯田橋": "なし",

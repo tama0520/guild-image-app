@@ -5897,8 +5897,9 @@ def generate_report_text(
 
     def retsu_section() -> str:
         # ③列画像（列仕掛け）。並び仕掛けと同じ整形で出す。
+        # 2026-09-22: 機種名行の行頭「・」も並び仕掛けと統一する（台番範囲行へは付けない）。
         # 平均差枚は列画像に載っている補正済み差枚（呼び出し側で算出）。
-        return _nami_like_section(retsu_list or [])
+        return _nami_like_section(retsu_list or [], name_head="・")
 
     def suebangai_section() -> str:
         _circle_map = {"0":"⓪","1":"①","2":"②","3":"③","4":"④",
@@ -5919,14 +5920,14 @@ def generate_report_text(
             for _item in suebangai_data:
                 _t = _item["tail"]
                 _label = "末尾ゾロ目の台" if _t == "ゾロ目" else f"末尾{_circle_map.get(_t, _t)}番台"
-                lines.append(f"🎁{_label}({_item['win_count']}/{_item['total']}台)→平均{_fmt_diff(_item['avg_diff'])}")
+                lines.append(f"・{_label}({_item['win_count']}/{_item['total']}台)→平均{_fmt_diff(_item['avg_diff'])}")
                 lines.extend(_plus1000_lines(_item))
         if jug_sue_data:
             lines.append("👑ジャグラーの優秀末尾")
             for _item in jug_sue_data:
                 _t = _item["tail"]
                 _label = "末尾ゾロ目番台" if _t == "ゾロ目" else f"末尾{_circle_map.get(_t, _t)}番台"
-                lines.append(f"🎁{_label}({_item['win_count']}/{_item['total']}台)→平均{_fmt_diff(_item['avg_diff'])}")
+                lines.append(f"・{_label}({_item['win_count']}/{_item['total']}台)→平均{_fmt_diff(_item['avg_diff'])}")
                 lines.extend(_plus1000_lines(_item))
         return "\n".join(lines)
 

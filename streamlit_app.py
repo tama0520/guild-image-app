@@ -10668,7 +10668,9 @@ def _unit_ex_state(store: str, excel_stem: str) -> dict:
     _st.setdefault("juggler", {})
     # 高配分画像で🎯から**追加**した台番（_HIGH_UNIT_ADD_STORES の結果ポスト用だけ使う）。
     # 既定掲載台の除外は従来どおり "high"（除外集合）が持つ。ここは追加集合で意味が逆。
+    # kojin_yushu_add は②個別画像の「優秀台」（＝{機種名}（優秀台）.jpg も高配分画像）の追加集合。
     _st.setdefault("high_add", {})
+    _st.setdefault("kojin_yushu_add", {})
     _st.setdefault("art_kojin", {})
     _st.setdefault("art_variety", {})
     # 記事用の追加系統（通常ページの high/juggler/sonota/suebangai とは別キー）
@@ -10715,6 +10717,28 @@ def _unit_ex_pick(state: dict, kind: str, name: str, df_img):
         _keep = ~df_img["台番"].apply(lambda b: int(b) in _ex)
         df_img = df_img[_keep.values].copy()
     return df_img, _ikey, _bans_all
+
+
+def _unit_ex_pick_add(state: dict, kind: str, name: str, cand_df, base_df):
+    """候補台の**追加**に対応した _unit_ex_pick()。画像キー単位の系統（②個別優秀台など）用。
+
+    cand_df は「その画像の対象機種として当日データに存在する全台」、
+    base_df は既存の抽出条件を通った既定掲載台。追加が無ければ戻り値の行・順序は
+    base_df と完全に一致する（＝従来動作）。抽出判定はここでは一切行わない。
+    画像キーは候補全体（cand_df）から作るので、チェック操作では変化しない。
+    戻り値: (掲載DataFrame, 画像キー, 候補台番リスト, 既定掲載台番リスト)"""
+    def _bans(_d):
+        return [int(b) for b in _d["台番"].dropna()
+                if str(b).split(".")[0].lstrip("-").isdigit()]
+    _c = cand_df.reset_index(drop=True)
+    _bans_all = _bans(_c)
+    _ikey = _unit_ex_img_key(name, _bans_all)
+    _base = _bans(base_df)
+    _add  = _unit_ex_get(state, f"{kind}_add", _ikey) & set(_bans_all)
+    _sel  = set(_base) | _add
+    _ex   = _unit_ex_get(state, kind, _ikey)
+    _keep = _c["台番"].apply(lambda b: int(b) in _sel and int(b) not in _ex)
+    return _c[_keep.values].copy().reset_index(drop=True), _ikey, _bans_all, _base
 
 
 def _unit_ex_wkey(sig: str, ban: int) -> str:
@@ -13196,14 +13220,24 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _kdr_all = _pv_diff.loc[_kgrp_all.index]
                                     # 正式な候補台を抽出（抽出条件・集計は変更しない）
                                     _kgrp_p = _kojin_yushu_filter(_km, _kgrp_all, _kdr_all, get_store_config(store), force_1k=(with_slump and store == "秋葉原")).reset_index(drop=True)
-                                    if _kgrp_p.empty:
+                                    _ky_add_pv = _high_unit_add_on(store, with_slump)
+                                    if _kgrp_p.empty and not _ky_add_pv:
                                         continue
                                     # 🎯掲載台を選ぶ（②個別・優秀台）: 抽出後・画像生成前に間引く
                                     _ky_fn_pv = f"{_km}（優秀台）.jpg"
-                                    _kgrp_p, _ik_ky, _ball_ky = _unit_ex_pick(
-                                        _unit_ex_state(store, _excel_stem), "kojin_yushu", _km, _kgrp_p)
-                                    _kojin_y_src_pv[_ky_fn_pv] = {"kind": "kojin_yushu",
-                                                                  "machine": _ik_ky, "bans": _ball_ky}
+                                    if _ky_add_pv:
+                                        # 候補＝その機種の当日全台。既定掲載は _kgrp_p のまま。
+                                        _kgrp_p, _ik_ky, _ball_ky, _kbase_ky = _unit_ex_pick_add(
+                                            _unit_ex_state(store, _excel_stem), "kojin_yushu", _km,
+                                            _kgrp_all, _kgrp_p)
+                                        _kojin_y_src_pv[_ky_fn_pv] = {"kind": "kojin_yushu",
+                                                                      "machine": _ik_ky, "bans": _ball_ky,
+                                                                      "base": _kbase_ky}
+                                    else:
+                                        _kgrp_p, _ik_ky, _ball_ky = _unit_ex_pick(
+                                            _unit_ex_state(store, _excel_stem), "kojin_yushu", _km, _kgrp_p)
+                                        _kojin_y_src_pv[_ky_fn_pv] = {"kind": "kojin_yushu",
+                                                                      "machine": _ik_ky, "bans": _ball_ky}
                                     if _kgrp_p.empty:
                                         continue   # 全台除外 → 画像を作らない
                                     _kavg = int(round(_kdr_all.mean()))
@@ -16651,7 +16685,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                             continue
                         _kdr_all  = diff_k.loc[_kgrp_all.index]
                         _kgrp_p   = _kojin_yushu_filter(_km, _kgrp_all, _kdr_all, get_store_config(store), force_1k=(with_slump and store == "秋葉原"))
-                        if _kgrp_p.empty:
+                        _ky_add_e = _high_unit_add_on(store, with_slump)
+                        if _kgrp_p.empty and not _ky_add_e:
                             _log(f"  個別(優秀台)「{_km}」: 条件を満たす台なし")
                             continue
                         _kdr_p    = _kdr_all.loc[_kgrp_p.index]
@@ -16661,8 +16696,14 @@ def show_auto_page(with_slump: bool = False) -> None:
                         # 🎯掲載台を選ぶ（②個別・優秀台）: 抽出後・画像生成前に間引く。
                         # プレビューと同じ安定キー（機種名＋除外前のソート済み台番集合）。
                         # 結果テキスト用の集計（count/total/diffs/all_avg_diff）は元データ基準のまま。
-                        _kgrp_p, _ik_ky_e, _ball_ky_e = _unit_ex_pick(
-                            _unit_ex_state(store, _excel_stem_run), "kojin_yushu", _km, _kgrp_p)
+                        if _ky_add_e:
+                            # 候補＝その機種の当日全台（⑦プレビューと同一キー・同一掲載台）
+                            _kgrp_p, _ik_ky_e, _ball_ky_e, _ = _unit_ex_pick_add(
+                                _unit_ex_state(store, _excel_stem_run), "kojin_yushu", _km,
+                                _kgrp_all, _kgrp_p)
+                        else:
+                            _kgrp_p, _ik_ky_e, _ball_ky_e = _unit_ex_pick(
+                                _unit_ex_state(store, _excel_stem_run), "kojin_yushu", _km, _kgrp_p)
                         if _kgrp_p.empty:
                             # 全台除外: 画像を作らず、古い同名画像（縦版・横版・連番付き）を削除する
                             _rm_stale_image(output_dir, os.path.basename(_kout), log=_log)

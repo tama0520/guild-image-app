@@ -4466,16 +4466,25 @@ def _unit_ex_apply(df_img, dr_img, bans: set[int]):
             dr_img[keep.values].reset_index(drop=True))
 
 
-# ■ 🎯掲載台を選ぶ（高配分）で「掲載台を増やせる」店舗（試験実装）
-# 対象は結果ポスト用（with_slump=False）のみ。スランプ付き結果ポスト用・記事用・
-# 他店舗・「その他」配下はすべて従来どおり（掲載台を減らすだけ）。
-# 既定 False = 従来動作なので、ゲート外の経路は 1 ビットも変わらない。
-_HIGH_UNIT_ADD_STORES: "frozenset[str]" = frozenset({"高田馬場"})
+# ■ 🎯掲載台を選ぶ（高配分）で「掲載台を増やせる」ページ
+# 結果ポスト用(auto) ／ スランプ付き結果ポスト用(auto_slump・新宿歌舞伎町は auto_slump2) ／
+# 「その他」配下のスランプ付き結果(other_slump)。
+# 記事用(auto_article)・ローテ用(rote)・個別生成(work)・機種名変換・WordPress は対象外。
+# 新宿歌舞伎町の auto_slump は「かぶぱポストの結果」なので _is_kabupa_page() で除く。
+# ★店舗名は列挙しない: 「その他」配下は other_slump ページなので、
+#   store_settings/_other_stores.json へ店舗を足すだけで自動的に対象になる。
+_HIGH_UNIT_ADD_PAGES: "frozenset[str]" = frozenset({
+    "auto", "auto_slump", "auto_slump2", "other_slump",
+})
 
 
-def _high_unit_add_on(store: str, with_slump: bool = False) -> bool:
-    """高配分画像の🎯で「候補台の追加」を許可するか（結果ポスト用の対象店舗だけ True）。"""
-    return (not with_slump) and (store in _HIGH_UNIT_ADD_STORES)
+def _high_unit_add_on() -> bool:
+    """高配分画像の🎯で「候補台の追加」を許可するか（page で判定・かぶぱは除外）。"""
+    try:
+        return (st.session_state.get("page") in _HIGH_UNIT_ADD_PAGES
+                and not _is_kabupa_page())
+    except Exception:
+        return False
 
 
 def _unit_ex_add_pick(cand_df, cand_dr, base_df, exclude_units, machine: str):
@@ -10666,7 +10675,7 @@ def _unit_ex_state(store: str, excel_stem: str) -> dict:
     _st.setdefault("high", {})
     _st.setdefault("sonota", set())
     _st.setdefault("juggler", {})
-    # 高配分画像で🎯から**追加**した台番（_HIGH_UNIT_ADD_STORES の結果ポスト用だけ使う）。
+    # 高配分画像で🎯から**追加**した台番（_HIGH_UNIT_ADD_PAGES のページだけ使う）。
     # 既定掲載台の除外は従来どおり "high"（除外集合）が持つ。ここは追加集合で意味が逆。
     # kojin_yushu_add は②個別画像の「優秀台」（＝{機種名}（優秀台）.jpg も高配分画像）の追加集合。
     _st.setdefault("high_add", {})
@@ -13128,7 +13137,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             # （案E1: 列画像・列専用ban_map は独立のまま。narabi_bans へは混ぜない）
                             retsu_bans=(ranges_to_bans(retsu_ranges) if retsu_ok else set()),
                             # 🎯高配分で候補台を追加できる店舗（結果ポスト用のみ・既定False）
-                            high_add_on=_high_unit_add_on(store, with_slump),
+                            high_add_on=_high_unit_add_on(),
                         )
                         # スランプ付き: その他の優秀台ピックアップ①②(③)生成（プレビュー用・秋葉原/上野新館）
                         if _sonota_split and _prev_result.get("ok"):
@@ -13220,7 +13229,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _kdr_all = _pv_diff.loc[_kgrp_all.index]
                                     # 正式な候補台を抽出（抽出条件・集計は変更しない）
                                     _kgrp_p = _kojin_yushu_filter(_km, _kgrp_all, _kdr_all, get_store_config(store), force_1k=(with_slump and store == "秋葉原")).reset_index(drop=True)
-                                    _ky_add_pv = _high_unit_add_on(store, with_slump)
+                                    _ky_add_pv = _high_unit_add_on()
                                     if _kgrp_p.empty and not _ky_add_pv:
                                         continue
                                     # 🎯掲載台を選ぶ（②個別・優秀台）: 抽出後・画像生成前に間引く
@@ -15971,7 +15980,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 # （案E1: 列画像・列専用ban_map は独立のまま。narabi_bans へは混ぜない）
                 retsu_bans=(ranges_to_bans(retsu_ranges) if retsu_ok else set()),
                 # 🎯高配分で候補台を追加できる店舗（結果ポスト用のみ・既定False）
-                high_add_on=_high_unit_add_on(store, with_slump),
+                high_add_on=_high_unit_add_on(),
             )
 
             # スランプ付き: その他の優秀台ピックアップ①②(③)生成（秋葉原/上野新館）
@@ -16685,7 +16694,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             continue
                         _kdr_all  = diff_k.loc[_kgrp_all.index]
                         _kgrp_p   = _kojin_yushu_filter(_km, _kgrp_all, _kdr_all, get_store_config(store), force_1k=(with_slump and store == "秋葉原"))
-                        _ky_add_e = _high_unit_add_on(store, with_slump)
+                        _ky_add_e = _high_unit_add_on()
                         if _kgrp_p.empty and not _ky_add_e:
                             _log(f"  個別(優秀台)「{_km}」: 条件を満たす台なし")
                             continue

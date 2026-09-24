@@ -4487,6 +4487,15 @@ def _high_unit_add_on() -> bool:
         return False
 
 
+# 🔄その他を更新で🎯再生成が走ったとき、同じ🔄のうちにチェックOFF画像の
+# 「その他へ再振り分け」まで続けて行う店舗（結果ポスト用＝with_slump=False のみ）。
+_UNIT_RESORT_STORES: "frozenset[str]" = frozenset({"高田馬場"})
+
+
+def _unit_resort_on(store: str, with_slump: bool) -> bool:
+    return (not with_slump) and store in _UNIT_RESORT_STORES
+
+
 def _unit_ex_add_pick(cand_df, cand_dr, base_df, exclude_units, machine: str):
     """高配分画像の掲載行を「既定掲載台 ∪ 🎯で追加された台」へ差し替える。
 
@@ -13859,6 +13868,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                     st.session_state[_aprev_unit_key] = _unit_src
                     # 「未反映」判定用スナップショット（今回のプレビューへ反映済みの内容）
                     st.session_state[_unit_snap_key] = _unit_ex_snapshot(_unit_ex_state(store, _excel_stem))
+                    # 🔄由来の再生成で、チェックOFFの画像が残っている店舗では
+                    # 次の再実行で既存の「その他へ再振り分け」経路を続けて実行させる
+                    # （🔄1回で🎯追加とチェックOFFの両方を反映する）。
+                    if (_unit_regen and _unit_resort_on(store, with_slump)
+                            and any(not _pv_is_on(store, uploaded.name, _rfn)
+                                    for _rfn, _ in st.session_state[_aprev_key])):
+                        st.session_state[f"_unit_resort_{store}"] = _excel_stem
                 st.rerun()
             if _manual_prev_btn or _manual_regen:
                 _save_auto_inputs(store)
@@ -14356,9 +14372,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                 # 次の再実行で既存の生成ブロック（run_auto_pipeline）が走る。
                 # 📝プレビュー由来（かぶぱ／秋葉原スランプ付き）は📝経路が再生成される。
                 # 未反映変更が無いときはフラグが立たず、従来どおりの再振り分けだけを行う。
-                if st.button("🔄 その他を更新", key="auto_preview_update_btn", use_container_width=True,
-                             on_click=_on_unit_apply_click, args=(store, _excel_stem)) \
-                        and not _unit_regen and not _manual_regen:
+                _upd_clicked = st.button("🔄 その他を更新", key="auto_preview_update_btn",
+                                         use_container_width=True,
+                                         on_click=_on_unit_apply_click, args=(store, _excel_stem))
+                # 🔄由来の再生成直後の続き（_unit_resort_on の店舗のみ・同じExcelのときだけ）
+                _auto_resort = (st.session_state.pop(f"_unit_resort_{store}", None) == _excel_stem)
+                if (_upd_clicked and not _unit_regen and not _manual_regen) or _auto_resort:
                     # 📝記入部分のみプレビュー由来（秋葉原スランプ付きのみ）の再振り分け。
                     # 📝は _aprev_df_key を持たないため、②個別優秀台のチェック外しが
                     # 「その他の優秀台」へ回らなかった。📝が保存済みの df/diff をフォールバックに使う。

@@ -4510,6 +4510,20 @@ def _art_high_add_on(store: str) -> bool:
 _ART_ZEN_PINK_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 
 
+def _art_kojin_zen_img(store: str, grp, title: str, stat: dict, hq_scale: float):
+    """記事用②個別画像「全台」の正規描画（⑦プレビュー・⑧本番で共用）。
+
+    _ART_ZEN_PINK_STORES の店舗は、自動全台系（run_step1_main の zen_pink_bar）と同じ
+    「表＋ピンクサマリーバー・青タイトルバーなし・台数は総台数中プラス台数+」で描く。
+    それ以外の店舗は従来どおり王冠付きサマリー（_build_article_machine_img）。
+    集計値 stat は呼び出し側の従来値（_stat_from_diff）をそのまま使う。
+    """
+    if store in _ART_ZEN_PINK_STORES:
+        return _build_machine_img(grp, title, {**stat, "count_style": "of_plus"},
+                                  no_bar=True, hq_scale=hq_scale)
+    return _build_article_machine_img(grp, title, stat, hq_scale=hq_scale)
+
+
 # 🔄その他を更新で🎯再生成が走ったとき、同じ🔄のうちにチェックOFF画像の
 # 「その他へ再振り分け」まで続けて行うページ（店舗は列挙しない・page で判定）。
 # 🎯パネル／画像チェックが無いページでは再生成自体が起きないので影響しない。
@@ -19230,9 +19244,9 @@ def show_auto_article_page() -> None:
                                     if _fn in _art_fpm: _art_pil.append(_art_fpm[_fn])
                                 else:
                                     _km, _kg, _kd = _da
-                                    _art_pil.append((f"{_km}.jpg", _build_article_machine_img(
-                                        _kg, _km, _stat_from_diff(_kd),
-                                        hq_scale=_art_zh_hq(store))))
+                                    _art_pil.append((f"{_km}.jpg", _art_kojin_zen_img(
+                                        store, _kg, _km, _stat_from_diff(_kd),
+                                        _art_zh_hq(store))))
                             # ② 高配分（avg_diff 降順・个別優秀台を含む）
                             def _ahrk(x):
                                 return x["all_avg_diff"] if "all_avg_diff" in x else (int(round(sum(x["diffs"])/len(x["diffs"]))) if x.get("diffs") else 0)
@@ -20603,8 +20617,8 @@ def show_auto_article_page() -> None:
                             continue
                         _kdr = diff_k.loc[_kgrp_src.index].reset_index(drop=True)
                         _kzh = _art_zh_hq(store)
-                        _kimg = _build_article_machine_img(
-                            _kgrp, _km, _stat_from_diff(_kdr), hq_scale=_kzh)
+                        _kimg = _art_kojin_zen_img(
+                            store, _kgrp, _km, _stat_from_diff(_kdr), _kzh)
                         _kout = os.path.join(output_dir, f"{_make_safe_fn(_km)}.jpg")
                         _save_jpeg(_kimg, _kout,
                                    **({"target_kb": _ART_HQ_TARGET_KB} if _kzh > 1.0 else {}))

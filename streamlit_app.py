@@ -7746,6 +7746,14 @@ _ART_ZENDAI_ROW_H    = 37    # 本文1行の高さ（＝行ピッチ）
 _ART_ZENDAI_FS_TITLE = 20    # 見出しのフォントサイズ
 _ART_ZENDAI_FS_LABEL = 20    # ラベルのフォントサイズ
 _ART_ZENDAI_FS_VALUE = 22    # 値のフォントサイズ
+# 新宿歌舞伎町の記事用だけの配色（既定の上記配色は変えない）。
+# ★見出し帯＝WordPress本文 H2 と同じ色。espacekabuki-blog.com の SWELL テーマCSS
+#   `.post_content h2{background:var(--color_htag);color:#fff}` / `--color_htag:#dd3333`（2026-09-24 GET で確認）。
+# ★本文背景＝記事用スランプの外側背景と同じ C_ART_SLUMP_AREA_BG（#D8C6E3）。
+_ART_ZENDAI_RED_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+_ART_ZENDAI_RED_TITLE_BG = (0xDD, 0x33, 0x33)   # #dd3333（WordPress H2）
+_ART_ZENDAI_RED_TITLE_FG = (255, 255, 255)      # 白
+_ART_ZENDAI_RED_TEXT_FG  = (0, 0, 0)            # 本文の文字（黒）
 
 
 def _art_zendai_stat(diff_raw) -> "dict | None":
@@ -7760,7 +7768,8 @@ def _art_zendai_stat(diff_raw) -> "dict | None":
     return _zendai_total_stat(diff_raw)
 
 
-def _art_zendai_image(diff_raw, hq_scale: float = _ART_ZENDAI_HQ) -> "Image.Image | None":
+def _art_zendai_image(diff_raw, hq_scale: float = _ART_ZENDAI_HQ,
+                      red_theme: bool = False) -> "Image.Image | None":
     """記事用⑥「全台データ」画像（⑦プレビューと⑧本番で共用・別実装にしない）。
 
     平均差枚が `_ART_ZENDAI_MIN_AVG` 未満、またはデータ欠損なら None を返す。
@@ -7775,8 +7784,14 @@ def _art_zendai_image(diff_raw, hq_scale: float = _ART_ZENDAI_HQ) -> "Image.Imag
     _rows = [
         ("勝率",   f"{_wr:.1f}% ({_st['win_count']}/{_st['total_count']}台)"),
         ("総差枚", fmt_diff(_st["total_diff"])),
-        ("平均",   fmt_diff(_st["avg_diff"])),
+        ("平均差枚" if red_theme else "平均", fmt_diff(_st["avg_diff"])),
     ]
+    # red_theme（新宿歌舞伎町の記事用）: 見出し＝WordPress H2の赤＋白文字／本文＝スランプ背景の薄紫＋黒文字
+    _c_title_bg = _ART_ZENDAI_RED_TITLE_BG if red_theme else _ART_ZENDAI_TITLE_BG
+    _c_title_fg = _ART_ZENDAI_RED_TITLE_FG if red_theme else _ART_ZENDAI_TITLE_FG
+    _c_body_bg  = C_ART_SLUMP_AREA_BG     if red_theme else _ART_ZENDAI_BODY_BG
+    _c_label_fg = _ART_ZENDAI_RED_TEXT_FG if red_theme else _ART_ZENDAI_LABEL_FG
+    _c_value_fg = _ART_ZENDAI_RED_TEXT_FG if red_theme else _ART_ZENDAI_VALUE_FG
     # 論理値（見本 374×149 基準）を **すべて同じ倍率** でスケールする。
     def _sc(v: float) -> int:
         return max(1, round(v * _hq))
@@ -7802,21 +7817,32 @@ def _art_zendai_image(diff_raw, hq_scale: float = _ART_ZENDAI_HQ) -> "Image.Imag
              PAD + _text_w(_d0, _ART_ZENDAI_TITLE, FN_TITLE) + PAD)
     _h = BODY_TOP + ROW_HH * len(_rows)
 
-    img  = Image.new("RGB", (_w, _h), _ART_ZENDAI_BODY_BG)
+    img  = Image.new("RGB", (_w, _h), _c_body_bg)
     draw = ImageDraw.Draw(img)
-    draw.rectangle([(0, 0), (_w - 1, HDR_BOT - 1)], fill=_ART_ZENDAI_TITLE_BG)
+    draw.rectangle([(0, 0), (_w - 1, HDR_BOT - 1)], fill=_c_title_bg)
     draw.rectangle([(0, HDR_BOT), (_w - 1, BODY_TOP - 1)], fill=_ART_ZENDAI_RULE)
 
-    def _put(text: str, x: int, y: int, h: int, font, fill) -> None:
+    def _put(text: str, x: int, y: int, h: int, font, fill, cell_w: int = 0) -> None:
+        # cell_w>0 のときは x..x+cell_w のセル内で水平中央、未指定は左寄せ（従来）。垂直は常に中央。
         _bb = draw.textbbox((0, 0), text, font=font)
-        draw.text((x - _bb[0], y + (h - (_bb[3] - _bb[1])) // 2 - _bb[1]),
+        _x = x - _bb[0]
+        if cell_w > 0:
+            _x = x + (cell_w - (_bb[2] - _bb[0])) // 2 - _bb[0]
+        draw.text((_x, y + (h - (_bb[3] - _bb[1])) // 2 - _bb[1]),
                   text, font=font, fill=fill)
 
-    _put(_ART_ZENDAI_TITLE, PAD, BD, HDR_BOT - BD, FN_TITLE, _ART_ZENDAI_TITLE_FG)
+    if red_theme:
+        # 見出しは帯全体、項目名は「左端〜値の開始位置」のセル内で中央寄せ（値の位置は従来どおり）
+        _put(_ART_ZENDAI_TITLE, 0, BD, HDR_BOT - BD, FN_TITLE, _c_title_fg, cell_w=_w)
+    else:
+        _put(_ART_ZENDAI_TITLE, PAD, BD, HDR_BOT - BD, FN_TITLE, _c_title_fg)
     _y = BODY_TOP
     for _l, _v in _rows:
-        _put(_l, PAD, _y, ROW_HH, FN_LABEL, _ART_ZENDAI_LABEL_FG)
-        _put(_v, _val_x, _y, ROW_HH, FN_VALUE, _ART_ZENDAI_VALUE_FG)
+        if red_theme:
+            _put(_l, 0, _y, ROW_HH, FN_LABEL, _c_label_fg, cell_w=_val_x)
+        else:
+            _put(_l, PAD, _y, ROW_HH, FN_LABEL, _c_label_fg)
+        _put(_v, _val_x, _y, ROW_HH, FN_VALUE, _c_value_fg)
         _y += ROW_HH
     draw.rectangle([(0, 0), (_w - 1, _h - 1)], outline=_ART_ZENDAI_BORDER, width=BD)
     return img
@@ -19362,7 +19388,8 @@ def show_auto_article_page() -> None:
                             # ⑧本番と同じ _art_zendai_image() ・同じ補正後 _apdi を使う。
                             # 平均差枚が +50枚未満なら None → 画像も枠も出さない。
                             if store in _ART_ZENDAI_STORES:
-                                _zd_img = _art_zendai_image(_apdi)
+                                _zd_img = _art_zendai_image(
+                                    _apdi, red_theme=(store in _ART_ZENDAI_RED_STORES))
                                 if _zd_img is not None:
                                     _art_pil.append((_ART_ZENDAI_FN, _zd_img))
                             # ⑥ 島図（渋谷新館・ランキングの直後＝記事の最後）。
@@ -20852,7 +20879,8 @@ def show_auto_article_page() -> None:
             # output_dir は営業日ごとに再利用されるため、作らない日は前回分を
             # `_rm_stale_image()`（連番除去後の完全一致のみ）で消す。
             if store in _ART_ZENDAI_STORES and result["ok"]:
-                _zd_img_e = _art_zendai_image(result.get("diff_raw"))
+                _zd_img_e = _art_zendai_image(
+                    result.get("diff_raw"), red_theme=(store in _ART_ZENDAI_RED_STORES))
                 if _zd_img_e is not None:
                     _zd_out_e = os.path.join(output_dir, _ART_ZENDAI_FN)
                     _save_jpeg(_zd_img_e, _zd_out_e)

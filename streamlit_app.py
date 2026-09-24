@@ -4500,6 +4500,10 @@ def _art_high_add_on(store: str) -> bool:
         return False
 
 
+# 記事用の自動全台系画像で、王冠付きサマリーの代わりに③並び画像と同じピンクサマリーバーを使う店舗。
+_ART_ZEN_PINK_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
 # 🔄その他を更新で🎯再生成が走ったとき、同じ🔄のうちにチェックOFF画像の
 # 「その他へ再振り分け」まで続けて行うページ（店舗は列挙しない・page で判定）。
 # 🎯パネル／画像チェックが無いページでは再生成自体が起きないので影響しない。
@@ -4549,6 +4553,7 @@ def run_step1_main(
     kojin_zentai_machines: set[str] = set(),
     meta_only_machines: set[str] = frozenset(),
     meta_only_out: "list[dict] | None" = None,
+    zen_pink_bar: bool = False,
 ) -> tuple[list[str], list[dict]]:
     """Step 1: 全台系PNG + 全台プラス機種別JPG を生成する。
     戻り値: (generated, zen_dai_list)
@@ -4650,8 +4655,14 @@ def run_step1_main(
         if article_mode:
             # 記事用: 全台系は掲載台数に関係なく最初から2倍解像度で描画（zh_hq_scale）
             _zh1 = _pipeline_zh_hq(zh_hq_scale, hq_scale, len(grp))
-            img = _build_article_machine_img(grp, title, _stat_from_diff(dr_m),
-                                             hq_scale=_zh1)
+            if zen_pink_bar:
+                # 王冠付きサマリーの代わりに、記事用③並び画像と同じ描画（表＋ピンクサマリーバー・
+                # 青タイトルバーなし）を使う。数値は同じ _stat_from_diff(dr_m)。
+                img = _build_machine_img(grp, title, _stat_from_diff(dr_m),
+                                         no_bar=True, hq_scale=_zh1)
+            else:
+                img = _build_article_machine_img(grp, title, _stat_from_diff(dr_m),
+                                                 hq_scale=_zh1)
         else:
             _zh1 = 1.0
             img = _build_machine_img(grp, title, _stat_from_diff(dr_m))
@@ -6355,6 +6366,7 @@ def run_auto_pipeline(
     manual_mode: bool = False,
     meta_only_machines: set[str] = frozenset(),
     high_add_on: bool = False,
+    zen_pink_bar: bool = False,
 ) -> dict:
     """3ステップパイプラインを実行する。
     exclude_units: ⑦プレビューで台番単位に外した掲載台
@@ -6489,7 +6501,8 @@ def run_auto_pipeline(
             log("① 全台系PNG ＋ 全台プラス機種別JPG")
             f1, zen_dai_list = run_step1_main(df, diff_raw, output_dir, stem, cfg, log, article_mode=article_mode, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale,
                                               kojin_zentai_machines=kojin_zentai_machines,
-                                              meta_only_machines=meta_only_machines, meta_only_out=_meta_only_list)
+                                              meta_only_machines=meta_only_machines, meta_only_out=_meta_only_list,
+                                              zen_pink_bar=zen_pink_bar)
 
             # ⑤オススメ機種の優秀台（渋谷新館の記事用）の掲載台番。
             # ⑤画像と同じ _kojin_yushu_filter() を再利用し、パイプラインが既に持つ
@@ -18971,6 +18984,8 @@ def show_auto_article_page() -> None:
                             exclude_units=_art_pipeline_exclude(_art_unit_state),
                             # 🎯高配分で未掲載台を追加できる店舗（記事用・既定False）
                             high_add_on=_art_high_add_on(store),
+                            # 全台系を③並びと同じピンクバーで描く店舗（記事用・既定False）
+                            zen_pink_bar=(store in _ART_ZEN_PINK_STORES),
                             # ②個別画像(全台)の機種は自動全台系を作らない（同名画像の二重生成を防ぐ）
                             # ⑤最優先の店舗では⑤入力機種も自動全台系を作らない（⑤へ載せる）
                             kojin_zentai_machines=(({m.strip() for m in kojin_zentai_machines if m.strip()}
@@ -20303,6 +20318,8 @@ def show_auto_article_page() -> None:
                 exclude_units=_art_pipeline_exclude(_art_unit_state_e),
                 # 🎯高配分で未掲載台を追加できる店舗（⑦と同じ判定・既定False）
                 high_add_on=_art_high_add_on(store),
+                # 全台系を③並びと同じピンクバーで描く店舗（⑦と同じ判定・既定False）
+                zen_pink_bar=(store in _ART_ZEN_PINK_STORES),
                 # ②個別画像(全台)の機種は自動全台系を作らない（同名画像の二重生成を防ぐ）
                 # ⑤最優先の店舗では⑤入力機種も自動全台系を作らない（⑤へ載せる）
                 kojin_zentai_machines=(({m.strip() for m in kojin_zentai_machines if m.strip()}

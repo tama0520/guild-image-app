@@ -4488,12 +4488,18 @@ def _high_unit_add_on() -> bool:
 
 
 # 🔄その他を更新で🎯再生成が走ったとき、同じ🔄のうちにチェックOFF画像の
-# 「その他へ再振り分け」まで続けて行う店舗（結果ポスト用＝with_slump=False のみ）。
-_UNIT_RESORT_STORES: "frozenset[str]" = frozenset({"高田馬場"})
+# 「その他へ再振り分け」まで続けて行うページ（店舗は列挙しない・page で判定）。
+# 🎯パネル／画像チェックが無いページでは再生成自体が起きないので影響しない。
+_UNIT_RESORT_PAGES: "frozenset[str]" = frozenset({
+    "auto", "auto_slump", "auto_slump2", "other_slump", "auto_article",
+})
 
 
-def _unit_resort_on(store: str, with_slump: bool) -> bool:
-    return (not with_slump) and store in _UNIT_RESORT_STORES
+def _unit_resort_on() -> bool:
+    try:
+        return st.session_state.get("page") in _UNIT_RESORT_PAGES
+    except Exception:
+        return False
 
 
 def _unit_ex_add_pick(cand_df, cand_dr, base_df, exclude_units, machine: str):
@@ -13871,7 +13877,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     # 🔄由来の再生成で、チェックOFFの画像が残っている店舗では
                     # 次の再実行で既存の「その他へ再振り分け」経路を続けて実行させる
                     # （🔄1回で🎯追加とチェックOFFの両方を反映する）。
-                    if (_unit_regen and _unit_resort_on(store, with_slump)
+                    if (_unit_regen and _unit_resort_on()
                             and any(not _pv_is_on(store, uploaded.name, _rfn)
                                     for _rfn, _ in st.session_state[_aprev_key])):
                         st.session_state[f"_unit_resort_{store}"] = _excel_stem
@@ -14173,6 +14179,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 st.session_state[_aprev_unit_key] = _manual_unit_src
                                 st.session_state[_unit_snap_key] = _unit_ex_snapshot(
                                     _unit_ex_state(store, _excel_stem))
+                            # 📝由来の🔄再生成でチェックOFF画像が残る場合は、次の再実行で
+                            # 既存の📝再振り分け経路を続けて通す（🔄1回で完結させる）。
+                            if (_manual_regen and _unit_resort_on()
+                                    and any(not _pv_is_on(store, uploaded.name, _rfn)
+                                            for _rfn, _ in st.session_state[_aprev_key])):
+                                st.session_state[f"_unit_resort_{store}"] = _excel_stem
                             # 🎯パネル一覧の表示元 兼「🔄その他を更新」の再振り分け元。
                             # _aprev_df_key は⑦の再振り分け条件に使われるため流用せず、
                             # 📝経路専用キーに保持する。
@@ -14375,7 +14387,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 _upd_clicked = st.button("🔄 その他を更新", key="auto_preview_update_btn",
                                          use_container_width=True,
                                          on_click=_on_unit_apply_click, args=(store, _excel_stem))
-                # 🔄由来の再生成直後の続き（_unit_resort_on の店舗のみ・同じExcelのときだけ）
+                # 🔄由来の再生成直後の続き（_unit_resort_on のページのみ・同じExcelのときだけ）
                 _auto_resort = (st.session_state.pop(f"_unit_resort_{store}", None) == _excel_stem)
                 if (_upd_clicked and not _unit_regen and not _manual_regen) or _auto_resort:
                     # 📝記入部分のみプレビュー由来（秋葉原スランプ付きのみ）の再振り分け。
@@ -18799,6 +18811,13 @@ def show_auto_article_page() -> None:
         # 掲載台の未反映変更を「🔄 その他を更新」で反映するための再生成フラグ
         _art_unit_regen = bool(st.session_state.pop(f"_unit_regen_art_{store}", False))
         _art_auto_previews = st.session_state.get(_art_aprev_key)
+        # 🔄由来の再生成ではチェックボックスが描画されず（位置キーの）OFFが消えるため、
+        # 再生成前にOFFの画像名を控え、再生成後の同名画像へ引き継ぐ。
+        _art_off_names: set = set()
+        if _art_unit_regen and _art_auto_previews and _unit_resort_on():
+            _art_off_names = {
+                _pn for _ci0, (_pn, _) in enumerate(_art_auto_previews)
+                if not st.session_state.get(f"art_prev_ck_{store}_{_ci0}", True)}
         if _art_auto_previews is None or _art_unit_regen:
             _art_full_btn = False
             _art_manual_btn = False
@@ -19524,6 +19543,19 @@ def show_auto_article_page() -> None:
                         }
                     # 「未反映」判定用スナップショット（今回のプレビューへ反映済みの内容）
                     st.session_state[_art_unit_snap_key] = _unit_ex_snapshot(_art_unit_state)
+                    # 控えたOFFを再生成後の同名画像へ付け直し、残っていれば
+                    # 次の再実行で既存の🔄再振り分け経路を続けて通す（🔄1回で完結）。
+                    if _art_off_names:
+                        _art_new_pv = st.session_state.get(_art_aprev_key) or []
+                        for _ci0 in range(max(len(_art_auto_previews or []), len(_art_new_pv))):
+                            st.session_state.pop(f"art_prev_ck_{store}_{_ci0}", None)
+                        _art_off_hit = False
+                        for _ci0, (_pn, _) in enumerate(_art_new_pv):
+                            if _pn in _art_off_names:
+                                st.session_state[f"art_prev_ck_{store}_{_ci0}"] = False
+                                _art_off_hit = True
+                        if _art_off_hit:
+                            st.session_state[f"_unit_resort_art_{store}"] = _art_unit_stem
                 st.rerun()
         else:
             st.caption(f"📋 {len(_art_auto_previews)}枚の画像プレビュー　チェックした画像のみ生成されます")
@@ -19619,9 +19651,14 @@ def show_auto_article_page() -> None:
             with _ab1:
                 # 🎯掲載台の未反映変更があるときは on_click が再生成フラグを立て、
                 # 次の再実行でプレビュー生成ブロックが走る（従来の再振り分けは行わない）。
-                if st.button("🔄 その他を更新", key="art_preview_update_btn", use_container_width=True,
-                             on_click=_on_art_unit_apply_click,
-                             args=(store, _art_unit_stem)) and not _art_unit_regen:
+                _art_upd_clicked = st.button("🔄 その他を更新", key="art_preview_update_btn",
+                                             use_container_width=True,
+                                             on_click=_on_art_unit_apply_click,
+                                             args=(store, _art_unit_stem))
+                # 🔄由来の再生成直後の続き（同じExcelのときだけ）
+                _art_auto_resort = (st.session_state.pop(f"_unit_resort_art_{store}", None)
+                                    == _art_unit_stem)
+                if (_art_upd_clicked and not _art_unit_regen) or _art_auto_resort:
                     _apdf2  = st.session_state.get(_art_aprev_df_key)
                     _apdi2  = st.session_state.get(_art_aprev_di_key)
                     _apex   = st.session_state.get(_art_aprev_ex_key, [])

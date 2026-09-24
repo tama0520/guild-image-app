@@ -3537,7 +3537,8 @@ def _check_github_token() -> tuple[bool, str]:
 
 
 # Cloud同期の対象ファイル（GitHub APIで読み書きするもの）
-_GH_SYNC_FILES: tuple[str, ...] = ("weekly_items.json", "rote_machines.json")
+_GH_SYNC_FILES: tuple[str, ...] = ("weekly_items.json", "rote_machines.json",
+                                   "article_shared_inputs.json")
 
 
 def _gh_sha_key(repo_path: str) -> str:
@@ -3708,6 +3709,7 @@ def _git_auto_push(label: str = "auto") -> tuple[bool, str]:
         "auto_page_persistent_inputs.json",
         "article_page_inputs.json",
         "rote_machines.json",
+        "article_shared_inputs.json",
         "store_settings",
     ]
     try:
@@ -7617,22 +7619,36 @@ def _art_today_candidates(store: str, candidates, view_df) -> "list[str]":
 
 
 # ── 記事用①冒頭：かぶぱポスト周辺の任意文章（新宿歌舞伎町のみ）──────────
-# 見出し／見出し下の文章／ヒント下の文章は **店舗単位**（store_settings）で保持し、
-# 日付を変えても消さない（⑤ _save_art_osusume() と同じ存在ガード方式を流用）。
-# 日付単位の article_page_inputs.json には入れない。
+# 見出し／見出し下の文章／ヒント下の文章は **店舗単位**（日付に依存しない）で保持する。
+# 保存先は article_shared_inputs.json（{店舗: {head, head_text, hint_after}}）。
+# rote_machines.json と同じ正規の同期経路に乗せる:
+#   Cloud  : 起動時に _GH_SYNC_FILES で GitHub の最新を取り込み、編集確定時（on_change）に
+#            _github_push_file(base_sha=読み込み時SHA) で即保存。SHA不一致・409 は保存を中止し
+#            最新を読み込む（自動マージしない・古い内容を再送しない）。
+#   ローカル: ファイルへ即保存し、既存 _git_auto_push() の targets で push する。
+# ★store_settings・article_page_inputs.json には保存しない。値が変わらないときは書かない。
 _ART_KABUPA_TOP_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 _ART_KABUPA_TOP_FIELDS: "tuple[str, ...]" = ("head", "head_text", "hint_after")
+_ART_SHARED_INPUTS_FN = "article_shared_inputs.json"
 
 
 def _art_kabupa_top_key(store: str, field: str) -> str:
     return f"art_kabupa_{field}_{store}"
 
 
+def _load_art_shared_inputs() -> dict:
+    try:
+        with open(os.path.join(BASE_DIR, _ART_SHARED_INPUTS_FN), encoding="utf-8") as _f:
+            _d = json.load(_f)
+        return _d if isinstance(_d, dict) else {}
+    except Exception:
+        return {}
+
+
 def _art_kabupa_top_saved(store: str) -> "dict[str, str]":
-    """store_settings の保存値（読み取り専用・未保存は ""）。"""
-    _s = load_store_settings(store)
-    return {_f: str(_s.get(_art_kabupa_top_key(store, _f)) or "")
-            for _f in _ART_KABUPA_TOP_FIELDS}
+    """保存値（読み取り専用・未保存は ""）。"""
+    _s = _load_art_shared_inputs().get(store) or {}
+    return {_f: str(_s.get(_f) or "") for _f in _ART_KABUPA_TOP_FIELDS}
 
 
 def _art_kabupa_top_current(store: str) -> "dict[str, str]":
@@ -7645,10 +7661,30 @@ def _art_kabupa_top_current(store: str) -> "dict[str, str]":
 
 def _save_art_kabupa_top(store: str) -> None:
     """on_change 即保存。キーあり→現在値（空欄も意図的クリアとして保存）／キーなし→既存値維持。"""
-    _prev = load_store_settings(store)
-    for _f, _v in _art_kabupa_top_current(store).items():
-        _prev[_art_kabupa_top_key(store, _f)] = str(_v or "")
-    save_store_settings(store, _prev)
+    _cur = {_f: str(_v or "") for _f, _v in _art_kabupa_top_current(store).items()}
+    if _cur == _art_kabupa_top_saved(store):
+        return                                   # 変化なし→書かない・pushしない
+    _data = _load_art_shared_inputs()
+    _data[store] = _cur
+    _js = json.dumps(_data, ensure_ascii=False, indent=2)
+    with open(os.path.join(BASE_DIR, _ART_SHARED_INPUTS_FN), "w", encoding="utf-8") as _f:
+        _f.write(_js)
+    if _IS_CLOUD:
+        _ok, _msg = _github_push_file(
+            _js, _ART_SHARED_INPUTS_FN,
+            base_sha=st.session_state.get(_gh_sha_key(_ART_SHARED_INPUTS_FN)))
+        if not _ok:
+            # 競合時は _github_push_file が最新をファイルへ取り込み済み。
+            # 画面も最新値へ戻す（未保存の編集は入れ直しが必要・黙ってマージしない）。
+            _latest = _art_kabupa_top_saved(store)
+            for _f in _ART_KABUPA_TOP_FIELDS:
+                st.session_state[_art_kabupa_top_key(store, _f)] = _latest[_f]
+        _log = ("✅ かぶぱ文章: " if _ok else "❌ かぶぱ文章: ") + _msg
+        st.session_state["_github_sync_log"] = _log
+        try:
+            st.toast(_log, icon="✅" if _ok else "❌")
+        except Exception:
+            pass
 
 
 def _save_art_osusume(store: str) -> None:

@@ -169,7 +169,10 @@ H2_SHIMAZU  = "シマズをチェック！"
 H2_OSUSUME  = "オススメ機種の優秀台"
 # payload["h2_alt"] が真の店舗だけ使う別文言（2026-09-18 追加）。
 # キーを渡さない店舗は上の従来文言のまま（他店舗へ波及させない）。
-H2_HIGH_ALT    = "高配分機種も複数"
+H2_HIGH_ALT    = "1/2系以上？"
+# 全台系・並びの別文言（2026-09-24 追加・h2_alt の店舗だけ）
+H2_ZENDAI_ALT  = "全？"
+H2_NARABI_ALT  = "並びも複数！"
 H2_OSUSUME_ALT = "オススメポスター機種の優秀台"
 H2_SONOTA_ALT  = "その他の単品優秀台"
 # 差枚数ランキングと島図は **1つのH2へ統合**する（2026-09-04）。
@@ -216,7 +219,7 @@ NANAKO_HINT_COUNT = 6           # ヒント入力欄の数（固定）
 NANAKO_TEXT_BY_STORE: "dict[str, dict[str, str]]" = {
     "新宿歌舞伎町": {
         "label": "かぶぱポスト",
-        "h2":    "かぶぱポストに仕掛けのヒントを確認！",
+        "h2":    "かぶぱポストは毎日チェック！",
         "lead":  ("前日の夜に配信されるかぶぱのポストには仕掛けのヒントが"
                   "隠されていることが多く、今回もポストから仕掛けのヒントと"
                   "思しき箇所を複数確認！"),
@@ -1130,6 +1133,8 @@ def plan_blocks(payload: dict) -> list[dict]:
     _h2_high  = H2_HIGH_ALT if _h2_alt else H2_HIGH
     _h2_osu   = H2_OSUSUME_ALT if _h2_alt else H2_OSUSUME
     _h2_son   = H2_SONOTA_ALT if _h2_alt else H2_SONOTA
+    _h2_zen   = H2_ZENDAI_ALT if _h2_alt else H2_ZENDAI
+    _h2_nami  = H2_NARABI_ALT if _h2_alt else H2_NARABI
     out_dir = payload.get("output_dir", "")
     plan: list[dict] = []
 
@@ -1220,7 +1225,7 @@ def plan_blocks(payload: dict) -> list[dict]:
                       os.path.join(out_dir, f"{app_safe_fn(x['name'])}.jpg"))],
                  key=lambda x: -int(x.get("all_avg_diff", 0)))
     if zen:
-        plan.append({"type": "h2", "text": H2_ZENDAI})
+        plan.append({"type": "h2", "text": _h2_zen})
         for it in zen:
             # 接頭辞のみ付ける。h3_zendai() 本体は変更しない
             # （マイナス平均の非表示・0の +0枚・_ARROW_R2・fmt_signed をそのまま維持）。
@@ -1290,7 +1295,7 @@ def plan_blocks(payload: dict) -> list[dict]:
              if str(r.get("file") or "")
              and out_dir and os.path.isfile(os.path.join(out_dir, str(r["file"])))]
     if nami or retsu:
-        plan.append({"type": "h2", "text": H2_NARABI})
+        plan.append({"type": "h2", "text": _h2_nami})
         for it in nami:
             plan.append({"type": "h3", "text": h3_narabi(it)})
             plan.append({"type": "image",

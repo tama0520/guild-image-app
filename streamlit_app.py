@@ -7586,6 +7586,71 @@ def _art_osu_f_index(store: str, n: int) -> int:
     return _ART_OSU_F_OPTS.index(_val)
 
 
+# 記事用②個別画像の予測候補を当日設置機種だけへ絞る店舗（候補表示だけ・判定や保存値は不変）
+_ART_KOJIN_CAND_TODAY_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
+def _art_today_candidates(store: str, candidates, view_df) -> "list[str]":
+    """予測候補を当日データの機種（変換後の簡略名）だけに絞る。当日データが無ければ従来のまま。"""
+    if view_df is None or "機種名" not in getattr(view_df, "columns", []):
+        return list(candidates)
+    _today = [str(_m).strip() for _m in view_df["機種名"].dropna().tolist()
+              if str(_m).strip()]
+    if not _today:
+        return list(candidates)
+    _tn = {_normalize_key(_m) for _m in _today}
+    _out: list[str] = []
+    for _c in candidates:
+        _base = _c
+        for _suf in ("・2F", "・3F"):
+            if _c.endswith(_suf):
+                _base = _c[: -len(_suf)]
+        if _normalize_key(_base) in _tn and _c not in _out:
+            _out.append(_c)
+    # マスタの候補一覧に無い当日機種名（変換マスタ外）も候補へ加える
+    _on = {_normalize_key(_c) for _c in _out}
+    for _m in sorted(set(_today)):
+        if _normalize_key(_m) not in _on:
+            _out.append(_m)
+            _on.add(_normalize_key(_m))
+    return _out
+
+
+# ── 記事用①冒頭：かぶぱポスト周辺の任意文章（新宿歌舞伎町のみ）──────────
+# 見出し／見出し下の文章／ヒント下の文章は **店舗単位**（store_settings）で保持し、
+# 日付を変えても消さない（⑤ _save_art_osusume() と同じ存在ガード方式を流用）。
+# 日付単位の article_page_inputs.json には入れない。
+_ART_KABUPA_TOP_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+_ART_KABUPA_TOP_FIELDS: "tuple[str, ...]" = ("head", "head_text", "hint_after")
+
+
+def _art_kabupa_top_key(store: str, field: str) -> str:
+    return f"art_kabupa_{field}_{store}"
+
+
+def _art_kabupa_top_saved(store: str) -> "dict[str, str]":
+    """store_settings の保存値（読み取り専用・未保存は ""）。"""
+    _s = load_store_settings(store)
+    return {_f: str(_s.get(_art_kabupa_top_key(store, _f)) or "")
+            for _f in _ART_KABUPA_TOP_FIELDS}
+
+
+def _art_kabupa_top_current(store: str) -> "dict[str, str]":
+    """現在値：widget が描画中なら session_state、無ければ保存値。"""
+    _saved = _art_kabupa_top_saved(store)
+    return {_f: (st.session_state[_k] if (_k := _art_kabupa_top_key(store, _f))
+                 in st.session_state else _saved[_f])
+            for _f in _ART_KABUPA_TOP_FIELDS}
+
+
+def _save_art_kabupa_top(store: str) -> None:
+    """on_change 即保存。キーあり→現在値（空欄も意図的クリアとして保存）／キーなし→既存値維持。"""
+    _prev = load_store_settings(store)
+    for _f, _v in _art_kabupa_top_current(store).items():
+        _prev[_art_kabupa_top_key(store, _f)] = str(_v or "")
+    save_store_settings(store, _prev)
+
+
 def _save_art_osusume(store: str) -> None:
     """記事用⑤（タイトル・機種名・抽出条件）を store_settings へ即保存する。
 
@@ -18493,6 +18558,18 @@ def show_auto_article_page() -> None:
         # 新宿歌舞伎町だけ、見出しの括弧内を**案内用プロフィールURLのリンク**にする。
         # 別タブで開く（target="_blank" / rel="noopener noreferrer"）。
         # 登録の無い店舗（渋谷新館など）は**従来の文言のまま**。
+        # 任意の見出し・見出し下の文章（新宿歌舞伎町のみ・店舗単位で保持）。
+        # key は日付スコープにしない（_artw_* を使わない）＝日付を変えても同じ値を表示する。
+        if store in _ART_KABUPA_TOP_STORES:
+            _kb_saved = _art_kabupa_top_saved(store)
+            st.text_input(f"{_nk_label}の見出し（空欄なら出力しません）",
+                          key=_art_kabupa_top_key(store, "head"),
+                          value=_kb_saved["head"],
+                          on_change=_save_art_kabupa_top, args=(store,))
+            st.text_area("見出し下の文章（改行で段落／空欄なら出力しません）",
+                         key=_art_kabupa_top_key(store, "head_text"),
+                         value=_kb_saved["head_text"],
+                         on_change=_save_art_kabupa_top, args=(store,))
         _nk_prof = _ART_NANAKO_PROFILE_URLS.get(store, "")
         if _nk_prof:
             st.markdown(
@@ -18511,6 +18588,11 @@ def show_auto_article_page() -> None:
                 _art_txt(f"ヒント{_nk_i + 1}",
                          f"art_nanako_hint_{_nk_i}_{store}",
                          placeholder="例: ヒソカ→見た目がピエロ→ピエロ→北斗")
+        if store in _ART_KABUPA_TOP_STORES:
+            st.text_area("ヒント下の文章（改行で段落／空欄なら出力しません）",
+                         key=_art_kabupa_top_key(store, "hint_after"),
+                         value=_art_kabupa_top_saved(store)["hint_after"],
+                         on_change=_save_art_kabupa_top, args=(store,))
 
     # ── ② 全台系（表示のみ。抽出・生成は run_step1_main が自動で行う）──────
     # 設定UIは持たない（ON/OFFも無い）。記事の構成番号を1つ使うためだけの見出し。
@@ -18550,6 +18632,18 @@ def show_auto_article_page() -> None:
                          if _v not in _kojin_candidates]
             if _kj_extra:
                 _kojin_candidates = list(_kojin_candidates) + _kj_extra
+        # 予測候補を「当日データに設置されている機種」だけに絞る店舗。
+        # 当日の機種名は ⓪/① の取得データ表と同じ normalize_df → apply_name_conversion 済みの
+        # `_art_view_df_{store}`（機種名列）を使う。照合は _normalize_key で表記ゆれを吸収し、
+        # 階別バリアント（・2F / ・3F）は基本名が当日にあれば残す。
+        # ★候補一覧だけを絞る（保存済みの入力値は変更しない）。当日データが無ければ従来の全候補。
+        if store in _ART_KOJIN_CAND_TODAY_STORES:
+            _kojin_candidates = _art_today_candidates(
+                store, _kojin_candidates,
+                (st.session_state.get(f"_art_view_df_{store}")
+                 if uploaded is not None
+                 and st.session_state.get(f"_art_view_df_fn_{store}") == uploaded.name
+                 else None))
         st.caption("指定した機種の個別画像を生成します。ここに入力した機種はその他の優秀台ピックアップから除外されます。")
         # 未描画 run を挟んだ後の初回描画でブラウザへ初期値を届けるための保存値参照用
         _art_kojin_excel = st.session_state.get("art_current_excel")
@@ -21630,6 +21724,8 @@ def show_auto_article_page() -> None:
                             "hints": [st.session_state.get(f"art_nanako_hint_{_i}_{store}", "")
                                       for _i in range(_ART_NANAKO_HINTS)],
                         }
+                        if store in _ART_KABUPA_TOP_STORES:
+                            _art_wp_pl["nanako"].update(_art_kabupa_top_current(store))
                     st.session_state[f"_art_wp_payload_{store}"] = _art_wp_pl
                 except Exception as _wpe0:
                     st.warning(f"WordPress用データの準備に失敗: {_wpe0}")

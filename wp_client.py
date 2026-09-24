@@ -1185,14 +1185,27 @@ def plan_blocks(payload: dict) -> list[dict]:
         _nk_hints = [str(h or "").strip() for h in ((_nanako or {}).get("hints") or [])]
         _nk_hints = [h for h in _nk_hints if h]
         _nk_t = nanako_texts(payload.get("store", ""))
+        # 任意の見出し／見出し下の文章／ヒント下の文章（新宿歌舞伎町の記事用のみ・
+        # キーを渡さない店舗は従来と1ブロックも変わらない）。空欄なら何も出さない。
+        # 文章は記事上部の文章欄と同じ _split_para()（改行で段落・空行は落とす）。
+        _nk_head      = str((_nanako or {}).get("head") or "").strip()
+        _nk_head_text = _split_para((_nanako or {}).get("head_text"))
+        _nk_hint_after = _split_para((_nanako or {}).get("hint_after"))
         plan.append({"type": "h2", "text": _nk_t["h2"]})
         plan.append({"type": "para", "text": _nk_t["lead"]})
+        if _nk_head:
+            plan.append({"type": "h3", "text": _nk_head})
+        for _ln in _nk_head_text:
+            plan.append({"type": "para", "text": _ln})
         if _nk_url:
             plan.append({"type": "para_bold", "text": NANAKO_URL_LEAD})
             plan.append({"type": "embed_x", "url": _nk_url})
         if _nk_hints:
             plan.append({"type": "para", "text": NANAKO_HINT_LEAD})
             plan.append({"type": "para_hints", "hints": _nk_hints})
+        for _ln in _nk_hint_after:
+            plan.append({"type": "para", "text": _ln})
+        if _nk_hints:
             plan.append({"type": "para", "text": _nk_t["outro"]})
 
     # ── 全台系: H2 →（H3 + 画像）× 機種数 ──

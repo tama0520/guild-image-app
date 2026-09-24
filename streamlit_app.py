@@ -11447,6 +11447,23 @@ def _art_sue_settings() -> "tuple[list[str], str, list[str], str]":
     return _tails, _mode, _jtails, _jmode
 
 
+# 記事用⑦の「生成する」チェックを **画像名ベースの安定キー** にする店舗。
+# 位置キー（art_prev_ck_{store}_{index}）だと、🔄の再生成・再振り分けで画像が増減・並び替わった際に
+# 同じキーが別の画像・別の位置へ移り、フロントで removeChild エラーになり得る。
+_ART_CK_NAME_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
+def _art_ck_key(store: str, previews, idx: int) -> str:
+    """記事用⑦の画像チェックのキー。対象外店舗は従来の位置キーのまま。
+    対象店舗は画像名（同名が複数あるときは出現順の番号を付ける）から作る。"""
+    if store not in _ART_CK_NAME_STORES:
+        return f"art_prev_ck_{store}_{idx}"
+    _nm = str(previews[idx][0])
+    _occ = sum(1 for _p in list(previews)[:idx] if str(_p[0]) == _nm)
+    _h = hashlib.md5(f"{_nm}|{_occ}".encode("utf-8")).hexdigest()[:12]
+    return f"art_prev_ck_{store}_n{_h}"
+
+
 def _art_pipeline_exclude(state: dict) -> dict:
     """記事用の除外stateを pipeline の exclude_units 形式へ投影する（読み取り専用）。
 
@@ -18893,7 +18910,7 @@ def show_auto_article_page() -> None:
         if _art_unit_regen and _art_auto_previews and _unit_resort_on():
             _art_off_names = {
                 _pn for _ci0, (_pn, _) in enumerate(_art_auto_previews)
-                if not st.session_state.get(f"art_prev_ck_{store}_{_ci0}", True)}
+                if not st.session_state.get(_art_ck_key(store, _art_auto_previews, _ci0), True)}
         if _art_auto_previews is None or _art_unit_regen:
             _art_full_btn = False
             _art_manual_btn = False
@@ -19636,12 +19653,14 @@ def show_auto_article_page() -> None:
                     # 次の再実行で既存の🔄再振り分け経路を続けて通す（🔄1回で完結）。
                     if _art_off_names:
                         _art_new_pv = st.session_state.get(_art_aprev_key) or []
-                        for _ci0 in range(max(len(_art_auto_previews or []), len(_art_new_pv))):
-                            st.session_state.pop(f"art_prev_ck_{store}_{_ci0}", None)
+                        for _ci0 in range(len(_art_auto_previews or [])):
+                            st.session_state.pop(_art_ck_key(store, _art_auto_previews, _ci0), None)
+                        for _ci0 in range(len(_art_new_pv)):
+                            st.session_state.pop(_art_ck_key(store, _art_new_pv, _ci0), None)
                         _art_off_hit = False
                         for _ci0, (_pn, _) in enumerate(_art_new_pv):
                             if _pn in _art_off_names:
-                                st.session_state[f"art_prev_ck_{store}_{_ci0}"] = False
+                                st.session_state[_art_ck_key(store, _art_new_pv, _ci0)] = False
                                 _art_off_hit = True
                         if _art_off_hit:
                             st.session_state[f"_unit_resort_art_{store}"] = _art_unit_stem
@@ -19655,7 +19674,7 @@ def show_auto_article_page() -> None:
                 _agc = st.columns(3)
                 for _ci2, _ci in enumerate(range(_rs, min(_rs + 3, len(_art_auto_previews)))):
                     _pt, _pi = _art_auto_previews[_ci]
-                    _ck = f"art_prev_ck_{store}_{_ci}"
+                    _ck = _art_ck_key(store, _art_auto_previews, _ci)
                     if _ck not in st.session_state: st.session_state[_ck] = True
                     with _agc[_ci2]:
                         _sc, _si2 = st.columns([1, 10])
@@ -19774,7 +19793,7 @@ def show_auto_article_page() -> None:
                         _audis:  list[pd.Series]    = []
                         _ajdfs:  list[pd.DataFrame] = []
                         for _ci, (_pname, _) in enumerate(_art_auto_previews):
-                            if not st.session_state.get(f"art_prev_ck_{store}_{_ci}", True):
+                            if not st.session_state.get(_art_ck_key(store, _art_auto_previews, _ci), True):
                                 _m2 = _aphr.get(_pname)
                                 if _m2 and _m2 not in _akset:
                                     _mr = _apdf2[_apdf2["機種名"] == _m2]
@@ -19855,7 +19874,7 @@ def show_auto_article_page() -> None:
                                         _anp[_ci] = (_pn2, _asi); break
                                 else:
                                     _anp.append(("その他の優秀台ピックアップ.jpg", _asi))
-                                    st.session_state[f"art_prev_ck_{store}_{len(_anp)-1}"] = True
+                                    st.session_state[_art_ck_key(store, _anp, len(_anp) - 1)] = True
                                 _aup = True
                         if _ajdfs:
                             _ajbase = [_apjp.copy()] if _apjp is not None and not _apjp.empty else (
@@ -19892,12 +19911,12 @@ def show_auto_article_page() -> None:
                                         _anp[_ci2] = (_pn2, _aov_img); break
                                 else:
                                     _anp.append(("その他の優秀台ピックアップ.jpg", _aov_img))
-                                    st.session_state[f"art_prev_ck_{store}_{len(_anp)-1}"] = True
+                                    st.session_state[_art_ck_key(store, _anp, len(_anp) - 1)] = True
                                 _aup = True
                             else:
                                 _ahkj = any(m.strip() in _ajss for m in (kojin_zentai_machines + kojin_yushu_machines) if m.strip())
                                 _asto = _ahkj or any(
-                                    st.session_state.get(f"art_prev_ck_{store}_{_si}", True) and
+                                    st.session_state.get(_art_ck_key(store, _art_auto_previews, _si), True) and
                                     (_aphr.get(_sp) in _ajss or _apzen.get(_sp) in _ajss)
                                     for _si, (_sp, _) in enumerate(_art_auto_previews)
                                 )
@@ -19909,7 +19928,7 @@ def show_auto_article_page() -> None:
                                         _anp[_ji] = (_jn, _aji); break
                                 else:
                                     _anp.append(("ジャグラーシリーズ優秀台.jpg", _aji))
-                                    st.session_state[f"art_prev_ck_{store}_{len(_anp)-1}"] = True
+                                    st.session_state[_art_ck_key(store, _anp, len(_anp) - 1)] = True
                                 _aup = True
                         if _aup:
                             # スランプグラフ合成（その他を更新後）
@@ -20046,7 +20065,7 @@ def show_auto_article_page() -> None:
                                _art_aprev_unit_key):
                         st.session_state.pop(_k, None)
                     for _ci in range(len(_art_auto_previews)):
-                        st.session_state.pop(f"art_prev_ck_{store}_{_ci}", None)
+                        st.session_state.pop(_art_ck_key(store, _art_auto_previews, _ci), None)
                     st.rerun()
 
     # ── 📝 記事コメント（渋谷新館の記事用のみ・2026-09-08 第1段階）──────────
@@ -20343,7 +20362,7 @@ def show_auto_article_page() -> None:
                 _art_aprev_imgs_n = st.session_state.get(f"art_preview_imgs_{store}")
                 if ok_n and _art_aprev_imgs_n and os.path.isdir(narabi_dir):
                     for _ci, (_pname, _) in enumerate(_art_aprev_imgs_n):
-                        if not st.session_state.get(f"art_prev_ck_{store}_{_ci}", True):
+                        if not st.session_state.get(_art_ck_key(store, _art_aprev_imgs_n, _ci), True):
                             _del_n = os.path.join(narabi_dir, _pname)
                             if not os.path.exists(_del_n):
                                 _del_n = os.path.join(narabi_dir, _pname.replace(":", "："))
@@ -20858,7 +20877,7 @@ def show_auto_article_page() -> None:
                 _arxdis: list[pd.Series]    = []
                 _arjdfs: list[pd.DataFrame] = []
                 for _ci, (_pname, _) in enumerate(_art_aprev_imgs):
-                    if not st.session_state.get(f"art_prev_ck_{store}_{_ci}", True):
+                    if not st.session_state.get(_art_ck_key(store, _art_aprev_imgs, _ci), True):
                         _dp = os.path.join(output_dir, _pname)
                         if os.path.exists(_dp):
                             os.remove(_dp)
@@ -20912,7 +20931,7 @@ def show_auto_article_page() -> None:
                                     if not _aryg.empty:
                                         _arhjex = any(
                                             _pn2 == "ジャグラーシリーズ優秀台.jpg" and
-                                            st.session_state.get(f"art_prev_ck_{store}_{_pni}", True)
+                                            st.session_state.get(_art_ck_key(store, _art_aprev_imgs, _pni), True)
                                             for _pni, (_pn2, _) in enumerate(_art_aprev_imgs)
                                         )
                                         if _arky in _arjss and _arhjex: _arjdfs.append(_aryg)

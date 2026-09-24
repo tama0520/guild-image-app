@@ -7786,10 +7786,12 @@ def _art_zendai_image(diff_raw, hq_scale: float = _ART_ZENDAI_HQ,
         ("総差枚", fmt_diff(_st["total_diff"])),
         ("平均差枚" if red_theme else "平均", fmt_diff(_st["avg_diff"])),
     ]
-    # red_theme（新宿歌舞伎町の記事用）: 見出し＝WordPress H2の赤＋白文字／本文＝スランプ背景の薄紫＋黒文字
+    # red_theme（新宿歌舞伎町の記事用）: 見出し＝WordPress H2の赤＋白文字／
+    #   本文は左右のセルに分け、項目名セル＝スランプ背景の薄紫・数値セル＝白（文字はどちらも黒）
     _c_title_bg = _ART_ZENDAI_RED_TITLE_BG if red_theme else _ART_ZENDAI_TITLE_BG
     _c_title_fg = _ART_ZENDAI_RED_TITLE_FG if red_theme else _ART_ZENDAI_TITLE_FG
-    _c_body_bg  = C_ART_SLUMP_AREA_BG     if red_theme else _ART_ZENDAI_BODY_BG
+    _c_body_bg  = (255, 255, 255)         if red_theme else _ART_ZENDAI_BODY_BG
+    _c_label_bg = C_ART_SLUMP_AREA_BG     if red_theme else None
     _c_label_fg = _ART_ZENDAI_RED_TEXT_FG if red_theme else _ART_ZENDAI_LABEL_FG
     _c_value_fg = _ART_ZENDAI_RED_TEXT_FG if red_theme else _ART_ZENDAI_VALUE_FG
     # 論理値（見本 374×149 基準）を **すべて同じ倍率** でスケールする。
@@ -7821,6 +7823,9 @@ def _art_zendai_image(diff_raw, hq_scale: float = _ART_ZENDAI_HQ,
     draw = ImageDraw.Draw(img)
     draw.rectangle([(0, 0), (_w - 1, HDR_BOT - 1)], fill=_c_title_bg)
     draw.rectangle([(0, HDR_BOT), (_w - 1, BODY_TOP - 1)], fill=_ART_ZENDAI_RULE)
+    if _c_label_bg is not None:
+        # 項目名セル（左）＝外枠の内側〜値の開始位置 _val_x。数値セル（右）＝_val_x〜外枠の内側。
+        draw.rectangle([(0, BODY_TOP), (_val_x - 1, _h - 1)], fill=_c_label_bg)
 
     def _put(text: str, x: int, y: int, h: int, font, fill, cell_w: int = 0) -> None:
         # cell_w>0 のときは x..x+cell_w のセル内で水平中央、未指定は左寄せ（従来）。垂直は常に中央。
@@ -7836,13 +7841,16 @@ def _art_zendai_image(diff_raw, hq_scale: float = _ART_ZENDAI_HQ,
         _put(_ART_ZENDAI_TITLE, 0, BD, HDR_BOT - BD, FN_TITLE, _c_title_fg, cell_w=_w)
     else:
         _put(_ART_ZENDAI_TITLE, PAD, BD, HDR_BOT - BD, FN_TITLE, _c_title_fg)
+    # red_theme: 各行を「項目名セル BD〜_val_x」「数値セル _val_x〜_w-BD」の矩形とみなし、
+    #   それぞれのセル矩形の中央へ水平・垂直とも中央寄せする（個別オフセットは使わない）。
     _y = BODY_TOP
     for _l, _v in _rows:
         if red_theme:
-            _put(_l, 0, _y, ROW_HH, FN_LABEL, _c_label_fg, cell_w=_val_x)
+            _put(_l, BD, _y, ROW_HH, FN_LABEL, _c_label_fg, cell_w=_val_x - BD)
+            _put(_v, _val_x, _y, ROW_HH, FN_VALUE, _c_value_fg, cell_w=_w - BD - _val_x)
         else:
             _put(_l, PAD, _y, ROW_HH, FN_LABEL, _c_label_fg)
-        _put(_v, _val_x, _y, ROW_HH, FN_VALUE, _c_value_fg)
+            _put(_v, _val_x, _y, ROW_HH, FN_VALUE, _c_value_fg)
         _y += ROW_HH
     draw.rectangle([(0, 0), (_w - 1, _h - 1)], outline=_ART_ZENDAI_BORDER, width=BD)
     return img

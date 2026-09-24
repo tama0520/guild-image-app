@@ -4487,6 +4487,19 @@ def _high_unit_add_on() -> bool:
         return False
 
 
+# 記事用で高配分画像・②個別「優秀台」の🎯に**未掲載台の追加**を許可する店舗。
+# 結果ポスト用の _high_unit_add_on() と同じ追加方式（追加集合 art_high_add / art_kojin_add）。
+_ART_HIGH_ADD_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
+def _art_high_add_on(store: str) -> bool:
+    try:
+        return (st.session_state.get("page") == "auto_article"
+                and store in _ART_HIGH_ADD_STORES)
+    except Exception:
+        return False
+
+
 # 🔄その他を更新で🎯再生成が走ったとき、同じ🔄のうちにチェックOFF画像の
 # 「その他へ再振り分け」まで続けて行うページ（店舗は列挙しない・page で判定）。
 # 🎯パネル／画像チェックが無いページでは再生成自体が起きないので影響しない。
@@ -10775,6 +10788,9 @@ def _unit_ex_state(store: str, excel_stem: str) -> dict:
     _st.setdefault("art_juggler", {})    # ジャグラーシリーズ優秀台（機種名単位）
     _st.setdefault("art_sonota", {})     # その他の優秀台ピックアップ（機種名なし）
     _st.setdefault("art_suebangai", {})  # ④末尾（sue:/jug: を前置した画像キー単位）
+    # 記事用で🎯から**追加**した台番（_ART_HIGH_ADD_STORES の店舗だけ使う・意味は追加）
+    _st.setdefault("art_high_add", {})   # 高配分（機種名単位）
+    _st.setdefault("art_kojin_add", {})  # ②個別「優秀台」（画像キー単位）
     # 結果ポスト用／スランプ付き結果ポスト用（show_auto_page）の系統。いずれも画像単位の安定キー。
     _st.setdefault("kojin_yushu", {})   # ②個別画像の「優秀台」
     _st.setdefault("suebangai", {})     # ④末尾画像（通常末尾＝sue: / ジャグラー末尾＝jug: を前置）
@@ -11442,6 +11458,8 @@ def _art_pipeline_exclude(state: dict) -> dict:
         return {}
     return {
         "high":    state.get("art_high") or {},
+        # 追加集合（pipeline は high_add_on=True のときだけ読む）
+        "high_add": state.get("art_high_add") or {},
         "juggler": state.get("art_juggler") or {},
         "sonota":  (state.get("art_sonota") or {}).get(None) or set(),
     }
@@ -18934,6 +18952,8 @@ def show_auto_article_page() -> None:
                             zh_hq_scale=_art_zh_hq(store),
                             # 🎯掲載台を選ぶ（高配分／ジャグラー統合／その他）: 記事用stateの投影
                             exclude_units=_art_pipeline_exclude(_art_unit_state),
+                            # 🎯高配分で未掲載台を追加できる店舗（記事用・既定False）
+                            high_add_on=_art_high_add_on(store),
                             # ②個別画像(全台)の機種は自動全台系を作らない（同名画像の二重生成を防ぐ）
                             # ⑤最優先の店舗では⑤入力機種も自動全台系を作らない（⑤へ載せる）
                             kojin_zentai_machines=(({m.strip() for m in kojin_zentai_machines if m.strip()}
@@ -19021,18 +19041,26 @@ def show_auto_article_page() -> None:
                                     _kda = _apdi.loc[_kga.index]
                                     # 正式な候補台を抽出（抽出条件は変更しない）
                                     _kgp = _kojin_yushu_filter(_km_base, _kga, _kda, get_store_config(store)).reset_index(drop=True)
-                                    if _kgp.empty: continue
+                                    _ky_add_a = _art_high_add_on(store)
+                                    if _kgp.empty and not _ky_add_a: continue
                                     # 🎯掲載台を選ぶ（②個別・優秀台）: 抽出後・画像生成前に台番単位で除外
                                     _ky_fn   = f"{_km}（優秀台）.jpg"
-                                    _ky_all  = [int(b) for b in _kgp["台番"].dropna()
-                                                if str(b).split(".")[0].lstrip("-").isdigit()]
-                                    _ky_ikey = _unit_ex_img_key(_km, _ky_all)
-                                    _art_unit_src[_ky_fn] = {"kind": "art_kojin", "machine": _ky_ikey,
-                                                             "bans": _ky_all}
-                                    _ky_ex = _unit_ex_get(_art_unit_state, "art_kojin", _ky_ikey)
-                                    if _ky_ex:
-                                        _ky_keep = ~_kgp["台番"].apply(lambda b: int(b) in _ky_ex)
-                                        _kgp = _kgp[_ky_keep.values].copy().reset_index(drop=True)
+                                    if _ky_add_a:
+                                        # 候補＝その機種の当日全台。既定掲載は _kgp のまま（結果ポスト用と同じ）
+                                        _kgp, _ky_ikey, _ky_all, _ky_base = _unit_ex_pick_add(
+                                            _art_unit_state, "art_kojin", _km, _kga, _kgp)
+                                        _art_unit_src[_ky_fn] = {"kind": "art_kojin", "machine": _ky_ikey,
+                                                                 "bans": _ky_all, "base": _ky_base}
+                                    else:
+                                        _ky_all  = [int(b) for b in _kgp["台番"].dropna()
+                                                    if str(b).split(".")[0].lstrip("-").isdigit()]
+                                        _ky_ikey = _unit_ex_img_key(_km, _ky_all)
+                                        _art_unit_src[_ky_fn] = {"kind": "art_kojin", "machine": _ky_ikey,
+                                                                 "bans": _ky_all}
+                                        _ky_ex = _unit_ex_get(_art_unit_state, "art_kojin", _ky_ikey)
+                                        if _ky_ex:
+                                            _ky_keep = ~_kgp["台番"].apply(lambda b: int(b) in _ky_ex)
+                                            _kgp = _kgp[_ky_keep.values].copy().reset_index(drop=True)
                                     if _kgp.empty: continue   # 全台除外 → 画像を作らない
                                     _ahitems.append((int(round(_kda.mean())), "kojin", (_km, _kgp)))
                                     _art_cmt_high_manual.append(_km_base)
@@ -19543,7 +19571,10 @@ def show_auto_article_page() -> None:
                         _bu_a = _hu_a.get("bans_all")
                         if _bu_a:
                             _art_unit_src[f"{_make_safe_fn(_hu_a['name'])}_高配分.jpg"] = {
-                                "kind": "art_high", "machine": _hu_a["name"], "bans": list(_bu_a)}
+                                "kind": "art_high", "machine": _hu_a["name"], "bans": list(_bu_a),
+                                # 追加を許可した店舗のみ: 既定掲載台（無ければ従来どおり減らす操作だけ）
+                                **({"base": list(_hu_a["bans_base"])}
+                                   if _hu_a.get("bans_base") is not None else {})}
                     _jg_bans_a = _art_pr.get("jug_bans_all") or []
                     if _jg_bans_a and _art_pr.get("jug_pool_df") is not None:
                         _art_unit_src["ジャグラーシリーズ優秀台.jpg"] = {
@@ -19689,6 +19720,7 @@ def show_auto_article_page() -> None:
                                     st.session_state.get(_art_aprev_df_key),
                                     st.session_state.get(_art_aprev_di_key),
                                     "🔄 その他を更新",
+                                    base_bans=_au_src.get("base"),
                                 )
             # 全台除外で画像が消えた対象は、グリッドに出せる画像が無くパネルも消えてしまう。
             # 掲載台を戻せるよう、画像が無い対象のパネルだけをここに描画する。
@@ -19704,6 +19736,7 @@ def show_auto_article_page() -> None:
                         st.session_state.get(_art_aprev_df_key),
                         st.session_state.get(_art_aprev_di_key),
                         "🔄 その他を更新",
+                        base_bans=_ov.get("base"),
                     )
             _ab1, _ab2 = st.columns(2)
             with _ab1:
@@ -20249,6 +20282,8 @@ def show_auto_article_page() -> None:
                 zh_hq_scale=_art_zh_hq(store),
                 # 🎯掲載台を選ぶ（高配分／ジャグラー統合／その他）: 記事用stateの投影
                 exclude_units=_art_pipeline_exclude(_art_unit_state_e),
+                # 🎯高配分で未掲載台を追加できる店舗（⑦と同じ判定・既定False）
+                high_add_on=_art_high_add_on(store),
                 # ②個別画像(全台)の機種は自動全台系を作らない（同名画像の二重生成を防ぐ）
                 # ⑤最優先の店舗では⑤入力機種も自動全台系を作らない（⑤へ載せる）
                 kojin_zentai_machines=(({m.strip() for m in kojin_zentai_machines if m.strip()}
@@ -20381,7 +20416,14 @@ def show_auto_article_page() -> None:
                             continue
                         _kdr_all  = diff_k.loc[_kgrp_all.index]
                         _kgrp_p   = _kojin_yushu_filter(_km_base_y, _kgrp_all, _kdr_all, get_store_config(store))
-                        if _kgrp_p.empty:
+                        _ky_add_ae = _art_high_add_on(store)
+                        if _kgrp_p.empty and _ky_add_ae:
+                            # 既定掲載0台: 🎯で追加された台が無ければ従来どおり（結果テキストにも載せない）
+                            _kpre_ae, _, _, _ = _unit_ex_pick_add(
+                                _art_unit_state_e, "art_kojin", _km, _kgrp_all, _kgrp_p)
+                            if _kpre_ae.empty:
+                                _ky_add_ae = False
+                        if _kgrp_p.empty and not _ky_add_ae:
                             _log(f"  個別(優秀台)「{_km}」: 条件を満たす台なし")
                             continue
                         _kdr_p2   = _kdr_all.loc[_kgrp_p.index]
@@ -20397,13 +20439,18 @@ def show_auto_article_page() -> None:
                         # 🎯掲載台を選ぶ（②個別・優秀台）: 抽出後・画像生成前に台番単位で除外。
                         # プレビューと同じ安定キー（機種名＋除外前のソート済み台番集合）を使う。
                         _kout   = os.path.join(output_dir, f"{_make_safe_fn(_km)}（優秀台）.jpg")
-                        _ky_all_e = [int(b) for b in _kgrp_p["台番"].dropna()
-                                     if str(b).split(".")[0].lstrip("-").isdigit()]
-                        _ky_ex_e  = _unit_ex_get(_art_unit_state_e, "art_kojin",
-                                                 _unit_ex_img_key(_km, _ky_all_e))
-                        if _ky_ex_e:
-                            _ky_keep_e = ~_kgrp_p["台番"].apply(lambda b: int(b) in _ky_ex_e)
-                            _kgrp_p = _kgrp_p[_ky_keep_e.values].copy().reset_index(drop=True)
+                        if _ky_add_ae:
+                            # 候補＝その機種の当日全台（⑦と同一キー・同一掲載台）
+                            _kgrp_p, _, _, _ = _unit_ex_pick_add(
+                                _art_unit_state_e, "art_kojin", _km, _kgrp_all, _kgrp_p)
+                        else:
+                            _ky_all_e = [int(b) for b in _kgrp_p["台番"].dropna()
+                                         if str(b).split(".")[0].lstrip("-").isdigit()]
+                            _ky_ex_e  = _unit_ex_get(_art_unit_state_e, "art_kojin",
+                                                     _unit_ex_img_key(_km, _ky_all_e))
+                            if _ky_ex_e:
+                                _ky_keep_e = ~_kgrp_p["台番"].apply(lambda b: int(b) in _ky_ex_e)
+                                _kgrp_p = _kgrp_p[_ky_keep_e.values].copy().reset_index(drop=True)
                         if _kgrp_p.empty:
                             # 全台除外: 画像を作らず、古い同名画像が残らないよう削除する
                             if os.path.exists(_kout):

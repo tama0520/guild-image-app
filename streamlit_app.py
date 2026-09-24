@@ -7852,6 +7852,12 @@ def _art_zendai_image(diff_raw, hq_scale: float = _ART_ZENDAI_HQ,
             _put(_l, PAD, _y, ROW_HH, FN_LABEL, _c_label_fg)
             _put(_v, _val_x, _y, ROW_HH, FN_VALUE, _c_value_fg)
         _y += ROW_HH
+    if red_theme:
+        # 項目名セル／数値セルの境目（縦）と行の境目（横）に、外枠と同じ色・太さ(BD)の罫線を引く。
+        draw.rectangle([(_val_x - BD, BODY_TOP), (_val_x - 1, _h - 1)], fill=_ART_ZENDAI_BORDER)
+        for _ri in range(1, len(_rows)):
+            _ly = BODY_TOP + ROW_HH * _ri
+            draw.rectangle([(0, _ly), (_w - 1, _ly + BD - 1)], fill=_ART_ZENDAI_BORDER)
     draw.rectangle([(0, 0), (_w - 1, _h - 1)], outline=_ART_ZENDAI_BORDER, width=BD)
     return img
 

@@ -3932,7 +3932,11 @@ def _build_machine_img(
         part1 = (f"総差枚：{fmt_diff(s['total_diff'])}"
                  f"　平均：{fmt_diff(s['avg_diff'])}"
                  f"　勝率：{win_rate:.1f}%")
-        part2 = f"（{s['win_count']}/{s['total_count']}台）"
+        if s.get("count_style") == "of_plus":
+            # 「総台数中プラス台数+」表記（新宿歌舞伎町の記事用・自動全台系だけが指定する）
+            part2 = f"（{s['total_count']}台中{s['win_count']}台+）"
+        else:
+            part2 = f"（{s['win_count']}/{s['total_count']}台）"
 
         _pink_rgba = (C_NEW_SUMMARY_BG_RGBA if _table_theme_new()
                       else (255, 182, 193, 255))
@@ -4658,7 +4662,9 @@ def run_step1_main(
             if zen_pink_bar:
                 # 王冠付きサマリーの代わりに、記事用③並び画像と同じ描画（表＋ピンクサマリーバー・
                 # 青タイトルバーなし）を使う。数値は同じ _stat_from_diff(dr_m)。
-                img = _build_machine_img(grp, title, _stat_from_diff(dr_m),
+                # 台数表記だけ「総台数中プラス台数+」（値は同じ win_count / total_count）
+                img = _build_machine_img(grp, title,
+                                         {**_stat_from_diff(dr_m), "count_style": "of_plus"},
                                          no_bar=True, hq_scale=_zh1)
             else:
                 img = _build_article_machine_img(grp, title, _stat_from_diff(dr_m),

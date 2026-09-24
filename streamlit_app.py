@@ -8910,6 +8910,29 @@ _ART_POSTER_LIBRARY: "tuple[tuple[str, int], ...]" = (
 #   6日を差し替えるときは `6日2.jpg` のように **末尾連番**で追加する。
 _ART_POSTER_EXCLUDE_IDS: "frozenset[int]" = frozenset({29, 44})
 _ART_POSTER_PICK_TIMEOUT = 20
+# 接続確立（TCP）の待ち時間と、ConnectTimeout のときだけ行う再試行の回数・待ち。
+# 読み取りは従来どおり _ART_POSTER_PICK_TIMEOUT。最悪でも 3回×8秒＋1＋2秒で打ち切る。
+_ART_POSTER_CONNECT_TIMEOUT = 8
+_ART_POSTER_CONNECT_RETRIES = 2
+_ART_POSTER_CONNECT_BACKOFF = (1.0, 2.0)
+
+
+def _art_poster_get(url: str, *, params=None, auth=None):
+    """WordPressへの **GETだけ**。ConnectTimeout のときだけ短い待ちを挟んで限定回数だけ再試行する。
+
+    ★それ以外の例外・HTTPエラーは再試行せずそのまま返す／送出する（従来どおり）。
+    ★URL・クエリ・認証情報はログにも例外文にも出さない（呼び出し側が安全な要約へ変換する）。
+    """
+    import time as _time
+    import requests
+    for _att in range(_ART_POSTER_CONNECT_RETRIES + 1):
+        try:
+            return requests.get(url, params=params, auth=auth,
+                                timeout=(_ART_POSTER_CONNECT_TIMEOUT, _ART_POSTER_PICK_TIMEOUT))
+        except requests.exceptions.ConnectTimeout:
+            if _att >= _ART_POSTER_CONNECT_RETRIES:
+                raise
+            _time.sleep(_ART_POSTER_CONNECT_BACKOFF[min(_att, len(_ART_POSTER_CONNECT_BACKOFF) - 1)])
 
 
 class _ArtPosterFetchError(Exception):
@@ -9023,11 +9046,11 @@ def _art_poster_media_index(store: str) -> "tuple[tuple[int, str, str, str], ...
     _rows: list = []
     for _pg in range(1, 11):                 # 100件×10ページで打ち切り（無限ループ防止）
         try:
-            r = requests.get(
+            r = _art_poster_get(
                 f"{site}/wp-json/wp/v2/media",
                 params={"per_page": 100, "page": _pg, "orderby": "id", "order": "asc",
                         "_fields": "id,date_gmt,date,title,source_url"},
-                auth=auth, timeout=_ART_POSTER_PICK_TIMEOUT)
+                auth=auth)
         except Exception as _e:
             raise _ArtPosterFetchError(f"rest: 通信エラー exc={type(_e).__name__}")
         if r.status_code == 400 and _pg > 1:  # ページ超過は正常終了扱い
@@ -9121,9 +9144,8 @@ def _art_poster_media_fetch(store: str, media_id: int) -> dict:
         raise _ArtPosterFetchError(f"secrets: 送信先が未設定（未設定キー: {_mk}）")
     # ① メディア情報（source_url の解決）
     try:
-        r = requests.get(f"{site}/wp-json/wp/v2/media/{int(media_id)}",
-                         params={"_fields": "id,source_url,mime_type"},
-                         auth=auth, timeout=_ART_POSTER_PICK_TIMEOUT)
+        r = _art_poster_get(f"{site}/wp-json/wp/v2/media/{int(media_id)}",
+                            params={"_fields": "id,source_url,mime_type"}, auth=auth)
     except Exception as _e:
         raise _ArtPosterFetchError(f"rest: 通信エラー exc={type(_e).__name__}")
     if r.status_code != 200:
@@ -9137,7 +9159,7 @@ def _art_poster_media_fetch(store: str, media_id: int) -> dict:
         raise _ArtPosterFetchError("src: source_url が空です")
     # ② 画像本体
     try:
-        ri = requests.get(_src, auth=auth, timeout=_ART_POSTER_PICK_TIMEOUT)
+        ri = _art_poster_get(_src, auth=auth)
     except Exception as _e:
         raise _ArtPosterFetchError(f"img: 通信エラー exc={type(_e).__name__}")
     if ri.status_code != 200:

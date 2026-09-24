@@ -290,7 +290,11 @@
       ],
       "title": "月間オススメ ジャグラーシリーズ",
       "machine_name": "ジャグラー系",
-      "cell_machines": {},
+      "cell_machines": {
+        "4,6": [
+          "マイジャグV"
+        ]
+      },
       "start_date": "2026-08-31",
       "blank_days": [
         false,

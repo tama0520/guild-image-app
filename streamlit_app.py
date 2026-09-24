@@ -9216,17 +9216,67 @@ def _art_poster_inputs(store: str, excel: str) -> "tuple[list, str]":
     _label = _art_poster_picked(store)
     if not _label:
         return [], ""
-    # ★固定IDではなく **選択ラベルに対応する最新メディア**を毎回解決する。
-    #   ⑦プレビューと⑧本番は同じ `_art_poster_inputs()` → 同じ解決経路を通る。
-    _mid, _rerr = _art_poster_resolve(store, _label)
-    if not _mid:
-        return [], f"WordPressメディア「{_label}」の対応IDが未登録です"
-    _got, _err = _art_poster_media_try(store, int(_mid))
+    # ★アプリ内のローカル素材（assets/posters/…）だけを読む。WordPressへはGETしない。
+    #   素材の更新はローカルの sync_kabukicho_posters.py で行う。
+    _got, _err = _art_poster_local(store, _label)
     if not _got:
-        return [], (f"WordPressメディア「{_label}」（ID {_mid}）を取得できませんでした"
-                    + (f"［{_err}］" if _err else ""))
-    return [{"name": _got["name"], "fid": f"wpmedia:{int(_mid)}",
-             "data": _got["data"]}], ""
+        return [], _err
+    return [{"name": _got["name"], "fid": _got["fid"], "data": _got["data"]}], ""
+
+
+# ── ポスター素材（アプリ内のローカル素材）────────────────────────────────
+# 22択ポスターは **リポジトリ内の素材**を正本にする（パネル画像と同じ考え方）。
+# Cloud から WordPress へ毎回GETしない（Cloud→WordPress は ConnectTimeout になり得るため）。
+# 素材は **ラベル → ASCIIファイル名** で固定し、取得元（メディアID・元ファイル名・sha256）は
+# manifest.json に記録する。更新はローカル専用の sync_kabukicho_posters.py だけで行う。
+_ART_POSTER_ASSET_DIRS: "dict[str, str]" = {
+    "新宿歌舞伎町": os.path.join(BASE_DIR, "assets", "posters", "kabukicho"),
+}
+_ART_POSTER_MANIFEST_FN = "manifest.json"
+_ART_POSTER_SLUGS: "dict[str, str]" = {
+    "1日": "day01", "2日": "day02", "6日": "day06", "12日": "day12",
+    "21日": "day21", "23日": "day23", "24日": "day24", "29日": "day29",
+    "4のつく日": "tsuku4", "5のつく日": "tsuku5", "6のつく日": "tsuku6",
+    "7のつく日": "tsuku7", "8のつく日": "tsuku8", "0のつく日": "tsuku0",
+    "39の日": "sankyu", "ゾロ目の日": "zorome", "強ゾロの日": "kyozoro",
+    "月末": "getsumatsu", "土曜日": "saturday", "日曜日": "sunday",
+    "キングぱないなー": "king", "はぐれキングぱないなー": "hagure_king",
+}
+
+
+def _art_poster_manifest(store: str) -> dict:
+    """ポスター素材の対応表（ラベル → {file, media_id, source_name, sha256, synced_at}）。
+    読めなければ {}（呼び出し側が安全なエラーにする）。"""
+    _d = _ART_POSTER_ASSET_DIRS.get(str(store or ""))
+    if not _d:
+        return {}
+    try:
+        with open(os.path.join(_d, _ART_POSTER_MANIFEST_FN), encoding="utf-8") as _f:
+            _j = json.load(_f)
+        return _j if isinstance(_j, dict) else {}
+    except Exception:
+        return {}
+
+
+def _art_poster_local(store: str, label: str) -> "tuple[dict | None, str]":
+    """選択ラベルのローカル素材を読み、(画像 or None, 安全なエラー文) を返す。
+    ★ネットワーク通信はしない。未同期・未存在のときだけエラー文を返す。"""
+    _d = _ART_POSTER_ASSET_DIRS.get(str(store or ""))
+    _ent = (_art_poster_manifest(store).get(str(label or "")) or {})
+    _fn = str(_ent.get("file") or "")
+    if not _d or not _fn or os.path.basename(_fn) != _fn:
+        return None, (f"ポスター素材「{label}」が未同期です"
+                      "（ローカルで sync_kabukicho_posters.py を実行し、素材をcommitしてください）")
+    _p = os.path.join(_d, _fn)
+    try:
+        with open(_p, "rb") as _f:
+            _data = _f.read()
+    except Exception as _e:
+        return None, f"ポスター素材「{label}」を読み込めません（{type(_e).__name__}）"
+    if not _data:
+        return None, f"ポスター素材「{label}」が空です"
+    return {"name": str(_ent.get("source_name") or _fn), "data": _data,
+            "fid": f"poster:{_fn}", "media_id": _ent.get("media_id")}, ""
 
 
 def _art_poster_key(store: str, excel: str) -> str:
@@ -18183,27 +18233,13 @@ def show_auto_article_page() -> None:
             elif not _pk_cur:
                 st.caption("🖼️ 画像未選択（右のチェック欄から1件選んでください）")
             else:
-                # ★固定IDではなく、ラベルに対応する最新メディアを解決して使う。
-                _pk_mid, _pk_rerr = _art_poster_resolve(store, _pk_cur)
-                _pk_got, _pk_err = _art_poster_media_try(store, _pk_mid)
-                if _pk_rerr and not _pk_err:
-                    _pk_err = _pk_rerr
+                # ★アプリ内のローカル素材を読む（WordPressへはGETしない）。
+                _pk_got, _pk_err = _art_poster_local(store, _pk_cur)
                 if _pk_got:
                     st.image(_pk_got["data"], width=320, caption=_pk_cur)
                 else:
                     # ★チェック状態は消さない。別画像へのフォールバックもしない。
-                    st.error(f"❌ プレビュー不可：「{_pk_cur}」（ID {_pk_mid}）の画像を"
-                             "取得できませんでした（選択は保持しています）。")
-                    if _pk_err:
-                        # ★安全な要約だけ（Secrets値・パスワード・Authorization・
-                        #   完全URL・クエリは出さない）
-                        st.caption(f"失敗内容: {_pk_err}")
-                # 🔄 再取得：選択中IDのキャッシュ1件だけ破棄（全clearはしない）
-                st.button("🔄 再取得", key=f"art_poster_reload_{store}",
-                          help="選択中の項目の「最新メディア解決」と画像の"
-                               "キャッシュだけを破棄して取り直します",
-                          on_click=_art_poster_pick_reload,
-                          args=(store, _pk_cur))
+                    st.error(f"❌ プレビュー不可：{_pk_err}（選択は保持しています）。")
         with _pk_rcol:
             _pk_sub = st.columns(2, gap="small")
             for _pi2, (_plab, _pmid) in enumerate(_ART_POSTER_LIBRARY):

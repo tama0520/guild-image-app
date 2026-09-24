@@ -1,0 +1,156 @@
+{
+  "1日": {
+    "file": "day01.jpg",
+    "media_id": 21,
+    "source_name": "1日.jpg",
+    "sha256": "4b6daee1b622448560bf041f59112554bdb909c08c28b2dd05750aa0473c67f1",
+    "synced_at": "2026-09-24"
+  },
+  "2日": {
+    "file": "day02.jpg",
+    "media_id": 22,
+    "source_name": "2日.jpg",
+    "sha256": "a5e15d8f5790849c344515678525e34031fbac40d911035f405679d3498433b2",
+    "synced_at": "2026-09-24"
+  },
+  "6日": {
+    "file": "day06.jpg",
+    "media_id": 26,
+    "source_name": "6日.jpg",
+    "sha256": "16d43a9562d8a6cfa7b855f30e8e125f850efac6039f4d59475360184d451a28",
+    "synced_at": "2026-09-24"
+  },
+  "12日": {
+    "file": "day12.jpg",
+    "media_id": 30,
+    "source_name": "12日.jpg",
+    "sha256": "368ada8f3905dacdae0f61f21c6b37e2a46e796e6c85335add4d1764a3f797cf",
+    "synced_at": "2026-09-24"
+  },
+  "21日": {
+    "file": "day21.jpg",
+    "media_id": 31,
+    "source_name": "21日.jpg",
+    "sha256": "d60ec128f43b44750fac5046429378d034e1bf787045b816374047dde40ea690",
+    "synced_at": "2026-09-24"
+  },
+  "23日": {
+    "file": "day23.jpg",
+    "media_id": 32,
+    "source_name": "23日.jpg",
+    "sha256": "5bb8cff5e20a65732b19373adfa2025fb32eb3d27848381eac0af0d16f12d71e",
+    "synced_at": "2026-09-24"
+  },
+  "24日": {
+    "file": "day24.jpg",
+    "media_id": 33,
+    "source_name": "24日.jpg",
+    "sha256": "128584f0a3192f998a89614f9d91a4d4b3b6959da34fdf642aaa39a774d313f2",
+    "synced_at": "2026-09-24"
+  },
+  "29日": {
+    "file": "day29.jpg",
+    "media_id": 34,
+    "source_name": "29日.jpg",
+    "sha256": "bb8843497fd81a5e8a1e97a449426bcb9311db6f794ab3f091c92f80e80cc177",
+    "synced_at": "2026-09-24"
+  },
+  "4のつく日": {
+    "file": "tsuku4.jpg",
+    "media_id": 23,
+    "source_name": "4のつく日.jpg",
+    "sha256": "4f04403576a6c61a0c2389607ea72c8cf3b4ca917ba3a8d25ec5c24ccd672b0d",
+    "synced_at": "2026-09-24"
+  },
+  "5のつく日": {
+    "file": "tsuku5.jpg",
+    "media_id": 24,
+    "source_name": "5のつく日.jpg",
+    "sha256": "a838a37c35acfff068ccb9c58399a28c5762f13892e4bbef86cecdc4090ae1c0",
+    "synced_at": "2026-09-24"
+  },
+  "6のつく日": {
+    "file": "tsuku6.jpg",
+    "media_id": 25,
+    "source_name": "6のつく日.jpg",
+    "sha256": "97a8240ce29a749dbf569bbd5c20d1dadc4c0b1fbcf33edfff690c95dd3dd4e5",
+    "synced_at": "2026-09-24"
+  },
+  "7のつく日": {
+    "file": "tsuku7.jpg",
+    "media_id": 127,
+    "source_name": "7のつく日2.jpg",
+    "sha256": "3d6f89fc0d0e7643bca4f5901eac08a6bc1fefe3776a4195138835756290f0c4",
+    "synced_at": "2026-09-24"
+  },
+  "8のつく日": {
+    "file": "tsuku8.jpg",
+    "media_id": 28,
+    "source_name": "8のつく日.jpg",
+    "sha256": "c28258f92c6dd988cfcf08df6dda0dff3809d97178509845013c0f4228d6de82",
+    "synced_at": "2026-09-24"
+  },
+  "0のつく日": {
+    "file": "tsuku0.jpg",
+    "media_id": 20,
+    "source_name": "0のつく日.jpg",
+    "sha256": "53a03d30c10b88edea30a416df7f156755962cb9c97c7717a6b972e8dd52138c",
+    "synced_at": "2026-09-24"
+  },
+  "39の日": {
+    "file": "sankyu.jpg",
+    "media_id": 35,
+    "source_name": "39の日.jpg",
+    "sha256": "cb4de850c04c0e14da175d06bf851aa65082211fc7cb32f96121a2da079a7257",
+    "synced_at": "2026-09-24"
+  },
+  "ゾロ目の日": {
+    "file": "zorome.jpg",
+    "media_id": 37,
+    "source_name": "ゾロ目の日.jpg",
+    "sha256": "7da37af14763b89fb1440f9c00eaca950bd3a501cf6c303fecca7f0958c355de",
+    "synced_at": "2026-09-24"
+  },
+  "強ゾロの日": {
+    "file": "kyozoro.jpg",
+    "media_id": 39,
+    "source_name": "強ゾロの日.jpg",
+    "sha256": "8c04e329f972c5224ac7481e82e023790dccc8a17816e20d4dfad37b5febf53b",
+    "synced_at": "2026-09-24"
+  },
+  "月末": {
+    "file": "getsumatsu.jpg",
+    "media_id": 40,
+    "source_name": "月末.jpg",
+    "sha256": "ed569ef8bb02ccea96c3e476cdf2ea6e966bd9dff33de1852c9169c7a4e21933",
+    "synced_at": "2026-09-24"
+  },
+  "土曜日": {
+    "file": "saturday.jpg",
+    "media_id": 41,
+    "source_name": "土曜日.jpg",
+    "sha256": "6568f41047e83e13aae0f32086e45bb1430fc61255abd679b3d7f6742d464b89",
+    "synced_at": "2026-09-24"
+  },
+  "日曜日": {
+    "file": "sunday.jpg",
+    "media_id": 42,
+    "source_name": "日曜日.jpg",
+    "sha256": "e116fa427b844e3f587305c64e4825a13f4ff4ed280f2cabc59241707c03e18b",
+    "synced_at": "2026-09-24"
+  },
+  "キングぱないなー": {
+    "file": "king.jpg",
+    "media_id": 36,
+    "source_name": "キングぱないなー.jpg",
+    "sha256": "a337626ee5bc052ab6a2697e2f9d477e2295fb271c82a81889db416e62f521df",
+    "synced_at": "2026-09-24"
+  },
+  "はぐれキングぱないなー": {
+    "file": "hagure_king.jpg",
+    "media_id": 38,
+    "source_name": "はぐれキングぱないな.jpg",
+    "sha256": "9f297e4df144ac0c8efa1645d0966dac2eb213dc69b999abafbd7c4fe6e33615",
+    "synced_at": "2026-09-24"
+  }
+}

@@ -7800,6 +7800,9 @@ def _art_rank_on(store: str) -> bool:
 # WordPress本文でかぶぱ（ななこ）ブロック全体を**本文の最後**へ置く店舗。
 # 既定は従来の位置（記事上部の直後）。payload["nanako_last"] で wp_client へ渡す。
 _ART_WP_NANAKO_LAST_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+# ⑥ブロックを出さない店舗で、全台データ画像を「冒頭の直後」へ置く平均差枚の下限。
+# これ未満（かつ _ART_ZENDAI_MIN_AVG 以上）は「かぶぱブロックの後ろ」へ置く。
+_ART_ZENDAI_TOP_MIN_AVG = 150
 
 # 差枚数ランキング画像をネイティブ2倍で描く店舗（WordPress掲載時の鮮明さ優先）。
 # ランキング自体 `_ART_RANK_STORES` の店舗しか作らないが、**倍率の gate は別に持つ**
@@ -21765,8 +21768,16 @@ def show_auto_article_page() -> None:
                                                      and _art_rank_blk) else [])
                     # ⑥ブロックを出さない店舗は、全台データ画像だけを冒頭の直後へ独立配置する
                     # （画像の生成処理・デザインは変更しない。⑥のH2・ランキングは出さない）。
+                    # 置き場所は画像に表示している正規の平均差枚（_art_zendai_stat の
+                    # avg_diff＝生成判定と同じ数値）で決める:
+                    #   +150枚以上 → 冒頭の直後 ／ +50〜+149枚 → かぶぱブロック全体の後ろ
+                    #   +49枚以下 → 画像自体を作らない（⑧が前回分を _rm_stale_image で削除）
                     if store in _ART_ZENDAI_STORES and not _art_rank_blk:
-                        _art_wp_pl["zendai_top"] = [_ART_ZENDAI_FN]
+                        _zd_avg_wp = (_art_zendai_stat(result.get("diff_raw")) or {}).get("avg_diff")
+                        if _zd_avg_wp is not None and _zd_avg_wp >= _ART_ZENDAI_TOP_MIN_AVG:
+                            _art_wp_pl["zendai_top"] = [_ART_ZENDAI_FN]
+                        elif _zd_avg_wp is not None and _zd_avg_wp >= _ART_ZENDAI_MIN_AVG:
+                            _art_wp_pl["zendai_bottom"] = [_ART_ZENDAI_FN]
                     # ⑥島図。**⑥を出す店舗のうち島図が無い店舗だけ**を空にする。
                     # 高田馬場は _ART_RANK_STORES に入らないため、キーの渡し方は
                     # 従来と完全に同一（shimazu=[島図.jpg] / shimazu_section 未設定）。

@@ -1448,6 +1448,12 @@ def plan_blocks(payload: dict) -> list[dict]:
     if payload.get("nanako_last"):
         plan += _nk_plan
 
+    # ── 全台データ画像（かぶぱブロック全体の後ろ・payload["zendai_bottom"] の店舗のみ）──
+    #    新宿歌舞伎町の記事用で、店舗全体の平均差枚が +50〜+149枚の日に使う。
+    #    キーを渡さない店舗は1ブロックも増えない。実在しなければ何も出さない。
+    for fn in _existing_files(payload.get("zendai_bottom"), out_dir):
+        plan.append({"type": "image", "file": fn, "label": f"全台データ {fn}"})
+
     # ── 店舗情報ボタン ──
     # 記事末尾の案内ボタン。payload["no_button"] の店舗だけ出さない
     # （画像内リンク・X埋め込み・本文中リンク・画像クリック拡大には触れない）。

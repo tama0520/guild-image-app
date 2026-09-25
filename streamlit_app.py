@@ -21755,13 +21755,17 @@ def show_auto_article_page() -> None:
                         # ★`_wpc` はこの時点で未 import（import は下の送信ブロック）。
                         #   ここで参照すると NameError になるため使わない。
                         _osu_avg_e: dict[str, int] = {}
+                        # 平均と同じ「先勝ち」順で、その値を出した pipeline 項目の
+                        # 種別（zen / high）と項目そのものを控える（⑤H3の高配分表記用）。
+                        _osu_meta_e: dict[str, tuple] = {}
                         # ★⑤最優先で抑制された機種は zen_dai_list / high_ratio_list へ
                         #   入らないため、専用キー meta_only_list からも引く（案B）。
                         #   meta_only_list は平均表示専用で、画像・結果テキスト・
                         #   全台系／高配分H3 には一切使わない。
-                        for _it_av in (list(result.get("zen_dai_list") or [])
-                                       + list(result.get("high_ratio_list") or [])
-                                       + list(result.get("meta_only_list") or [])):
+                        for _kd_av, _it_av in ([("zen", _x) for _x in (result.get("zen_dai_list") or [])]
+                                               + [("high", _x) for _x in (result.get("high_ratio_list") or [])]
+                                               + [(str(_x.get("kind") or ""), _x)
+                                                  for _x in (result.get("meta_only_list") or [])]):
                             _nm_av = str(_it_av.get("name") or "").strip()
                             if not _nm_av:
                                 continue
@@ -21772,6 +21776,7 @@ def show_auto_article_page() -> None:
                             for _k_av in (_nm_av, _art_osu_norm(_nm_av)):
                                 if _k_av and _k_av not in _osu_avg_e:
                                     _osu_avg_e[_k_av] = _v_av
+                                    _osu_meta_e[_k_av] = (_kd_av, _it_av)
                         _osu_pl_e = []
                         for _bi_e, _blk_e in enumerate(art_osusume_blocks):
                             _names_e = [str(_m).strip()
@@ -21789,13 +21794,25 @@ def show_auto_article_page() -> None:
                                 continue
                             _ttl_e = "・".join(_nms_e)
                             _av_e = None
+                            _mt_e = None
                             for _n_e in _nms_e:
                                 for _k_e in (_n_e, _art_osu_norm(_n_e)):
                                     if _k_e in _osu_avg_e:
                                         _av_e = _osu_avg_e[_k_e]
+                                        _mt_e = _osu_meta_e.get(_k_e)
                                         break
                                 if _av_e is not None:
                                     break
+                            # 当日の pipeline 判定が高配分（kind="high"）の1機種ブロックだけ、
+                            # 通常の高配分H3と同じ表記（【ニブイチ系】＋h3_zendai・総台数中プラス台数）。
+                            # 台数・平均は pipeline 項目の値をそのまま使う（再計算しない）。
+                            if (_mt_e is not None and _mt_e[0] == "high" and len(_nms_e) == 1):
+                                try:
+                                    _b_e["title"] = (_wpc0.H3_PREFIX_HIGH_ALT + _wpc0.h3_zendai(
+                                        {**_mt_e[1], "name": _nms_e[0]}, "total_first"))
+                                    continue
+                                except Exception:
+                                    pass
                             if _av_e is not None:
                                 # 書式は wp_client.fmt_signed と同じ（`+1,200` / `-800`）。
                                 _ttl_e += f"　平均{int(_av_e):+,}枚"

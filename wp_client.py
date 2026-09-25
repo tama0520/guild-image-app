@@ -169,9 +169,9 @@ H2_SHIMAZU  = "シマズをチェック！"
 H2_OSUSUME  = "オススメ機種の優秀台"
 # payload["h2_alt"] が真の店舗だけ使う別文言（2026-09-18 追加）。
 # キーを渡さない店舗は上の従来文言のまま（他店舗へ波及させない）。
-H2_HIGH_ALT    = "1/2系以上？"
+H2_HIGH_ALT    = "ニブイチ系も大量！"
 # 全台系・並びの別文言（2026-09-24 追加・h2_alt の店舗だけ）
-H2_ZENDAI_ALT  = "全？"
+H2_ZENDAI_ALT  = "全台？"
 H2_NARABI_ALT  = "並びも複数！"
 H2_OSUSUME_ALT = "オススメポスター機種の優秀台"
 H2_SONOTA_ALT  = "その他の単品優秀台"
@@ -248,7 +248,9 @@ H3_PREFIX_ZENDAI = "【全台系濃厚】"
 H3_PREFIX_HIGH   = "【高配分】"
 # payload["h3_zendai_alt"] が真の店舗だけ使う別表記（2026-09-18 追加）。
 # 既定（キーなし）は上の従来表記のまま＝他店舗は完全に不変。
-H3_PREFIX_ZENDAI_ALT = "【全台系】"
+H3_PREFIX_ZENDAI_ALT = "【全台？】"
+# 高配分H3の別表記（payload["h3_zendai_alt"] の店舗だけ）。既定は H3_PREFIX_HIGH のまま。
+H3_PREFIX_HIGH_ALT   = "【ニブイチ系】"
 
 # 58963 実データで確認した「画像を隙間なく縦連結する」SWELLユーティリティクラス。
 # 連続画像群のうち **最後の1枚を除く全て** に付与する。
@@ -1121,12 +1123,13 @@ def plan_blocks(payload: dict) -> list[dict]:
     実ファイルの解決とアップロードは呼び出し側が行う。
 
     payload の表記フラグ（2026-09-18 追加・**キーを渡さない店舗は従来どおり**）:
-      h3_zendai_alt : 全台系H3を【全台系】＋`(総台数中プラス台数+)` にする
+      h3_zendai_alt : 全台系H3を【全台？】・高配分H3を【ニブイチ系】＋`(総台数中プラス台数+)` にする
       h2_alt        : 高配分／⑤オススメ／その他単品のH2を別文言にする
       no_button     : 記事末尾の案内ボタンを出さない
     """
     _h3_alt   = bool(payload.get("h3_zendai_alt"))
     _h3_zen_pre = H3_PREFIX_ZENDAI_ALT if _h3_alt else H3_PREFIX_ZENDAI
+    _h3_high_pre = H3_PREFIX_HIGH_ALT if _h3_alt else H3_PREFIX_HIGH
     _h3_cnt   = "total_first" if _h3_alt else "slash"
     _h2_alt   = bool(payload.get("h2_alt"))
     _h2_high  = H2_HIGH_ALT if _h2_alt else H2_HIGH
@@ -1266,7 +1269,7 @@ def plan_blocks(payload: dict) -> list[dict]:
             # 自動・手動どちらも high_ratio_list の name/count/total/all_avg_diff を使う。
             # 接頭辞のみ付ける（ジャグラー個別高配分には付けない）。
             plan.append({"type": "h3",
-                         "text": H3_PREFIX_HIGH + h3_zendai(h["entry"], _h3_cnt)})
+                         "text": _h3_high_pre + h3_zendai(h["entry"], _h3_cnt)})
             plan.append({"type": "image", "file": h["file"],
                          "label": ("手動高配分 " if h["manual"] else "自動高配分 ") + h["name"]})
         # Bコメントは **統合後の高配分セクションの最後に1回だけ**

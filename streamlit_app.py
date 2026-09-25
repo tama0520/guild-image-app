@@ -21763,6 +21763,10 @@ def show_auto_article_page() -> None:
                     _art_wp_pl["zendai_data"] = ([_ART_ZENDAI_FN]
                                                  if (store in _ART_ZENDAI_STORES
                                                      and _art_rank_blk) else [])
+                    # ⑥ブロックを出さない店舗は、全台データ画像だけを冒頭の直後へ独立配置する
+                    # （画像の生成処理・デザインは変更しない。⑥のH2・ランキングは出さない）。
+                    if store in _ART_ZENDAI_STORES and not _art_rank_blk:
+                        _art_wp_pl["zendai_top"] = [_ART_ZENDAI_FN]
                     # ⑥島図。**⑥を出す店舗のうち島図が無い店舗だけ**を空にする。
                     # 高田馬場は _ART_RANK_STORES に入らないため、キーの渡し方は
                     # 従来と完全に同一（shimazu=[島図.jpg] / shimazu_section 未設定）。

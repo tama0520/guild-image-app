@@ -1177,6 +1177,13 @@ def plan_blocks(payload: dict) -> list[dict]:
         for _ln in _top_x:
             plan.append({"type": "para", "text": _ln})
 
+    # ── 全台データ画像（冒頭の直後・payload["zendai_top"] を渡した店舗のみ）──
+    #    新宿歌舞伎町の記事用は⑥ブロック（差枚数ランキング）を出さないため、
+    #    全台データ画像だけを冒頭の直後へ独立して置く（H2は付けない）。
+    #    キーを渡さない店舗は1ブロックも増えない。実在しなければ何も出さない。
+    for fn in _existing_files(payload.get("zendai_top"), out_dir):
+        plan.append({"type": "image", "file": fn, "label": f"全台データ {fn}"})
+
     # ── ななこポスト（渋谷新館の記事用のみ・2026-09-04 追加）──────────────
     #    位置は **記事上部（Xリンク下文章）の直後・全台系H2の直前**で固定。
     #    payload["nanako"] を持つ店舗だけ出る（高田馬場はキーを持たないので1ブロックも

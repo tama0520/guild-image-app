@@ -7642,6 +7642,15 @@ def _art_today_candidates(store: str, candidates, view_df) -> "list[str]":
 #   ローカル: ファイルへ即保存し、既存 _git_auto_push() の targets で push する。
 # ★store_settings・article_page_inputs.json には保存しない。値が変わらないときは書かない。
 _ART_KABUPA_TOP_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+# 上記3入力（見出し／見出し下の文章／ヒント下の文章）を**使わない**店舗。
+# 画面へ表示せず WordPress payload へも渡さない。article_shared_inputs.json の
+# 保存値・キー・Cloud同期の仕組みはそのまま残す（復活はこの集合から外すだけ）。
+_ART_KABUPA_TOP_OFF_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
+def _art_kabupa_top_on(store: str) -> bool:
+    """かぶぱの任意入力3項目を画面表示・本文出力するか。"""
+    return store in _ART_KABUPA_TOP_STORES and store not in _ART_KABUPA_TOP_OFF_STORES
 _ART_KABUPA_TOP_FIELDS: "tuple[str, ...]" = ("head", "head_text", "hint_after")
 _ART_SHARED_INPUTS_FN = "article_shared_inputs.json"
 
@@ -18628,7 +18637,7 @@ def show_auto_article_page() -> None:
         # 登録の無い店舗（渋谷新館など）は**従来の文言のまま**。
         # 任意の見出し・見出し下の文章（新宿歌舞伎町のみ・店舗単位で保持）。
         # key は日付スコープにしない（_artw_* を使わない）＝日付を変えても同じ値を表示する。
-        if store in _ART_KABUPA_TOP_STORES:
+        if _art_kabupa_top_on(store):
             _kb_saved = _art_kabupa_top_saved(store)
             st.text_input(f"{_nk_label}の見出し（空欄なら出力しません）",
                           key=_art_kabupa_top_key(store, "head"),
@@ -18656,7 +18665,7 @@ def show_auto_article_page() -> None:
                 _art_txt(f"ヒント{_nk_i + 1}",
                          f"art_nanako_hint_{_nk_i}_{store}",
                          placeholder="例: ヒソカ→見た目がピエロ→ピエロ→北斗")
-        if store in _ART_KABUPA_TOP_STORES:
+        if _art_kabupa_top_on(store):
             st.text_area("ヒント下の文章（改行で段落／空欄なら出力しません）",
                          key=_art_kabupa_top_key(store, "hint_after"),
                          value=_art_kabupa_top_saved(store)["hint_after"],
@@ -21812,7 +21821,7 @@ def show_auto_article_page() -> None:
                             "hints": [st.session_state.get(f"art_nanako_hint_{_i}_{store}", "")
                                       for _i in range(_ART_NANAKO_HINTS)],
                         }
-                        if store in _ART_KABUPA_TOP_STORES:
+                        if _art_kabupa_top_on(store):
                             _art_wp_pl["nanako"].update(_art_kabupa_top_current(store))
                         if store in _ART_WP_NANAKO_LAST_STORES:
                             _art_wp_pl["nanako_last"] = True

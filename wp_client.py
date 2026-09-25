@@ -221,10 +221,9 @@ NANAKO_TEXT_BY_STORE: "dict[str, dict[str, str]]" = {
         "label": "かぶぱポスト",
         "h2":    "かぶぱポストは毎日チェック！",
         "lead":  ("前日の夜に配信されるかぶぱのポストには仕掛けのヒントが"
-                  "隠されていることが多く、今回もポストから仕掛けのヒントと"
-                  "思しき箇所を複数確認！"),
-        "outro": ("このように、かぶぱポストからは連日仕掛けのヒントを確認できているため、"
-                  "打ちに行く際は必ずチェックしておきましょう！"),
+                  "隠されていることが多め。今回もヒントがあった？"),
+        "hint_lead": "今回の結果から考えると下記のキーワードがヒントになっていたのかも？",
+        "outro": "かぶぱのポストは毎日チェックしましょう！",
     },
 }
 
@@ -236,7 +235,7 @@ def nanako_texts(store: str = "") -> "dict[str, str]":
     WordPress本文用。**URL案内文・ヒント見出し・■・色・ヒント数は店舗で変えない。**
     """
     base = {"label": "ななこポスト", "h2": NANAKO_H2,
-            "lead": NANAKO_LEAD, "outro": NANAKO_OUTRO}
+            "lead": NANAKO_LEAD, "hint_lead": NANAKO_HINT_LEAD, "outro": NANAKO_OUTRO}
     base.update(NANAKO_TEXT_BY_STORE.get(str(store or ""), {}))
     return base
 BUTTON_TEXT = "店舗情報・過去の結果はコチラ"
@@ -1216,7 +1215,7 @@ def plan_blocks(payload: dict) -> list[dict]:
             _nk_plan.append({"type": "para_bold", "text": NANAKO_URL_LEAD})
             _nk_plan.append({"type": "embed_x", "url": _nk_url})
         if _nk_hints:
-            _nk_plan.append({"type": "para", "text": NANAKO_HINT_LEAD})
+            _nk_plan.append({"type": "para", "text": _nk_t["hint_lead"]})
             _nk_plan.append({"type": "para_hints", "hints": _nk_hints})
         for _ln in _nk_hint_after:
             _nk_plan.append({"type": "para", "text": _ln})

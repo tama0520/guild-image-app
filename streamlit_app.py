@@ -4508,6 +4508,9 @@ def _art_high_add_on(store: str) -> bool:
 
 # 記事用の自動全台系画像で、王冠付きサマリーの代わりに③並び画像と同じピンクサマリーバーを使う店舗。
 _ART_ZEN_PINK_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+# 記事用の末尾画像（通常末尾・ジャグラー末尾）で、王冠付きサマリーの代わりに
+# ③並び画像と同じピンクサマリーバーを使う店舗（台数表記も③並びと同じ（x/y台））。
+_ART_SUE_PINK_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 
 
 def _art_kojin_zen_img(store: str, grp, title: str, stat: dict, hq_scale: float):
@@ -11795,7 +11798,8 @@ def _build_sue_images(uploaded, store: str, tails, mode: str, is_juggler: bool =
                       exclude_state: "dict | None" = None,
                       exclude_kind: str = "suebangai",
                       article_mode: bool = False,
-                      hq_scale: float = 1.0):
+                      hq_scale: float = 1.0,
+                      sue_pink_bar: bool = False):
     """④末尾／ジャグラー末尾画像を作る共通関数（通常ページ・記事用ページ共通）。
 
     show_auto_page 内のネスト関数 _gen_sue_imgs_on_fly の本体をそのまま移したもの。
@@ -11804,6 +11808,9 @@ def _build_sue_images(uploaded, store: str, tails, mode: str, is_juggler: bool =
     exclude_state: 🎯掲載台を選ぶの除外辞書。None なら除外なし（記事用は今回 None）。
     article_mode:  True で記事用の見た目（青タイトルバーなし）にする。
                    集計あり→_build_article_machine_img（白サマリー）、なし→_build_machine_img_no_bar。
+    sue_pink_bar:  article_mode かつ集計ありのとき、白サマリー（王冠）の代わりに
+                   ③並び画像と同じピンクサマリーバー（_build_machine_img no_bar=True）で描く。
+                   既定 False＝従来どおり。集計値 _stat_of はそのまま渡す。
     戻り値: [(ファイル名, PIL Image), ...]
     src_out[fn] = {kind, machine(画像キー), bans(除外前候補), tail, is_juggler}
     ban_out[fn] = 確定掲載台番 / stat_out[fn] = 集計対象台番（絞り込み前）
@@ -11929,8 +11936,12 @@ def _build_sue_images(uploaded, store: str, tails, mode: str, is_juggler: bool =
                 # 集計なしは表のみ＝記事用の他画像と同じ見た目にそろえる。
                 # 掲載台10台以上なら最初から2倍解像度で描画する。
                 _hq_of = _pipeline_hq(hq_scale, len(_filt))
-                _img_of = (_build_article_machine_img(_filt, _title, _stat_of, hq_scale=_hq_of)
-                           if _stat_of else _build_machine_img_no_bar(_filt, hq_scale=_hq_of))
+                if _stat_of and sue_pink_bar:
+                    _img_of = _build_machine_img(_filt, _title, _stat_of,
+                                                 no_bar=True, hq_scale=_hq_of)
+                else:
+                    _img_of = (_build_article_machine_img(_filt, _title, _stat_of, hq_scale=_hq_of)
+                               if _stat_of else _build_machine_img_no_bar(_filt, hq_scale=_hq_of))
             else:
                 _img_of = _build_machine_img(_filt, _title, _stat_of)
             _imgs.append((_fn_of, _img_of))
@@ -19429,6 +19440,7 @@ def show_auto_article_page() -> None:
                                         src_out=_art_sue_src, article_mode=True,
                                         hq_scale=(_ART_HQ_SCALE if store in _ART_HQ_STORES else 1.0),
                                         exclude_state=_art_unit_state,
+                                        sue_pink_bar=(store in _ART_SUE_PINK_STORES),
                                         exclude_kind="art_suebangai"):
                                     _art_pil.append((_sfn_pv, _simg_pv))
                             # ⑤ オススメ機種の優秀台（渋谷新館・記入式）。末尾の後・その他の前。
@@ -20994,7 +21006,8 @@ def show_auto_article_page() -> None:
                             src_out=_art_sue_src_e, article_mode=True,
                             hq_scale=(_ART_HQ_SCALE if store in _ART_HQ_STORES else 1.0),
                             exclude_state=_art_unit_state_e,
-                            exclude_kind="art_suebangai"):
+                            exclude_kind="art_suebangai",
+                            sue_pink_bar=(store in _ART_SUE_PINK_STORES)):
                         _sout_e = os.path.join(output_dir, _sfn_e)
                         _save_jpeg(_simg_e, _sout_e,
                                    **({"target_kb": _ART_HQ_TARGET_KB}

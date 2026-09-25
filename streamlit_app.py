@@ -9493,6 +9493,39 @@ def _art_poster_local(store: str, label: str) -> "tuple[dict | None, str]":
             "fid": f"poster:{_fn}", "media_id": _ent.get("media_id")}, ""
 
 
+# WordPress下書きのアイキャッチへ①の実採用ポスターを使う店舗。
+_ART_WP_FEATURED_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
+def _art_wp_featured_for(store: str, excel: str, built: bool) -> "dict | None":
+    """①で実際に採用したポスターから、アイキャッチ指定（payload["featured"]）を作る。
+
+    手動アップロード優先は `_art_poster_inputs()` と同じ判定。
+      手動   → {"kind": "poster"}（本文用 _wp_poster.jpg と同じメディアIDを送信時に使う）
+      22択   → {"kind": "media", "id": manifest の media_id, "label": …}
+      ポスター未作成 → None（アイキャッチなし・通知なし）
+    manifest のIDが欠損・不正・除外IDなら {"kind": "none", "notice": …}（代替画像は使わない）。
+    ★WordPressへのGET・再検索はしない（manifest だけを見る）。
+    """
+    if not built:
+        return None
+    if _art_poster_list(store, excel):
+        return {"kind": "poster"}
+    _label = _art_poster_picked(store)
+    if not _label:
+        return None
+    _ent = _art_poster_manifest(store).get(_label) or {}
+    try:
+        _mid = int(_ent.get("media_id") or 0)
+    except (TypeError, ValueError):
+        _mid = 0
+    if _mid <= 0 or _mid in _ART_POSTER_EXCLUDE_IDS:
+        return {"kind": "none",
+                "notice": f"ポスター「{_label}」のメディアIDが manifest に正しく記録されていないため、"
+                          "アイキャッチは未設定です"}
+    return {"kind": "media", "id": _mid, "label": _label}
+
+
 def _art_poster_key(store: str, excel: str) -> str:
     """保存済みポスター（元画像リスト）のキー。"""
     return f"_art_poster_imgs_{store}_{excel or ''}"
@@ -21563,6 +21596,7 @@ def show_auto_article_page() -> None:
             #   使わせない（_rm_stale_image で同名画像だけ削除する）。
             _art_poster_src, _art_poster_err = _art_poster_inputs(store, _art_excel_now)
             _art_poster_info = None
+            _art_wp_featured = None   # アイキャッチ（_ART_WP_FEATURED_STORES のみ・payload へ渡す）
             if _art_poster_err:
                 st.error(f"❌ {_art_poster_err}。ポスターなしで続行します"
                          "（選択は保持しています）。")
@@ -21587,6 +21621,9 @@ def show_auto_article_page() -> None:
                             f"{_art_poster_info['bytes'] / 1024:.0f} KB）")
                 except Exception as _pe:
                     st.warning(f"ポスター画像の作成に失敗: {_pe}")
+                if store in _ART_WP_FEATURED_STORES:
+                    _art_wp_featured = _art_wp_featured_for(
+                        store, _art_excel_now, bool(_art_poster_info))
             else:
                 # ポスター0枚。前回実行の _wp_poster.jpg が同じ output_dir に
                 # 残っていると plan_blocks() が存在判定で拾い、**古いポスターが
@@ -21825,6 +21862,11 @@ def show_auto_article_page() -> None:
                             _art_wp_pl["nanako"].update(_art_kabupa_top_current(store))
                         if store in _ART_WP_NANAKO_LAST_STORES:
                             _art_wp_pl["nanako_last"] = True
+                    # アイキャッチ（①で実際に採用したポスター）。ポスター未使用はキーを入れない。
+                    if store in _ART_WP_FEATURED_STORES and _art_wp_featured:
+                        _art_wp_pl["featured"] = _art_wp_featured
+                        if _art_wp_featured.get("kind") == "none":
+                            st.warning(f"⚠️ {_art_wp_featured.get('notice')}")
                     st.session_state[f"_art_wp_payload_{store}"] = _art_wp_pl
                 except Exception as _wpe0:
                     st.warning(f"WordPress用データの準備に失敗: {_wpe0}")
@@ -21952,6 +21994,10 @@ def show_auto_article_page() -> None:
                                 f"✅ 下書きを作成しました（投稿ID {_wp_res['id']} / "
                                 f"status={_wp_res['post_status']} / 画像{_wp_res['image_count']}枚）")
                             st.markdown(f"[編集画面を開く]({_wp_res['edit_url']})")
+                            if _wp_res.get("featured_media"):
+                                st.caption(f"🖼️ アイキャッチ: media ID {_wp_res['featured_media']}")
+                            elif _wp_res.get("featured_notice"):
+                                st.warning(f"⚠️ {_wp_res['featured_notice']}")
                         else:
                             st.error(f"❌ {_wp_res.get('error')}")
                             _wp_up = _wp_res.get("uploaded") or []

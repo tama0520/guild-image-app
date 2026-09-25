@@ -1699,8 +1699,11 @@ def upload_media(path: str, *, timeout: int = WP_UPLOAD_TIMEOUT,
 def create_draft(title: str, content: str,
                  category_id: int = WP_CATEGORY_ID,
                  author_id: int = WP_AUTHOR_ID,
-                 store: str = "") -> dict:
+                 store: str = "",
+                 featured_media: int = 0) -> dict:
     """POST /wp/v2/posts。status=draft 固定・publish しない。
+
+    featured_media は **正の整数のときだけ** payload へ入れる（既定 0＝キー自体を送らない）。
 
     既存投稿の更新（PUT/PATCH）は実装しない。常に新規 draft のみ。
     category_id の既定は高田馬場（24）＝従来動作。
@@ -1715,8 +1718,15 @@ def create_draft(title: str, content: str,
         "status":     WP_STATUS,       # "draft" 固定
         "categories": [int(category_id)],
         "author":     int(author_id),
-        # tags / featured_media / excerpt / template / meta は送らない
+        # tags / excerpt / template / meta は送らない
     }
+    # アイキャッチは有効なメディアIDのときだけ追加する（0・None・不正値は送らない）
+    try:
+        _fm = int(featured_media or 0)
+    except (TypeError, ValueError):
+        _fm = 0
+    if _fm > 0:
+        payload["featured_media"] = _fm
     try:
         r = requests.post(f"{site}/wp-json/wp/v2/posts", json=payload,
                           auth=auth, timeout=WP_POST_TIMEOUT)
@@ -1729,6 +1739,45 @@ def create_draft(title: str, content: str,
                 "post_status": j.get("status"),
                 "edit_url": f"{site}/wp-admin/post.php?post={pid}&action=edit"}
     return {"ok": False, "status": r.status_code, "error": _err_text(r)}
+
+
+def resolve_featured(payload: dict, media_map: dict, store: str) -> "tuple[int, str]":
+    """アイキャッチのメディアIDと、未設定時の理由（安全な文言）を返す。
+
+    payload["featured"]（アプリが⑧で①の実採用ポスターから決める）:
+      {"kind": "media", "id": 21, "label": "1日"} … 22択ポスター。manifest 記録の元メディアID
+      {"kind": "poster"}                          … 手動ポスター。本文用にアップロードした
+                                                     `_wp_poster.jpg` の **同じメディアID**
+      {"kind": "none", "notice": "…"}             … 設定しない（理由だけ通知）
+    キーが無い（ポスター未使用）なら (0, "")＝アイキャッチなし・通知なし。
+    ★別画像への代替・追加アップロード・WordPressへのGETはしない。
+    """
+    fe = payload.get("featured")
+    if not fe:
+        return 0, ""
+    kind = str(fe.get("kind") or "")
+    if kind == "media":
+        try:
+            mid = int(fe.get("id") or 0)
+        except (TypeError, ValueError):
+            mid = 0
+        if mid <= 0:
+            return 0, f"ポスター「{fe.get('label', '')}」のメディアIDが記録されていないため、アイキャッチは未設定です"
+        # manifest のIDは店舗専用サイトのメディア。専用接続で送る場合だけ使う
+        _sk = WP_SECRET_KEYS_BY_STORE.get(str(store or ""))
+        if not _sk or _conf_keys(store) != _sk:
+            return 0, "店舗専用のWordPress接続ではないため、アイキャッチは未設定です"
+        return mid, ""
+    if kind == "poster":
+        m = media_map.get(POSTER_FN) or {}
+        try:
+            mid = int(m.get("id") or 0)
+        except (TypeError, ValueError):
+            mid = 0
+        if mid <= 0:
+            return 0, "ポスター画像のメディアIDを取得できなかったため、アイキャッチは未設定です"
+        return mid, ""
+    return 0, str(fe.get("notice") or "アイキャッチは未設定です")
 
 
 def create_takadanobaba_draft(payload: dict, progress=None) -> dict:
@@ -1841,8 +1890,11 @@ def create_takadanobaba_draft(payload: dict, progress=None) -> dict:
                             category_slug=_cat["slug"],
                             # 対象店舗だけ本文カラム幅いっぱいで表示する（表示のみ）
                             full_width=(_store in _ART_WP_FULLWIDTH_STORES))
+    # アイキャッチ（payload["featured"] を渡した店舗だけ）。本文用にアップロード済みの
+    # メディアIDまたは manifest 記録IDだけを使い、追加アップロードはしない。
+    _fm_id, _fm_notice = resolve_featured(payload, media_map, _store)
     res = create_draft(title, content, category_id=_cat["id"],
-                       author_id=_author_id, store=_store)
+                       author_id=_author_id, store=_store, featured_media=_fm_id)
     if not res["ok"]:
         return {"ok": False, "stage": "post", "uploaded": uploaded,
                 "missing_optional": miss_opt, "tmp_dir": tmp_dir,
@@ -1852,4 +1904,5 @@ def create_takadanobaba_draft(payload: dict, progress=None) -> dict:
             "edit_url": res["edit_url"], "title": title,
             "uploaded": uploaded, "missing_optional": miss_opt,
             "image_count": total, "split_map": split_map, "tmp_dir": tmp_dir,
+            "featured_media": _fm_id, "featured_notice": _fm_notice,
             "total_bytes": sum(u["bytes"] for u in uploaded)}

@@ -7785,6 +7785,21 @@ _ART_RANK_LIMITS  = (20, 25, 30, 35, 40, 45, 50)
 _ART_RANK_DEFAULT = 50
 _ART_RANK_FN      = "差枚数ランキング.jpg"
 _ART_RANK_TITLE   = "差枚数ランキング"
+# 記事用で差枚数ランキングを**生成しない**店舗（既定OFF指定）。
+# ⑦プレビュー・⑧本番の画像生成と WordPress payload の組立だけを止める。
+# ランキング機能（_art_ranking_image / 集計 / UI / 素材）は削除しない。
+# 復活させるときはこの集合から外すだけでよい。
+_ART_RANK_OFF_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
+def _art_rank_on(store: str) -> bool:
+    """記事用で差枚数ランキング画像を生成し WordPress へ載せるか。"""
+    return store in _ART_RANK_STORES and store not in _ART_RANK_OFF_STORES
+
+
+# WordPress本文でかぶぱ（ななこ）ブロック全体を**本文の最後**へ置く店舗。
+# 既定は従来の位置（記事上部の直後）。payload["nanako_last"] で wp_client へ渡す。
+_ART_WP_NANAKO_LAST_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 
 # 差枚数ランキング画像をネイティブ2倍で描く店舗（WordPress掲載時の鮮明さ優先）。
 # ランキング自体 `_ART_RANK_STORES` の店舗しか作らないが、**倍率の gate は別に持つ**
@@ -19536,7 +19551,7 @@ def show_auto_article_page() -> None:
                                                              f"{_make_safe_fn(_pk_tit)}.jpg", store, len(_pk_df)))))
                             # ⑥ 差枚数ランキング（渋谷新館・記事の最後）。
                             # 補正後の _apdf / _apdi をそのまま渡す（再計算・再取得なし）。
-                            if store in _ART_RANK_STORES:
+                            if _art_rank_on(store):
                                 _rk_img = _art_ranking_image(
                                     _apdf, _apdi, limit=_art_ranking_limit(store),
                                     hq_scale=_art_rank_hq(store))
@@ -21016,7 +21031,10 @@ def show_auto_article_page() -> None:
             # ── ⑥ 差枚数ランキング（記事用・渋谷新館）───────────────
             # ⑦プレビューと同じ _art_ranking_image() ・同じ件数を使う（別実装にしない）。
             # 差枚は result の補正後データをそのまま使う。
-            if store in _ART_RANK_STORES and result["ok"]:
+            if store in _ART_RANK_OFF_STORES and result["ok"]:
+                # 生成しない店舗は前回分の同名画像を完全一致で消す（ZIP・upload へ残さない）
+                _rm_stale_image(output_dir, _ART_RANK_FN, _log)
+            if _art_rank_on(store) and result["ok"]:
                 _rk_hq_e = _art_rank_hq(store)
                 _rk_img_e = _art_ranking_image(
                     result.get("df"), result.get("diff_raw"),
@@ -21734,12 +21752,17 @@ def show_auto_article_page() -> None:
                                 _ttl_e += f"　平均{int(_av_e):+,}枚"
                             _b_e["title"] = _ttl_e
                     # ⑥差枚数ランキング / 島図（固定ファイル名）
-                    _art_wp_pl["ranking"] = [_ART_RANK_FN]
+                    # ★_ART_RANK_OFF_STORES の店舗は⑥ブロック（H2・ランキング・全台データ）を
+                    #   本文へ一切入れない。キーは空リストで渡す（キー欠落だと
+                    #   「シマズをチェック！」H2が出るため）。
+                    _art_rank_blk = store not in _ART_RANK_OFF_STORES
+                    _art_wp_pl["ranking"] = [_ART_RANK_FN] if _art_rank_blk else []
                     # ⑥全台データ（渋谷新館のみ・条件成立時だけ⑧が保存している）。
                     # 実在判定は wp_client の `_existing_files()` が行うため、
                     # 未達の日は本文にもupload対象にも入らない。
                     _art_wp_pl["zendai_data"] = ([_ART_ZENDAI_FN]
-                                                 if store in _ART_ZENDAI_STORES else [])
+                                                 if (store in _ART_ZENDAI_STORES
+                                                     and _art_rank_blk) else [])
                     # ⑥島図。**⑥を出す店舗のうち島図が無い店舗だけ**を空にする。
                     # 高田馬場は _ART_RANK_STORES に入らないため、キーの渡し方は
                     # 従来と完全に同一（shimazu=[島図.jpg] / shimazu_section 未設定）。
@@ -21776,6 +21799,8 @@ def show_auto_article_page() -> None:
                         }
                         if store in _ART_KABUPA_TOP_STORES:
                             _art_wp_pl["nanako"].update(_art_kabupa_top_current(store))
+                        if store in _ART_WP_NANAKO_LAST_STORES:
+                            _art_wp_pl["nanako_last"] = True
                     st.session_state[f"_art_wp_payload_{store}"] = _art_wp_pl
                 except Exception as _wpe0:
                     st.warning(f"WordPress用データの準備に失敗: {_wpe0}")

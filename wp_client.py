@@ -1184,7 +1184,10 @@ def plan_blocks(payload: dict) -> list[dict]:
     #    * URL が空 → 「↓前日の夜に…」とURLの **2つをセットで出さない**
     #    * ヒントが0件 → 「今回の結果から…」・ヒント一覧・締め文章を **まとめて出さない**
     #    * 空のヒント欄は詰めて出す（空の「■」を作らない）
+    # ★payload["nanako_last"] が True の店舗（新宿歌舞伎町）はこの塊全体を
+    #   本文の最後（その他単品・⑥の後／ボタンの前）へ置く。既定 False＝従来位置。
     _nanako = payload.get("nanako")
+    _nk_plan: list[dict] = []
     if _nanako is not None:
         _nk_url   = normalize_x_url((_nanako or {}).get("url"))
         _nk_hints = [str(h or "").strip() for h in ((_nanako or {}).get("hints") or [])]
@@ -1196,22 +1199,24 @@ def plan_blocks(payload: dict) -> list[dict]:
         _nk_head      = str((_nanako or {}).get("head") or "").strip()
         _nk_head_text = _split_para((_nanako or {}).get("head_text"))
         _nk_hint_after = _split_para((_nanako or {}).get("hint_after"))
-        plan.append({"type": "h2", "text": _nk_t["h2"]})
-        plan.append({"type": "para", "text": _nk_t["lead"]})
+        _nk_plan.append({"type": "h2", "text": _nk_t["h2"]})
+        _nk_plan.append({"type": "para", "text": _nk_t["lead"]})
         if _nk_head:
-            plan.append({"type": "h3", "text": _nk_head})
+            _nk_plan.append({"type": "h3", "text": _nk_head})
         for _ln in _nk_head_text:
-            plan.append({"type": "para", "text": _ln})
+            _nk_plan.append({"type": "para", "text": _ln})
         if _nk_url:
-            plan.append({"type": "para_bold", "text": NANAKO_URL_LEAD})
-            plan.append({"type": "embed_x", "url": _nk_url})
+            _nk_plan.append({"type": "para_bold", "text": NANAKO_URL_LEAD})
+            _nk_plan.append({"type": "embed_x", "url": _nk_url})
         if _nk_hints:
-            plan.append({"type": "para", "text": NANAKO_HINT_LEAD})
-            plan.append({"type": "para_hints", "hints": _nk_hints})
+            _nk_plan.append({"type": "para", "text": NANAKO_HINT_LEAD})
+            _nk_plan.append({"type": "para_hints", "hints": _nk_hints})
         for _ln in _nk_hint_after:
-            plan.append({"type": "para", "text": _ln})
+            _nk_plan.append({"type": "para", "text": _ln})
         if _nk_hints:
-            plan.append({"type": "para", "text": _nk_t["outro"]})
+            _nk_plan.append({"type": "para", "text": _nk_t["outro"]})
+    if not payload.get("nanako_last"):
+        plan += _nk_plan
 
     # ── 全台系: H2 →（H3 + 画像）× 機種数 ──
     # ★⑦でチェックを外した全台系は⑧が output_dir から削除するが、
@@ -1431,6 +1436,10 @@ def plan_blocks(payload: dict) -> list[dict]:
         # 従来どおり「シマズをチェック！」の見出しを出す。
         # 渋谷新館はキーを必ず渡すので、両方0枚なら **H2ごと出さない**。
         plan.append({"type": "h2", "text": H2_SHIMAZU})
+
+    # ── かぶぱ（nanako_last の店舗のみ・本文の最後）──
+    if payload.get("nanako_last"):
+        plan += _nk_plan
 
     # ── 店舗情報ボタン ──
     # 記事末尾の案内ボタン。payload["no_button"] の店舗だけ出さない

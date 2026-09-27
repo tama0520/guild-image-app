@@ -1,13 +1,13 @@
 {
-  "recommended_title_1": "バラエティ・BT機の優秀台",
+  "recommended_title_1": "その他の沖スロ系の機種の優秀台",
   "recommended_machines_1": [
-    "カバネリ",
-    "ディスクアップ2",
-    "鉄拳6",
-    "戦コレ5 超極楽",
-    "スタァライト",
-    "アレックスB",
-    "LBサンダーV",
+    "スマートキンハナV",
+    "L沖ドキDUO",
+    "沖ドキゴージャス30",
+    "沖ドキBLACK",
+    "ヤバチバ",
+    "チバリヨ2",
+    "キンハナ30",
     "",
     ""
   ],
@@ -47,7 +47,7 @@
     "",
     ""
   ],
-  "rec_enabled": false,
+  "rec_enabled": true,
   "recommended_filter_1": "+1,000枚以上",
   "recommended_filter_2": "プラス台",
   "recommended_filter_3": "プラス台",

@@ -23375,3 +23375,81 @@ WordPress本文へ送らない既存仕様。**
 8. `wrt_machines.json`・`article_page_inputs.json`・`store_settings/新宿歌舞伎町.json` の既存差分、未追跡ファイル、stash 4件、
    アプリ自動commit履歴を保全する。`git add .` / `-A` / reset / restore / clean / stash操作 / revert / force push は禁止
 9. `131cb0c` / `5f1cb2b` / `39007e8` へ reset・revert しない
+
+## 【正式仕様】新宿歌舞伎町 記事用：表罫線を描画倍率に連動させ本文幅でも消えないようにする（2026-09-29・`c031ac5`）
+
+**正式仕様。巻き戻し禁止。**対象は**【新宿歌舞伎町】→ 記事用（`auto_article`）で作成し WordPress 本文へ掲載する、表を含む画像全体**。
+**Cloud の PC 表示で確認済み（ユーザー確認）。**既存節は削除・書き換えしない。
+
+### A. 正式commit
+
+| commit | 内容 |
+|---|---|
+| **`c031ac5`** | `fix: 新宿歌舞伎町記事用の表罫線を高解像度倍率に連動させ本文幅でも消えないようにする`（`streamlit_app.py` / `convert_narabi_pil.py`） |
+
+`c031ac5` は現HEADの祖先であることを確認済み。直前のアプリ自動commit **`6583d46` / `19c7a8a` / `614580c`
+（`auto: 画像生成後の設定を保存`・設定JSONのみ）** は有効な履歴として保全する。
+**どのcommitへも reset・revert しない**（正式仕様の根拠commitであって HEAD を戻す意味ではない）。
+
+### B. 対象画像
+
+全台系 ／ 高配分 ／ ②個別（全台／優秀台／優秀台ピックアップ）／ 並び ／ 列 ／ 末尾 ／ その他の優秀台 ／
+ジャグラー ／ ⑤オススメ など、**2倍描画の表を含む画像**（いずれも `draw_table_image()`、⑧の並び・列は
+`convert_narabi_pil.py` の `build_table_pil()` で表を描く）。
+
+### C. 原因（確定）
+
+- 表の罫線が**描画倍率に関係なく固定**（`draw_table_image` はセル境目2px・外枠1px、`convert_narabi_pil.py` は1px）だった。
+- 幅約2100pxの2倍描画画像を **PC本文幅約752px（約1/2.8）** へ縮小表示すると、罫線が **1px未満相当**になり、
+  縦線・横線・外枠が**薄く溶ける／縮小の位相によっては線ごと抜ける**ことがあった
+  （スクショでは「ゲーム数｜BIG」間の縦線だけ消えていた）。
+- 元画像の罫線は正常。JPEG圧縮・画像変換・描画処理の不具合ではない。
+  1倍描画（幅約1000px・約1/1.3）は1px以上残るため消えなかった。
+
+### D. 正式仕様
+
+- 対象ページだけ、**表描画時点で罫線幅を描画倍率に連動**させる。**2倍描画ではセル境目・外枠とも4px**。
+  - `streamlit_app.py`：判定 **`_art_table_line_new()`**（**`_ART_TBL_LINE_PAGES={"auto_article"}` × `_ART_TBL_LINE_STORES={"新宿歌舞伎町"}`** の AND・保存フラグなし・Streamlit外は False）。
+    ON のとき `draw_table_image()` のセル枠線を `round(倍率)`px にし（セル境目は2セル分で 2×）、外枠も 2×round(倍率)px にそろえる。
+  - `convert_narabi_pil.py`：**`ART_LINE = False`（既定）**。ON のとき罫線を 2×round(倍率)px にする（セル塗りを内側へ寄せ、外枠も同じ太さ）。
+- **線はセルの内側へ太らせる**ので、**列幅・行高・画像サイズ・文字位置・表の数値は変えない**。
+- **画像完成後の線の重ね描き・切り貼り・画像縮小・再圧縮・WordPress側の設定変更は行わない。**
+- 記事用⑧の並び・列は別プロセスのため、**`_patch_and_run_narabi(art_line=_art_table_line_new())` で
+  同じ指定を `convert_narabi_pil.py` へ渡して同じ太さにする**（`art_line` 既定 False）。
+- **⑦・⑧・WordPress送信画像で同じ罫線仕様**になる（送信画像は⑧の出力ファイルそのもの）。
+
+### E. 対象外（従来の画素を維持）
+
+新宿歌舞伎町以外の記事用 ／ `auto` ／ `auto_slump` ／ `auto_slump2` ／ ローテ ／ 作業用 ／ ⑥個別生成 ／
+結果ポスト ／ スランプ付き結果 ／「その他」配下。
+
+表の内容 ／ パネル ／ スランプ ／ 画像名 ／ ピンクバー有無 ／ 判定・集計 ／ アイキャッチ ／ ①ポスター ／
+本文順 ／ かぶぱ ／ ランキング停止 は変えない。
+
+### F. 検証
+
+- 完成画像を **PC本文幅752px相当へ4種類の方式（NEAREST / BILINEAR / BOX / LANCZOS）で縮小**し、
+  すべての縦線・横線・外枠を全長にわたって測定。線の太さ方向の濃さ合計（1.0＝1px分）の最小値は
+  **修正前 0〜0.33px分 → 修正後 約1.0〜1.45px分**（⑧並びのJPEGは NEAREST 0.99＝JPEG誤差）。
+- ON/OFFで変化した画素はすべて罫線色。**パネル・スランプ領域は修正前と画素完全一致**、画像サイズ不変。
+- **対象外は修正前と画素一致**（⑧並びの既定・通常ページ設定は生成JPEGがバイト一致）。
+- 変更関数は `draw_table_image` / `_patch_and_run_narabi` / `show_auto_article_page`（新規 `_art_table_line_new`）と、
+  `convert_narabi_pil.py` の `_draw_cell` / `build_table_pil` だけ。
+- **111 PASS / 0 FAIL。Cloud の PC 表示で確認済み。**
+- **実装検証で WordPress・Pision への通信は行っていない。**
+
+### G. 保証範囲の注意
+
+**スマホ本文幅約354px（約1/6）では、4pxの罫線でも1px未満になる可能性がある。今回の保証範囲は PC 本文幅（752px）。**
+
+### H. 禁止事項・保全
+
+1. 罫線幅を倍率非連動の固定値へ戻さない／`_art_table_line_new()` のゲートを外さない・他店舗や他ページへ広げない
+2. `ART_LINE` / `art_line` の既定 False を変えない／⑦だけ・⑧だけ変更しない
+3. 線を完成画像へ重ね描き・切り貼りしない／画像縮小・再圧縮・WordPress設定・テーマ・CSSで代替しない
+4. 列幅・行高・画像サイズ・文字位置・数値を罫線のために変えない
+5. E の対象外・変えないものへ波及させない
+6. `wrt_machines.json` の既存差分、未追跡ファイル、stash 4件、アプリ自動commit履歴を保全する。
+   `git add .` / `-A` / reset / restore / clean / stash操作 / revert / force push は禁止
+7. **アプリ起動中に未commitのコードを残したまま検証しない**（自動 stash で作業ツリーが HEAD へ戻る・`55e7752`）
+8. `c031ac5` / `6583d46` / `19c7a8a` / `614580c` へ reset・revert しない

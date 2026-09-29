@@ -20927,55 +20927,43 @@ def show_auto_article_page() -> None:
             _art_sue_src_e:  dict[str, dict]      = {}
             _art_sue_stat_e: dict[str, list[int]] = {}
             _a_st_e, _a_sm_e, _a_jt_e, _a_jm_e = _art_sue_settings()
-            if result["ok"] and uploaded is not None:
-                for _tails_e, _mode_e, _isjug_e in ((_a_st_e, _a_sm_e, False),
-                                                    (_a_jt_e, _a_jm_e, True)):
-                    if not _tails_e:
-                        continue
-                    for _sfn_e, _simg_e in _build_sue_images(
-                            uploaded, store, _tails_e, _mode_e, is_juggler=_isjug_e,
-                            ban_out=_art_sue_ban_e, stat_out=_art_sue_stat_e,
-                            src_out=_art_sue_src_e, article_mode=True,
-                            hq_scale=(_ART_HQ_SCALE if store in _ART_HQ_STORES else 1.0),
-                            exclude_state=_art_unit_state_e,
-                            exclude_kind="art_suebangai",
-                            sue_pink_bar=(store in _ART_SUE_PINK_STORES)):
-                        _sout_e = os.path.join(output_dir, _sfn_e)
-                        _save_jpeg(_simg_e, _sout_e,
-                                   **({"target_kb": _ART_HQ_TARGET_KB}
-                                      if _art_hq_scale_for(_sfn_e, store,
-                                                           len(_art_sue_ban_e.get(_sfn_e, []))) > 1.0
-                                      else {}))
-                        result["files"].append(_sout_e)
-                        _log(f"  ✅ {'ジャグラー末尾' if _isjug_e else '末尾'}画像「{_sfn_e}」"
-                             f"({len(_art_sue_ban_e.get(_sfn_e, []))}台)")
-                # 候補0台で作らなかった画像は、古い同名ファイルを残さない
-                for _sfn_e in _art_sue_src_e:
-                    if not _art_sue_ban_e.get(_sfn_e):
-                        _sdel_e = os.path.join(output_dir, _sfn_e)
-                        if os.path.exists(_sdel_e):
-                            os.remove(_sdel_e)
-                            _log(f"  🗑️ 掲載台0台のため削除: {_sfn_e}")
+            def _art_gen_sue_e() -> None:
+                """④末尾・ジャグラー末尾画像を生成・保存する（下の2か所のどちらか一方で1回だけ呼ぶ）。"""
+                if result["ok"] and uploaded is not None:
+                    for _tails_e, _mode_e, _isjug_e in ((_a_st_e, _a_sm_e, False),
+                                                        (_a_jt_e, _a_jm_e, True)):
+                        if not _tails_e:
+                            continue
+                        for _sfn_e, _simg_e in _build_sue_images(
+                                uploaded, store, _tails_e, _mode_e, is_juggler=_isjug_e,
+                                ban_out=_art_sue_ban_e, stat_out=_art_sue_stat_e,
+                                src_out=_art_sue_src_e, article_mode=True,
+                                hq_scale=(_ART_HQ_SCALE if store in _ART_HQ_STORES else 1.0),
+                                exclude_state=_art_unit_state_e,
+                                exclude_kind="art_suebangai",
+                                sue_pink_bar=(store in _ART_SUE_PINK_STORES)):
+                            _sout_e = os.path.join(output_dir, _sfn_e)
+                            _save_jpeg(_simg_e, _sout_e,
+                                       **({"target_kb": _ART_HQ_TARGET_KB}
+                                          if _art_hq_scale_for(_sfn_e, store,
+                                                               len(_art_sue_ban_e.get(_sfn_e, []))) > 1.0
+                                          else {}))
+                            result["files"].append(_sout_e)
+                            _log(f"  ✅ {'ジャグラー末尾' if _isjug_e else '末尾'}画像「{_sfn_e}」"
+                                 f"({len(_art_sue_ban_e.get(_sfn_e, []))}台)")
+                    # 候補0台で作らなかった画像は、古い同名ファイルを残さない
+                    for _sfn_e in _art_sue_src_e:
+                        if not _art_sue_ban_e.get(_sfn_e):
+                            _sdel_e = os.path.join(output_dir, _sfn_e)
+                            if os.path.exists(_sdel_e):
+                                os.remove(_sdel_e)
+                                _log(f"  🗑️ 掲載台0台のため削除: {_sfn_e}")
 
-            # 結果テキスト用: 実際に画像を作れた末尾だけを対象にする（通常/ジャグラー別）。
-            # tail・is_juggler は _build_sue_images の src_out に記録済み。
-            _art_sue_done_t:  list[str] = []   # 画像ができた通常末尾（入力順）
-            _art_sue_done_jt: list[str] = []   # 画像ができたジャグラー末尾（入力順）
-            _art_sue_ok_bans:  set[int] = set()   # 通常末尾画像に載った台番
-            _art_jsue_ok_bans: set[int] = set()   # ジャグラー末尾画像に載った台番
-            for _sfn_r, _src_r in _art_sue_src_e.items():
-                _bns_r = _art_sue_ban_e.get(_sfn_r) or []
-                if not _bns_r:
-                    continue          # 候補0台＝画像なし → 結果テキストにも出さない
-                if _src_r.get("is_juggler"):
-                    _art_sue_done_jt.append(str(_src_r.get("tail", "")))
-                    _art_jsue_ok_bans |= {int(_b) for _b in _bns_r}
-                else:
-                    _art_sue_done_t.append(str(_src_r.get("tail", "")))
-                    _art_sue_ok_bans |= {int(_b) for _b in _bns_r}
-            # 入力順（末尾①→②→③）を保ち、重複末尾は1つにまとめる
-            _art_sue_done_t  = [_t for _t in _a_st_e if _t in set(_art_sue_done_t)]
-            _art_sue_done_jt = [_t for _t in _a_jt_e if _t in set(_art_sue_done_jt)]
+            # 新宿歌舞伎町×記事用×📝だけ、末尾画像を「その他の優秀台」より先に作り、
+            # 実掲載台番（_art_sue_ban_e）をその他の除外へ渡す。それ以外は従来の順序のまま。
+            _art_sue_early = bool(_art_exec_manual and store in _ART_MANUAL_SUE_EXC_STORES)
+            if _art_sue_early:
+                _art_gen_sue_e()
 
             # ── 📝記入部分のみ: その他の優秀台 / ジャグラーシリーズ優秀台 ────────
             # ⑦📝プレビューと**同じ入力値・同じ抽出関数・同じファイル名**で作る。
@@ -21060,6 +21048,28 @@ def show_auto_article_page() -> None:
                                            if str(b).split(".")[0].lstrip("-").isdigit()]
                         _log(f"  ✅ {_se_tit_m}（記入部分のみ）: {len(_se_df_m)}台")
 
+            if not _art_sue_early:
+                _art_gen_sue_e()
+
+            # 結果テキスト用: 実際に画像を作れた末尾だけを対象にする（通常/ジャグラー別）。
+            # tail・is_juggler は _build_sue_images の src_out に記録済み。
+            _art_sue_done_t:  list[str] = []   # 画像ができた通常末尾（入力順）
+            _art_sue_done_jt: list[str] = []   # 画像ができたジャグラー末尾（入力順）
+            _art_sue_ok_bans:  set[int] = set()   # 通常末尾画像に載った台番
+            _art_jsue_ok_bans: set[int] = set()   # ジャグラー末尾画像に載った台番
+            for _sfn_r, _src_r in _art_sue_src_e.items():
+                _bns_r = _art_sue_ban_e.get(_sfn_r) or []
+                if not _bns_r:
+                    continue          # 候補0台＝画像なし → 結果テキストにも出さない
+                if _src_r.get("is_juggler"):
+                    _art_sue_done_jt.append(str(_src_r.get("tail", "")))
+                    _art_jsue_ok_bans |= {int(_b) for _b in _bns_r}
+                else:
+                    _art_sue_done_t.append(str(_src_r.get("tail", "")))
+                    _art_sue_ok_bans |= {int(_b) for _b in _bns_r}
+            # 入力順（末尾①→②→③）を保ち、重複末尾は1つにまとめる
+            _art_sue_done_t  = [_t for _t in _a_st_e if _t in set(_art_sue_done_t)]
+            _art_sue_done_jt = [_t for _t in _a_jt_e if _t in set(_art_sue_done_jt)]
 
             # ── ⑤ オススメ機種の優秀台（記事用・記入式・1ブロック＝1画像）──────
             # ⑦プレビューと同じ _art_osusume_block_images() を使う（対象機種・台番・

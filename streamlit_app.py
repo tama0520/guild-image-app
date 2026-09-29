@@ -4511,6 +4511,9 @@ _ART_ZEN_PINK_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 # 記事用の末尾画像（通常末尾・ジャグラー末尾）で、王冠付きサマリーの代わりに
 # ③並び画像と同じピンクサマリーバーを使う店舗（台数表記も③並びと同じ（x/y台））。
 _ART_SUE_PINK_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+# 記事用📝記入部分のみで、④末尾画像へ実際に掲載された台番を「その他の優秀台」から
+# 除外する店舗（⑦プレビュー・⑧本番で同じ集合を使う）。
+_ART_MANUAL_SUE_EXC_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 
 
 def _art_kojin_zen_img(store: str, grp, title: str, stat: dict, hq_scale: float):
@@ -19523,8 +19526,14 @@ def show_auto_article_page() -> None:
                                             _art_son_bans = [int(b) for b in _se_df_a["台番"].tolist()]
                                             _art_son_added = True
                                 elif art_sonota_extra_auto in _SONOTA_AUTO_THR and _apdi is not None:
+                                    # その他の優秀台専用: 📝では④末尾画像へ**実際に掲載された台番**
+                                    # （_build_sue_images の ban_out）を重複させない（⑧と同じ集合）
+                                    _son_exc_a: set[int] = set(_exc_ban_a)
+                                    if _art_manual and store in _ART_MANUAL_SUE_EXC_STORES:
+                                        for _sb_a in _art_sue_ban.values():
+                                            _son_exc_a |= {int(b) for b in (_sb_a or [])}
                                     _se_auto_a = _manual_sonota_auto_extract(
-                                        _apdf, _apdi, _SONOTA_AUTO_THR[art_sonota_extra_auto], _exc_mac_a, _exc_ban_a,
+                                        _apdf, _apdi, _SONOTA_AUTO_THR[art_sonota_extra_auto], _exc_mac_a, _son_exc_a,
                                         exc_series=_jug_sonota_exc_series(store))
                                     if not _se_auto_a.empty:
                                         _se_tit_a = art_sonota_extra_title.strip() or "その他の優秀台ピックアップ"
@@ -20911,83 +20920,6 @@ def show_auto_article_page() -> None:
                         except Exception:
                             pass
 
-            # ── 📝記入部分のみ: その他の優秀台 / ジャグラーシリーズ優秀台 ────────
-            # ⑦📝プレビューと**同じ入力値・同じ抽出関数・同じファイル名**で作る。
-            # manual_mode=True では pipeline 版を生成しないため、⑦に出たものを
-            # ⑧でも保存しないと出力・ZIP・WordPress payload がズレる
-            # （「生成後に削除」ではなく、必要なときだけ正しく生成する）。
-            # ★🔍フルモード（_art_exec_manual=False）では従来どおり何もしない。
-            # ⑧📝で作った画像の掲載台番。**⑦と同じパネル・スランプ合成へ乗せる**ために
-            # 後段の ban_map（_art_bm_sl）へ登録する（⑧だけ簡易描画にしない）。
-            _man_son_fn_e: str = ""
-            _man_son_bans_e: list[int] = []
-            _man_jug_bans_e: list[int] = []
-            if _art_exec_manual and result["ok"]:
-                _mdf_e = result.get("df")
-                _mdi_e = result.get("diff_raw")
-                if _mdf_e is not None and _mdi_e is not None:
-                    # ⑦と同じ除外集合（②個別・⑤優先・②ピック・並び・台番範囲）
-                    _exc_mac_m = {m.strip() for m in
-                                  (kojin_zentai_machines + kojin_yushu_machines) if m.strip()}
-                    _exc_mac_m |= _art_osu_prio_e
-                    _exc_ban_m: set[int] = set()
-                    for _pt_m, _pb_m in _collect_kojin_pick(store, prefix="art_"):
-                        _exc_ban_m |= set(_pb_m)
-                    for _bl_m in (narabi_ranges or []):
-                        _exc_ban_m |= {int(b) for b in _bl_m}
-                    for _txt_m in (kojin_narabi_ranges_text, kojin_narabi2_ranges_text):
-                        if _txt_m and _txt_m.strip():
-                            try: _exc_ban_m |= ranges_to_bans(parse_ranges(_txt_m.strip()))
-                            except Exception: pass
-                    # ④ ジャグラーシリーズ優秀台（⑦と同じ _manual_juggler_auto_extract）
-                    if art_jug_extra_auto != "なし":
-                        _jg_exc_m: set[int] = set(_exc_ban_m)
-                        for _cl_m in (retsu_ranges if retsu_ok else []):
-                            _jg_exc_m |= {int(b) for b in _cl_m}
-                        for _bl_km in _art_ky_bans_e.values():
-                            _jg_exc_m |= {int(b) for b in (_bl_km or [])}
-                        _jg_df_m = _manual_juggler_auto_extract(
-                            _mdf_e, _mdi_e, art_jug_extra_auto, get_store_config(store), _jg_exc_m)
-                        if _jg_df_m is not None and not _jg_df_m.empty:
-                            _jg_fn_m = "ジャグラーシリーズ優秀台.jpg"
-                            _jg_out_m = os.path.join(output_dir, _jg_fn_m)
-                            _save_jpeg(_build_machine_img_no_bar(
-                                _jg_df_m,
-                                hq_scale=_art_hq_scale_for(_jg_fn_m, store, len(_jg_df_m))),
-                                _jg_out_m)
-                            result["files"].append(_jg_out_m)
-                            _man_jug_bans_e = [int(b) for b in _jg_df_m["台番"].dropna()
-                                               if str(b).split(".")[0].lstrip("-").isdigit()]
-                            _log(f"  ✅ ジャグラーシリーズ優秀台（記入部分のみ）: {len(_jg_df_m)}台")
-                    # ⑤ その他の優秀台ピックアップ（台番テキスト貼付 or 自動抽出）
-                    _se_tit_m = art_sonota_extra_title.strip() or "その他の優秀台ピックアップ"
-                    _se_fn_m  = f"{_make_safe_fn(_se_tit_m)}.jpg"
-                    _se_df_m  = None
-                    if art_sonota_extra_text.strip():
-                        _se_bans_m = set(expand_machine_numbers(art_sonota_extra_text))
-                        if _se_bans_m:
-                            _se_r_m = _mdf_e[_mdf_e["台番"].apply(
-                                lambda b: int(b) in _se_bans_m)].copy()
-                            if not _se_r_m.empty:
-                                _se_df_m = _se_r_m.iloc[_se_r_m["台番"].argsort()].reset_index(drop=True)
-                    elif art_sonota_extra_auto in _SONOTA_AUTO_THR:
-                        _se_a_m = _manual_sonota_auto_extract(
-                            _mdf_e, _mdi_e, _SONOTA_AUTO_THR[art_sonota_extra_auto],
-                            _exc_mac_m, _exc_ban_m, exc_series=_jug_sonota_exc_series(store))
-                        if not _se_a_m.empty:
-                            _se_df_m = _se_a_m
-                    if _se_df_m is not None and not _se_df_m.empty:
-                        _se_out_m = os.path.join(output_dir, _se_fn_m)
-                        _save_jpeg(_build_machine_img(
-                            _se_df_m, _se_tit_m, None, no_bar=_art_sonota_no_bar(store),
-                            hq_scale=_art_hq_scale_for(_se_fn_m, store, len(_se_df_m))),
-                            _se_out_m, target_kb=800)
-                        result["files"].append(_se_out_m)
-                        _man_son_fn_e = _se_fn_m
-                        _man_son_bans_e = [int(b) for b in _se_df_m["台番"].dropna()
-                                           if str(b).split(".")[0].lstrip("-").isdigit()]
-                        _log(f"  ✅ {_se_tit_m}（記入部分のみ）: {len(_se_df_m)}台")
-
             # ── ④ 末尾・ジャグラー末尾画像（記事用）────────────────────────
             # ⑦プレビューと同じ _build_sue_images / 同じ入力値（_art_sue_settings）で作る。
             # pipeline へ渡す suebangai_tails（他画像からの末尾台除外）は変更していない。
@@ -21044,6 +20976,90 @@ def show_auto_article_page() -> None:
             # 入力順（末尾①→②→③）を保ち、重複末尾は1つにまとめる
             _art_sue_done_t  = [_t for _t in _a_st_e if _t in set(_art_sue_done_t)]
             _art_sue_done_jt = [_t for _t in _a_jt_e if _t in set(_art_sue_done_jt)]
+
+            # ── 📝記入部分のみ: その他の優秀台 / ジャグラーシリーズ優秀台 ────────
+            # ⑦📝プレビューと**同じ入力値・同じ抽出関数・同じファイル名**で作る。
+            # manual_mode=True では pipeline 版を生成しないため、⑦に出たものを
+            # ⑧でも保存しないと出力・ZIP・WordPress payload がズレる
+            # （「生成後に削除」ではなく、必要なときだけ正しく生成する）。
+            # ★🔍フルモード（_art_exec_manual=False）では従来どおり何もしない。
+            # ⑧📝で作った画像の掲載台番。**⑦と同じパネル・スランプ合成へ乗せる**ために
+            # 後段の ban_map（_art_bm_sl）へ登録する（⑧だけ簡易描画にしない）。
+            _man_son_fn_e: str = ""
+            _man_son_bans_e: list[int] = []
+            _man_jug_bans_e: list[int] = []
+            if _art_exec_manual and result["ok"]:
+                _mdf_e = result.get("df")
+                _mdi_e = result.get("diff_raw")
+                if _mdf_e is not None and _mdi_e is not None:
+                    # ⑦と同じ除外集合（②個別・⑤優先・②ピック・並び・台番範囲）
+                    _exc_mac_m = {m.strip() for m in
+                                  (kojin_zentai_machines + kojin_yushu_machines) if m.strip()}
+                    _exc_mac_m |= _art_osu_prio_e
+                    _exc_ban_m: set[int] = set()
+                    for _pt_m, _pb_m in _collect_kojin_pick(store, prefix="art_"):
+                        _exc_ban_m |= set(_pb_m)
+                    for _bl_m in (narabi_ranges or []):
+                        _exc_ban_m |= {int(b) for b in _bl_m}
+                    for _txt_m in (kojin_narabi_ranges_text, kojin_narabi2_ranges_text):
+                        if _txt_m and _txt_m.strip():
+                            try: _exc_ban_m |= ranges_to_bans(parse_ranges(_txt_m.strip()))
+                            except Exception: pass
+                    # その他の優秀台専用: ④末尾画像へ**実際に掲載された台番**は重複させない
+                    # （_build_sue_images の ban_out＝正規の掲載台番。ジャグラー統合は従来どおり）
+                    _son_exc_m: set[int] = set(_exc_ban_m)
+                    if store in _ART_MANUAL_SUE_EXC_STORES:
+                        for _sb_m in _art_sue_ban_e.values():
+                            _son_exc_m |= {int(b) for b in (_sb_m or [])}
+                    # ④ ジャグラーシリーズ優秀台（⑦と同じ _manual_juggler_auto_extract）
+                    if art_jug_extra_auto != "なし":
+                        _jg_exc_m: set[int] = set(_exc_ban_m)
+                        for _cl_m in (retsu_ranges if retsu_ok else []):
+                            _jg_exc_m |= {int(b) for b in _cl_m}
+                        for _bl_km in _art_ky_bans_e.values():
+                            _jg_exc_m |= {int(b) for b in (_bl_km or [])}
+                        _jg_df_m = _manual_juggler_auto_extract(
+                            _mdf_e, _mdi_e, art_jug_extra_auto, get_store_config(store), _jg_exc_m)
+                        if _jg_df_m is not None and not _jg_df_m.empty:
+                            _jg_fn_m = "ジャグラーシリーズ優秀台.jpg"
+                            _jg_out_m = os.path.join(output_dir, _jg_fn_m)
+                            _save_jpeg(_build_machine_img_no_bar(
+                                _jg_df_m,
+                                hq_scale=_art_hq_scale_for(_jg_fn_m, store, len(_jg_df_m))),
+                                _jg_out_m)
+                            result["files"].append(_jg_out_m)
+                            _man_jug_bans_e = [int(b) for b in _jg_df_m["台番"].dropna()
+                                               if str(b).split(".")[0].lstrip("-").isdigit()]
+                            _log(f"  ✅ ジャグラーシリーズ優秀台（記入部分のみ）: {len(_jg_df_m)}台")
+                    # ⑤ その他の優秀台ピックアップ（台番テキスト貼付 or 自動抽出）
+                    _se_tit_m = art_sonota_extra_title.strip() or "その他の優秀台ピックアップ"
+                    _se_fn_m  = f"{_make_safe_fn(_se_tit_m)}.jpg"
+                    _se_df_m  = None
+                    if art_sonota_extra_text.strip():
+                        _se_bans_m = set(expand_machine_numbers(art_sonota_extra_text))
+                        if _se_bans_m:
+                            _se_r_m = _mdf_e[_mdf_e["台番"].apply(
+                                lambda b: int(b) in _se_bans_m)].copy()
+                            if not _se_r_m.empty:
+                                _se_df_m = _se_r_m.iloc[_se_r_m["台番"].argsort()].reset_index(drop=True)
+                    elif art_sonota_extra_auto in _SONOTA_AUTO_THR:
+                        _se_a_m = _manual_sonota_auto_extract(
+                            _mdf_e, _mdi_e, _SONOTA_AUTO_THR[art_sonota_extra_auto],
+                            _exc_mac_m, _son_exc_m, exc_series=_jug_sonota_exc_series(store))
+                        if not _se_a_m.empty:
+                            _se_df_m = _se_a_m
+                    if _se_df_m is not None and not _se_df_m.empty:
+                        _se_out_m = os.path.join(output_dir, _se_fn_m)
+                        _save_jpeg(_build_machine_img(
+                            _se_df_m, _se_tit_m, None, no_bar=_art_sonota_no_bar(store),
+                            hq_scale=_art_hq_scale_for(_se_fn_m, store, len(_se_df_m))),
+                            _se_out_m, target_kb=800)
+                        result["files"].append(_se_out_m)
+                        _man_son_fn_e = _se_fn_m
+                        _man_son_bans_e = [int(b) for b in _se_df_m["台番"].dropna()
+                                           if str(b).split(".")[0].lstrip("-").isdigit()]
+                        _log(f"  ✅ {_se_tit_m}（記入部分のみ）: {len(_se_df_m)}台")
+
 
             # ── ⑤ オススメ機種の優秀台（記事用・記入式・1ブロック＝1画像）──────
             # ⑦プレビューと同じ _art_osusume_block_images() を使う（対象機種・台番・

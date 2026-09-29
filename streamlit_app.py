@@ -4082,7 +4082,8 @@ _ART_WP_ONE_PIECE_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 # 記事用②「個別機種の優秀台ピックアップ」を、③並びと同じ
 # 「機種パネル → 表 → ピンクサマリーバー → スランプ」の完成画像にする店舗（既定＝表のみ）。
 # 描画は並びと同じ _build_machine_img(no_bar=True)、パネル・スランプは既存の合成ループ
-# （ban_map へ掲載台番を登録するだけ・パネルは並びと同じ選定ルール）を使う。
+# （ban_map へ掲載台番を登録するだけ）。パネルは「その他の優秀台」と同じ4分割
+# （_build_variety_panel_grid・最大4枚・記事用は台番昇順）。
 _ART_PICK_FULL_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 
 # ジャグラー統合画像（ジャグラーシリーズ優秀台.jpg）の直前へ
@@ -19800,10 +19801,10 @@ def show_auto_article_page() -> None:
                                         if store in _ARTICLE_PANEL_STORES:
                                             _is_sue_pv2 = ("末尾" in _fn_pv2)
                                             _bare_pv2 = re.sub(r"^\d{2}_", "", _fn_pv2)
-                                            # ②個別機種の優秀台ピックアップは③並びと同じパネル選定
-                                            # （1機種→その機種／2機種→2枚／3機種以上→差枚最大）
+                                            # ②個別機種の優秀台ピックアップは「その他の優秀台」と同じ
+                                            # 4分割パネル（_build_variety_panel_grid・最大4枚）にする
                                             _is_pick_pv2 = _fn_pv2 in _art_pick_bans
-                                            _is_multi_pv2 = (not _is_pick_pv2) and _art_is_multi_machine(
+                                            _is_multi_pv2 = _is_pick_pv2 or _art_is_multi_machine(
                                                 _bare_pv2, _bans_pv2, _pv_ban2mac)
                                             # ⑤で最終1機種のときだけ「{機種名}.jpg」として渡し、
                                             # 単一機種パネル（全幅）経路へ入れる（機種名は bans→ban2mac）。
@@ -19817,7 +19818,7 @@ def show_auto_article_page() -> None:
                                                 crop_bar=False,      # 記事用は元画像をcropしない
                                                 is_multi=_is_multi_pv2 or _osu_multi_pv2,
                                                 # 列仕掛けも並びと同じパネル選定ルールへ
-                                                narabi_like=_art_is_narabi_fn(_bare_pv2) or _is_pick_pv2,
+                                                narabi_like=_art_is_narabi_fn(_bare_pv2),
                                                 max_panels=_art_panel_max(store, _bare_pv2))
                                         # 高解像度対象（その他／ジャグラー統合）はスランプも2倍で描画
                                         _hq_pv2 = _art_hq_scale_for(
@@ -21487,9 +21488,9 @@ def show_auto_article_page() -> None:
                                 if store in _ARTICLE_PANEL_STORES:
                                     _is_sue_sl = ("末尾" in _fp_sl)
                                     _bare_sl = re.sub(r"^\d{2}_", "", _fp_sl)
-                                    # ②個別機種の優秀台ピックアップは③並びと同じパネル選定（⑦と同じ）
+                                    # ②個別機種の優秀台ピックアップは「その他の優秀台」と同じ4分割パネル（⑦と同じ）
                                     _is_pick_sl = _bare_sl in _art_pick_bans_e
-                                    _is_multi_sl = (not _is_pick_sl) and _art_is_multi_machine(
+                                    _is_multi_sl = _is_pick_sl or _art_is_multi_machine(
                                         _bare_sl, _bans_sl, _art_ban2mac_sl)
                                     # ⑤で最終1機種のときだけ「{機種名}.jpg」として渡し、
                                     # 単一機種パネル（全幅）経路へ入れる（機種名は bans→ban2mac）。
@@ -21503,7 +21504,7 @@ def show_auto_article_page() -> None:
                                         crop_bar=False,      # 記事用は元画像をcropしない
                                         is_multi=_is_multi_sl or _osu_multi_sl,
                                         # 列仕掛けも並びと同じパネル選定ルールへ
-                                        narabi_like=_art_is_narabi_fn(_bare_sl) or _is_pick_sl,
+                                        narabi_like=_art_is_narabi_fn(_bare_sl),
                                         max_panels=_art_panel_max(store, _bare_sl))
                                     if _mn_sl is not None and not _pok_sl:
                                         _art_missing_panels.add(_mn_sl)

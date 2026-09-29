@@ -4079,9 +4079,10 @@ _ART_WP_STORES = frozenset({"高田馬場", "渋谷新館", "新宿歌舞伎町"
 # wp_client.plan_split(one_piece=True) で分割計画を作らない（既定OFF＝従来の分割仕様）。
 # 前提: このサイトは保存時の長辺縮小を無効化済み（EWWW最大画像サイズ0×0・big_image_size_threshold無効）。
 _ART_WP_ONE_PIECE_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
-# 記事用②「個別機種の優秀台ピックアップ」を、③並びと同じ
-# 「機種パネル → 表 → ピンクサマリーバー → スランプ」の完成画像にする店舗（既定＝表のみ）。
-# 描画は並びと同じ _build_machine_img(no_bar=True)、パネル・スランプは既存の合成ループ
+# 記事用②「個別機種の優秀台ピックアップ」を
+# 「機種パネル → 表 → スランプ」の完成画像にする店舗（既定＝表のみ）。
+# ピンクサマリーバーは付けない（_build_machine_img へ summary_stat=None を渡し生成しない）。
+# 描画は _build_machine_img(no_bar=True)、パネル・スランプは既存の合成ループ
 # （ban_map へ掲載台番を登録するだけ）。パネルは「その他の優秀台」と同じ4分割
 # （_build_variety_panel_grid・最大4枚・記事用は台番昇順）。
 _ART_PICK_FULL_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
@@ -19626,12 +19627,11 @@ def show_auto_article_page() -> None:
                                     _pk_fn = f"{_make_safe_fn(_pk_tit)}.jpg"
                                     _pk_hq = _art_hq_scale_for(_pk_fn, store, len(_pk_df))
                                     if store in _ART_PICK_FULL_STORES and _apdi is not None:
-                                        # 並びと同じ表＋ピンクバー。集計は表へ載せた台の差枚だけ。
-                                        _pk_st = _stat_from_diff(_apdi.loc[_pk_df.index])
+                                        # 表のみ（ピンクサマリーバーは生成しない）。パネル・スランプは合成ループで付く。
                                         _pk_df = _pk_df.reset_index(drop=True)
                                         _art_pick_bans[_pk_fn] = [int(b) for b in _pk_df["台番"].tolist()]
                                         _art_pil.append((_pk_fn, _build_machine_img(
-                                            _pk_df, _pk_tit, _pk_st, no_bar=True, hq_scale=_pk_hq)))
+                                            _pk_df, _pk_tit, None, no_bar=True, hq_scale=_pk_hq)))
                                     else:
                                         _pk_df = _pk_df.reset_index(drop=True)
                                         _art_pil.append((_pk_fn, _build_machine_img_no_bar(
@@ -20868,12 +20868,11 @@ def show_auto_article_page() -> None:
                         _pk_out_e = os.path.join(output_dir, _pk_fn_e)
                         _pk_hq_e = _art_hq_scale_for(_pk_fn_e, store, len(_pk_df_e))
                         if store in _ART_PICK_FULL_STORES:
-                            # ⑦と同じ: 並びと同じ表＋ピンクバー（集計は表へ載せた台の差枚だけ）
-                            _pk_st_e = _stat_from_diff(diff_k.loc[_pk_df_e.index])
+                            # ⑦と同じ: 表のみ（ピンクサマリーバーは生成しない）
                             _pk_df_e = _pk_df_e.reset_index(drop=True)
                             _art_pick_bans_e[_pk_fn_e] = [int(b) for b in _pk_df_e["台番"].tolist()]
                             _save_jpeg(_build_machine_img(
-                                _pk_df_e, _pk_tit_e, _pk_st_e, no_bar=True,
+                                _pk_df_e, _pk_tit_e, None, no_bar=True,
                                 hq_scale=_pk_hq_e), _pk_out_e)
                         else:
                             _pk_df_e = _pk_df_e.reset_index(drop=True)

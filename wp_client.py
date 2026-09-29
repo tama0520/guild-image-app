@@ -1492,7 +1492,8 @@ def collect_files(plan: list[dict], output_dir: str) -> tuple[list[dict], list[d
     return found, miss_req, miss_opt
 
 
-def plan_split(found: list[dict], tmp_dir: str, store: str = "") -> dict:
+def plan_split(found: list[dict], tmp_dir: str, store: str = "",
+               one_piece: bool = False) -> dict:
     """送信対象のうち縦長すぎる画像を、送信用の一時コピーへ分割する。
 
     戻り値: {元ファイル名: [{"path","file","w","h","bytes"}, …]}
@@ -1505,9 +1506,15 @@ def plan_split(found: list[dict], tmp_dir: str, store: str = "") -> dict:
     `_ART_WP_MIN_KEEP_W` 未満になる」画像だけは例外的に分割する
     （画質優先。理由は定数のコメント参照）。
     既定 `""` は従来動作なので、引数を渡さない呼び出しは影響を受けない。
+
+    `one_piece=True`（既定 False）なら、**高さ・ファイル名・店舗に関係なく1枚も分割しない**
+    （`split_image_for_wp()` を呼ばず空の計画を返す）。送信側は元画像1ファイルをそのまま送る。
+    記事用ページの下書き作成が payload["wp_one_piece"] で明示したときだけ True になる。
     """
     from PIL import Image
     result: dict[str, list[dict]] = {}
+    if one_piece:
+        return result
     _nosplit_store = store in _ART_WP_NOSPLIT_STORES
     _narrow_store = store in _ART_WP_SPLIT_NARROW_STORES
     for f in found:
@@ -1847,7 +1854,8 @@ def create_takadanobaba_draft(payload: dict, progress=None) -> dict:
     # ── 縦長画像を送信用に分割（原本は読み取るだけ）──
     tmp_dir = tempfile.mkdtemp(prefix="wp_split_")
     try:
-        split_map = plan_split(found, tmp_dir, store=_store)
+        split_map = plan_split(found, tmp_dir, store=_store,
+                               one_piece=bool(payload.get("wp_one_piece")))
     except Exception as e:
         return {"ok": False, "stage": "split", "tmp_dir": tmp_dir,
                 "error": f"送信用画像の分割に失敗: {type(e).__name__}: {e}",

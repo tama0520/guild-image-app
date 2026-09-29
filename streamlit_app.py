@@ -4074,6 +4074,11 @@ _ART_NARABI_HQ_STORES = frozenset({"高田馬場", "渋谷新館", "秋葉原", 
 # 投稿先カテゴリだけが店舗別（wp_client.WP_STORE_CATEGORY）。
 # **秋葉原は対象外**。店舗追加はこの集合と WP_STORE_CATEGORY の両方が要る。
 _ART_WP_STORES = frozenset({"高田馬場", "渋谷新館", "新宿歌舞伎町"})
+# 記事用WordPress下書きで、縦長画像を **分割せず⑧の完成画像1ファイルのまま** 送る店舗。
+# 記事用ページの「WordPress下書きを作成」だけが payload["wp_one_piece"] を立て、
+# wp_client.plan_split(one_piece=True) で分割計画を作らない（既定OFF＝従来の分割仕様）。
+# 前提: このサイトは保存時の長辺縮小を無効化済み（EWWW最大画像サイズ0×0・big_image_size_threshold無効）。
+_ART_WP_ONE_PIECE_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 
 # ジャグラー統合画像（ジャグラーシリーズ優秀台.jpg）の直前へ
 # H3「その他のジャグラーシリーズの優秀台」を入れる店舗。
@@ -21981,6 +21986,9 @@ def show_auto_article_page() -> None:
             # comments キー自体を持たないので本文は1ブロックも変わらない。
             if store in _ART_COMMENT_STORES:
                 _wp_pl["comments"] = _art_wp_comments(store)
+            # 縦長画像を分割せず元画像1ファイルで送る店舗だけキーを立てる（他店舗は渡さない）。
+            if store in _ART_WP_ONE_PIECE_STORES:
+                _wp_pl["wp_one_piece"] = True
             # 接続情報の可否も**送信対象の店舗で**判定する（新宿歌舞伎町だけ
             # 店舗別 Secrets、他店舗は従来の共通 Secrets）。
             _wp_ok, _wp_msg = _wpc.config_ready(store)

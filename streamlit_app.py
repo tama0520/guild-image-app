@@ -4079,6 +4079,11 @@ _ART_WP_STORES = frozenset({"高田馬場", "渋谷新館", "新宿歌舞伎町"
 # wp_client.plan_split(one_piece=True) で分割計画を作らない（既定OFF＝従来の分割仕様）。
 # 前提: このサイトは保存時の長辺縮小を無効化済み（EWWW最大画像サイズ0×0・big_image_size_threshold無効）。
 _ART_WP_ONE_PIECE_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+# 記事用②「個別機種の優秀台ピックアップ」を、③並びと同じ
+# 「機種パネル → 表 → ピンクサマリーバー → スランプ」の完成画像にする店舗（既定＝表のみ）。
+# 描画は並びと同じ _build_machine_img(no_bar=True)、パネル・スランプは既存の合成ループ
+# （ban_map へ掲載台番を登録するだけ・パネルは並びと同じ選定ルール）を使う。
+_ART_PICK_FULL_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 
 # ジャグラー統合画像（ジャグラーシリーズ優秀台.jpg）の直前へ
 # H3「その他のジャグラーシリーズの優秀台」を入れる店舗。
@@ -19283,6 +19288,8 @@ def show_auto_article_page() -> None:
                         _art_sue_stat: dict[str, list[int]] = {}
                         # ②個別・優秀台のファイル名 → 掲載台番（🎯除外後）。ban_map用
                         _art_ky_bans: dict[str, list[int]] = {}
+                        # ②個別機種の優秀台ピックアップのファイル名 → 掲載台番（_ART_PICK_FULL_STORES のみ）
+                        _art_pick_bans: dict[str, list[int]] = {}
                         # 📝記入部分のみモードの記事コメント用。**実際にプレビューへ
                         # 描いた記入由来の掲載内容だけ**を集める（自動カテゴリは入れない）。
                         _art_cmt_zen_manual:  list[str] = []   # ②個別「全台」の機種名
@@ -19614,12 +19621,20 @@ def show_auto_article_page() -> None:
                                     _pk_df = _apdf[_apdf["台番"].apply(lambda b: int(b) in _pk_bans)].copy()
                                     if _pk_df.empty:
                                         continue
-                                    _pk_df = _pk_df.iloc[_pk_df["台番"].argsort()].reset_index(drop=True)
-                                    _art_pil.append((f"{_make_safe_fn(_pk_tit)}.jpg",
-                                                     _build_machine_img_no_bar(
-                                                         _pk_df,
-                                                         hq_scale=_art_hq_scale_for(
-                                                             f"{_make_safe_fn(_pk_tit)}.jpg", store, len(_pk_df)))))
+                                    _pk_df = _pk_df.iloc[_pk_df["台番"].argsort()]
+                                    _pk_fn = f"{_make_safe_fn(_pk_tit)}.jpg"
+                                    _pk_hq = _art_hq_scale_for(_pk_fn, store, len(_pk_df))
+                                    if store in _ART_PICK_FULL_STORES and _apdi is not None:
+                                        # 並びと同じ表＋ピンクバー。集計は表へ載せた台の差枚だけ。
+                                        _pk_st = _stat_from_diff(_apdi.loc[_pk_df.index])
+                                        _pk_df = _pk_df.reset_index(drop=True)
+                                        _art_pick_bans[_pk_fn] = [int(b) for b in _pk_df["台番"].tolist()]
+                                        _art_pil.append((_pk_fn, _build_machine_img(
+                                            _pk_df, _pk_tit, _pk_st, no_bar=True, hq_scale=_pk_hq)))
+                                    else:
+                                        _pk_df = _pk_df.reset_index(drop=True)
+                                        _art_pil.append((_pk_fn, _build_machine_img_no_bar(
+                                            _pk_df, hq_scale=_pk_hq)))
                             # ⑥ 差枚数ランキング（渋谷新館・記事の最後）。
                             # 補正後の _apdf / _apdi をそのまま渡す（再計算・再取得なし）。
                             if _art_rank_on(store):
@@ -19720,6 +19735,10 @@ def show_auto_article_page() -> None:
                         for _fn_os_pv, _bns_os_pv in (_art_osu_bans or {}).items():
                             if _bns_os_pv:
                                 _pv_bm_sl[_fn_os_pv] = _bns_os_pv
+                        # ②個別機種の優秀台ピックアップ（_ART_PICK_FULL_STORES のみ）: 表へ載せた台だけ
+                        for _fn_pk_pv, _bns_pk_pv in _art_pick_bans.items():
+                            if _bns_pk_pv:
+                                _pv_bm_sl[_fn_pk_pv] = _bns_pk_pv
                         try:
                             _pv_rt_cached = st.session_state.get(f"_art_tb_rt_items_{store}")
                             _pv_rt_date   = st.session_state.get(f"_art_tb_rt_items_date_{store}", "")
@@ -19781,7 +19800,10 @@ def show_auto_article_page() -> None:
                                         if store in _ARTICLE_PANEL_STORES:
                                             _is_sue_pv2 = ("末尾" in _fn_pv2)
                                             _bare_pv2 = re.sub(r"^\d{2}_", "", _fn_pv2)
-                                            _is_multi_pv2 = _art_is_multi_machine(
+                                            # ②個別機種の優秀台ピックアップは③並びと同じパネル選定
+                                            # （1機種→その機種／2機種→2枚／3機種以上→差枚最大）
+                                            _is_pick_pv2 = _fn_pv2 in _art_pick_bans
+                                            _is_multi_pv2 = (not _is_pick_pv2) and _art_is_multi_machine(
                                                 _bare_pv2, _bans_pv2, _pv_ban2mac)
                                             # ⑤で最終1機種のときだけ「{機種名}.jpg」として渡し、
                                             # 単一機種パネル（全幅）経路へ入れる（機種名は bans→ban2mac）。
@@ -19795,7 +19817,7 @@ def show_auto_article_page() -> None:
                                                 crop_bar=False,      # 記事用は元画像をcropしない
                                                 is_multi=_is_multi_pv2 or _osu_multi_pv2,
                                                 # 列仕掛けも並びと同じパネル選定ルールへ
-                                                narabi_like=_art_is_narabi_fn(_bare_pv2),
+                                                narabi_like=_art_is_narabi_fn(_bare_pv2) or _is_pick_pv2,
                                                 max_panels=_art_panel_max(store, _bare_pv2))
                                         # 高解像度対象（その他／ジャグラー統合）はスランプも2倍で描画
                                         _hq_pv2 = _art_hq_scale_for(
@@ -20684,6 +20706,8 @@ def show_auto_article_page() -> None:
                         pass
 
             # ── 個別画像生成 ─────────────────────────────────────────
+            # ②個別機種の優秀台ピックアップのファイル名 → 掲載台番（_ART_PICK_FULL_STORES のみ）
+            _art_pick_bans_e: dict[str, list[int]] = {}
             if kojin_enabled and result["ok"]:
                 df_k   = result.get("df")
                 diff_k = result.get("diff_raw")
@@ -20838,12 +20862,22 @@ def show_auto_article_page() -> None:
                         _pk_df_e = df_k[df_k["台番"].apply(lambda b: int(b) in _pk_bans_e)].copy()
                         if _pk_df_e.empty:
                             continue
-                        _pk_df_e = _pk_df_e.iloc[_pk_df_e["台番"].argsort()].reset_index(drop=True)
-                        _pk_out_e = os.path.join(output_dir, f"{_make_safe_fn(_pk_tit_e)}.jpg")
-                        _save_jpeg(_build_machine_img_no_bar(
-                            _pk_df_e,
-                            hq_scale=_art_hq_scale_for(f"{_make_safe_fn(_pk_tit_e)}.jpg",
-                                                       store, len(_pk_df_e))), _pk_out_e)
+                        _pk_df_e = _pk_df_e.iloc[_pk_df_e["台番"].argsort()]
+                        _pk_fn_e = f"{_make_safe_fn(_pk_tit_e)}.jpg"
+                        _pk_out_e = os.path.join(output_dir, _pk_fn_e)
+                        _pk_hq_e = _art_hq_scale_for(_pk_fn_e, store, len(_pk_df_e))
+                        if store in _ART_PICK_FULL_STORES:
+                            # ⑦と同じ: 並びと同じ表＋ピンクバー（集計は表へ載せた台の差枚だけ）
+                            _pk_st_e = _stat_from_diff(diff_k.loc[_pk_df_e.index])
+                            _pk_df_e = _pk_df_e.reset_index(drop=True)
+                            _art_pick_bans_e[_pk_fn_e] = [int(b) for b in _pk_df_e["台番"].tolist()]
+                            _save_jpeg(_build_machine_img(
+                                _pk_df_e, _pk_tit_e, _pk_st_e, no_bar=True,
+                                hq_scale=_pk_hq_e), _pk_out_e)
+                        else:
+                            _pk_df_e = _pk_df_e.reset_index(drop=True)
+                            _save_jpeg(_build_machine_img_no_bar(
+                                _pk_df_e, hq_scale=_pk_hq_e), _pk_out_e)
                         result["files"].append(_pk_out_e)
                         _log(f"  ✅ 個別機種の優秀台ピックアップ「{_pk_tit_e}」({len(_pk_df_e)}台)")
 
@@ -21372,6 +21406,10 @@ def show_auto_article_page() -> None:
                 # バラエティ画像（生成成功時のみ・掲載された最終台番）
                 if _art_var_fn_e and _art_var_bans_e:
                     _art_bm_sl[_art_var_fn_e] = _art_var_bans_e
+                # ②個別機種の優秀台ピックアップ（_ART_PICK_FULL_STORES のみ・⑦と同じ掲載台番）
+                for _fn_pk_sl, _bns_pk_sl in _art_pick_bans_e.items():
+                    if _bns_pk_sl and os.path.exists(os.path.join(output_dir, _fn_pk_sl)):
+                        _art_bm_sl[_fn_pk_sl] = _bns_pk_sl
 
                 _log(f"📡 スランプ: pisionデータ取得中（日付={_art_date_sl}）")
                 try:
@@ -21449,7 +21487,9 @@ def show_auto_article_page() -> None:
                                 if store in _ARTICLE_PANEL_STORES:
                                     _is_sue_sl = ("末尾" in _fp_sl)
                                     _bare_sl = re.sub(r"^\d{2}_", "", _fp_sl)
-                                    _is_multi_sl = _art_is_multi_machine(
+                                    # ②個別機種の優秀台ピックアップは③並びと同じパネル選定（⑦と同じ）
+                                    _is_pick_sl = _bare_sl in _art_pick_bans_e
+                                    _is_multi_sl = (not _is_pick_sl) and _art_is_multi_machine(
                                         _bare_sl, _bans_sl, _art_ban2mac_sl)
                                     # ⑤で最終1機種のときだけ「{機種名}.jpg」として渡し、
                                     # 単一機種パネル（全幅）経路へ入れる（機種名は bans→ban2mac）。
@@ -21463,7 +21503,7 @@ def show_auto_article_page() -> None:
                                         crop_bar=False,      # 記事用は元画像をcropしない
                                         is_multi=_is_multi_sl or _osu_multi_sl,
                                         # 列仕掛けも並びと同じパネル選定ルールへ
-                                        narabi_like=_art_is_narabi_fn(_bare_sl),
+                                        narabi_like=_art_is_narabi_fn(_bare_sl) or _is_pick_sl,
                                         max_panels=_art_panel_max(store, _bare_sl))
                                     if _mn_sl is not None and not _pok_sl:
                                         _art_missing_panels.add(_mn_sl)

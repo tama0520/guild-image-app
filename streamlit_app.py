@@ -861,6 +861,18 @@ _ART_TBL_HEADER_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 _ART_SUM_CENTER_PAGES:  "frozenset[str]" = frozenset({"auto_article"})
 _ART_SUM_CENTER_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 
+# ── 記事用の表罫線を高解像度倍率に連動させる店舗／ページ ──────────────────
+# 対象は **auto_article × 新宿歌舞伎町 の1通りだけ**（WordPress 本文へ貼る画像）。
+# 従来は罫線が倍率に関係なく1px（セル境界2px・外枠1px）で、2倍描画の表を
+# 本文幅（約752px＝約1/2.8）へ縮小表示すると1px未満になり、薄く溶ける／
+# 位相によっては線ごと抜けていた。**既存の罫線描画時点で**線幅を倍率に連動させ、
+# セル境界・外枠とも 2×round(倍率)px（2倍なら4px）にする（縮小後も1px以上）。
+# 列幅・行高・画像サイズ・文字・色は変えない（線はセルの内側へ太らせる）。
+# ★既定（対象外）は従来の1px罫線のまま。⑧本番の並び・列は convert_narabi_pil.py
+#   の ART_LINE を `_patch_and_run_narabi(art_line=...)` でセットして揃える。
+_ART_TBL_LINE_PAGES:  "frozenset[str]" = frozenset({"auto_article"})
+_ART_TBL_LINE_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
 
 # 新宿歌舞伎町だけ「かぶぱポストの結果（auto_slump）」と
 # 「スランプ付き結果（auto_slump2）」の2系統を持つ。両者は store が同じなので
@@ -1208,6 +1220,17 @@ def _art_table_header_new() -> bool:
     try:
         return (st.session_state.get("page") in _ART_TBL_HEADER_PAGES
                 and st.session_state.get("selected_store") in _ART_TBL_HEADER_STORES)
+    except Exception:
+        return False
+
+
+def _art_table_line_new() -> bool:
+    """記事用の表罫線を高解像度倍率に連動した太さで描くか（page × store の AND）。
+    True になるのは **auto_article × 新宿歌舞伎町 の1通りだけ**。
+    Streamlit 外（純粋テスト・subprocess）では False＝従来の1px罫線。"""
+    try:
+        return (st.session_state.get("page") in _ART_TBL_LINE_PAGES
+                and st.session_state.get("selected_store") in _ART_TBL_LINE_STORES)
     except Exception:
         return False
 
@@ -2066,6 +2089,12 @@ def draw_table_image(
     # 見出しセル間の罫線を薄いグレーへ。**本文セルの罫線（C_BORDER）・本文文字・
     # 差枚数の値の色・列幅・行高・タイトルバー・サマリーは変更しない。**
     _hdr_line = C_BORDER
+    # 罫線幅。既定は従来の1px。記事用（新宿歌舞伎町）だけ高解像度倍率に連動させる
+    # （2倍描画なら各セル2px＝セル境界4px。外枠も下で4pxにそろえる）。
+    _lw = 1
+    if _art_table_line_new():
+        _lw = max(1, round(scale / (150 / 96)))
+    _y_hdr = y
     if _art_table_header_new():
         header_bg  = C_ART_TBL_HEADER_BG
         header_fg  = C_ART_TBL_HEADER_FG
@@ -2074,7 +2103,7 @@ def draw_table_image(
     for ci, h in enumerate(headers):
         draw.rectangle(
             [(x, y), (x + col_w[ci] - 1, y + _header_h - 1)],
-            fill=header_bg, outline=_hdr_line,
+            fill=header_bg, outline=_hdr_line, width=_lw,
         )
         tb = draw.textbbox((0, 0), str(h), font=fn_header)
         tx = x + (col_w[ci] - (tb[2] - tb[0])) // 2 - tb[0]
@@ -2094,7 +2123,7 @@ def draw_table_image(
             cell = str(row[ci]) if ci < len(row) else ""
             draw.rectangle(
                 [(x, y), (x + col_w[ci] - 1, y + _row_h - 1)],
-                fill=bg, outline=C_BORDER,
+                fill=bg, outline=C_BORDER, width=_lw,
             )
             tb     = draw.textbbox((0, 0), cell, font=fn_data)
             tw, th = tb[2] - tb[0], tb[3] - tb[1]
@@ -2110,7 +2139,7 @@ def draw_table_image(
                     if diff_cell_bg and v != 0:
                         cell_fill = "#DBEAFE" if v > 0 else "#FCE4EC"
                         draw.rectangle(
-                            [(x + 1, y + 1), (x + col_w[ci] - 2, y + _row_h - 2)],
+                            [(x + _lw, y + _lw), (x + col_w[ci] - 1 - _lw, y + _row_h - 1 - _lw)],
                             fill=cell_fill,
                         )
                 except Exception:
@@ -2125,6 +2154,18 @@ def draw_table_image(
 
             x += col_w[ci]
         y += _row_h
+
+    # 外枠: 表の外周はセル1枚分の線しか無いので、セル境界と同じ 2×_lw に
+    # そろえる（記事用のみ。既定 _lw=1 のときは描かない＝従来どおり）。
+    # 見出し行の部分は見出しの罫線色、本文部分は C_BORDER で描く。
+    if _art_table_line_new():
+        _fw = 2 * _lw
+        _yb = _y_hdr + _header_h
+        draw.rectangle([(0, _y_hdr), (total_w - 1, _y_hdr + _fw - 1)], fill=_hdr_line)
+        for _x0 in (0, total_w - _fw):
+            draw.rectangle([(_x0, _y_hdr), (_x0 + _fw - 1, _yb - 1)], fill=_hdr_line)
+            draw.rectangle([(_x0, _yb), (_x0 + _fw - 1, y - 1)], fill=C_BORDER)
+        draw.rectangle([(0, y - _fw), (total_w - 1, y - 1)], fill=C_BORDER)
 
     # ── ピンクサマリーバー（GAP_SUM=-8 で %と（を詰める）────────────
     if summary_stat:
@@ -6781,7 +6822,7 @@ def _patch_and_run_narabi(
     no_bar: bool = False, hq_scale: float = 1.0, col_ranges: list | None = None,
     hq_min_rows: int | None = None, theme_new: bool = False,
     font_path: str | None = None, art_header: bool = False,
-    art_sum_center: bool = False,
+    art_sum_center: bool = False, art_line: bool = False,
 ) -> tuple[bool, str, str]:
     """並びスクリプト専用: INPUT/SPLIT_DIR/RANGES を書き換えて実行する。
     no_bar=True のときは NO_BAR も書き換え、青タイトルバーなしで生成させる
@@ -6811,6 +6852,11 @@ def _patch_and_run_narabi(
     # 従来の左寄せのまま（バー色・高さ・枠線・文字サイズ・書体は変更しない）。
     if art_sum_center:
         code = re.sub(r'^ART_SUM_CENTER\s*=\s*(True|False)', 'ART_SUM_CENTER = True',
+                      code, flags=re.MULTILINE)
+    # 記事用（新宿歌舞伎町）の表罫線を高解像度倍率に連動させる（⑦の draw_table_image と揃える）。
+    # 既定 False＝通常ページ・他店舗・ローテは従来の1px罫線のまま。
+    if art_line:
+        code = re.sub(r'^ART_LINE\s*=\s*(True|False)', 'ART_LINE = True',
                       code, flags=re.MULTILINE)
     if hq_scale and hq_scale > 1.0:
         code = re.sub(r'^HQ_SCALE\s*=\s*[\d.]+', f'HQ_SCALE = {float(hq_scale)}',
@@ -20671,6 +20717,8 @@ def show_auto_article_page() -> None:
                     # ⑦プレビュー（_build_machine_img）と⑧本番でピンクバーの
                     # 文字位置（中央寄せ）を一致させる
                     art_sum_center=_art_summary_center(),
+                    # ⑦プレビュー（draw_table_image）と⑧本番で表罫線の太さを一致させる
+                    art_line=_art_table_line_new(),
                 )
                 narabi_result = {"ok": ok_n, "stdout": out_n, "stderr": err_n}
                 st.write(f"{'✅' if ok_n else '❌'} 並び画像{'完了' if ok_n else 'エラー'}")

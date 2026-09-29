@@ -53,6 +53,14 @@ THEME_NEW = False
 #   差枚数の値の色(PLUS_C / MINUS_C / ZERO_C)・列幅・行高は変更しない。
 ART_HEADER = False
 
+# ── 記事用の表罫線を高解像度倍率に連動させる（新宿歌舞伎町 × auto_article の⑧本番だけ）──
+# True のとき罫線（セル境界・外枠）を 2×round(倍率)px（2倍描画なら4px）にする。
+# 2倍描画の表を WordPress 本文幅（約1/2.8）へ縮小表示しても1px以上残すため。
+# セルの外寸・列幅・行高・画像サイズ・文字位置は変えない（線はセルの内側へ太らせる）。
+# streamlit_app.py の `_patch_and_run_narabi(art_line=True)` が実行時に書き換える。
+# ★既定 False＝通常ページ・他店舗・ローテ・かぶぱは従来の1px罫線のまま。
+ART_LINE = False
+
 # ── 記事用の最下段ピンクサマリーバーの中央寄せ（新宿歌舞伎町 × auto_article の⑧本番）──
 # True のとき **ピンクバー内の文字の開始X座標だけ**を横幅中央へ寄せる。
 # streamlit_app.py の `_patch_and_run_narabi(art_sum_center=True)` が実行時に
@@ -308,8 +316,11 @@ def _textbbox(draw, text, font):
         bb = (0, 0, len(text) * sz // 2 + 4, sz)
     return bb
 
-def _draw_cell(draw, x, y, cw, ch, text, bg, fg, font, align="center"):
-    draw.rectangle([x, y, x + cw - 1, y + ch - 1], fill=bg)
+def _draw_cell(draw, x, y, cw, ch, text, bg, fg, font, align="center", inset=(0, 0)):
+    # inset=(左上, 右下) だけ塗りを内側へ寄せ、罫線を太くする（既定 (0,0)＝従来どおり）。
+    # 文字位置は x / cw 基準のまま変えない。
+    _ia, _ib = inset
+    draw.rectangle([x + _ia, y + _ia, x + cw - 1 - _ib, y + ch - 1 - _ib], fill=bg)
     bb = _textbbox(draw, text, font)
     tw = bb[2] - bb[0]
     th = bb[3] - bb[1]
@@ -353,11 +364,14 @@ def build_table_pil(group, diff_raw_s, hq=1.0):
     # ART_HEADER のときは、見出し行の帯（上端線＋見出しセル間の縦線）だけを
     # 先に HEADER_LINE_C で塗ってからセルを描く。見出しと本文の境界線
     # （row_y(1)-1）は帯の外なので **BORDER_C のまま**＝本文側の罫線は不変。
+    # ART_LINE のときは罫線を 2×round(倍率)px にする（既定は従来の1px＝inset なし）。
+    _lt = max(2, 2 * round(_hq)) if ART_LINE else 1
+    _ins = ((_lt - 1) // 2, (_lt - 1) - (_lt - 1) // 2) if ART_LINE else (0, 0)
     if ART_HEADER:
         draw.rectangle([(0, 0), (img_w - 1, row_y(1) - 2)], fill=HEADER_LINE_C)
     for ci, col in enumerate(cols):
         _draw_cell(draw, col_x(ci), row_y(0), cell_ow[ci], _row_h,
-                   col, HEADER_BG, HEADER_FG, font, "center")
+                   col, HEADER_BG, HEADER_FG, font, "center", inset=_ins)
 
     # データ行
     for ri, (_, row) in enumerate(group.iterrows()):
@@ -375,7 +389,17 @@ def build_table_pil(group, diff_raw_s, hq=1.0):
                 # 通常文字色。差枚列の PLUS_C / MINUS_C / ZERO_C は変更しない。
                 fg, align = DATA_FG, "center"
             _draw_cell(draw, col_x(ci), y, cell_ow[ci], _row_h,
-                       val, CELL_BG, fg, font, align)
+                       val, CELL_BG, fg, font, align, inset=_ins)
+    # 外枠も内側の罫線と同じ太さにそろえる（ART_LINE のときだけ）。
+    # 見出し行の部分は見出しの罫線色、本文部分は BORDER_C。
+    if ART_LINE:
+        _yb = row_y(1) - 1
+        _hc = HEADER_LINE_C
+        draw.rectangle([(0, 0), (img_w - 1, _lt - 1)], fill=_hc)
+        for _x0 in (0, img_w - _lt):
+            draw.rectangle([(_x0, 0), (_x0 + _lt - 1, _yb - 1)], fill=_hc)
+            draw.rectangle([(_x0, _yb), (_x0 + _lt - 1, img_h - 1)], fill=BORDER_C)
+        draw.rectangle([(0, img_h - _lt), (img_w - 1, img_h - 1)], fill=BORDER_C)
     return img
 
 # ── 各並びの画像生成 ─────────────────────────────────────────────

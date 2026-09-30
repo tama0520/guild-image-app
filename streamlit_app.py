@@ -19748,7 +19748,9 @@ def show_auto_article_page() -> None:
                                     continue
                                 _fn_kz_pv = f"{_km_pvz}.jpg"
                                 if any(fn == _fn_kz_pv for fn, _ in _art_pil):
-                                    _kgz_pv = _pv_pr_df[_pv_pr_df["機種名"] == _km_pvz]
+                                    # 画像生成・⑧と同じ _resolve_kojin_name() で台を解決する
+                                    # （「・2F」「・3F」は階で絞った台だけ＝表の掲載台と一致）
+                                    _, _kgz_pv = _resolve_kojin_name(_pv_pr_df, _km_pvz)
                                     if not _kgz_pv.empty:
                                         _pv_bm_sl[_fn_kz_pv] = [int(b) for b in _kgz_pv["台番"].tolist()]
                         _jpool_pv = _art_pr.get("jug_pool_df")

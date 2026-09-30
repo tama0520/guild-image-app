@@ -578,18 +578,23 @@ def _other_no_panel(store: str) -> bool:
         return False
 
 
-# 「その他」配下のスランプ付き結果ポスト（other_slump）で、②の手入力画像
-# 「並び台番範囲 優秀台」「個別機種の優秀台ピックアップ」にも掲載台のスランプを付ける店舗。
-# 表へ載せた台番を既存の ban_map へ登録するだけ（合成は既存処理のまま）。既定は対象外。
-_OTHER_KOJIN_SLUMP_PAGES: "frozenset[str]" = frozenset({"other_slump"})
-_OTHER_KOJIN_SLUMP_STORES: "frozenset[str]" = frozenset({"プレサス飯田橋"})
+# スランプ付き結果ページで、②の手入力画像
+# 「並び台番範囲 優秀台」「個別機種の優秀台ピックアップ」にも掲載台のスランプを付ける。
+# 表へ載せた台番を既存の ban_map へ登録するだけ（合成は既存処理のまま）。
+# ★店舗を列挙せずページで判定する（その他配下は other_slump なので新店舗も自動で対象）。
+#   かぶぱ（新宿歌舞伎町×auto_slump）は _is_kabupa_page() で除外。
+# ★秋葉原は既存のスランプ合成が「表を捨ててタイトル＋スランプ」にする形式のため、
+#   登録すると手入力画像の表が消える。表を残す要件と両立しないので対象外にする。
+_SLUMP_KOJIN_PAGES: "frozenset[str]" = frozenset({"auto_slump", "auto_slump2", "other_slump"})
+_SLUMP_KOJIN_OFF_STORES: "frozenset[str]" = frozenset({"秋葉原"})
 
 
-def _other_kojin_slump_on(store: str) -> bool:
-    """②手入力画像（台番範囲・個別ピック）を ban_map へ登録するか（page × store の AND）。"""
+def _kojin_man_slump_on(store: str) -> bool:
+    """②手入力画像（台番範囲・個別ピック）を ban_map へ登録するか（ページ駆動）。"""
     try:
-        return (store in _OTHER_KOJIN_SLUMP_STORES
-                and st.session_state.get("page") in _OTHER_KOJIN_SLUMP_PAGES)
+        return (st.session_state.get("page") in _SLUMP_KOJIN_PAGES
+                and not _is_kabupa_page()
+                and store not in _SLUMP_KOJIN_OFF_STORES)
     except Exception:
         return False
 
@@ -13780,7 +13785,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     }
                                     _col_ban_map[_cfn] = _cbans
                                     _prev_img_list.append((_cfn, _build_machine_img(_cgrp, _ctit, _cstat)))
-                            # ②手入力画像（台番範囲・個別ピック）の掲載台番（_other_kojin_slump_on の店舗だけ ban_map へ）
+                            # ②手入力画像（台番範囲・個別ピック）の掲載台番（_kojin_man_slump_on のページだけ ban_map へ）
                             _kojin_man_ban_pv: dict[str, list[int]] = {}
                             if kojin_enabled and _pv_df is not None and _pv_diff is not None:
                                 if kojin_narabi_ranges_text.strip():
@@ -14081,8 +14086,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                             if _bns_su_pv:
                                 _pv_ban_map[_fn_su_pv]   = _bns_su_pv
                                 _pv_title_map[_fn_su_pv] = os.path.splitext(_fn_su_pv)[0]
-                        # ②手入力画像（台番範囲・個別ピック）: 表へ載せた台番だけを登録（対象店舗のみ）
-                        if _other_kojin_slump_on(store):
+                        # ②手入力画像（台番範囲・個別ピック）: 表へ載せた台番だけを登録（スランプ付き結果ページのみ）
+                        if _kojin_man_slump_on(store):
                             try:
                                 for _fn_km_pv, _bns_km_pv in _kojin_man_ban_pv.items():
                                     if _bns_km_pv and _fn_km_pv not in _pv_ban_map:
@@ -17146,7 +17151,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _exec_rec_ban_map[_rec_fn_exec] = sorted(_exec_bans)
 
             # ── 個別画像生成 ─────────────────────────────────────────
-            # ②手入力画像（台番範囲・個別ピック）の掲載台番（_other_kojin_slump_on の店舗だけ ban_map へ）
+            # ②手入力画像（台番範囲・個別ピック）の掲載台番（_kojin_man_slump_on のページだけ ban_map へ）
             _kojin_man_ban_e: dict[str, list[int]] = {}
             if kojin_enabled and result["ok"]:
                 df_k   = result.get("df")
@@ -17662,8 +17667,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _ig_bm_u[_vfn_bm] = [int(b) for b in _vfilt["台番"].dropna()]
                             except Exception:
                                 pass
-                    # ②手入力画像（台番範囲・個別ピック）: 表へ載せた台番だけを登録（対象店舗のみ・⑦と同じ）
-                    if _other_kojin_slump_on(store):
+                    # ②手入力画像（台番範囲・個別ピック）: 表へ載せた台番だけを登録（スランプ付き結果ページのみ・⑦と同じ）
+                    if _kojin_man_slump_on(store):
                         for _fn_km_e, _bns_km_e in _kojin_man_ban_e.items():
                             if _bns_km_e and _fn_km_e not in _ig_bm_u:
                                 _ig_bm_u[_fn_km_e] = _bns_km_e

@@ -561,6 +561,23 @@ def _other_panel_on(store: str) -> bool:
     return _is_other_store(store) and bool(_other_store_cfg(store).get("panel", True))
 
 
+# 「その他」配下で、スランプ付き結果ポスト（other_slump）の機種パネルを付けない店舗。
+# ★_load_other_stores() は @st.cache_data（ファイル変更を検知しない）なので、
+#   設定の panel=false はプロセス再起動まで反映されない。確実に止めるため
+#   コード側でも明示する（既定は空＝従来どおり設定値だけで判定）。
+_OTHER_NO_PANEL_PAGES: "frozenset[str]" = frozenset({"other_slump"})
+_OTHER_NO_PANEL_STORES: "frozenset[str]" = frozenset({"プレサス飯田橋"})
+
+
+def _other_no_panel(store: str) -> bool:
+    """このページ×店舗ではスランプ付き画像へパネルを付けないか（page × store の AND）。"""
+    try:
+        return (store in _OTHER_NO_PANEL_STORES
+                and st.session_state.get("page") in _OTHER_NO_PANEL_PAGES)
+    except Exception:
+        return False
+
+
 def _image_types_of(store: str) -> list:
     """店舗が扱う画像種別（既存は STORES、「その他」は設定ファイル）。"""
     if store in STORES:
@@ -26787,7 +26804,7 @@ def _other_apply_panel(store: str, img: "Image.Image", bare_fn: str, bans: list,
 
     ⑦プレビュー・🔄その他を更新・⑧本番の3経路すべてから同じ関数を呼ぶ
     （経路ごとに構成がズレないようにするため）。対象外店舗は素通し。"""
-    if not _other_panel_on(store):
+    if not _other_panel_on(store) or _other_no_panel(store):
         return img
     try:
         _narabi = _art_is_narabi_fn(bare_fn) or ("台並び" in bare_fn)

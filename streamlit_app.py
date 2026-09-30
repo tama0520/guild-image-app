@@ -578,6 +578,22 @@ def _other_no_panel(store: str) -> bool:
         return False
 
 
+# 「その他」配下のスランプ付き結果ポスト（other_slump）で、②の手入力画像
+# 「並び台番範囲 優秀台」「個別機種の優秀台ピックアップ」にも掲載台のスランプを付ける店舗。
+# 表へ載せた台番を既存の ban_map へ登録するだけ（合成は既存処理のまま）。既定は対象外。
+_OTHER_KOJIN_SLUMP_PAGES: "frozenset[str]" = frozenset({"other_slump"})
+_OTHER_KOJIN_SLUMP_STORES: "frozenset[str]" = frozenset({"プレサス飯田橋"})
+
+
+def _other_kojin_slump_on(store: str) -> bool:
+    """②手入力画像（台番範囲・個別ピック）を ban_map へ登録するか（page × store の AND）。"""
+    try:
+        return (store in _OTHER_KOJIN_SLUMP_STORES
+                and st.session_state.get("page") in _OTHER_KOJIN_SLUMP_PAGES)
+    except Exception:
+        return False
+
+
 def _image_types_of(store: str) -> list:
     """店舗が扱う画像種別（既存は STORES、「その他」は設定ファイル）。"""
     if store in STORES:
@@ -13764,6 +13780,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     }
                                     _col_ban_map[_cfn] = _cbans
                                     _prev_img_list.append((_cfn, _build_machine_img(_cgrp, _ctit, _cstat)))
+                            # ②手入力画像（台番範囲・個別ピック）の掲載台番（_other_kojin_slump_on の店舗だけ ban_map へ）
+                            _kojin_man_ban_pv: dict[str, list[int]] = {}
                             if kojin_enabled and _pv_df is not None and _pv_diff is not None:
                                 if kojin_narabi_ranges_text.strip():
                                     try:
@@ -13774,6 +13792,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         if not _rng_p.empty:
                                             _base = kojin_narabi_title.strip() or f"{kojin_narabi_ranges_text.strip()}の優秀台"
                                             _prev_img_list.append((f"{_base}.jpg", _build_machine_img(_rng_p, _base, _stat_from_diff(_rng_diff))))
+                                            _kojin_man_ban_pv[f"{_base}.jpg"] = [int(b) for b in _rng_p["台番"].tolist()]
                                     except Exception:
                                         pass
                                 if kojin_narabi2_ranges_text.strip():
@@ -13785,6 +13804,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         if not _rng2_p.empty:
                                             _base2 = kojin_narabi2_title.strip() or f"{kojin_narabi2_ranges_text.strip()}の優秀台"
                                             _prev_img_list.append((f"{_base2}.jpg", _build_machine_img(_rng2_p, _base2, None)))
+                                            _kojin_man_ban_pv[f"{_base2}.jpg"] = [int(b) for b in _rng2_p["台番"].tolist()]
                                     except Exception:
                                         pass
                                 # 個別機種の優秀台ピックアップ（貼った台番のみ・ピンクバーなし）
@@ -13795,6 +13815,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _pk_df = _pk_df.iloc[_pk_df["台番"].argsort()].reset_index(drop=True)
                                     _prev_img_list.append((f"{_make_safe_fn(_pk_tit)}.jpg",
                                                            _build_machine_img(_pk_df, _pk_tit, None)))
+                                    _kojin_man_ban_pv[f"{_make_safe_fn(_pk_tit)}.jpg"] = [int(b) for b in _pk_df["台番"].tolist()]
 
                             # ─ ⑤ バラエティ画像（秋葉原スランプ付きのみ）─
                             _variety_ban_map: dict[str, list[int]] = {}
@@ -14060,6 +14081,14 @@ def show_auto_page(with_slump: bool = False) -> None:
                             if _bns_su_pv:
                                 _pv_ban_map[_fn_su_pv]   = _bns_su_pv
                                 _pv_title_map[_fn_su_pv] = os.path.splitext(_fn_su_pv)[0]
+                        # ②手入力画像（台番範囲・個別ピック）: 表へ載せた台番だけを登録（対象店舗のみ）
+                        if _other_kojin_slump_on(store):
+                            try:
+                                for _fn_km_pv, _bns_km_pv in _kojin_man_ban_pv.items():
+                                    if _bns_km_pv and _fn_km_pv not in _pv_ban_map:
+                                        _pv_ban_map[_fn_km_pv] = _bns_km_pv
+                            except NameError:
+                                pass
                         # 末尾画像の台番を _pv_ban_map に追加（モードと末尾入力から算出）
                         # ※ 上で確定台番を入れられなかったファイル名だけを補完する
                         if st.session_state.get("suebangai_enabled", False) and _pv_df is not None:
@@ -17117,6 +17146,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _exec_rec_ban_map[_rec_fn_exec] = sorted(_exec_bans)
 
             # ── 個別画像生成 ─────────────────────────────────────────
+            # ②手入力画像（台番範囲・個別ピック）の掲載台番（_other_kojin_slump_on の店舗だけ ban_map へ）
+            _kojin_man_ban_e: dict[str, list[int]] = {}
             if kojin_enabled and result["ok"]:
                 df_k   = result.get("df")
                 diff_k = result.get("diff_raw")
@@ -17223,6 +17254,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _rng_out   = os.path.join(output_dir, f"{_make_safe_fn(_base)}.jpg")
                                     _save_jpeg(_rng_img, _rng_out)
                                     result["files"].append(_rng_out)
+                                    _kojin_man_ban_e[os.path.basename(_rng_out)] = [int(b) for b in _rng_p["台番"].tolist()]
                                     _log(f"  ✅ 台番範囲(優秀台・ピンクバーあり)「{_base}」({len(_rng_p)}台)")
                                 else:
                                     _log(f"  台番範囲(優秀台): 台番 {sorted(_rng_bans)} に台なし")
@@ -17244,6 +17276,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _rng2_out = os.path.join(output_dir, f"{_make_safe_fn(_base2)}.jpg")
                                     _save_jpeg(_rng2_img, _rng2_out)
                                     result["files"].append(_rng2_out)
+                                    _kojin_man_ban_e[os.path.basename(_rng2_out)] = [int(b) for b in _rng2_p["台番"].tolist()]
                                     _log(f"  ✅ 台番範囲(優秀台・ピンクバーなし)「{_base2}」({len(_rng2_p)}台)")
                                 else:
                                     _log(f"  台番範囲(優秀台・ピンクバーなし): 台番 {sorted(_rng2_bans)} に台なし")
@@ -17264,6 +17297,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _pk_out_k = os.path.join(output_dir, f"{_make_safe_fn(_pk_tit_k)}.jpg")
                         _save_jpeg(_build_machine_img(_pk_df_k, _pk_tit_k, None), _pk_out_k)
                         result["files"].append(_pk_out_k)
+                        _kojin_man_ban_e[os.path.basename(_pk_out_k)] = [int(b) for b in _pk_df_k["台番"].tolist()]
                         _log(f"  ✅ 個別機種の優秀台ピックアップ「{_pk_tit_k}」({len(_pk_df_k)}台)")
                         # 結果テキスト用: 貼った台番の機種ごとに +1000枚台を high_ratio_list へ追加
                         # 💎の差枚リストは貼った台番のみ／ヘッダー(勝台数・総台数・平均)は機種の全体データを使う
@@ -17628,6 +17662,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _ig_bm_u[_vfn_bm] = [int(b) for b in _vfilt["台番"].dropna()]
                             except Exception:
                                 pass
+                    # ②手入力画像（台番範囲・個別ピック）: 表へ載せた台番だけを登録（対象店舗のみ・⑦と同じ）
+                    if _other_kojin_slump_on(store):
+                        for _fn_km_e, _bns_km_e in _kojin_man_ban_e.items():
+                            if _bns_km_e and _fn_km_e not in _ig_bm_u:
+                                _ig_bm_u[_fn_km_e] = _bns_km_e
                     # オススメ機種の台番を ban_map に追加
                     _ig_bm_u.update(_exec_rec_ban_map)
                     st.session_state[f"_inagawa_ban_map_{store}"] = _ig_bm_u

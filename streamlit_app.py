@@ -22699,6 +22699,9 @@ _SHIBUYA_ROTE_ORDER: "dict[str, int]" = {
 
 # 週間/月間オススメ表の table_num → 上記マップのキー（渋谷新館のみ）
 _SHIBUYA_ROTE_TBL_ROLE: "dict[int, str]" = {2: "t2_tbl", 3: "t3_tbl", 4: "t4_tbl"}
+# ローテ用「実行」で表画像（{機種名}表.png）を作らない月間表（店舗 → table_num）。
+# 渋谷新館の月間①(t2)・月間②(t4)は表画像を使わない。入力UI・保存値は残す（復活は集合の編集のみ）。
+_ROTE_TBL_IMG_OFF: "dict[str, frozenset[int]]" = {"渋谷新館": frozenset({2, 4})}
 
 
 def _shibuya_rote_fn(fname: str, no: "int | None") -> str:
@@ -24894,7 +24897,38 @@ def show_rote_page() -> None:
             if store in ("渋谷新館", "上野本館"):
                 # 渋谷新館は旧週間詳細表（t1）画像を生成しない（UI廃止済み）
                 _wt_save_list = (2, 3, 4) if store == "渋谷新館" else (2, 4, 5)
+                _wt_off = _ROTE_TBL_IMG_OFF.get(store, frozenset())
+                if _wt_off:
+                    # 表画像を作らない月間表（渋谷新館の月間①・②）は最初から生成・保存しない。
+                    # 前回実行の同表の画像だけを **完全一致のファイル名で** 取り除く
+                    # （番号付き・番号なしの2種類。月間③など他の画像には触れない）。
+                    _wt_keep_names = set()
+                    for _wtn_k in _wt_save_list:
+                        if _wtn_k in _wt_off:
+                            continue
+                        _mk = st.session_state.get(f"weekly_machine_{store}_t{_wtn_k}", "").strip()
+                        if _mk:
+                            _wt_keep_names.add(f"{_mk}表.png")
+                    for _wtn_o in sorted(_wt_off):
+                        _mo = st.session_state.get(f"weekly_machine_{store}_t{_wtn_o}", "").strip()
+                        _bo = (f"{_mo}表.png" if _mo else
+                               ("月間オススメ表.png" if _wtn_o == 2 else "月間オススメ表②.png"))
+                        if _bo in _wt_keep_names:
+                            continue
+                        _names_o = [_bo]
+                        if store == "渋谷新館":
+                            _names_o.append(_shibuya_rote_fn(
+                                _bo, _SHIBUYA_ROTE_ORDER.get(_SHIBUYA_ROTE_TBL_ROLE.get(_wtn_o, ""))))
+                        for _no in _names_o:
+                            _po = os.path.join(_rote_out_dir, _no)
+                            if os.path.isfile(_po):
+                                try:
+                                    os.remove(_po)
+                                except Exception:
+                                    pass
                 for _wtn in _wt_save_list:
+                    if _wtn in _wt_off:
+                        continue   # 表画像を作らない（入力UI・保存値はそのまま）
                     # 月間オススメ表②（t4）・③（t5）は機種名・項目がすべて空ならスキップ
                     if _wtn in (4, 5):
                         _tN_mac = st.session_state.get(f"weekly_machine_{store}_t{_wtn}", "").strip()

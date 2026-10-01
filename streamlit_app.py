@@ -7351,22 +7351,27 @@ def _jug_auto_mem_field(store: str) -> "str | None":
         return None
 
 
-def _jug_auto_mem_resolve(store: str, field: str, date_val) -> str:
-    """表示する条件：記憶値 → その日付の保存値（「なし」以外）→ 初期値。"""
+def _jug_auto_mem_resolve(store: str, field: str, date_val, opts=None) -> str:
+    """表示する条件：記憶値 → その日付の保存値（「なし」以外）→ 初期値。
+    opts 省略時はジャグラーの選択肢（「その他の優秀台」用は _SONOTA_AUTO_OPTS を渡す）。"""
+    _opts = _JUG_AUTO_OPTS if opts is None else opts
     _m = (_load_art_shared_inputs().get(store) or {}).get(field)
-    if _m in _JUG_AUTO_OPTS:
+    if _m in _opts:
         return _m
-    if date_val in _JUG_AUTO_OPTS and date_val != "なし":
+    if date_val in _opts and date_val != "なし":
         return date_val
     return _JUG_AUTO_MEM_DEFAULT
 
 
-def _save_jug_auto_mem(store: str, field: str, widget_key: str, then=None, then_args=()) -> None:
+def _save_jug_auto_mem(store: str, field: str, widget_key: str, then=None, then_args=(),
+                       opts=None, label: str = "ジャグラー抽出条件") -> None:
     """ラジオ変更時（on_change）：選んだ条件を店舗単位で記憶する。
     他のフィールド（かぶぱ文章など）は消さずにマージ。値が変わらなければ書かない・pushしない。
-    Cloud は既存のかぶぱ文章と同じ SHA 確認付き push（競合時は保存せず最新を取り込む）。"""
+    Cloud は既存のかぶぱ文章と同じ SHA 確認付き push（競合時は保存せず最新を取り込む）。
+    opts / label 省略時はジャグラー用（「その他の優秀台」用は kwargs で渡す）。"""
+    _opts = _JUG_AUTO_OPTS if opts is None else opts
     _v = st.session_state.get(widget_key)
-    if _v in _JUG_AUTO_OPTS:
+    if _v in _opts:
         _data = _load_art_shared_inputs()
         _cur = dict(_data.get(store) or {})
         if _cur.get(field) != _v:
@@ -7379,7 +7384,7 @@ def _save_jug_auto_mem(store: str, field: str, widget_key: str, then=None, then_
                 _ok, _msg = _github_push_file(
                     _js, _ART_SHARED_INPUTS_FN,
                     base_sha=st.session_state.get(_gh_sha_key(_ART_SHARED_INPUTS_FN)))
-                _log = ("✅ ジャグラー抽出条件: " if _ok else "❌ ジャグラー抽出条件: ") + _msg
+                _log = (f"✅ {label}: " if _ok else f"❌ {label}: ") + _msg
                 st.session_state["_github_sync_log"] = _log
                 try:
                     st.toast(_log, icon="✅" if _ok else "❌")
@@ -7387,6 +7392,26 @@ def _save_jug_auto_mem(store: str, field: str, widget_key: str, then=None, then_
                     pass
     if then is not None:
         then(*then_args)
+
+
+# 「その他の優秀台ピックアップ」の自動抽出閾値（台番テキスト空欄時）も同じ方式で記憶・復元する
+# ページ×店舗（2026-10-01）。フィールドはジャグラーとは別（互いに上書きしない）。
+_SONOTA_AUTO_OPTS = ["なし", "+1,000枚以上", "+2,000枚以上", "+3,000枚以上"]
+_SONOTA_AUTO_MEM_FIELDS: "dict[str, str]" = {       # page → article_shared_inputs.json のフィールド名
+    "auto_slump2": "sonota_extra_auto_slump2",
+    "auto_article": "sonota_extra_auto_article",
+}
+_SONOTA_AUTO_MEM_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
+def _sonota_auto_mem_field(store: str) -> "str | None":
+    """「その他の優秀台」閾値の記憶対象なら保存フィールド名、対象外なら None。"""
+    try:
+        if store not in _SONOTA_AUTO_MEM_STORES:
+            return None
+        return _SONOTA_AUTO_MEM_FIELDS.get(st.session_state.get("page"))
+    except Exception:
+        return None
 
 
 def _manual_juggler_auto_extract(df, diff, mode: str, cfg: dict,
@@ -12888,12 +12913,23 @@ def show_auto_page(with_slump: bool = False) -> None:
                     height=80,
                     on_change=_save_auto_inputs, args=(store,),
                 )
+            # キーは保存キー（_auto_input_keys）と同じ名前空間にする
+            # （auto_slump2 は「新宿歌舞伎町(スランプ)」。他ページ・他店舗は store と同じ）。
+            _se_key = f"sonota_extra_auto_{_kojin_ns(store)}"
+            _se_mem = _sonota_auto_mem_field(store)
+            if _se_mem:
+                # 記憶値（無ければ日付保存値→+1,000枚以上）を毎回表示値にする
+                st.session_state[_se_key] = _jug_auto_mem_resolve(
+                    store, _se_mem, st.session_state.get(_se_key), opts=_SONOTA_AUTO_OPTS)
             st.radio(
                 "台番テキストが空欄のとき、下記の閾値で「その他の優秀台ピックアップ」を自動抽出（📝記入部分のみモード）",
-                options=["なし", "+1,000枚以上", "+2,000枚以上", "+3,000枚以上"],
-                key=f"sonota_extra_auto_{store}",
+                options=_SONOTA_AUTO_OPTS,
+                key=_se_key,
                 horizontal=True,
-                on_change=_save_auto_inputs, args=(store,),
+                on_change=(_save_jug_auto_mem if _se_mem else _save_auto_inputs),
+                args=((store, _se_mem, _se_key, _save_auto_inputs, (store,)) if _se_mem else (store,)),
+                kwargs=({"opts": _SONOTA_AUTO_OPTS, "label": "その他の優秀台 抽出閾値"}
+                        if _se_mem else None),
             )
             # ジャグラーシリーズ優秀台（📝記入部分のみモード）。
             # 「その他の優秀台」からジャグラーは常に除外され、こちらから生成する。
@@ -12917,7 +12953,7 @@ def show_auto_page(with_slump: bool = False) -> None:
             )
         sonota_extra_title = st.session_state.get(f"sonota_extra_title_{store}", "")
         sonota_extra_text  = st.session_state.get(f"sonota_extra_text_{store}", "")
-        sonota_extra_auto = st.session_state.get(f"sonota_extra_auto_{store}", "なし")
+        sonota_extra_auto = st.session_state.get(f"sonota_extra_auto_{_kojin_ns(store)}", "なし")
         jug_extra_auto = st.session_state.get(f"jug_extra_auto_{_kojin_ns(store)}", "なし")
         if jug_extra_auto not in _JUG_AUTO_OPTS:
             jug_extra_auto = "なし"
@@ -19269,12 +19305,27 @@ def show_auto_article_page() -> None:
             _art_txt("台番テキスト（台番を含むテキストをそのまま貼り付け）",
                      f"art_sonota_extra_text_{store}",
                      area=True, height=80, skip_kojin=False)
-        # 未保存・未知の値は options[0] ではなく **正式既定「なし」**へ落とす。
-        _art_choice(
-            "台番テキストが空欄のとき、下記の閾値で「その他の優秀台ピックアップ」を自動抽出（📝記入部分のみモード）",
-            f"art_sonota_extra_auto_{store}",
-            ["なし", "+1,000枚以上", "+2,000枚以上", "+3,000枚以上"],
-            default="なし", horizontal=True, skip_kojin=False)
+        _ase_mem = _sonota_auto_mem_field(store)
+        if _ase_mem:
+            # ジャグラーと同じく日付スコープではない店舗単位のキーで描き、記憶値を毎回表示値にする。
+            # 抽出側が読む logical key（art_sonota_extra_auto_{store}）へも同じ値を入れる。
+            _ase_key = f"art_sonota_extra_auto_mem_{store}"
+            st.session_state[_ase_key] = _jug_auto_mem_resolve(
+                store, _ase_mem, st.session_state.get(f"art_sonota_extra_auto_{store}"),
+                opts=_SONOTA_AUTO_OPTS)
+            st.radio(
+                "台番テキストが空欄のとき、下記の閾値で「その他の優秀台ピックアップ」を自動抽出（📝記入部分のみモード）",
+                _SONOTA_AUTO_OPTS, key=_ase_key, horizontal=True,
+                on_change=_save_jug_auto_mem, args=(store, _ase_mem, _ase_key),
+                kwargs={"opts": _SONOTA_AUTO_OPTS, "label": "その他の優秀台 抽出閾値"})
+            st.session_state[f"art_sonota_extra_auto_{store}"] = st.session_state[_ase_key]
+        else:
+            # 未保存・未知の値は options[0] ではなく **正式既定「なし」**へ落とす。
+            _art_choice(
+                "台番テキストが空欄のとき、下記の閾値で「その他の優秀台ピックアップ」を自動抽出（📝記入部分のみモード）",
+                f"art_sonota_extra_auto_{store}",
+                ["なし", "+1,000枚以上", "+2,000枚以上", "+3,000枚以上"],
+                default="なし", horizontal=True, skip_kojin=False)
         # ジャグラーシリーズ優秀台（📝記入部分のみモード）。通常ページと同じ考え方。
         _ajg_mem = _jug_auto_mem_field(store)
         if _ajg_mem:

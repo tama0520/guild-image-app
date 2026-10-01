@@ -27047,10 +27047,10 @@ def _jug_ov_move_on(store: str) -> bool:
 
 # 統合ジャグラー画像（ジャグラーシリーズ優秀台.jpg）をチェックOFF → 🔄／⑧で、その画像に
 # 載るはずだった台の +1,000枚以上だけを「その他の優秀台」へ戻し、統合画像は作り直さない
-# ページ（スランプ付き結果ポスト・2026-10-01）。新宿歌舞伎町 auto_slump2 は fc74518 の
+# ページ（通常結果ポスト auto とスランプ付き結果ポスト・2026-10-01）。新宿歌舞伎町 auto_slump2 は fc74518 の
 # 既存処理（_jug_ov_move_on）のまま。かぶぱ（_is_kabupa_page）は🔍/🔄が無いので除外、
 # 秋葉原はスランプ付きで統合画像を作らない（jug_no_merge_image）ので除外。
-_JUG_OFF_RET_PAGES: "frozenset[str]" = frozenset({"auto_slump", "auto_slump2", "other_slump"})
+_JUG_OFF_RET_PAGES: "frozenset[str]" = frozenset({"auto", "auto_slump", "auto_slump2", "other_slump"})
 _JUG_OFF_RET_OFF_STORES: "frozenset[str]" = frozenset({"秋葉原"})
 
 

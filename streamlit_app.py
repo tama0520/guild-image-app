@@ -22788,15 +22788,24 @@ def _generate_shibuyashinkan_result_texts(
             _wk_macs.append(_n)
     # 2026-09-11: 渋谷新館の北斗シリーズ／カバネリ／東京喰種の見出しを 🏆 系へ。
     # ジャグラー（text4）は現状維持のため触らない。差枚帯・台番・構成は変更しない。
-    lines1 = [header, "", f"🏆{_SHIBUYA_WEEKLY_SERIES}🏆", "🏆週間オススメポスター🏆", ""]
+    # 2026-10-01: 機種ブロック間は空行2行（月間オススメポスター統合と同じ形）。
+    # +1,000枚以上の台が1台も無い機種は出さず、全機種0件なら 🏆北斗シリーズ🏆／
+    # 🏆週間オススメポスター🏆 の見出しも出さない。差枚帯・並び順は _tier_block() のまま。
+    _wk_blocks: list[list[str]] = []
     for _wm in _wk_macs:
         # 当日データに1台も無い機種はセクションごと出さない
         if name_col is not None and _rote_match_sub(df, name_col, _wm).empty:
             continue
-        lines1.append(f"【{_wm}】")
-        lines1 += _tier_block([_wm])
-        if lines1 and lines1[-1] != "":
-            lines1.append("")
+        _wtb = _tier_block([_wm])
+        if _wtb:
+            _wk_blocks.append([f"【{_wm}】"] + _wtb)
+    lines1 = [header, ""]
+    if _wk_blocks:
+        lines1 += [f"🏆{_SHIBUYA_WEEKLY_SERIES}🏆", "🏆週間オススメポスター🏆", ""]
+        for _bi, _blk in enumerate(_wk_blocks):
+            if _bi:
+                lines1.append("")
+            lines1 += _blk
     text1   = "\n".join(lines1).rstrip()
     text2   = ""   # 旧テキスト②（週間オススメ表①の単独ファイル）は廃止
 

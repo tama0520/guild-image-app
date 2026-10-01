@@ -12,6 +12,7 @@ Streamlit + PIL で実装
     pip install streamlit pandas openpyxl pillow
 """
 
+import contextlib
 import copy
 import datetime
 import hashlib
@@ -222,6 +223,11 @@ _ROTE_WEEKLY_NEW_THEME_STORES: "frozenset[str]" = frozenset({
     "上野本館",
     "渋谷新館",
 })
+
+# ローテ用の月間オススメ表で、①機種名だけを常時表示し②〜⑤をアコーディオンへ入れる店舗・表。
+# 渋谷新館の月間①(t2)・月間②(t4)は表画像を使わないため。widget は expander 内で常に描画する。
+_WEEKLY_ACC_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
+_WEEKLY_ACC_TABLES: "frozenset[int]" = frozenset({2, 4})
 
 
 def _rote_weekly_new_theme(store: str) -> bool:
@@ -23599,548 +23605,554 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
     st.text_input("機種名", value=st.session_state[_mname_key], key=_mname_key,
                   on_change=_on_machine_change)
 
-    # ── ② タイトル入力
-    st.markdown("**② タイトルを入力**")
-    _title_key = f"weekly_title_{store}_t{_tn}"
-    if _title_key not in st.session_state:
-        st.session_state[_title_key] = st.session_state.get(f"_weekly_init_title_{store}_t{_tn}", _default_title)
+    # 渋谷新館の月間オススメ表①②（t2/t4）は表画像を使わないため、②〜⑤をアコーディオン内へ移す。
+    # expander は閉じていても中の widget を描画するので、入力値・保存・復元は従来どおり。
+    # 対象外（他店舗・他の表）は nullcontext＝従来と同一の描画。
+    _acc_on = store in _WEEKLY_ACC_STORES and _tn in _WEEKLY_ACC_TABLES
+    with (st.expander("②〜⑤ 表の設定（表画像を作る場合のみ）", expanded=False)
+          if _acc_on else contextlib.nullcontext()):
+        # ── ② タイトル入力
+        st.markdown("**② タイトルを入力**")
+        _title_key = f"weekly_title_{store}_t{_tn}"
+        if _title_key not in st.session_state:
+            st.session_state[_title_key] = st.session_state.get(f"_weekly_init_title_{store}_t{_tn}", _default_title)
 
-    def _on_title_change():
-        _save_weekly_items(
-            store,
-            [st.session_state.get(f"weekly_item_{store}_t{_tn}_{_j}", "") for _j in range(_WEEKLY_N_ITEMS)],
-            title=st.session_state.get(_title_key, _default_title),
-            table_num=_tn,
-        )
-
-    _title = st.text_input("画像タイトル", value=st.session_state[_title_key], key=_title_key,
-                           on_change=_on_title_change)
-
-    # ── ③ 項目入力（8個・2行4列）
-    st.markdown(f"**③ 項目を入力（最大{_WEEKLY_N_ITEMS}つ）**")
-
-    def _on_item_change(_idx: int):
-        _save_weekly_items(
-            store,
-            [st.session_state.get(f"weekly_item_{store}_t{_tn}_{j}", "") for j in range(_WEEKLY_N_ITEMS)],
-            title=st.session_state.get(f"weekly_title_{store}_t{_tn}", "週間オススメ"),
-            table_num=_tn,
-        )
-
-    _icols_a = st.columns(4)
-    _icols_b = st.columns(4)
-    for _i, _col in enumerate(list(_icols_a) + list(_icols_b)):
-        with _col:
-            _init = st.session_state.get(f"_weekly_init_{store}_t{_tn}_{_i}", "")
-            _key  = f"weekly_item_{store}_t{_tn}_{_i}"
-            if _key not in st.session_state:
-                st.session_state[_key] = _init
-            if _tn == 3:
-                st.text_area(f"項目{_i + 1}", value=st.session_state[_key], key=_key,
-                             height=80, on_change=_on_item_change, args=(_i,))
-            else:
-                st.text_input(f"項目{_i + 1}", value=st.session_state[_key], key=_key,
-                              on_change=_on_item_change, args=(_i,))
-
-    _items = [st.session_state.get(f"weekly_item_{store}_t{_tn}_{_i}", "") for _i in range(_WEEKLY_N_ITEMS)]
-
-    # ── ③/④ 開始日
-    _dow_names = ["月", "火", "水", "木", "金", "土", "日"]
-    # 上野本館の月間オススメ表はExcel未アップロード時もdate_checks（日付キー）で読む
-    _use_excel_date = _tn in (2, 3, 4, 5) and (excel_date is not None or store == "上野本館")
-
-    if _use_excel_date:
-        st.markdown("**④ 表示期間**")
-        if store == "上野本館":
-            _ref = excel_date if excel_date is not None else _dt.date.today()
-            # monthly_start（リセット日）が6日以内なら初日固定増列、7日超でスライド
-            _ms_raw = _weekly_table_data(store, _tn).get("monthly_start")
-            _ms_dt = None
-            if _ms_raw:
-                try:
-                    _ms_dt = _dt.date.fromisoformat(_ms_raw)
-                except Exception:
-                    pass
-            if _ms_dt and _ms_dt <= _ref and (_ref - _ms_dt).days <= 6:
-                _start = _ms_dt
-                _end   = _ref
-            else:
-                _start = _ref - _dt.timedelta(days=6)
-                _end   = _ref
-            _cap_suffix = "（Excelの日付より自動設定）" if excel_date is not None else "（今日の日付より自動設定）"
-        else:
-            # 渋谷新館：Excelの日付が最終日、過去7日間
-            _start = excel_date - _dt.timedelta(days=6)
-            _end   = excel_date
-            _cap_suffix = "（Excelの日付より自動設定）"
-        st.caption(
-            f"📅 {_start.month}/{_start.day}({_dow_names[_start.weekday()]}) ～ "
-            f"{_end.month}/{_end.day}({_dow_names[_end.weekday()]})"
-            + _cap_suffix
-        )
-        if store == "上野本館":
-            def _do_monthly_reset(_tn=_tn):
-                _today = _dt.date.today()
-                _mit = [st.session_state.get(f"weekly_item_{store}_t{_tn}_{_mi}", "") for _mi in range(_WEEKLY_N_ITEMS)]
-                _save_weekly_items(store, _mit, date_checks={}, blank_days=[False] * 7,
-                                   monthly_start_date=_today.isoformat(), table_num=_tn)
-                for _ci in range(_WEEKLY_N_ITEMS):
-                    for _cj in range(7):
-                        st.session_state.pop(f"weekly_ck_{store}_t{_tn}_{_ci}_{_cj}", None)
-                for _cj in range(7):
-                    st.session_state.pop(f"weekly_blank_{store}_t{_tn}_{_cj}", None)
-                for _sk in [k for k in list(st.session_state.keys()) if k.startswith(f"_monthly_slide_{store}_t{_tn}_")]:
-                    del st.session_state[_sk]
-                st.session_state.pop(f"_weekly_prev_start_{store}_t{_tn}", None)
-                st.session_state.pop(f"weekly_items_loaded_{store}", None)
-            with st.expander("⚠️ リセット（誤操作注意）"):
-                st.caption("この月間表のチェック・空欄設定をすべてクリアし、今日を初日として再スタートします。")
-                st.button(f"🔄 月間表を今日からリセット", key=f"monthly_reset_{store}_t{_tn}",
-                          on_click=_do_monthly_reset)
-    else:
-        st.markdown("**④ 開始日を選択**")
-        _date_key = f"weekly_start_{store}_t{_tn}"
-        if _date_key not in st.session_state:
-            _saved_start_iso = st.session_state.get(f"_weekly_init_start_{store}_t{_tn}", "")
-            if _saved_start_iso:
-                try:
-                    st.session_state[_date_key] = _dt.date.fromisoformat(_saved_start_iso)
-                except Exception:
-                    _td = _dt.date.today()
-                    st.session_state[_date_key] = _td - _dt.timedelta(days=_td.weekday())
-            else:
-                _td = _dt.date.today()
-                st.session_state[_date_key] = _td - _dt.timedelta(days=_td.weekday())
-
-        def _on_date_change():
-            _new_date_str = str(st.session_state.get(_date_key, ""))
-            st.session_state[f"_weekly_init_start_{store}_t{_tn}"] = _new_date_str
+        def _on_title_change():
             _save_weekly_items(
                 store,
                 [st.session_state.get(f"weekly_item_{store}_t{_tn}_{_j}", "") for _j in range(_WEEKLY_N_ITEMS)],
-                title=st.session_state.get(f"weekly_title_{store}_t{_tn}", _default_title),
-                start_date=_new_date_str,
+                title=st.session_state.get(_title_key, _default_title),
                 table_num=_tn,
             )
 
-        _start = st.date_input("開始日", value=st.session_state[_date_key], key=_date_key, on_change=_on_date_change)
+        _title = st.text_input("画像タイトル", value=st.session_state[_title_key], key=_title_key,
+                               on_change=_on_title_change)
 
-    _n_ui_dates = 7
-    if _use_excel_date:
-        try:
-            _n_ui_dates = min(int((_end - _start).days) + 1, 7)
-        except Exception:
-            pass
-    _dates   = [_start + _dt.timedelta(days=_j) for _j in range(_n_ui_dates)]
-    _dlabels = [f"{_d.month}/{_d.day}({_dow_names[_d.weekday()]})" for _d in _dates]
+        # ── ③ 項目入力（8個・2行4列）
+        st.markdown(f"**③ 項目を入力（最大{_WEEKLY_N_ITEMS}つ）**")
 
-    # 開始日変更検知
-    _current_start_str = str(_start)
-    _prev_start_key    = f"_weekly_prev_start_{store}_t{_tn}"
-    _prev_start        = st.session_state.get(_prev_start_key)
-    if _prev_start is not None and _prev_start != _current_start_str:
-        # ウィジェットキーを削除して次回描画時に再初期化させる
-        for _ci in range(_WEEKLY_N_ITEMS):
-            for _cj in range(7):
-                _ck_wk = f"weekly_ck_{store}_t{_tn}_{_ci}_{_cj}"
-                if _ck_wk in st.session_state:
-                    del st.session_state[_ck_wk]
+        def _on_item_change(_idx: int):
+            _save_weekly_items(
+                store,
+                [st.session_state.get(f"weekly_item_{store}_t{_tn}_{j}", "") for j in range(_WEEKLY_N_ITEMS)],
+                title=st.session_state.get(f"weekly_title_{store}_t{_tn}", "週間オススメ"),
+                table_num=_tn,
+            )
+
+        _icols_a = st.columns(4)
+        _icols_b = st.columns(4)
+        for _i, _col in enumerate(list(_icols_a) + list(_icols_b)):
+            with _col:
+                _init = st.session_state.get(f"_weekly_init_{store}_t{_tn}_{_i}", "")
+                _key  = f"weekly_item_{store}_t{_tn}_{_i}"
+                if _key not in st.session_state:
+                    st.session_state[_key] = _init
                 if _tn == 3:
-                    _ms_wk = f"t3_ms_{store}_{_ci}_{_cj}"
-                    if _ms_wk in st.session_state:
-                        del st.session_state[_ms_wk]
-        # blank widget キーを削除して次回描画時に日付キーで再初期化させる
+                    st.text_area(f"項目{_i + 1}", value=st.session_state[_key], key=_key,
+                                 height=80, on_change=_on_item_change, args=(_i,))
+                else:
+                    st.text_input(f"項目{_i + 1}", value=st.session_state[_key], key=_key,
+                                  on_change=_on_item_change, args=(_i,))
+
+        _items = [st.session_state.get(f"weekly_item_{store}_t{_tn}_{_i}", "") for _i in range(_WEEKLY_N_ITEMS)]
+
+        # ── ③/④ 開始日
+        _dow_names = ["月", "火", "水", "木", "金", "土", "日"]
+        # 上野本館の月間オススメ表はExcel未アップロード時もdate_checks（日付キー）で読む
+        _use_excel_date = _tn in (2, 3, 4, 5) and (excel_date is not None or store == "上野本館")
+
         if _use_excel_date:
-            for _cj in range(7):
-                st.session_state.pop(f"weekly_blank_{store}_t{_tn}_{_cj}", None)
-        if not _use_excel_date:
-            if _tn == 3:
-                # t3（週間オススメ表②）: 開始日変更で機種選択をリセット
-                _save_weekly_items(
-                    store,
-                    [st.session_state.get(f"weekly_item_{store}_t3_{_j}", "") for _j in range(_WEEKLY_N_ITEMS)],
-                    table_num=3, cell_machines={},
-                )
+            st.markdown("**④ 表示期間**")
+            if store == "上野本館":
+                _ref = excel_date if excel_date is not None else _dt.date.today()
+                # monthly_start（リセット日）が6日以内なら初日固定増列、7日超でスライド
+                _ms_raw = _weekly_table_data(store, _tn).get("monthly_start")
+                _ms_dt = None
+                if _ms_raw:
+                    try:
+                        _ms_dt = _dt.date.fromisoformat(_ms_raw)
+                    except Exception:
+                        pass
+                if _ms_dt and _ms_dt <= _ref and (_ref - _ms_dt).days <= 6:
+                    _start = _ms_dt
+                    _end   = _ref
+                else:
+                    _start = _ref - _dt.timedelta(days=6)
+                    _end   = _ref
+                _cap_suffix = "（Excelの日付より自動設定）" if excel_date is not None else "（今日の日付より自動設定）"
             else:
-                # t1（週間）: 開始日変更でチェックをリセット
-                for _ci in range(_WEEKLY_N_ITEMS):
+                # 渋谷新館：Excelの日付が最終日、過去7日間
+                _start = excel_date - _dt.timedelta(days=6)
+                _end   = excel_date
+                _cap_suffix = "（Excelの日付より自動設定）"
+            st.caption(
+                f"📅 {_start.month}/{_start.day}({_dow_names[_start.weekday()]}) ～ "
+                f"{_end.month}/{_end.day}({_dow_names[_end.weekday()]})"
+                + _cap_suffix
+            )
+            if store == "上野本館":
+                def _do_monthly_reset(_tn=_tn):
+                    _today = _dt.date.today()
+                    _mit = [st.session_state.get(f"weekly_item_{store}_t{_tn}_{_mi}", "") for _mi in range(_WEEKLY_N_ITEMS)]
+                    _save_weekly_items(store, _mit, date_checks={}, blank_days=[False] * 7,
+                                       monthly_start_date=_today.isoformat(), table_num=_tn)
+                    for _ci in range(_WEEKLY_N_ITEMS):
+                        for _cj in range(7):
+                            st.session_state.pop(f"weekly_ck_{store}_t{_tn}_{_ci}_{_cj}", None)
                     for _cj in range(7):
-                        st.session_state[f"_weekly_init_ck_{store}_t{_tn}_{_ci}_{_cj}"] = False
+                        st.session_state.pop(f"weekly_blank_{store}_t{_tn}_{_cj}", None)
+                    for _sk in [k for k in list(st.session_state.keys()) if k.startswith(f"_monthly_slide_{store}_t{_tn}_")]:
+                        del st.session_state[_sk]
+                    st.session_state.pop(f"_weekly_prev_start_{store}_t{_tn}", None)
+                    st.session_state.pop(f"weekly_items_loaded_{store}", None)
+                with st.expander("⚠️ リセット（誤操作注意）"):
+                    st.caption("この月間表のチェック・空欄設定をすべてクリアし、今日を初日として再スタートします。")
+                    st.button(f"🔄 月間表を今日からリセット", key=f"monthly_reset_{store}_t{_tn}",
+                              on_click=_do_monthly_reset)
+        else:
+            st.markdown("**④ 開始日を選択**")
+            _date_key = f"weekly_start_{store}_t{_tn}"
+            if _date_key not in st.session_state:
+                _saved_start_iso = st.session_state.get(f"_weekly_init_start_{store}_t{_tn}", "")
+                if _saved_start_iso:
+                    try:
+                        st.session_state[_date_key] = _dt.date.fromisoformat(_saved_start_iso)
+                    except Exception:
+                        _td = _dt.date.today()
+                        st.session_state[_date_key] = _td - _dt.timedelta(days=_td.weekday())
+                else:
+                    _td = _dt.date.today()
+                    st.session_state[_date_key] = _td - _dt.timedelta(days=_td.weekday())
+
+            def _on_date_change():
+                _new_date_str = str(st.session_state.get(_date_key, ""))
+                st.session_state[f"_weekly_init_start_{store}_t{_tn}"] = _new_date_str
                 _save_weekly_items(
                     store,
                     [st.session_state.get(f"weekly_item_{store}_t{_tn}_{_j}", "") for _j in range(_WEEKLY_N_ITEMS)],
                     title=st.session_state.get(f"weekly_title_{store}_t{_tn}", _default_title),
-                    checks=[[False] * 7] * _WEEKLY_N_ITEMS,
-                    start_date=_current_start_str,
+                    start_date=_new_date_str,
                     table_num=_tn,
                 )
-    st.session_state[_prev_start_key] = _current_start_str
 
-    # ── ④ 表入力
-    _active = [it for it in _items if it.strip()]
-    if not _active:
-        st.info("項目を入力してください。")
-        return
+            _start = st.date_input("開始日", value=st.session_state[_date_key], key=_date_key, on_change=_on_date_change)
 
-    st.markdown("**⑤ 表入力**")
-    _ratio = [2] + [1] * len(_dlabels)
-    _hdr = st.columns(_ratio)
-    with _hdr[0]:
-        st.markdown("**機種**")
-    for _j, _dl in enumerate(_dlabels):
-        with _hdr[_j + 1]:
-            st.markdown(f"**{_dl}**")
-
-    if _tn == 3:
-        # ── t3（週間オススメ表②）: multiselect で機種名選択 ────────────
-        _cands3 = _T3_JUGGLER_MACHINES
-        # 月間オススメ表③（Excel日付基準）では日付キーで復元する。
-        # 位置キーのまま読むと表示期間がずれた日付へ旧チェックが出てしまうため。
-        _cdm3 = _load_t3_cell_date_machines(store) if _use_excel_date else {}
+        _n_ui_dates = 7
         if _use_excel_date:
-            _cm_dict3 = {}
-            for _ci0 in range(_WEEKLY_N_ITEMS):
-                for _cj0 in range(len(_dates)):
-                    _sel0 = _cdm3.get(_dates[_cj0].isoformat(), {}).get(str(_ci0), [])
-                    if _sel0:
-                        _cm_dict3[f"{_ci0},{_cj0}"] = list(_sel0)
-        else:
-            _cm_dict3 = _load_t3_cell_machines(store)
+            try:
+                _n_ui_dates = min(int((_end - _start).days) + 1, 7)
+            except Exception:
+                pass
+        _dates   = [_start + _dt.timedelta(days=_j) for _j in range(_n_ui_dates)]
+        _dlabels = [f"{_d.month}/{_d.day}({_dow_names[_d.weekday()]})" for _d in _dates]
 
-        # ── 台番ルックアップ ─────────────────────────────────────────────
-        _ban_map3 = st.session_state.get(f"ban_map_{store}", {})
-        if _ban_map3:
-            _bc1, _bc2 = st.columns([4, 3])
-            with _bc1:
-                st.text_input(
-                    "台番で機種を調べる",
-                    key=f"t3_ban_inp_{store}",
-                    placeholder="例: 2028-2029, 2130-2132, 2157-2159",
-                )
-            _ban_val3 = st.session_state.get(f"t3_ban_inp_{store}", "").strip()
-            with _bc2:
-                if _ban_val3:
-                    _found3: list[str] = []
-                    _seen3: set[str] = set()
-                    for _p3 in re.split(r"[,、\s　]+", _ban_val3):
-                        _p3 = _p3.strip()
-                        if not _p3:
-                            continue
-                        _mr3 = re.match(r"(\d+)[-–~～](\d+)$", _p3)
-                        if _mr3:
-                            for _b3 in range(int(_mr3.group(1)), int(_mr3.group(2)) + 1):
-                                _mn3 = _ban_map3.get(_b3)
-                                if _mn3 and _mn3 not in _seen3:
-                                    _seen3.add(_mn3)
-                                    _found3.append(_mn3)
-                        else:
-                            _bs3 = re.match(r"(\d+)$", _p3)
-                            if _bs3:
-                                _mn3 = _ban_map3.get(int(_bs3.group(1)))
-                                if _mn3 and _mn3 not in _seen3:
-                                    _seen3.add(_mn3)
-                                    _found3.append(_mn3)
-                    st.markdown("　")
-                    if _found3:
-                        st.success("→ " + " / ".join(_found3))
-                    else:
-                        st.warning("該当なし")
-
-            # ── 台番でプラスを調べる ─────────────────────────────────────
-            _diff_map3 = st.session_state.get(f"diff_map_{store}", {})
-            if _diff_map3:
-                _pc1, _pc2 = st.columns([4, 3])
-                with _pc1:
-                    st.text_input(
-                        "台番でプラスを調べる",
-                        key=f"t3_plus_inp_{store}",
-                        placeholder="例: 2216.2195.2221.2183.2244",
-                    )
-                _plus_val3 = st.session_state.get(f"t3_plus_inp_{store}", "").strip()
-                with _pc2:
-                    if _plus_val3:
-                        _plus_total = 0
-                        _plus_count = 0
-                        _plus_lines: list[str] = []
-                        for _pp in re.split(r"[.,、,\s　]+", _plus_val3):
-                            _pp = _pp.strip()
-                            if not _pp or not re.match(r"^\d+$", _pp):
-                                continue
-                            _pb = int(_pp)
-                            if _pb not in _diff_map3:
-                                continue
-                            _plus_total += 1
-                            _pd = _diff_map3[_pb]
-                            if _pd > 0:
-                                _plus_count += 1
-                                _plus_lines.append(f"{_pb}番台 +{_pd:,}枚")
-                        st.markdown("　")
-                        if _plus_total == 0:
-                            st.warning("該当台番なし")
-                        else:
-                            st.info(f"**{_plus_count}/{_plus_total}台プラス**")
-                            if _plus_lines:
-                                st.markdown("  \n".join(_plus_lines))
-
-        # このrunで実際に描画した t3 セル（item index, 列index）。
-        # _on_ms_save は「このrunで描画したセル」だけを保存対象にする（未描画セルの
-        # session_state 欠落・別期間由来の空値を「ユーザーが解除した」と誤認しないため）。
-        _drawn3: set = set()
-
-        def _on_ms_save():
-            _new_cm: dict = {}
-            for _ci2 in range(_WEEKLY_N_ITEMS):
-                for _cj2 in range(7):
-                    _sel = st.session_state.get(f"t3_ms_{store}_{_ci2}_{_cj2}", [])
-                    if _sel:
-                        _new_cm[f"{_ci2},{_cj2}"] = list(_sel)
-            _bdays3 = [st.session_state.get(f"weekly_blank_{store}_t{_tn}_{_j2}", False) for _j2 in range(7)]
+        # 開始日変更検知
+        _current_start_str = str(_start)
+        _prev_start_key    = f"_weekly_prev_start_{store}_t{_tn}"
+        _prev_start        = st.session_state.get(_prev_start_key)
+        if _prev_start is not None and _prev_start != _current_start_str:
+            # ウィジェットキーを削除して次回描画時に再初期化させる
+            for _ci in range(_WEEKLY_N_ITEMS):
+                for _cj in range(7):
+                    _ck_wk = f"weekly_ck_{store}_t{_tn}_{_ci}_{_cj}"
+                    if _ck_wk in st.session_state:
+                        del st.session_state[_ck_wk]
+                    if _tn == 3:
+                        _ms_wk = f"t3_ms_{store}_{_ci}_{_cj}"
+                        if _ms_wk in st.session_state:
+                            del st.session_state[_ms_wk]
+            # blank widget キーを削除して次回描画時に日付キーで再初期化させる
             if _use_excel_date:
-                # 表示期間内の日付だけを日付キーで更新（期間外の既存日付は保持）。
-                # 旧 cell_machines（位置キー）は削除せず残置し、以後参照しない。
-                _cdm_new = {_k: dict(_v) for _k, _v in _load_t3_cell_date_machines(store).items()}
-                for _cj2 in range(len(_dates)):
-                    _diso = _dates[_cj2].isoformat()
-                    # 既存の保存値を起点にし、このrunで描画したセルだけを更新する
-                    _row = dict(_cdm_new.get(_diso, {}))
-                    _touched = False
-                    for _ci2 in range(_WEEKLY_N_ITEMS):
-                        if (_ci2, _cj2) not in _drawn3:
-                            continue          # 未描画／別期間由来 → 既存値を保持
-                        _msk2 = f"t3_ms_{store}_{_ci2}_{_cj2}"
-                        if _msk2 not in st.session_state:
-                            continue          # 念のため（描画済みならキーは存在する）
-                        _touched = True
-                        _sel = st.session_state.get(_msk2, [])
-                        if _sel:
-                            _row[str(_ci2)] = list(_sel)
+                for _cj in range(7):
+                    st.session_state.pop(f"weekly_blank_{store}_t{_tn}_{_cj}", None)
+            if not _use_excel_date:
+                if _tn == 3:
+                    # t3（週間オススメ表②）: 開始日変更で機種選択をリセット
+                    _save_weekly_items(
+                        store,
+                        [st.session_state.get(f"weekly_item_{store}_t3_{_j}", "") for _j in range(_WEEKLY_N_ITEMS)],
+                        table_num=3, cell_machines={},
+                    )
+                else:
+                    # t1（週間）: 開始日変更でチェックをリセット
+                    for _ci in range(_WEEKLY_N_ITEMS):
+                        for _cj in range(7):
+                            st.session_state[f"_weekly_init_ck_{store}_t{_tn}_{_ci}_{_cj}"] = False
+                    _save_weekly_items(
+                        store,
+                        [st.session_state.get(f"weekly_item_{store}_t{_tn}_{_j}", "") for _j in range(_WEEKLY_N_ITEMS)],
+                        title=st.session_state.get(f"weekly_title_{store}_t{_tn}", _default_title),
+                        checks=[[False] * 7] * _WEEKLY_N_ITEMS,
+                        start_date=_current_start_str,
+                        table_num=_tn,
+                    )
+        st.session_state[_prev_start_key] = _current_start_str
+
+        # ── ④ 表入力
+        _active = [it for it in _items if it.strip()]
+        if not _active:
+            st.info("項目を入力してください。")
+            return
+
+        st.markdown("**⑤ 表入力**")
+        _ratio = [2] + [1] * len(_dlabels)
+        _hdr = st.columns(_ratio)
+        with _hdr[0]:
+            st.markdown("**機種**")
+        for _j, _dl in enumerate(_dlabels):
+            with _hdr[_j + 1]:
+                st.markdown(f"**{_dl}**")
+
+        if _tn == 3:
+            # ── t3（週間オススメ表②）: multiselect で機種名選択 ────────────
+            _cands3 = _T3_JUGGLER_MACHINES
+            # 月間オススメ表③（Excel日付基準）では日付キーで復元する。
+            # 位置キーのまま読むと表示期間がずれた日付へ旧チェックが出てしまうため。
+            _cdm3 = _load_t3_cell_date_machines(store) if _use_excel_date else {}
+            if _use_excel_date:
+                _cm_dict3 = {}
+                for _ci0 in range(_WEEKLY_N_ITEMS):
+                    for _cj0 in range(len(_dates)):
+                        _sel0 = _cdm3.get(_dates[_cj0].isoformat(), {}).get(str(_ci0), [])
+                        if _sel0:
+                            _cm_dict3[f"{_ci0},{_cj0}"] = list(_sel0)
+            else:
+                _cm_dict3 = _load_t3_cell_machines(store)
+
+            # ── 台番ルックアップ ─────────────────────────────────────────────
+            _ban_map3 = st.session_state.get(f"ban_map_{store}", {})
+            if _ban_map3:
+                _bc1, _bc2 = st.columns([4, 3])
+                with _bc1:
+                    st.text_input(
+                        "台番で機種を調べる",
+                        key=f"t3_ban_inp_{store}",
+                        placeholder="例: 2028-2029, 2130-2132, 2157-2159",
+                    )
+                _ban_val3 = st.session_state.get(f"t3_ban_inp_{store}", "").strip()
+                with _bc2:
+                    if _ban_val3:
+                        _found3: list[str] = []
+                        _seen3: set[str] = set()
+                        for _p3 in re.split(r"[,、\s　]+", _ban_val3):
+                            _p3 = _p3.strip()
+                            if not _p3:
+                                continue
+                            _mr3 = re.match(r"(\d+)[-–~～](\d+)$", _p3)
+                            if _mr3:
+                                for _b3 in range(int(_mr3.group(1)), int(_mr3.group(2)) + 1):
+                                    _mn3 = _ban_map3.get(_b3)
+                                    if _mn3 and _mn3 not in _seen3:
+                                        _seen3.add(_mn3)
+                                        _found3.append(_mn3)
+                            else:
+                                _bs3 = re.match(r"(\d+)$", _p3)
+                                if _bs3:
+                                    _mn3 = _ban_map3.get(int(_bs3.group(1)))
+                                    if _mn3 and _mn3 not in _seen3:
+                                        _seen3.add(_mn3)
+                                        _found3.append(_mn3)
+                        st.markdown("　")
+                        if _found3:
+                            st.success("→ " + " / ".join(_found3))
                         else:
-                            # 描画中のwidgetが空＝ユーザーの明示解除 → そのセルを削除
-                            _row.pop(str(_ci2), None)
-                    if _row:
-                        _cdm_new[_diso] = _row
-                    elif _touched:
-                        # 描画済みセルがすべて空で、未描画の残存値も無い場合だけ日付ごと削除
-                        _cdm_new.pop(_diso, None)
+                            st.warning("該当なし")
+
+                # ── 台番でプラスを調べる ─────────────────────────────────────
+                _diff_map3 = st.session_state.get(f"diff_map_{store}", {})
+                if _diff_map3:
+                    _pc1, _pc2 = st.columns([4, 3])
+                    with _pc1:
+                        st.text_input(
+                            "台番でプラスを調べる",
+                            key=f"t3_plus_inp_{store}",
+                            placeholder="例: 2216.2195.2221.2183.2244",
+                        )
+                    _plus_val3 = st.session_state.get(f"t3_plus_inp_{store}", "").strip()
+                    with _pc2:
+                        if _plus_val3:
+                            _plus_total = 0
+                            _plus_count = 0
+                            _plus_lines: list[str] = []
+                            for _pp in re.split(r"[.,、,\s　]+", _plus_val3):
+                                _pp = _pp.strip()
+                                if not _pp or not re.match(r"^\d+$", _pp):
+                                    continue
+                                _pb = int(_pp)
+                                if _pb not in _diff_map3:
+                                    continue
+                                _plus_total += 1
+                                _pd = _diff_map3[_pb]
+                                if _pd > 0:
+                                    _plus_count += 1
+                                    _plus_lines.append(f"{_pb}番台 +{_pd:,}枚")
+                            st.markdown("　")
+                            if _plus_total == 0:
+                                st.warning("該当台番なし")
+                            else:
+                                st.info(f"**{_plus_count}/{_plus_total}台プラス**")
+                                if _plus_lines:
+                                    st.markdown("  \n".join(_plus_lines))
+
+            # このrunで実際に描画した t3 セル（item index, 列index）。
+            # _on_ms_save は「このrunで描画したセル」だけを保存対象にする（未描画セルの
+            # session_state 欠落・別期間由来の空値を「ユーザーが解除した」と誤認しないため）。
+            _drawn3: set = set()
+
+            def _on_ms_save():
+                _new_cm: dict = {}
+                for _ci2 in range(_WEEKLY_N_ITEMS):
+                    for _cj2 in range(7):
+                        _sel = st.session_state.get(f"t3_ms_{store}_{_ci2}_{_cj2}", [])
+                        if _sel:
+                            _new_cm[f"{_ci2},{_cj2}"] = list(_sel)
+                _bdays3 = [st.session_state.get(f"weekly_blank_{store}_t{_tn}_{_j2}", False) for _j2 in range(7)]
+                if _use_excel_date:
+                    # 表示期間内の日付だけを日付キーで更新（期間外の既存日付は保持）。
+                    # 旧 cell_machines（位置キー）は削除せず残置し、以後参照しない。
+                    _cdm_new = {_k: dict(_v) for _k, _v in _load_t3_cell_date_machines(store).items()}
+                    for _cj2 in range(len(_dates)):
+                        _diso = _dates[_cj2].isoformat()
+                        # 既存の保存値を起点にし、このrunで描画したセルだけを更新する
+                        _row = dict(_cdm_new.get(_diso, {}))
+                        _touched = False
+                        for _ci2 in range(_WEEKLY_N_ITEMS):
+                            if (_ci2, _cj2) not in _drawn3:
+                                continue          # 未描画／別期間由来 → 既存値を保持
+                            _msk2 = f"t3_ms_{store}_{_ci2}_{_cj2}"
+                            if _msk2 not in st.session_state:
+                                continue          # 念のため（描画済みならキーは存在する）
+                            _touched = True
+                            _sel = st.session_state.get(_msk2, [])
+                            if _sel:
+                                _row[str(_ci2)] = list(_sel)
+                            else:
+                                # 描画中のwidgetが空＝ユーザーの明示解除 → そのセルを削除
+                                _row.pop(str(_ci2), None)
+                        if _row:
+                            _cdm_new[_diso] = _row
+                        elif _touched:
+                            # 描画済みセルがすべて空で、未描画の残存値も無い場合だけ日付ごと削除
+                            _cdm_new.pop(_diso, None)
+                    _save_weekly_items(
+                        store,
+                        [st.session_state.get(f"weekly_item_{store}_t3_{_j2}", "") for _j2 in range(_WEEKLY_N_ITEMS)],
+                        table_num=3, cell_date_machines=_cdm_new, blank_days=_bdays3,
+                    )
+                    return
                 _save_weekly_items(
                     store,
                     [st.session_state.get(f"weekly_item_{store}_t3_{_j2}", "") for _j2 in range(_WEEKLY_N_ITEMS)],
-                    table_num=3, cell_date_machines=_cdm_new, blank_days=_bdays3,
-                )
-                return
-            _save_weekly_items(
-                store,
-                [st.session_state.get(f"weekly_item_{store}_t3_{_j2}", "") for _j2 in range(_WEEKLY_N_ITEMS)],
-                table_num=3, cell_machines=_new_cm, blank_days=_bdays3,
-            )
-
-        # t3 の widget キーは位置キー（t3_ms_{item}_{列}）なので、表示期間が変わると
-        # 同じ列indexが別日付を指す。前回描画時の期間と異なる run では、その期間の
-        # 値で必ず再seedする（前期間の値・空値を持ち越さない）。期間が同じ通常の
-        # rerun では再seedしない（ユーザーの現在選択を上書きしないため）。
-        _t3_scope_key = f"_t3_ms_scope_{store}"
-        _t3_scope_cur = ("E" if _use_excel_date else "L") + "|" + ",".join(
-            _d0.isoformat() for _d0 in _dates)
-        _t3_scope_changed = st.session_state.get(_t3_scope_key) != _t3_scope_cur
-
-        for _i3, _item3 in enumerate(_items):
-            if not _item3.strip():
-                continue
-            _row3 = st.columns(_ratio)
-            with _row3[0]:
-                st.markdown(_item3.replace('\n', '  \n'))
-            _is_special3 = any(k in _item3 for k in _T3_SPECIAL_ITEM_KEYS)
-            for _j3 in range(7):
-                with _row3[_j3 + 1]:
-                    _ms_key = f"t3_ms_{store}_{_i3}_{_j3}"
-                    _drawn3.add((_i3, _j3))
-                    _saved_sel3 = _cm_dict3.get(f"{_i3},{_j3}", [])
-                    if _is_special3:
-                        _opts3 = list(_T3_SPECIAL_OPTS) + [m for m in _saved_sel3 if m not in set(_T3_SPECIAL_OPTS)]
-                        _max_sel3 = 1
-                    else:
-                        _opts3 = list(_cands3) + [m for m in _saved_sel3 if m not in set(_cands3)]
-                        _max_sel3 = 9
-                    if _ms_key not in st.session_state or _t3_scope_changed:
-                        st.session_state[_ms_key] = _saved_sel3
-                    st.multiselect(
-                        "", options=_opts3,
-                        key=_ms_key, label_visibility="collapsed",
-                        max_selections=_max_sel3,
-                        on_change=_on_ms_save,
-                    )
-        st.session_state[_t3_scope_key] = _t3_scope_cur
-
-        # ── 空欄にする行（t3）
-        _blank_row3 = st.columns(_ratio)
-        with _blank_row3[0]:
-            st.markdown("**（空欄にする）**")
-        for _j3b in range(7):
-            with _blank_row3[_j3b + 1]:
-                _bk_key3 = f"weekly_blank_{store}_t{_tn}_{_j3b}"
-                if _bk_key3 not in st.session_state:
-                    st.session_state[_bk_key3] = st.session_state.get(f"_weekly_init_blank_{store}_t{_tn}_{_j3b}", False)
-                st.checkbox("", key=_bk_key3, label_visibility="collapsed", on_change=_on_ms_save)
-
-        # ── t3 PNG出力
-        st.markdown("---")
-        if st.button(f"💾 {_tname}をPNGで保存", key=f"weekly_png_btn_{store}_t{_tn}"):
-            # UI表入力と同じ復元結果（_cm_dict3＝日付キー基準）を使う
-            _cm3 = _cm_dict3
-            _bdays3s = [st.session_state.get(f"weekly_blank_{store}_t{_tn}_{_j3s}", False) for _j3s in range(7)]
-            _cm3_arr = [[
-                [] if _bdays3s[_wj3] else [m for m in _cm3.get(f"{_wi3},{_wj3}", []) if m]
-                for _wj3 in range(7)
-            ] for _wi3 in range(_WEEKLY_N_ITEMS)]
-            _out_labels3 = _dlabels
-            _out_cm3 = _cm3_arr
-            _wimg3 = _rote_margin(store, _draw_weekly_table_image(
-                _items, _out_labels3, [], title=_title or _default_title, cell_machines=_out_cm3,
-                theme_new=_rote_weekly_new_theme(store),
-            ))
-            _buf3 = _io.BytesIO()
-            _wimg3.save(_buf3, format="PNG", dpi=(300, 300))
-            _buf3.seek(0)
-            st.download_button(
-                label=f"⬇️ {_tname} PNG ダウンロード",
-                data=_buf3, file_name=f"{_tname}.png", mime="image/png",
-                key=f"weekly_dl_btn_{store}_t{_tn}",
-            )
-
-    else:
-        # ── t1/t2: チェックボックス ──────────────────────────────────────
-        # このrunで実際に描画した (item index, 列index)。日付キー保存（date_checks）では
-        # widgetキーが位置キーのため、未描画セル・古い表示期間由来のFalseを
-        # 「ユーザーが明示OFFにした」と誤認して既存Trueを消さないようにする。
-        _drawn_ck: set = set()
-
-        def _on_ck_change():
-            _bdays = [st.session_state.get(f"weekly_blank_{store}_t{_tn}_{_j2}", False) for _j2 in range(len(_dates))]
-            if _use_excel_date:
-                # 表示期間内の各日付について、既存の保存値を起点にし、
-                # このrunで描画したセルだけを True/False で更新する。
-                # （表示期間外の日付を書かない既存仕様はそのまま維持する）
-                _dc_base = _load_weekly_date_checks(store, _tn)
-                _dc = {}
-                for _cj2 in range(len(_dates)):
-                    _diso2 = _dates[_cj2].isoformat()
-                    _prev_row = list(_dc_base.get(_diso2, []))
-                    _row2 = [(_prev_row[_ci2] if _ci2 < len(_prev_row) else False)
-                             for _ci2 in range(_WEEKLY_N_ITEMS)]
-                    for _ci2 in range(_WEEKLY_N_ITEMS):
-                        if (_ci2, _cj2) not in _drawn_ck:
-                            continue          # 未描画／古いscope由来 → 既存値を保持
-                        _ck2 = f"weekly_ck_{store}_t{_tn}_{_ci2}_{_cj2}"
-                        if _ck2 not in st.session_state:
-                            continue          # 念のため（描画済みならキーは存在する）
-                        # 描画中widgetの値＝ユーザーの意思（False は明示OFF）
-                        _row2[_ci2] = bool(st.session_state.get(_ck2, False))
-                    _dc[_diso2] = _row2
-                _blank_dc = {_dates[_cj2].isoformat(): _bdays[_cj2] for _cj2 in range(len(_dates))}
-                _save_weekly_items(
-                    store,
-                    [st.session_state.get(f"weekly_item_{store}_t{_tn}_{_j}", "") for _j in range(_WEEKLY_N_ITEMS)],
-                    title=st.session_state.get(f"weekly_title_{store}_t{_tn}", _default_title),
-                    date_checks=_dc, table_num=_tn, blank_date_checks=_blank_dc,
-                )
-            else:
-                _save_weekly_items(
-                    store,
-                    [st.session_state.get(f"weekly_item_{store}_t{_tn}_{_j}", "") for _j in range(_WEEKLY_N_ITEMS)],
-                    title=st.session_state.get(f"weekly_title_{store}_t{_tn}", _default_title),
-                    checks=[[st.session_state.get(f"weekly_ck_{store}_t{_tn}_{_ci}_{_cj}", False) for _cj in range(7)] for _ci in range(_WEEKLY_N_ITEMS)],
-                    start_date=_current_start_str, table_num=_tn, blank_days=_bdays,
+                    table_num=3, cell_machines=_new_cm, blank_days=_bdays3,
                 )
 
-        _saved_start_str = st.session_state.get(f"_weekly_init_start_{store}_t{_tn}", "")
-        _date_checks_data = _load_weekly_date_checks(store, _tn) if _use_excel_date else {}
-        # checkbox の widgetキーは位置キー（weekly_ck_{item}_{列}）なので、表示期間が
-        # 変わると同じ列indexが別日付を指す。前回描画時の期間と異なる run では
-        # その期間の保存値で必ず再seedする（前期間の値を持ち越さない）。期間が同じ
-        # 通常の rerun では再seedしない（ユーザーの現在の入力を上書きしないため）。
-        _ck_scope_key = f"_weekly_ck_scope_{store}_t{_tn}"
-        _ck_scope_cur = ("E" if _use_excel_date else "L") + "|" + ",".join(
-            _d1.isoformat() for _d1 in _dates)
-        _ck_scope_changed = _use_excel_date and st.session_state.get(_ck_scope_key) != _ck_scope_cur
-        _checks: list[list[bool]] = []
-        for _i, _item in enumerate(_items):
-            if not _item.strip():
-                _checks.append([False] * len(_dates))
-                continue
-            _row = st.columns(_ratio)
-            with _row[0]:
-                st.markdown(_item)
-            _row_ck = []
-            for _j in range(len(_dates)):
-                with _row[_j + 1]:
-                    _ck_key = f"weekly_ck_{store}_t{_tn}_{_i}_{_j}"
-                    _drawn_ck.add((_i, _j))
-                    if _ck_key not in st.session_state or _ck_scope_changed:
-                        if _use_excel_date:
-                            _date_iso = _dates[_j].isoformat()
-                            _dc_row = _date_checks_data.get(_date_iso, [False] * _WEEKLY_N_ITEMS)
-                            _iv = _dc_row[_i] if _i < len(_dc_row) else False
+            # t3 の widget キーは位置キー（t3_ms_{item}_{列}）なので、表示期間が変わると
+            # 同じ列indexが別日付を指す。前回描画時の期間と異なる run では、その期間の
+            # 値で必ず再seedする（前期間の値・空値を持ち越さない）。期間が同じ通常の
+            # rerun では再seedしない（ユーザーの現在選択を上書きしないため）。
+            _t3_scope_key = f"_t3_ms_scope_{store}"
+            _t3_scope_cur = ("E" if _use_excel_date else "L") + "|" + ",".join(
+                _d0.isoformat() for _d0 in _dates)
+            _t3_scope_changed = st.session_state.get(_t3_scope_key) != _t3_scope_cur
+
+            for _i3, _item3 in enumerate(_items):
+                if not _item3.strip():
+                    continue
+                _row3 = st.columns(_ratio)
+                with _row3[0]:
+                    st.markdown(_item3.replace('\n', '  \n'))
+                _is_special3 = any(k in _item3 for k in _T3_SPECIAL_ITEM_KEYS)
+                for _j3 in range(7):
+                    with _row3[_j3 + 1]:
+                        _ms_key = f"t3_ms_{store}_{_i3}_{_j3}"
+                        _drawn3.add((_i3, _j3))
+                        _saved_sel3 = _cm_dict3.get(f"{_i3},{_j3}", [])
+                        if _is_special3:
+                            _opts3 = list(_T3_SPECIAL_OPTS) + [m for m in _saved_sel3 if m not in set(_T3_SPECIAL_OPTS)]
+                            _max_sel3 = 1
                         else:
-                            _iv = st.session_state.get(f"_weekly_init_ck_{store}_t{_tn}_{_i}_{_j}", False)
-                            if _saved_start_str != _current_start_str:
-                                _iv = False
-                        st.session_state[_ck_key] = _iv
-                    _row_ck.append(st.checkbox("", key=_ck_key, label_visibility="collapsed", on_change=_on_ck_change))
-            _checks.append(_row_ck)
+                            _opts3 = list(_cands3) + [m for m in _saved_sel3 if m not in set(_cands3)]
+                            _max_sel3 = 9
+                        if _ms_key not in st.session_state or _t3_scope_changed:
+                            st.session_state[_ms_key] = _saved_sel3
+                        st.multiselect(
+                            "", options=_opts3,
+                            key=_ms_key, label_visibility="collapsed",
+                            max_selections=_max_sel3,
+                            on_change=_on_ms_save,
+                        )
+            st.session_state[_t3_scope_key] = _t3_scope_cur
 
-        # ── 空欄にする行（t1/t2）
-        _blank_row = st.columns(_ratio)
-        with _blank_row[0]:
-            st.markdown("**（空欄にする）**")
-        _blank_days = []
-        _bdc_loaded = _load_weekly_blank_date_checks(store, _tn) if _use_excel_date else {}
-        for _j in range(len(_dates)):
-            with _blank_row[_j + 1]:
-                _bk_key = f"weekly_blank_{store}_t{_tn}_{_j}"
-                if _bk_key not in st.session_state or _ck_scope_changed:
-                    if _use_excel_date:
-                        st.session_state[_bk_key] = _bdc_loaded.get(_dates[_j].isoformat(), False)
-                    else:
-                        st.session_state[_bk_key] = st.session_state.get(f"_weekly_init_blank_{store}_t{_tn}_{_j}", False)
-                _blank_days.append(st.checkbox("", key=_bk_key, label_visibility="collapsed", on_change=_on_ck_change))
-        if _use_excel_date:
-            st.session_state[_ck_scope_key] = _ck_scope_cur
+            # ── 空欄にする行（t3）
+            _blank_row3 = st.columns(_ratio)
+            with _blank_row3[0]:
+                st.markdown("**（空欄にする）**")
+            for _j3b in range(7):
+                with _blank_row3[_j3b + 1]:
+                    _bk_key3 = f"weekly_blank_{store}_t{_tn}_{_j3b}"
+                    if _bk_key3 not in st.session_state:
+                        st.session_state[_bk_key3] = st.session_state.get(f"_weekly_init_blank_{store}_t{_tn}_{_j3b}", False)
+                    st.checkbox("", key=_bk_key3, label_visibility="collapsed", on_change=_on_ms_save)
 
-        # ── t1/t2 PNG出力
-        st.markdown("---")
-        if st.button(f"💾 {_tname}をPNGで保存", key=f"weekly_png_btn_{store}_t{_tn}"):
-            _bdays_save = [st.session_state.get(f"weekly_blank_{store}_t{_tn}_{_j}", False) for _j in range(len(_dates))]
-            _checks_out = [
-                [False if _bdays_save[_cj2] else _checks[_ci2][_cj2] for _cj2 in range(len(_dates))]
-                for _ci2 in range(len(_checks))
-            ]
-            _last_col = -1
-            for _cj in range(len(_dates)):
-                if _bdays_save[_cj]:
-                    _last_col = max(_last_col, _cj)
+            # ── t3 PNG出力
+            st.markdown("---")
+            if st.button(f"💾 {_tname}をPNGで保存", key=f"weekly_png_btn_{store}_t{_tn}"):
+                # UI表入力と同じ復元結果（_cm_dict3＝日付キー基準）を使う
+                _cm3 = _cm_dict3
+                _bdays3s = [st.session_state.get(f"weekly_blank_{store}_t{_tn}_{_j3s}", False) for _j3s in range(7)]
+                _cm3_arr = [[
+                    [] if _bdays3s[_wj3] else [m for m in _cm3.get(f"{_wi3},{_wj3}", []) if m]
+                    for _wj3 in range(7)
+                ] for _wi3 in range(_WEEKLY_N_ITEMS)]
+                _out_labels3 = _dlabels
+                _out_cm3 = _cm3_arr
+                _wimg3 = _rote_margin(store, _draw_weekly_table_image(
+                    _items, _out_labels3, [], title=_title or _default_title, cell_machines=_out_cm3,
+                    theme_new=_rote_weekly_new_theme(store),
+                ))
+                _buf3 = _io.BytesIO()
+                _wimg3.save(_buf3, format="PNG", dpi=(300, 300))
+                _buf3.seek(0)
+                st.download_button(
+                    label=f"⬇️ {_tname} PNG ダウンロード",
+                    data=_buf3, file_name=f"{_tname}.png", mime="image/png",
+                    key=f"weekly_dl_btn_{store}_t{_tn}",
+                )
+
+        else:
+            # ── t1/t2: チェックボックス ──────────────────────────────────────
+            # このrunで実際に描画した (item index, 列index)。日付キー保存（date_checks）では
+            # widgetキーが位置キーのため、未描画セル・古い表示期間由来のFalseを
+            # 「ユーザーが明示OFFにした」と誤認して既存Trueを消さないようにする。
+            _drawn_ck: set = set()
+
+            def _on_ck_change():
+                _bdays = [st.session_state.get(f"weekly_blank_{store}_t{_tn}_{_j2}", False) for _j2 in range(len(_dates))]
+                if _use_excel_date:
+                    # 表示期間内の各日付について、既存の保存値を起点にし、
+                    # このrunで描画したセルだけを True/False で更新する。
+                    # （表示期間外の日付を書かない既存仕様はそのまま維持する）
+                    _dc_base = _load_weekly_date_checks(store, _tn)
+                    _dc = {}
+                    for _cj2 in range(len(_dates)):
+                        _diso2 = _dates[_cj2].isoformat()
+                        _prev_row = list(_dc_base.get(_diso2, []))
+                        _row2 = [(_prev_row[_ci2] if _ci2 < len(_prev_row) else False)
+                                 for _ci2 in range(_WEEKLY_N_ITEMS)]
+                        for _ci2 in range(_WEEKLY_N_ITEMS):
+                            if (_ci2, _cj2) not in _drawn_ck:
+                                continue          # 未描画／古いscope由来 → 既存値を保持
+                            _ck2 = f"weekly_ck_{store}_t{_tn}_{_ci2}_{_cj2}"
+                            if _ck2 not in st.session_state:
+                                continue          # 念のため（描画済みならキーは存在する）
+                            # 描画中widgetの値＝ユーザーの意思（False は明示OFF）
+                            _row2[_ci2] = bool(st.session_state.get(_ck2, False))
+                        _dc[_diso2] = _row2
+                    _blank_dc = {_dates[_cj2].isoformat(): _bdays[_cj2] for _cj2 in range(len(_dates))}
+                    _save_weekly_items(
+                        store,
+                        [st.session_state.get(f"weekly_item_{store}_t{_tn}_{_j}", "") for _j in range(_WEEKLY_N_ITEMS)],
+                        title=st.session_state.get(f"weekly_title_{store}_t{_tn}", _default_title),
+                        date_checks=_dc, table_num=_tn, blank_date_checks=_blank_dc,
+                    )
                 else:
-                    for _ci in range(len(_items)):
-                        if _checks_out[_ci][_cj]:
-                            _last_col = max(_last_col, _cj)
-                            break
-            if _last_col >= 0:
-                _out_labels = _dlabels[: _last_col + 1]
-                _out_checks = [_row[: _last_col + 1] for _row in _checks_out]
-            else:
-                # 全チェックなし → 初日のみ印なしで表示
-                _out_labels = _dlabels[:1]
-                _out_checks = [[False] for _ in _checks]
-            _wimg = _rote_margin(store, _draw_weekly_table_image(
-                _items, _out_labels, _out_checks, title=_title or "週間オススメ",
-                theme_new=_rote_weekly_new_theme(store)))
-            _buf  = _io.BytesIO()
-            _wimg.save(_buf, format="PNG", dpi=(300, 300))
-            _buf.seek(0)
-            st.download_button(
-                label=f"⬇️ {_tname} PNG ダウンロード",
-                data=_buf, file_name=f"{_tname}.png", mime="image/png",
-                key=f"weekly_dl_btn_{store}_t{_tn}",
-            )
+                    _save_weekly_items(
+                        store,
+                        [st.session_state.get(f"weekly_item_{store}_t{_tn}_{_j}", "") for _j in range(_WEEKLY_N_ITEMS)],
+                        title=st.session_state.get(f"weekly_title_{store}_t{_tn}", _default_title),
+                        checks=[[st.session_state.get(f"weekly_ck_{store}_t{_tn}_{_ci}_{_cj}", False) for _cj in range(7)] for _ci in range(_WEEKLY_N_ITEMS)],
+                        start_date=_current_start_str, table_num=_tn, blank_days=_bdays,
+                    )
+
+            _saved_start_str = st.session_state.get(f"_weekly_init_start_{store}_t{_tn}", "")
+            _date_checks_data = _load_weekly_date_checks(store, _tn) if _use_excel_date else {}
+            # checkbox の widgetキーは位置キー（weekly_ck_{item}_{列}）なので、表示期間が
+            # 変わると同じ列indexが別日付を指す。前回描画時の期間と異なる run では
+            # その期間の保存値で必ず再seedする（前期間の値を持ち越さない）。期間が同じ
+            # 通常の rerun では再seedしない（ユーザーの現在の入力を上書きしないため）。
+            _ck_scope_key = f"_weekly_ck_scope_{store}_t{_tn}"
+            _ck_scope_cur = ("E" if _use_excel_date else "L") + "|" + ",".join(
+                _d1.isoformat() for _d1 in _dates)
+            _ck_scope_changed = _use_excel_date and st.session_state.get(_ck_scope_key) != _ck_scope_cur
+            _checks: list[list[bool]] = []
+            for _i, _item in enumerate(_items):
+                if not _item.strip():
+                    _checks.append([False] * len(_dates))
+                    continue
+                _row = st.columns(_ratio)
+                with _row[0]:
+                    st.markdown(_item)
+                _row_ck = []
+                for _j in range(len(_dates)):
+                    with _row[_j + 1]:
+                        _ck_key = f"weekly_ck_{store}_t{_tn}_{_i}_{_j}"
+                        _drawn_ck.add((_i, _j))
+                        if _ck_key not in st.session_state or _ck_scope_changed:
+                            if _use_excel_date:
+                                _date_iso = _dates[_j].isoformat()
+                                _dc_row = _date_checks_data.get(_date_iso, [False] * _WEEKLY_N_ITEMS)
+                                _iv = _dc_row[_i] if _i < len(_dc_row) else False
+                            else:
+                                _iv = st.session_state.get(f"_weekly_init_ck_{store}_t{_tn}_{_i}_{_j}", False)
+                                if _saved_start_str != _current_start_str:
+                                    _iv = False
+                            st.session_state[_ck_key] = _iv
+                        _row_ck.append(st.checkbox("", key=_ck_key, label_visibility="collapsed", on_change=_on_ck_change))
+                _checks.append(_row_ck)
+
+            # ── 空欄にする行（t1/t2）
+            _blank_row = st.columns(_ratio)
+            with _blank_row[0]:
+                st.markdown("**（空欄にする）**")
+            _blank_days = []
+            _bdc_loaded = _load_weekly_blank_date_checks(store, _tn) if _use_excel_date else {}
+            for _j in range(len(_dates)):
+                with _blank_row[_j + 1]:
+                    _bk_key = f"weekly_blank_{store}_t{_tn}_{_j}"
+                    if _bk_key not in st.session_state or _ck_scope_changed:
+                        if _use_excel_date:
+                            st.session_state[_bk_key] = _bdc_loaded.get(_dates[_j].isoformat(), False)
+                        else:
+                            st.session_state[_bk_key] = st.session_state.get(f"_weekly_init_blank_{store}_t{_tn}_{_j}", False)
+                    _blank_days.append(st.checkbox("", key=_bk_key, label_visibility="collapsed", on_change=_on_ck_change))
+            if _use_excel_date:
+                st.session_state[_ck_scope_key] = _ck_scope_cur
+
+            # ── t1/t2 PNG出力
+            st.markdown("---")
+            if st.button(f"💾 {_tname}をPNGで保存", key=f"weekly_png_btn_{store}_t{_tn}"):
+                _bdays_save = [st.session_state.get(f"weekly_blank_{store}_t{_tn}_{_j}", False) for _j in range(len(_dates))]
+                _checks_out = [
+                    [False if _bdays_save[_cj2] else _checks[_ci2][_cj2] for _cj2 in range(len(_dates))]
+                    for _ci2 in range(len(_checks))
+                ]
+                _last_col = -1
+                for _cj in range(len(_dates)):
+                    if _bdays_save[_cj]:
+                        _last_col = max(_last_col, _cj)
+                    else:
+                        for _ci in range(len(_items)):
+                            if _checks_out[_ci][_cj]:
+                                _last_col = max(_last_col, _cj)
+                                break
+                if _last_col >= 0:
+                    _out_labels = _dlabels[: _last_col + 1]
+                    _out_checks = [_row[: _last_col + 1] for _row in _checks_out]
+                else:
+                    # 全チェックなし → 初日のみ印なしで表示
+                    _out_labels = _dlabels[:1]
+                    _out_checks = [[False] for _ in _checks]
+                _wimg = _rote_margin(store, _draw_weekly_table_image(
+                    _items, _out_labels, _out_checks, title=_title or "週間オススメ",
+                    theme_new=_rote_weekly_new_theme(store)))
+                _buf  = _io.BytesIO()
+                _wimg.save(_buf, format="PNG", dpi=(300, 300))
+                _buf.seek(0)
+                st.download_button(
+                    label=f"⬇️ {_tname} PNG ダウンロード",
+                    data=_buf, file_name=f"{_tname}.png", mime="image/png",
+                    key=f"weekly_dl_btn_{store}_t{_tn}",
+                )
 
 
 def show_rote_page() -> None:

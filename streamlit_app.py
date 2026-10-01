@@ -4187,6 +4187,9 @@ _ART_WP_NO_JUG_SECTION_STORES = frozenset({"渋谷新館", "新宿歌舞伎町"}
 # H2「その他のジャグラーの優秀台」→ ジャグラーシリーズ優秀台.jpg → ジャグラー全体の総差枚・平均差枚
 # を入れる店舗（payload["jug_tail"]）。⑧で実際に保存した画像があるときだけ。
 _ART_WP_JUG_TAIL_STORES = frozenset({"新宿歌舞伎町"})
+# 記事用WordPress本文の③で 列画像 → 並び画像 の順にする店舗（payload["retsu_first"]）。
+# ⑦プレビューは元から 列 → 並び。既定（キーなし）は従来どおり 並び → 列。
+_ART_WP_RETSU_FIRST_STORES = frozenset({"新宿歌舞伎町"})
 
 # WordPress冒頭へ「ななこポスト」セクションを入れる店舗。
 # **高田馬場は対象外**（既存のWordPress本文をバイト単位で維持するため）。
@@ -21925,6 +21928,9 @@ def show_auto_article_page() -> None:
                     # ので、古い ジャグラーシリーズ優秀台.jpg が出力フォルダに残っていても
                     # plan / upload / 本文のどこにも入らない。
                     _art_wp_pl["juggler_section"] = store not in _ART_WP_NO_JUG_SECTION_STORES
+                    # ③ 列画像を並び画像より先に掲載する店舗（⑦プレビューの順と一致させる）
+                    if store in _ART_WP_RETSU_FIRST_STORES:
+                        _art_wp_pl["retsu_first"] = True
                     # その他のジャグラーの優秀台（_ART_WP_JUG_TAIL_STORES のみ）:
                     # ⑧がこの実行で保存した ジャグラーシリーズ優秀台.jpg があるときだけ渡す。
                     # 文章は結果テキストと同じ集計（_juggler_total_stat・result["df"]）。

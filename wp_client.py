@@ -1311,15 +1311,23 @@ def plan_blocks(payload: dict) -> list[dict]:
              and out_dir and os.path.isfile(os.path.join(out_dir, str(r["file"])))]
     if nami or retsu:
         plan.append({"type": "h2", "text": _h2_nami})
+        _nami_blk: list[dict] = []
         for it in nami:
-            plan.append({"type": "h3", "text": h3_narabi(it)})
-            plan.append({"type": "image",
-                         "file": narabi_file_name(it, dup),
-                         "label": f"並び {it['title']}"})
+            _nami_blk.append({"type": "h3", "text": h3_narabi(it)})
+            _nami_blk.append({"type": "image",
+                              "file": narabi_file_name(it, dup),
+                              "label": f"並び {it['title']}"})
+        _retsu_blk: list[dict] = []
         for it in retsu:
-            plan.append({"type": "h3", "text": h3_retsu(it)})
-            plan.append({"type": "image", "file": it["file"],
-                         "label": f"列 {it.get('machine', it['file'])}"})
+            _retsu_blk.append({"type": "h3", "text": h3_retsu(it)})
+            _retsu_blk.append({"type": "image", "file": it["file"],
+                               "label": f"列 {it.get('machine', it['file'])}"})
+        # payload["retsu_first"] が真の店舗（新宿歌舞伎町の記事用）だけ 列 → 並び。
+        # 既定は従来どおり 並び → 列（キーを渡さない店舗は1ブロックも変わらない）。
+        if payload.get("retsu_first"):
+            plan += _retsu_blk + _nami_blk
+        else:
+            plan += _nami_blk + _retsu_blk
         # Cコメントは **並び・列セクションの最後に1回だけ**（並びが複数でも1回）
         plan += _comment_paras(payload, _CMT_NARABI)
 

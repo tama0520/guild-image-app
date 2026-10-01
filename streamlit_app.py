@@ -15282,7 +15282,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 # ジャグラーシリーズ優秀台画像そのものをチェック外し → その他の優秀台ピックアップへ移す
                                 # （_jug_ov_move_on の店舗はループ後の _jug_off_bans で掲載台どおりに戻す）
                                 if (_pname == "ジャグラーシリーズ優秀台.jpg" and not (with_slump and store == "秋葉原")
-                                        and not _jug_ov_move_on(store)):
+                                        and not _jug_ov_move_on(store)
+                                        and not (_jug_off_ret_on(store) and not _manual_son_upd)):
                                     _jug_hr_names_u = set(_pv_hr.values())
                                     # 優先順: jug_pool_df → jug_overflow_df → jug_excellent_list(+1000台)
                                     if _pv_jug_pool is not None and not _pv_jug_pool.empty:
@@ -15339,7 +15340,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                         # 掲載台は下の作り直しと同じ組み立て（pool／自前画像なし機種の overflow
                         # ＋ 個別OFF機種の +1,000枚台）で求め、画像は作り直さない。
                         _jug_off_bans: set[int] = set()
-                        if (_jug_ov_move_on(store) and _pv_df is not None and _pv_diff is not None
+                        # 他のスランプ付き店舗（_jug_off_ret_on）も同じ戻し方にする。
+                        # 新宿歌舞伎町 auto_slump2 は下の既存組み立て（fc74518）のまま。
+                        _jo_new = (not _jug_ov_move_on(store) and _jug_off_ret_on(store)
+                                   and not _manual_son_upd)
+                        if ((_jug_ov_move_on(store) or _jo_new) and _pv_df is not None and _pv_diff is not None
                                 and any(_pn_o == "ジャグラーシリーズ優秀台.jpg" for _pn_o, _ in _auto_previews)
                                 and not _pv_is_on(store, uploaded.name, "ジャグラーシリーズ優秀台.jpg")
                                 and not any(_pn_o == "ジャグラーシリーズ優秀台_side.jpg"
@@ -15352,7 +15357,26 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _jo_base = [_pv_jug_ov[~_pv_jug_ov["機種名"].isin(_jo_hr)].copy()]
                             else:
                                 _jo_base = []
-                            _jo_dfs = [_x for _x in (_jo_base + _jug_extra_dfs) if _x is not None and not _x.empty]
+                            _jo_ext = _jug_extra_dfs
+                            if _jo_new:
+                                # OFFのジャグラー機種（高配分・全台系）の +1,000枚台と、
+                                # チェック中の並び・末尾台の除外を⑧と同じにする
+                                _jo_offm = {
+                                    (_pv_hr.get(_pn_m) or _pv_zen.get(_pn_m))
+                                    for _pn_m, _ in _auto_previews
+                                    if not _pv_is_on(store, uploaded.name, _pn_m)
+                                    and not any(_pn_s == os.path.splitext(_pn_m)[0] + "_side.jpg"
+                                                and _pv_is_on(store, uploaded.name, _pn_s)
+                                                for _pn_s, _ in _auto_previews)
+                                    and (_pv_hr.get(_pn_m) or _pv_zen.get(_pn_m))
+                                } & _jug_series_set - _kojin_machines_set
+                                _jo_exc = set(_sue_bans_upd) | _narabi_checked_bans(
+                                    _auto_previews, _pv_narabi, store, uploaded.name)
+                                _jo_ext = _jug_off_extras(_pv_df, _pv_diff, _jo_offm, _jug_extra_dfs, _jo_exc)
+                                if _jo_exc:
+                                    _jo_base = [_x[~_x["台番"].apply(lambda b: int(str(b).split(".")[0]) in _jo_exc).values]
+                                                for _x in _jo_base]
+                            _jo_dfs = [_x for _x in (_jo_base + _jo_ext) if _x is not None and not _x.empty]
                             if _jo_dfs:
                                 _jo_comb = pd.concat(_jo_dfs, ignore_index=True).drop_duplicates(subset=["台番"])
                                 _jug_off_bans = {int(str(b).split(".")[0]) for b in _jo_comb["台番"].dropna()
@@ -17065,7 +17089,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                 # その画像に載る台（pool／自前画像なし機種の overflow ＋ 個別OFF機種の台）の
                 # うち +1,000枚以上だけを「その他の優秀台」へ戻し、統合画像は作り直さない。
                 _jug_off_e: set[int] = set()
-                if (_jug_ov_move_on(store) and result.get("ok") and _df_res is not None
+                # 他のスランプ付き店舗（_jug_off_ret_on）も同じ戻し方にする（🔄と同じ組み立て）。
+                _jo_new_e = (not _jug_ov_move_on(store) and _jug_off_ret_on(store))
+                if ((_jug_ov_move_on(store) or _jo_new_e) and result.get("ok") and _df_res is not None
                         and _diff_res is not None
                         and any(_pn_oe == "ジャグラーシリーズ優秀台.jpg" for _pn_oe, _ in _aprev_imgs)
                         and not _pv_is_on(store, uploaded.name, "ジャグラーシリーズ優秀台.jpg")
@@ -17082,7 +17108,32 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _jb_oe = [_jo_oe[~_jo_oe["機種名"].isin(_hn_oe)].copy()]
                     else:
                         _jb_oe = []
-                    _jd_oe = [_x for _x in (_jb_oe + _jug_ex_dfs) if _x is not None and not _x.empty]
+                    _jx_oe = _jug_ex_dfs
+                    if _jo_new_e:
+                        _offm_oe = {
+                            (_hr_map.get(_pn_m) or _zen_map.get(_pn_m))
+                            for _pn_m, _ in _aprev_imgs
+                            if not _pv_is_on(store, uploaded.name, _pn_m)
+                            and _pn_m not in _checked_side_bases_ex
+                            and (_hr_map.get(_pn_m) or _zen_map.get(_pn_m))
+                        } & _ex_jug_series_set - _kojin_ex_set
+                        _exc_oe: set[int] = set()
+                        for _np_oe, _nbl_oe in (_narabi_ban_map_ex or {}).items():
+                            if _pv_is_on(store, uploaded.name, _np_oe):
+                                _exc_oe |= {int(_b) for _b in (_nbl_oe or [])}
+                        for _st_oe in [t for i in range(1, 4)
+                                       if (t := st.session_state.get(f"suebangai_tail_input_{i}", "").strip())]:
+                            if _st_oe == "ゾロ目":
+                                _exc_oe |= {int(b) for b in _df_res["台番"]
+                                            if (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]}
+                            elif _st_oe.isdigit() and len(_st_oe) in (1, 2):
+                                _exc_oe |= {int(b) for b in _df_res["台番"]
+                                            if str(int(b))[-len(_st_oe):] == _st_oe}
+                        _jx_oe = _jug_off_extras(_df_res, _diff_res, _offm_oe, _jug_ex_dfs, _exc_oe)
+                        if _exc_oe:
+                            _jb_oe = [_x[~_x["台番"].apply(lambda b: int(str(b).split(".")[0]) in _exc_oe).values]
+                                      for _x in _jb_oe]
+                    _jd_oe = [_x for _x in (_jb_oe + _jx_oe) if _x is not None and not _x.empty]
                     if _jd_oe:
                         _jc_oe = pd.concat(_jd_oe, ignore_index=True).drop_duplicates(subset=["台番"])
                         _jug_off_e = {int(str(b).split(".")[0]) for b in _jc_oe["台番"].dropna()
@@ -26992,6 +27043,43 @@ def _jug_ov_move_on(store: str) -> bool:
                 and st.session_state.get("page") in _JUG_OV_MOVE_PAGES)
     except Exception:
         return False
+
+
+# 統合ジャグラー画像（ジャグラーシリーズ優秀台.jpg）をチェックOFF → 🔄／⑧で、その画像に
+# 載るはずだった台の +1,000枚以上だけを「その他の優秀台」へ戻し、統合画像は作り直さない
+# ページ（スランプ付き結果ポスト・2026-10-01）。新宿歌舞伎町 auto_slump2 は fc74518 の
+# 既存処理（_jug_ov_move_on）のまま。かぶぱ（_is_kabupa_page）は🔍/🔄が無いので除外、
+# 秋葉原はスランプ付きで統合画像を作らない（jug_no_merge_image）ので除外。
+_JUG_OFF_RET_PAGES: "frozenset[str]" = frozenset({"auto_slump", "auto_slump2", "other_slump"})
+_JUG_OFF_RET_OFF_STORES: "frozenset[str]" = frozenset({"秋葉原"})
+
+
+def _jug_off_ret_on(store: str) -> bool:
+    try:
+        return (st.session_state.get("page") in _JUG_OFF_RET_PAGES
+                and not _is_kabupa_page()
+                and store not in _JUG_OFF_RET_OFF_STORES)
+    except Exception:
+        return False
+
+
+def _jug_off_extras(df: "pd.DataFrame", diff: "pd.Series", off_machines: set,
+                    extra_dfs: list, excl_bans: set) -> list:
+    """統合ジャグラー画像OFF時に、その画像へ載るはずだった「個別OFF機種」側の台を返す。
+    既存の作り直し用候補（extra_dfs）＋ OFFにしたジャグラー機種の +1,000枚以上の台から、
+    チェック中の並び台・末尾台（excl_bans）を除く。🔄と⑧で同じ結果にするための共通処理。"""
+    _out = [x for x in (extra_dfs or []) if x is not None and not x.empty]
+    for _m in sorted(off_machines or set()):
+        _r = df[df["機種名"] == _m]
+        if _r.empty:
+            continue
+        _r = _r[(diff.loc[_r.index] >= 1000).values]
+        if not _r.empty:
+            _out.append(_r.copy().reset_index(drop=True))
+    if excl_bans:
+        _out = [x[~x["台番"].apply(lambda b: int(str(b).split(".")[0]) in excl_bans).values]
+                for x in _out]
+    return [x for x in _out if not x.empty]
 
 
 _ARTICLE_PANEL_STORES = {"高田馬場", "渋谷新館", "新宿歌舞伎町"}

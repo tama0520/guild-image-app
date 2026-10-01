@@ -7329,6 +7329,19 @@ def _manual_sonota_auto_extract(df, diff, thr, exc_mac, exc_ban,
 # 「優秀台」は _kojin_yushu_filter()、枚数条件は _SONOTA_AUTO_THR を再利用する
 # （新しい優秀台判定・新しい閾値は作らない）。
 _JUG_AUTO_OPTS = ["なし", "優秀台", "+1,000枚以上", "+2,000枚以上"]
+# 「ジャグラーシリーズ優秀台」の自動抽出条件を常に +1,000枚以上 に固定するページ×店舗（2026-10-01）。
+# 保存値・セッション値に別の条件が残っていても固定値を優先し、ラジオも固定値で表示（変更不可）。
+_JUG_AUTO_FIXED_VAL = "+1,000枚以上"
+_JUG_AUTO_FIXED_PAGES: "frozenset[str]" = frozenset({"auto_slump2", "auto_article"})
+_JUG_AUTO_FIXED_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
+def _jug_auto_fixed_on(store: str) -> bool:
+    try:
+        return (store in _JUG_AUTO_FIXED_STORES
+                and st.session_state.get("page") in _JUG_AUTO_FIXED_PAGES)
+    except Exception:
+        return False
 
 
 def _manual_juggler_auto_extract(df, diff, mode: str, cfg: dict,
@@ -12840,13 +12853,17 @@ def show_auto_page(with_slump: bool = False) -> None:
             # ジャグラーシリーズ優秀台（📝記入部分のみモード）。
             # 「その他の優秀台」からジャグラーは常に除外され、こちらから生成する。
             _jg_key = f"jug_extra_auto_{store}"
-            if st.session_state.get(_jg_key) not in _JUG_AUTO_OPTS:
+            _jg_fixed = _jug_auto_fixed_on(store)
+            if _jg_fixed:
+                st.session_state[_jg_key] = _JUG_AUTO_FIXED_VAL   # 保存値より固定値を優先
+            elif st.session_state.get(_jg_key) not in _JUG_AUTO_OPTS:
                 st.session_state[_jg_key] = "なし"   # 保存値が選択肢に無ければ安全側へ
             st.radio(
                 "下記の条件で「ジャグラーシリーズ優秀台」を自動抽出（📝記入部分のみモード）",
                 options=_JUG_AUTO_OPTS,
                 key=_jg_key,
                 horizontal=True,
+                disabled=_jg_fixed,
                 on_change=_save_auto_inputs, args=(store,),
             )
         sonota_extra_title = st.session_state.get(f"sonota_extra_title_{store}", "")
@@ -12855,6 +12872,8 @@ def show_auto_page(with_slump: bool = False) -> None:
         jug_extra_auto = st.session_state.get(f"jug_extra_auto_{store}", "なし")
         if jug_extra_auto not in _JUG_AUTO_OPTS:
             jug_extra_auto = "なし"
+        if _jug_auto_fixed_on(store):
+            jug_extra_auto = _JUG_AUTO_FIXED_VAL
 
     # ── ③ 並び画像オプション（常に描画）──────────────────────────────
     narabi_ok     = False
@@ -19210,16 +19229,25 @@ def show_auto_article_page() -> None:
             ["なし", "+1,000枚以上", "+2,000枚以上", "+3,000枚以上"],
             default="なし", horizontal=True, skip_kojin=False)
         # ジャグラーシリーズ優秀台（📝記入部分のみモード）。通常ページと同じ考え方。
-        _art_choice(
-            "下記の条件で「ジャグラーシリーズ優秀台」を自動抽出（📝記入部分のみモード）",
-            f"art_jug_extra_auto_{store}", _JUG_AUTO_OPTS,
-            default="なし", horizontal=True, skip_kojin=False)
+        if _jug_auto_fixed_on(store):
+            # 固定値で表示（変更不可）。日付スコープの保存キーには書かない。
+            st.radio(
+                "下記の条件で「ジャグラーシリーズ優秀台」を自動抽出（📝記入部分のみモード）",
+                _JUG_AUTO_OPTS, index=_JUG_AUTO_OPTS.index(_JUG_AUTO_FIXED_VAL),
+                key=f"art_jug_extra_auto_fixed_{store}", horizontal=True, disabled=True)
+        else:
+            _art_choice(
+                "下記の条件で「ジャグラーシリーズ優秀台」を自動抽出（📝記入部分のみモード）",
+                f"art_jug_extra_auto_{store}", _JUG_AUTO_OPTS,
+                default="なし", horizontal=True, skip_kojin=False)
         art_sonota_extra_title = st.session_state.get(f"art_sonota_extra_title_{store}", "")
         art_sonota_extra_text  = st.session_state.get(f"art_sonota_extra_text_{store}", "")
         art_sonota_extra_auto  = st.session_state.get(f"art_sonota_extra_auto_{store}", "なし")
         art_jug_extra_auto     = st.session_state.get(f"art_jug_extra_auto_{store}", "なし")
         if art_jug_extra_auto not in _JUG_AUTO_OPTS:
             art_jug_extra_auto = "なし"
+        if _jug_auto_fixed_on(store):
+            art_jug_extra_auto = _JUG_AUTO_FIXED_VAL
 
     # ── ③ 並び画像オプション ─────────────────────────────────────────
     narabi_ok     = False

@@ -7329,19 +7329,64 @@ def _manual_sonota_auto_extract(df, diff, thr, exc_mac, exc_ban,
 # 「優秀台」は _kojin_yushu_filter()、枚数条件は _SONOTA_AUTO_THR を再利用する
 # （新しい優秀台判定・新しい閾値は作らない）。
 _JUG_AUTO_OPTS = ["なし", "優秀台", "+1,000枚以上", "+2,000枚以上"]
-# 「ジャグラーシリーズ優秀台」の自動抽出条件を常に +1,000枚以上 に固定するページ×店舗（2026-10-01）。
-# 保存値・セッション値に別の条件が残っていても固定値を優先し、ラジオも固定値で表示（変更不可）。
-_JUG_AUTO_FIXED_VAL = "+1,000枚以上"
-_JUG_AUTO_FIXED_PAGES: "frozenset[str]" = frozenset({"auto_slump2", "auto_article"})
-_JUG_AUTO_FIXED_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+# 「ジャグラーシリーズ優秀台」の自動抽出条件を、日付をまたいで記憶・復元するページ×店舗（2026-10-01）。
+# ラジオは変更可能。最後に選んだ条件を article_shared_inputs.json（店舗単位・Cloud↔GitHub 同期済みの
+# 既存ファイル）へページ別に保存し、日付変更・再取得・再読込・Cloud Reboot 後も復元する。
+# 記憶が無いときは、その日付の保存値（「なし」以外）→ 初期値「+1,000枚以上」の順で決める。
+_JUG_AUTO_MEM_DEFAULT = "+1,000枚以上"
+_JUG_AUTO_MEM_FIELDS: "dict[str, str]" = {          # page → article_shared_inputs.json のフィールド名
+    "auto_slump2": "jug_extra_auto_slump2",
+    "auto_article": "jug_extra_auto_article",
+}
+_JUG_AUTO_MEM_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 
 
-def _jug_auto_fixed_on(store: str) -> bool:
+def _jug_auto_mem_field(store: str) -> "str | None":
+    """記憶対象のページ×店舗なら保存フィールド名、対象外なら None。"""
     try:
-        return (store in _JUG_AUTO_FIXED_STORES
-                and st.session_state.get("page") in _JUG_AUTO_FIXED_PAGES)
+        if store not in _JUG_AUTO_MEM_STORES:
+            return None
+        return _JUG_AUTO_MEM_FIELDS.get(st.session_state.get("page"))
     except Exception:
-        return False
+        return None
+
+
+def _jug_auto_mem_resolve(store: str, field: str, date_val) -> str:
+    """表示する条件：記憶値 → その日付の保存値（「なし」以外）→ 初期値。"""
+    _m = (_load_art_shared_inputs().get(store) or {}).get(field)
+    if _m in _JUG_AUTO_OPTS:
+        return _m
+    if date_val in _JUG_AUTO_OPTS and date_val != "なし":
+        return date_val
+    return _JUG_AUTO_MEM_DEFAULT
+
+
+def _save_jug_auto_mem(store: str, field: str, widget_key: str, then=None, then_args=()) -> None:
+    """ラジオ変更時（on_change）：選んだ条件を店舗単位で記憶する。
+    他のフィールド（かぶぱ文章など）は消さずにマージ。値が変わらなければ書かない・pushしない。
+    Cloud は既存のかぶぱ文章と同じ SHA 確認付き push（競合時は保存せず最新を取り込む）。"""
+    _v = st.session_state.get(widget_key)
+    if _v in _JUG_AUTO_OPTS:
+        _data = _load_art_shared_inputs()
+        _cur = dict(_data.get(store) or {})
+        if _cur.get(field) != _v:
+            _cur[field] = _v
+            _data[store] = _cur
+            _js = json.dumps(_data, ensure_ascii=False, indent=2)
+            with open(os.path.join(BASE_DIR, _ART_SHARED_INPUTS_FN), "w", encoding="utf-8") as _f:
+                _f.write(_js)
+            if _IS_CLOUD:
+                _ok, _msg = _github_push_file(
+                    _js, _ART_SHARED_INPUTS_FN,
+                    base_sha=st.session_state.get(_gh_sha_key(_ART_SHARED_INPUTS_FN)))
+                _log = ("✅ ジャグラー抽出条件: " if _ok else "❌ ジャグラー抽出条件: ") + _msg
+                st.session_state["_github_sync_log"] = _log
+                try:
+                    st.toast(_log, icon="✅" if _ok else "❌")
+                except Exception:
+                    pass
+    if then is not None:
+        then(*then_args)
 
 
 def _manual_juggler_auto_extract(df, diff, mode: str, cfg: dict,
@@ -7863,7 +7908,7 @@ def _save_art_kabupa_top(store: str) -> None:
     if _cur == _art_kabupa_top_saved(store):
         return                                   # 変化なし→書かない・pushしない
     _data = _load_art_shared_inputs()
-    _data[store] = _cur
+    _data[store] = {**(_data.get(store) or {}), **_cur}   # 他フィールドは残す
     _js = json.dumps(_data, ensure_ascii=False, indent=2)
     with open(os.path.join(BASE_DIR, _ART_SHARED_INPUTS_FN), "w", encoding="utf-8") as _f:
         _f.write(_js)
@@ -12852,10 +12897,14 @@ def show_auto_page(with_slump: bool = False) -> None:
             )
             # ジャグラーシリーズ優秀台（📝記入部分のみモード）。
             # 「その他の優秀台」からジャグラーは常に除外され、こちらから生成する。
-            _jg_key = f"jug_extra_auto_{store}"
-            _jg_fixed = _jug_auto_fixed_on(store)
-            if _jg_fixed:
-                st.session_state[_jg_key] = _JUG_AUTO_FIXED_VAL   # 保存値より固定値を優先
+            # キーは保存キー（_auto_input_keys）と同じ名前空間にする
+            # （auto_slump2 は「新宿歌舞伎町(スランプ)」。他ページ・他店舗は store と同じ）。
+            _jg_key = f"jug_extra_auto_{_kojin_ns(store)}"
+            _jg_mem = _jug_auto_mem_field(store)
+            if _jg_mem:
+                # 記憶値（無ければ日付保存値→+1,000枚以上）を毎回表示値にする
+                st.session_state[_jg_key] = _jug_auto_mem_resolve(
+                    store, _jg_mem, st.session_state.get(_jg_key))
             elif st.session_state.get(_jg_key) not in _JUG_AUTO_OPTS:
                 st.session_state[_jg_key] = "なし"   # 保存値が選択肢に無ければ安全側へ
             st.radio(
@@ -12863,17 +12912,15 @@ def show_auto_page(with_slump: bool = False) -> None:
                 options=_JUG_AUTO_OPTS,
                 key=_jg_key,
                 horizontal=True,
-                disabled=_jg_fixed,
-                on_change=_save_auto_inputs, args=(store,),
+                on_change=(_save_jug_auto_mem if _jg_mem else _save_auto_inputs),
+                args=((store, _jg_mem, _jg_key, _save_auto_inputs, (store,)) if _jg_mem else (store,)),
             )
         sonota_extra_title = st.session_state.get(f"sonota_extra_title_{store}", "")
         sonota_extra_text  = st.session_state.get(f"sonota_extra_text_{store}", "")
         sonota_extra_auto = st.session_state.get(f"sonota_extra_auto_{store}", "なし")
-        jug_extra_auto = st.session_state.get(f"jug_extra_auto_{store}", "なし")
+        jug_extra_auto = st.session_state.get(f"jug_extra_auto_{_kojin_ns(store)}", "なし")
         if jug_extra_auto not in _JUG_AUTO_OPTS:
             jug_extra_auto = "なし"
-        if _jug_auto_fixed_on(store):
-            jug_extra_auto = _JUG_AUTO_FIXED_VAL
 
     # ── ③ 並び画像オプション（常に描画）──────────────────────────────
     narabi_ok     = False
@@ -19229,12 +19276,18 @@ def show_auto_article_page() -> None:
             ["なし", "+1,000枚以上", "+2,000枚以上", "+3,000枚以上"],
             default="なし", horizontal=True, skip_kojin=False)
         # ジャグラーシリーズ優秀台（📝記入部分のみモード）。通常ページと同じ考え方。
-        if _jug_auto_fixed_on(store):
-            # 固定値で表示（変更不可）。日付スコープの保存キーには書かない。
+        _ajg_mem = _jug_auto_mem_field(store)
+        if _ajg_mem:
+            # 日付スコープではない店舗単位のキーで描き、記憶値を毎回表示値にする。
+            # 抽出側が読む logical key（art_jug_extra_auto_{store}）へも同じ値を入れる。
+            _ajg_key = f"art_jug_extra_auto_mem_{store}"
+            st.session_state[_ajg_key] = _jug_auto_mem_resolve(
+                store, _ajg_mem, st.session_state.get(f"art_jug_extra_auto_{store}"))
             st.radio(
                 "下記の条件で「ジャグラーシリーズ優秀台」を自動抽出（📝記入部分のみモード）",
-                _JUG_AUTO_OPTS, index=_JUG_AUTO_OPTS.index(_JUG_AUTO_FIXED_VAL),
-                key=f"art_jug_extra_auto_fixed_{store}", horizontal=True, disabled=True)
+                _JUG_AUTO_OPTS, key=_ajg_key, horizontal=True,
+                on_change=_save_jug_auto_mem, args=(store, _ajg_mem, _ajg_key))
+            st.session_state[f"art_jug_extra_auto_{store}"] = st.session_state[_ajg_key]
         else:
             _art_choice(
                 "下記の条件で「ジャグラーシリーズ優秀台」を自動抽出（📝記入部分のみモード）",
@@ -19246,8 +19299,6 @@ def show_auto_article_page() -> None:
         art_jug_extra_auto     = st.session_state.get(f"art_jug_extra_auto_{store}", "なし")
         if art_jug_extra_auto not in _JUG_AUTO_OPTS:
             art_jug_extra_auto = "なし"
-        if _jug_auto_fixed_on(store):
-            art_jug_extra_auto = _JUG_AUTO_FIXED_VAL
 
     # ── ③ 並び画像オプション ─────────────────────────────────────────
     narabi_ok     = False

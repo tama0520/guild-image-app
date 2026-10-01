@@ -4605,6 +4605,10 @@ _ART_SUE_PINK_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 # 記事用📝記入部分のみで、④末尾画像へ実際に掲載された台番を「その他の優秀台」から
 # 除外する店舗（⑦プレビュー・⑧本番で同じ集合を使う）。
 _ART_MANUAL_SUE_EXC_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+# 記事用📝の「ジャグラーシリーズ優秀台」（自動抽出）を正規化する店舗。
+#   ・②個別「全台」画像へ**実際に掲載した台番**をジャグラー自動抽出から除外する
+#   ・⑦📝でも⑧と同じく掲載台番を ban_map へ登録し、パネル＋表＋スランプにする
+_ART_MANUAL_JUG_FIX_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 
 
 def _art_kojin_zen_img(store: str, grp, title: str, stat: dict, hq_scale: float):
@@ -19397,6 +19401,8 @@ def show_auto_article_page() -> None:
                         _art_sue_stat: dict[str, list[int]] = {}
                         # ②個別・優秀台のファイル名 → 掲載台番（🎯除外後）。ban_map用
                         _art_ky_bans: dict[str, list[int]] = {}
+                        # ②個別・全台のファイル名 → 実掲載台番（📝ジャグラー自動抽出の除外用）
+                        _art_kz_bans: dict[str, list[int]] = {}
                         # ②個別機種の優秀台ピックアップのファイル名 → 掲載台番（_ART_PICK_FULL_STORES のみ）
                         _art_pick_bans: dict[str, list[int]] = {}
                         # 📝記入部分のみモードの記事コメント用。**実際にプレビューへ
@@ -19442,6 +19448,9 @@ def show_auto_article_page() -> None:
                                     _art_pil.append((f"{_km}.jpg", _art_kojin_zen_img(
                                         store, _kg, _km, _stat_from_diff(_kd),
                                         _art_zh_hq(store))))
+                                    _art_kz_bans[f"{_km}.jpg"] = [
+                                        int(b) for b in _kg["台番"].dropna()
+                                        if str(b).split(".")[0].lstrip("-").isdigit()]
                             # ② 高配分（avg_diff 降順・个別優秀台を含む）
                             def _ahrk(x):
                                 return x["all_avg_diff"] if "all_avg_diff" in x else (int(round(sum(x["diffs"])/len(x["diffs"]))) if x.get("diffs") else 0)
@@ -19618,6 +19627,10 @@ def show_auto_article_page() -> None:
                                     _art_jg_exc |= {int(b) for b in _cl_ja}
                                 for _bl_ja in _art_ky_bans.values():
                                     _art_jg_exc |= {int(b) for b in (_bl_ja or [])}
+                                # ②個別「全台」画像へ実際に掲載した台番も重複させない（⑧と同じ集合）
+                                if store in _ART_MANUAL_JUG_FIX_STORES:
+                                    for _bl_kza in _art_kz_bans.values():
+                                        _art_jg_exc |= {int(b) for b in (_bl_kza or [])}
                                 _art_jg_df = _manual_juggler_auto_extract(
                                     _apdf, _apdi, art_jug_extra_auto, _art_jg_cfg, _art_jg_exc)
                                 if _art_jg_df is not None and not _art_jg_df.empty:
@@ -19820,6 +19833,11 @@ def show_auto_article_page() -> None:
                                 int(str(b).split(".")[0]) for b in _jpool_pv["台番"].dropna()
                                 if str(b).split(".")[0].lstrip("-").isdigit()
                             ]
+                        # 📝のジャグラー自動抽出画像（pipeline版の jug_pool は無い）:
+                        # 表へ載せた台番を⑧（_man_jug_bans_e）と同じく登録する。
+                        # （_art_jg_bans は📝のときだけ非空。表と同じ台番で上書きする）
+                        if _art_jg_bans and store in _ART_MANUAL_JUG_FIX_STORES:
+                            _pv_bm_sl["ジャグラーシリーズ優秀台.jpg"] = list(_art_jg_bans)
                         if _art_son_added:
                             # 台番テキスト貼付/自動抽出でその他を上書きした場合はそのファイル名・台番を使う
                             if _art_son_bans:
@@ -20820,6 +20838,8 @@ def show_auto_article_page() -> None:
             # ── 個別画像生成 ─────────────────────────────────────────
             # ②個別機種の優秀台ピックアップのファイル名 → 掲載台番（_ART_PICK_FULL_STORES のみ）
             _art_pick_bans_e: dict[str, list[int]] = {}
+            # ②個別・全台のファイル名 → 実掲載台番（📝ジャグラー自動抽出の除外用・⑦と同じ）
+            _art_kz_bans_e: dict[str, list[int]] = {}
             if kojin_enabled and result["ok"]:
                 df_k   = result.get("df")
                 diff_k = result.get("diff_raw")
@@ -20845,6 +20865,9 @@ def show_auto_article_page() -> None:
                         _save_jpeg(_kimg, _kout,
                                    **({"target_kb": _ART_HQ_TARGET_KB} if _kzh > 1.0 else {}))
                         result["files"].append(_kout)
+                        _art_kz_bans_e[f"{_make_safe_fn(_km)}.jpg"] = [
+                            int(b) for b in _kgrp["台番"].dropna()
+                            if str(b).split(".")[0].lstrip("-").isdigit()]
                         result["zen_dai_list"].append({
                             "name":         _km,
                             "count":        int((_kdr > 0).sum()),
@@ -21156,6 +21179,10 @@ def show_auto_article_page() -> None:
                             _jg_exc_m |= {int(b) for b in _cl_m}
                         for _bl_km in _art_ky_bans_e.values():
                             _jg_exc_m |= {int(b) for b in (_bl_km or [])}
+                        # ②個別「全台」画像へ実際に掲載した台番も重複させない（⑦と同じ集合）
+                        if store in _ART_MANUAL_JUG_FIX_STORES:
+                            for _bl_kzm in _art_kz_bans_e.values():
+                                _jg_exc_m |= {int(b) for b in (_bl_kzm or [])}
                         _jg_df_m = _manual_juggler_auto_extract(
                             _mdf_e, _mdi_e, art_jug_extra_auto, get_store_config(store), _jg_exc_m)
                         if _jg_df_m is not None and not _jg_df_m.empty:

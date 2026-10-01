@@ -175,6 +175,7 @@ H2_ZENDAI_ALT  = "全台？"
 H2_NARABI_ALT  = "並びも複数！"
 H2_OSUSUME_ALT = "オススメポスター機種の優秀台"
 H2_SONOTA_ALT  = "その他の単品優秀台"
+H2_JUG_TAIL    = "その他のジャグラーの優秀台"   # payload["jug_tail"] の店舗だけ
 # 差枚数ランキングと島図は **1つのH2へ統合**する（2026-09-04）。
 # `&` は raw のままだと Gutenberg のブロック検証で不一致になるため実体参照で持つ
 # （表示は「差枚数ランキング&島図」）。
@@ -1391,6 +1392,16 @@ def plan_blocks(payload: dict) -> list[dict]:
     #   **「その他単品優秀台」H2の直前**に出す。H2より下へ移動しない。
     #   文言はアプリ側（ローテ結果テキストと同じ正式表現）が決める。
     #   キーを渡さない店舗は1ブロックも増えない。
+    # ★その他のジャグラーの優秀台（payload["jug_tail"] を渡した店舗＝新宿歌舞伎町の記事用だけ）。
+    #   **「その他の単品優秀台」H2より前**に H2 → ジャグラーシリーズ優秀台.jpg → 全体結果の1文。
+    #   画像が実在しない日は H2・画像・文章をまとめて出さない。キーが無い店舗は1ブロックも増えない。
+    _jt = payload.get("jug_tail")
+    if _jt and out_dir and os.path.isfile(os.path.join(out_dir, FN_JUGGLER)):
+        plan.append({"type": "h2", "text": H2_JUG_TAIL})
+        plan.append({"type": "image", "file": FN_JUGGLER, "label": "ジャグラーシリーズ優秀台"})
+        _jt_text = str((_jt or {}).get("text") or "").strip()
+        if _jt_text:
+            plan.append({"type": "para", "text": esc(_jt_text)})
     for _td_line in (payload.get("tenday") or []):
         _td_t = str(_td_line or "").strip()
         if _td_t:

@@ -4183,6 +4183,10 @@ _ART_WP_JUG_H3_STORES = frozenset({"渋谷新館", "新宿歌舞伎町"})
 # ★高田馬場・秋葉原など他店舗の既存ジャグラーセクションへは影響させない。
 # ★生成側（run_step2_juggler / osusume_bans / _jug_pool_osu）は変更しない。
 _ART_WP_NO_JUG_SECTION_STORES = frozenset({"渋谷新館", "新宿歌舞伎町"})
+# 記事用WordPress本文で「その他の単品優秀台」H2の直前へ
+# H2「その他のジャグラーの優秀台」→ ジャグラーシリーズ優秀台.jpg → ジャグラー全体の総差枚・平均差枚
+# を入れる店舗（payload["jug_tail"]）。⑧で実際に保存した画像があるときだけ。
+_ART_WP_JUG_TAIL_STORES = frozenset({"新宿歌舞伎町"})
 
 # WordPress冒頭へ「ななこポスト」セクションを入れる店舗。
 # **高田馬場は対象外**（既存のWordPress本文をバイト単位で維持するため）。
@@ -5931,6 +5935,36 @@ def _build_kabupa_result_text(date, machine_names: list[str], df, diff_raw,
     return "\n".join(lines)
 
 
+def _juggler_total_stat(df, jug_series) -> "tuple[int, int, int] | None":
+    """その日のジャグラー全体（juggler_series の全台）の (総差枚, 平均差枚, +1,000枚以上台数)。
+    結果テキスト「🤡本日のジャグラー全体の結果は」と記事用WordPress本文で共用する。"""
+    if df is None:
+        return None
+    jug = df[df["機種名"].isin(set(jug_series))]
+    if jug.empty:
+        return None
+    return (int(jug["差枚"].sum()), int(round(jug["差枚"].mean())),
+            int((jug["差枚"] >= 1000).sum()))
+
+
+def _jug_signed(n: int) -> str:
+    """ジャグラー全体結果の差枚書式（+12,345枚 / -1,234枚）。結果テキストと同一。"""
+    sign = "+" if n >= 0 else "-"
+    return f"{sign}{abs(n):,}枚"
+
+
+def _jug_total_wp_text(df, store: str) -> str:
+    """記事用WordPress本文用：ジャグラー全体の総差枚・平均差枚だけの1文（台数は出さない）。"""
+    try:
+        _jst = _juggler_total_stat(df, get_store_config(store)["juggler_series"])
+    except Exception:
+        return ""
+    if _jst is None:
+        return ""
+    return (f"本日のジャグラー全体の結果は総差枚{_jug_signed(_jst[0])}、"
+            f"平均差枚{_jug_signed(_jst[1])}！")
+
+
 def generate_report_text(
     store_name: str,
     date,
@@ -6383,15 +6417,11 @@ def generate_report_text(
             jug_series = set(get_store_config(store_name)["juggler_series"])
         except Exception:
             return ""
-        jug = df[df["機種名"].isin(jug_series)]
-        if jug.empty:
+        _jst = _juggler_total_stat(df, jug_series)
+        if _jst is None:
             return ""
-        total_diff = int(jug["差枚"].sum())
-        avg_diff   = int(round(jug["差枚"].mean()))
-        over_1k    = int((jug["差枚"] >= 1000).sum())
-        def _s2(n: int) -> str:
-            sign = "+" if n >= 0 else "-"
-            return f"{sign}{abs(n):,}枚"
+        total_diff, avg_diff, over_1k = _jst
+        _s2 = _jug_signed
         return "\n".join([
             "🤡本日のジャグラー全体の結果は",
             f"総差枚{_s2(total_diff)}、平均差枚{_s2(avg_diff)}！",
@@ -21895,6 +21925,17 @@ def show_auto_article_page() -> None:
                     # ので、古い ジャグラーシリーズ優秀台.jpg が出力フォルダに残っていても
                     # plan / upload / 本文のどこにも入らない。
                     _art_wp_pl["juggler_section"] = store not in _ART_WP_NO_JUG_SECTION_STORES
+                    # その他のジャグラーの優秀台（_ART_WP_JUG_TAIL_STORES のみ）:
+                    # ⑧がこの実行で保存した ジャグラーシリーズ優秀台.jpg があるときだけ渡す。
+                    # 文章は結果テキストと同じ集計（_juggler_total_stat・result["df"]）。
+                    if store in _ART_WP_JUG_TAIL_STORES:
+                        _jt_path = os.path.join(output_dir, "ジャグラーシリーズ優秀台.jpg")
+                        _jt_txt = _jug_total_wp_text(result.get("df"), store)
+                        if (_jt_txt and os.path.isfile(_jt_path)
+                                and any(os.path.normcase(os.path.abspath(_f))
+                                        == os.path.normcase(os.path.abspath(_jt_path))
+                                        for _f in result.get("files", []))):
+                            _art_wp_pl["jug_tail"] = {"text": _jt_txt}
                     # WordPress表記の新仕様（対象店舗だけキーを渡す＝他店舗は不変）
                     if store in _ART_WP_TITLE2_STORES:
                         _art_wp_pl["title_simple"]   = True

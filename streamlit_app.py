@@ -22702,6 +22702,8 @@ _SHIBUYA_ROTE_TBL_ROLE: "dict[int, str]" = {2: "t2_tbl", 3: "t3_tbl", 4: "t4_tbl
 # ローテ用「実行」で表画像（{機種名}表.png）を作らない月間表（店舗 → table_num）。
 # 渋谷新館の月間①(t2)・月間②(t4)は表画像を使わない。入力UI・保存値は残す（復活は集合の編集のみ）。
 _ROTE_TBL_IMG_OFF: "dict[str, frozenset[int]]" = {"渋谷新館": frozenset({2, 4})}
+# ローテ用の「機種別データ」へ、月間オススメ表の①機種名も表示する店舗 → table_num（表示順）。
+_ROTE_VIEW_MONTHLY_TABLES: "dict[str, tuple[int, ...]]" = {"渋谷新館": (2, 4)}
 
 
 def _shibuya_rote_fn(fname: str, no: "int | None") -> str:
@@ -24467,6 +24469,15 @@ def show_rote_page() -> None:
                                 ).strip()
                                 if _rv_m:
                                     _rv_filter.add(_rv_m)
+                        # 月間オススメ表の①機種名も機種別データへ加える店舗（渋谷新館の月間①②）。
+                        # 照合は週間側と同じ完全一致（set なので同名は1回だけ）。空欄は加えない。
+                        for _rv_tn in _ROTE_VIEW_MONTHLY_TABLES.get(store, ()):
+                            _rv_mm = (
+                                st.session_state.get(f"weekly_machine_{store}_t{_rv_tn}", "")
+                                or st.session_state.get(f"_weekly_init_machine_{store}_t{_rv_tn}", "")
+                            ).strip()
+                            if _rv_mm:
+                                _rv_filter.add(_rv_mm)
                         if _rv_filter and "機種名" in _rv_df.columns:
                             _rv_df = _rv_df[_rv_df["機種名"].isin(_rv_filter)]
                         _rv_title = (f"{_rote_date.year}/{_rote_date.month}/{_rote_date.day}"

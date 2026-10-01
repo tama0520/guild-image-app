@@ -22801,7 +22801,8 @@ def _generate_shibuyashinkan_result_texts(
             _wk_blocks.append([f"【{_wm}】"] + _wtb)
     lines1 = [header, ""]
     if _wk_blocks:
-        lines1 += [f"🏆{_SHIBUYA_WEEKLY_SERIES}🏆", "🏆週間オススメポスター🏆", ""]
+        # 2026-10-01: 🏆北斗シリーズ🏆 の行は出さない（見出しは週間オススメポスターのみ）
+        lines1.append("🏆週間オススメポスター🏆")
         for _bi, _blk in enumerate(_wk_blocks):
             if _bi:
                 lines1.append("")

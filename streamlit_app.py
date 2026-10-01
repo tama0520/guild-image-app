@@ -22800,19 +22800,29 @@ def _generate_shibuyashinkan_result_texts(
     text1   = "\n".join(lines1).rstrip()
     text2   = ""   # 旧テキスト②（週間オススメ表①の単独ファイル）は廃止
 
-    # ── テキスト③ （月間オススメ） ────────────────────────────────────
+    # ── テキスト③ （月間オススメ表①＋②を1つに統合・2026-10-01）─────────────
+    # 見出し 🏆月間オススメポスター🏆 の下へ ①の機種 → ②の機種 の順で
+    # 【機種名】＋既存 _tier_block()（差枚帯・並び順は従来どおり）を並べる。
+    # 該当台0件の機種は出さず、両方0件なら統合見出しも出さない。
+    # ✅/📍の説明文・機種別の🏆見出しは出さない。テキスト⑤は統合したので空。
     _inputs3 = machine_inputs3 or []
     name3    = next((n.strip() for n in _inputs3 if (n or "").strip()), "")
-    lines3   = [header, ""]
-    if name3:
-        lines3.append(f"🏆{name3}🏆")
-    lines3 += ["🏆月間オススメポスター🏆", ""]
-    lines3.append("✅毎日何かしらの仕掛けアリ!?")
-    for item in (monthly_items or []):
-        if (item or "").strip():
-            lines3.append(f"📍{item.strip()}")
-    lines3.append("")
-    lines3 += _tier_block(_inputs3)
+    _inputs5 = machine_inputs4 or []
+    name5    = next((n.strip() for n in _inputs5 if (n or "").strip()), "")
+    _mon_blocks: list[list[str]] = []
+    for _mn, _minp in ((name3, _inputs3), (name5, _inputs5)):
+        if not _mn:
+            continue
+        _tb = _tier_block(_minp)
+        if _tb:
+            _mon_blocks.append([f"【{_mn}】"] + _tb)
+    lines3 = [header, ""]
+    if _mon_blocks:
+        lines3.append("🏆月間オススメポスター🏆")
+        for _bi, _blk in enumerate(_mon_blocks):
+            if _bi:
+                lines3.append("")
+            lines3 += _blk
     text3   = "\n".join(lines3).rstrip()
 
     # ── テキスト④ （週間オススメ表②） ───────────────────────────────────
@@ -22825,21 +22835,8 @@ def _generate_shibuyashinkan_result_texts(
             lines4.append(f"📍{_it}")
     text4 = "\n".join(lines4).rstrip()
 
-    # ── テキスト⑤ （月間オススメ表②） ───────────────────────────────────
-    _inputs5 = machine_inputs4 or []
-    name5    = next((n.strip() for n in _inputs5 if (n or "").strip()), "")
-    lines5   = [header, ""]
-    if name5:
-        lines5.append(f"🏆{name5}🏆")
-    lines5 += ["🏆月間オススメポスター🏆", ""]
-    lines5.append("✅毎日何かしらの仕掛けアリ!?")
-    for item in (monthly_items2 or []):
-        _it5 = (item or "").split("\n")[0].strip()
-        if _it5:
-            lines5.append(f"📍{_it5}")
-    lines5.append("")
-    lines5 += _tier_block(_inputs5)
-    text5    = "\n".join(lines5).rstrip()
+    # ── テキスト⑤ （月間オススメ表②）── テキスト③へ統合したため出力しない
+    text5    = ""
 
     return text1, text2, text3, text4, text5
 
@@ -25104,15 +25101,20 @@ def show_rote_page() -> None:
                         _f.write(_rote_result4)
                     _sh_r5_mac = machine_inputs4[0].strip() if machine_inputs4 else ""
                     _sh_r5_base = f"{_sh_r5_mac}結果.txt" if _sh_r5_mac else ""
+                    # 月間②の結果は月間①のテキスト（_rote_result3）へ統合した（2026-10-01）。
+                    # 単独ファイル（06_{月間②機種}結果.txt）は書き出さず、前回分は下の
+                    # stale 削除（完全一致）で取り除く。
+                    _sh_r5_out = bool(_sh_r5_mac and _rote_result5)
                     if _sh_r5_mac:
                         _sh_r5_fn = _shibuya_rote_fn(_sh_r5_base, _SHIBUYA_ROTE_ORDER["m4_txt"])
+                    if _sh_r5_out:
                         with open(os.path.join(_rote_out_dir, _sh_r5_fn), "w", encoding="utf-8") as _f:
                             _f.write(_rote_result5)
                     # UI廃止・統合・番号プレフィックス化により今後生成しないファイルが
                     # 前回実行分として残っている場合だけ削除する
                     # （完全一致のみ・他ファイルには触らない）
                     _kept_fns = {_sh_r1_fn, _sh_r3_fn, _sh_r4_fn}
-                    if _sh_r5_mac:
+                    if _sh_r5_out:
                         _kept_fns.add(_sh_r5_fn)
                     _t1_mac_st = st.session_state.get(f"weekly_machine_{store}_t1", "").strip()
                     _stale_fns = [f"{_t1_mac_st}表.png" if _t1_mac_st else "週間オススメ表①.png"]
@@ -25123,6 +25125,8 @@ def show_rote_page() -> None:
                     _stale_fns.extend([_sh_r1_base, _sh_r3_base, _sh_r4_base])
                     if _sh_r5_base:
                         _stale_fns.append(_sh_r5_base)
+                    if _sh_r5_mac and not _sh_r5_out:
+                        _stale_fns.append(_sh_r5_fn)
                     if _r1_mac:
                         _stale_fns.append(f"{_r1_mac}結果.txt")
                     for _sfn in _stale_fns:

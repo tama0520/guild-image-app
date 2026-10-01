@@ -575,6 +575,23 @@ _OTHER_NO_PANEL_PAGES: "frozenset[str]" = frozenset({"other_slump"})
 _OTHER_NO_PANEL_STORES: "frozenset[str]" = frozenset({"プレサス飯田橋"})
 
 
+# スランプ付き結果ポストで機種パネルを付けてよい「ページ × 店舗」（2026-10-01）。
+# 正式には「その他」→ BEAM新井薬師 / ラ・カータ鶴ヶ島 の other_slump だけ。
+# 設定ファイル（@st.cache_data）に依存せずコードで明示し、Reboot 後も同じ判定にする。
+# ★かぶぱポストの結果（新宿歌舞伎町×auto_slump）は別仕様（_kabupa_panel_on）で従来どおり。
+_SLUMP_PANEL_PAGES: "frozenset[str]" = frozenset({"other_slump"})
+_SLUMP_PANEL_STORES: "frozenset[str]" = frozenset({"BEAM新井薬師", "ラ・カータ鶴ヶ島"})
+
+
+def _slump_panel_on(store: str) -> bool:
+    """スランプ付き結果ポストの画像へ機種パネルを付けるか（page × store の AND）。"""
+    try:
+        return (store in _SLUMP_PANEL_STORES
+                and st.session_state.get("page") in _SLUMP_PANEL_PAGES)
+    except Exception:
+        return False
+
+
 def _other_no_panel(store: str) -> bool:
     """このページ×店舗ではスランプ付き画像へパネルを付けないか（page × store の AND）。"""
     try:
@@ -26810,6 +26827,15 @@ def _build_panel_row(machine_names: list[str], width: int) -> "Image.Image | Non
 #   _PANEL_STORES         … 通常経路（📝記入部分のみ＝かぶぱポストの結果）でパネルを合成する店舗
 #   _ARTICLE_PANEL_STORES … 記事用ページ経路だけでパネルを合成する店舗（通常ページには適用しない）
 _PANEL_STORES = {"新宿歌舞伎町"}
+
+
+def _kabupa_panel_on(store: str) -> bool:
+    """📝記入部分のみの合成（_composite_slump_onto_images）でかぶぱ用パネルを付けるか。
+    新宿歌舞伎町の「かぶぱポストの結果」(auto_slump) だけ。②スランプ付き結果
+    (auto_slump2) ではパネルを付けず、青タイトルバーも除去しない（2026-10-01）。"""
+    return store in _PANEL_STORES and _is_kabupa_page()
+
+
 _ARTICLE_PANEL_STORES = {"高田馬場", "渋谷新館", "新宿歌舞伎町"}
 
 
@@ -26993,7 +27019,9 @@ def _other_apply_panel(store: str, img: "Image.Image", bare_fn: str, bans: list,
 
     ⑦プレビュー・🔄その他を更新・⑧本番の3経路すべてから同じ関数を呼ぶ
     （経路ごとに構成がズレないようにするため）。対象外店舗は素通し。"""
-    if not _other_panel_on(store) or _other_no_panel(store):
+    # パネル可否は _slump_panel_on() の1か所で判定する（other_slump × BEAM新井薬師／
+    # ラ・カータ鶴ヶ島だけ）。それ以外はパネル追加前の画像をそのまま返す。
+    if not _slump_panel_on(store):
         return img
     try:
         _narabi = _art_is_narabi_fn(bare_fn) or ("台並び" in bare_fn)
@@ -27085,7 +27113,7 @@ def _composite_slump_onto_images(
         _bare = re.sub(r"^\d{2}_", "", _fn)
         _bans = ban_map.get(_bare, [])
         if not _bans:
-            if store in _PANEL_STORES and "台並び" not in _bare:
+            if _kabupa_panel_on(store) and "台並び" not in _bare:
                 # スランプ無しでも青タイトルバーは除去（表のみ）
                 _bar_h0 = _bar_crop_h(_img.width)
                 _img = _img.crop((0, _bar_h0, _img.width, _img.height))
@@ -27097,7 +27125,7 @@ def _composite_slump_onto_images(
         _is_zentai = (not _bare.endswith("_高配分.jpg") and _bare not in _sonota_names)
         # 新宿歌舞伎町（かぶぱポストの結果）: 青タイトルバーを除去し、パネル＋表＋スランプにする
         # ※単一機種はパネル差し替え、パネル無し・並び・バラエティ等は青バーのみ除去（表＋スランプ）
-        if store in _PANEL_STORES:
+        if _kabupa_panel_on(store):
             _img, _mn_p, _panel_ok = _apply_panel_to_table_img(
                 _img, _bare, _bans, ban2mac, ban2diff, _show_mn, _is_sue)
             if _mn_p is not None:
@@ -27166,7 +27194,7 @@ def _composite_slump_onto_images(
                                 _attach_slump_to_table_side(_img, _g_imgs, _bbb, _gap_img_side)))
             except Exception:
                 pass
-    if store in _PANEL_STORES:
+    if _kabupa_panel_on(store):
         # rerun で消えないよう session_state に保存し、⑦プレビュー側で表示する（かぶぱ専用）
         st.session_state[f"_panel_report_{store}"] = {
             "matched": sorted(_matched_panels),

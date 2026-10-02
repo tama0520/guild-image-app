@@ -4614,6 +4614,26 @@ def _high_unit_add_on() -> bool:
         return False
 
 
+# ■ 📝記入部分のみプレビューの画像に「🎯 掲載台を選ぶ」を出すページ
+# 対象画像は⑦🔍と同じ種類（②個別優秀台／その他の優秀台／ジャグラー統合／④末尾／⑤バラエティ）。
+# ★店舗名は列挙しない（page で判定）。かぶぱ（新宿歌舞伎町 auto_slump）は既存の📝🎯仕様のまま、
+#   秋葉原スランプ付きは 9faaee3 の正式仕様（②個別優秀台だけ）を維持するため除く。
+_MANUAL_UNIT_PAGES: "frozenset[str]" = frozenset({
+    "auto", "auto_slump", "auto_slump2", "other_slump",
+})
+_MANUAL_UNIT_OFF_STORES: "frozenset[str]" = frozenset({"秋葉原"})
+
+
+def _manual_unit_on(store: str) -> bool:
+    """📝の全種類の画像へ🎯を出すか（page × かぶぱ除外 × 秋葉原除外）。"""
+    try:
+        return (st.session_state.get("page") in _MANUAL_UNIT_PAGES
+                and not _is_kabupa_page()
+                and store not in _MANUAL_UNIT_OFF_STORES)
+    except Exception:
+        return False
+
+
 # 記事用で高配分画像・②個別「優秀台」の🎯に**未掲載台の追加**を許可する店舗。
 # 結果ポスト用の _high_unit_add_on() と同じ追加方式（追加集合 art_high_add / art_kojin_add）。
 _ART_HIGH_ADD_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
@@ -11333,6 +11353,26 @@ def _unit_ex_pick_add(state: dict, kind: str, name: str, cand_df, base_df):
     return _c[_keep.values].copy().reset_index(drop=True), _ikey, _bans_all, _base
 
 
+def _unit_ex_kind_pick(state: dict, kind: str, df_img):
+    """その他の優秀台（sonota）／ジャグラー統合（juggler）用の _unit_ex_pick()。
+    sonota は台番だけ、juggler は行ごとの機種名で除外集合を引く
+    （🎯パネルの _unit_ex_row_machine() と同じキー）。抽出条件はここでは一切扱わない。
+    戻り値: (除外後DataFrame, 除外前の候補台番リスト)。元DataFrameは破壊しない。"""
+    if df_img is None or getattr(df_img, "empty", True) or "台番" not in df_img.columns:
+        return df_img, []
+    def _ban(b):
+        _s = str(b).split(".")[0]
+        return int(_s) if _s.lstrip("-").isdigit() else None
+    _bans_all = [_b for _b in (_ban(b) for b in df_img["台番"]) if _b is not None]
+    _drop = df_img.apply(
+        lambda r: (_ban(r["台番"]) is not None and _ban(r["台番"]) in _unit_ex_bans(
+            state, kind, _unit_ex_row_machine(kind, None, str(r.get("機種名", ""))))),
+        axis=1)
+    if bool(_drop.any()):
+        df_img = df_img[~_drop.values].copy().reset_index(drop=True)
+    return df_img, _bans_all
+
+
 def _unit_ex_wkey(sig: str, ban: int) -> str:
     return f"unit_ex_{sig}_{int(ban)}"
 
@@ -13683,7 +13723,7 @@ def show_auto_page(with_slump: bool = False) -> None:
         # 立っていないので成立せず、従来どおりフル再構築へ入る。
         _manual_regen = (
             _unit_regen
-            and (_is_kabupa_pg or (with_slump and store == "秋葉原"))
+            and (_is_kabupa_pg or (with_slump and store == "秋葉原") or _manual_unit_on(store))
             and bool(st.session_state.get(f"_manual_preview_mode_{store}", False))
         )
         if _manual_regen:
@@ -14529,8 +14569,15 @@ def show_auto_page(with_slump: bool = False) -> None:
                         # 📝経路で②個別「優秀台」の🎯を有効にする判定。
                         # _kabupa_unit 自体は広げない（④末尾・⑤バラエティのパネルまで
                         # 秋葉原に付いてしまうため）。秋葉原は②個別優秀台だけを対象にする。
-                        _manual_unit_ky = _kabupa_unit or (with_slump and store == "秋葉原")
+                        # 結果ページ全般（_manual_unit_on）: ②個別優秀台・その他・ジャグラー統合・
+                        # ④末尾・⑤バラエティの全種類に🎯を出す（かぶぱ・秋葉原は上の既存仕様のまま）
+                        _manual_all_ky = _manual_unit_on(store)
+                        _manual_unit_ky = (_kabupa_unit or (with_slump and store == "秋葉原")
+                                           or _manual_all_ky)
                         _manual_unit_src: dict[str, dict] = {}
+                        # 🎯で除外した台を別カテゴリ（ジャグラー自動抽出）へ流さないための
+                        # 除外前の候補台番（チェックONの画像のみ・_manual_all_ky のときだけ使う）
+                        _manual_unit_hold: set[int] = set()
 
                         # ② 個別画像 - 全台
                         if kojin_enabled:
@@ -14575,6 +14622,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _unit_ex_state(store, _excel_stem), "kojin_yushu", _km, _mgp)
                                     _manual_unit_src[_mfn_ky] = {"kind": "kojin_yushu",
                                                                  "machine": _mik_ky, "bans": _mball_ky}
+                                    if _manual_all_ky and _pv_is_on(store, uploaded.name, _mfn_ky):
+                                        _manual_unit_hold |= set(_mball_ky)
                                     if _mgp.empty:
                                         continue   # 全台除外 → 画像を作らない
                                 _manual_imgs.append((_mfn_ky, _build_machine_img(_mgp, _mtit, None)))
@@ -14585,8 +14634,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _se_bans_m = set(expand_machine_numbers(sonota_extra_text))
                                 if _se_bans_m:
                                     _se_df_m = _df_m[_df_m["台番"].apply(lambda b: int(b) in _se_bans_m)].copy().reset_index(drop=True)
+                                    _se_tit_m = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
+                                    if _manual_all_ky and not _se_df_m.empty:
+                                        # 🎯掲載台を選ぶ（その他の優秀台）: 抽出後・画像生成前に間引く
+                                        _se_df_m, _se_ball_m = _unit_ex_kind_pick(
+                                            _unit_ex_state(store, _excel_stem), "sonota", _se_df_m)
+                                        _se_fn_ux = f"{_make_safe_fn(_se_tit_m)}.jpg"
+                                        _manual_unit_src[_se_fn_ux] = {"kind": "sonota", "machine": None,
+                                                                       "bans": _se_ball_m}
+                                        if _pv_is_on(store, uploaded.name, _se_fn_ux):
+                                            _manual_unit_hold |= set(_se_ball_m)
                                     if not _se_df_m.empty:
-                                        _se_tit_m = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
                                         _manual_imgs.append((f"{_make_safe_fn(_se_tit_m)}.jpg", _build_machine_img(_se_df_m, _se_tit_m, None)))
                                         _manual_ban_map[f"{_make_safe_fn(_se_tit_m)}.jpg"] = [int(b) for b in _se_df_m["台番"].tolist()]
                             elif sonota_extra_auto in _SONOTA_AUTO_THR:
@@ -14606,8 +14664,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _se_auto_m = _manual_sonota_auto_extract(
                                     _df_m, _diff_m, _SONOTA_AUTO_THR[sonota_extra_auto], _exc_mac_m, _exc_ban_m,
                                     exc_series=_jug_sonota_exc_series(store, with_slump))
+                                _se_tit_m = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
+                                if _manual_all_ky and not _se_auto_m.empty:
+                                    # 🎯掲載台を選ぶ（その他の優秀台）: 抽出後・画像生成前に間引く
+                                    _se_auto_m, _se_ball_m = _unit_ex_kind_pick(
+                                        _unit_ex_state(store, _excel_stem), "sonota", _se_auto_m)
+                                    _se_fn_ux = f"{_make_safe_fn(_se_tit_m)}.jpg"
+                                    _manual_unit_src[_se_fn_ux] = {"kind": "sonota", "machine": None,
+                                                                   "bans": _se_ball_m}
+                                    if _pv_is_on(store, uploaded.name, _se_fn_ux):
+                                        _manual_unit_hold |= set(_se_ball_m)
                                 if not _se_auto_m.empty:
-                                    _se_tit_m = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
                                     _manual_imgs.append((f"{_make_safe_fn(_se_tit_m)}.jpg",
                                                          _build_machine_img(_se_auto_m, _se_tit_m, None)))
                                     _manual_ban_map[f"{_make_safe_fn(_se_tit_m)}.jpg"] = [int(b) for b in _se_auto_m["台番"].tolist()]
@@ -14635,8 +14702,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     if not _pv_is_on(store, uploaded.name, _fn_jm):
                                         continue   # チェックOFFの②画像は除外集合へ入れない
                                     _jg_exc_m |= {int(b) for b in (_bl_jm or [])}
+                                if _manual_all_ky:
+                                    # 🎯で除外した台は他カテゴリへ流さない（掲載台を減らす操作のみ）
+                                    _jg_exc_m |= _manual_unit_hold
                                 _jg_df_m = _manual_juggler_auto_extract(
                                     _df_m, _diff_m, jug_extra_auto, _jg_cfg_m, _jg_exc_m)
+                                if _manual_all_ky and _jg_df_m is not None and not _jg_df_m.empty:
+                                    # 🎯掲載台を選ぶ（ジャグラー統合）: 抽出後・画像生成前に間引く
+                                    _jg_df_m, _jg_ball_m = _unit_ex_kind_pick(
+                                        _unit_ex_state(store, _excel_stem), "juggler", _jg_df_m)
+                                    _manual_unit_src["ジャグラーシリーズ優秀台.jpg"] = {
+                                        "kind": "juggler", "machine": None, "bans": _jg_ball_m}
                                 if _jg_df_m is not None and not _jg_df_m.empty:
                                     # タイトルは「現在チェックONの②画像」基準（記入欄の機種名ではない）
                                     _jg_tit_m = _manual_jug_title(_kon_macs_m, _jg_cfg_m)
@@ -14696,13 +14772,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                             # src_out は🎯パネル用。かぶぱ以外は None＝パネルを出さない
                             # （除外そのものは _gen_sue_imgs_on_fly 内で従来どおり全店舗に効く）
                             for _item in _gen_sue_imgs_on_fly(_m_sue_tails, _m_sue_mode, is_juggler=False, ban_out=_manual_ban_map, stat_out=_kp_sue_stat,
-                                                              src_out=(_manual_unit_src if _kabupa_unit else None)):
+                                                              src_out=(_manual_unit_src if (_kabupa_unit or _manual_all_ky) else None)):
                                 _manual_imgs.append(_item)
                         if st.session_state.get("jug_sue_enabled", False):
                             _m_jug_tails = [t for _i in range(1, 4) if (t := st.session_state.get(f"jug_sue_tail_input_{_i}", "").strip())]
                             _m_jug_mode = st.session_state.get("jug_sue_mode", "全台")
                             for _item in _gen_sue_imgs_on_fly(_m_jug_tails, _m_jug_mode, is_juggler=True, ban_out=_manual_ban_map, stat_out=_kp_sue_stat,
-                                                              src_out=(_manual_unit_src if _kabupa_unit else None)):
+                                                              src_out=(_manual_unit_src if (_kabupa_unit or _manual_all_ky) else None)):
                                 _manual_imgs.append(_item)
 
                         # ⑤ オススメ機種ピックアップ
@@ -14761,7 +14837,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _mvdf, _mik_v, _mball_v = _unit_ex_pick(
                                             _unit_ex_state(store, _excel_stem), "variety",
                                             _mvtit, _mvdf)
-                                        if _kabupa_unit:
+                                        if _kabupa_unit or _manual_all_ky:
                                             _manual_unit_src[f"{_make_safe_fn(_mvtit)}.jpg"] = {
                                                 "kind": "variety", "machine": _mik_v, "bans": _mball_v}
                                         if not _mvdf.empty:
@@ -15080,6 +15156,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 except Exception:
                                     pass
                             _cat_prev = list(_auto_previews)
+                            # 🎯掲載台を選ぶ（📝の全種類・_manual_unit_on のページ）: 作り直しでも
+                            # ⑦📝と同じ除外を適用し、パネルの候補台も作り直した内容へ更新する
+                            _cat_ux = _manual_unit_on(store)
+                            _cat_ux_state = _unit_ex_state(store, _excel_stem)
+                            _cat_ux_src = dict(st.session_state.get(_aprev_unit_key, {}) or {})
                             def _cat_put(_fn_c, _img_c):
                                 for _ci_c, (_pn_c, _) in enumerate(_cat_prev):
                                     if _pn_c == _fn_c:
@@ -15100,14 +15181,33 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     exc_series=_jug_sonota_exc_series(store, with_slump))
                                 _se_tit_u = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
                                 _se_fn_u  = f"{_make_safe_fn(_se_tit_u)}.jpg"
+                                if _cat_ux and _se_u is not None and not _se_u.empty:
+                                    _se_u, _se_ball_u = _unit_ex_kind_pick(_cat_ux_state, "sonota", _se_u)
+                                    _cat_ux_src[_se_fn_u] = {"kind": "sonota", "machine": None,
+                                                             "bans": _se_ball_u}
+                                elif _cat_ux:
+                                    _cat_ux_src.pop(_se_fn_u, None)
                                 if _se_u is not None and not _se_u.empty:
                                     _cat_put(_se_fn_u, _build_machine_img(_se_u, _se_tit_u, None))
                                 else:
                                     _cat_drop(_se_fn_u)
                             # ジャグラーシリーズ優秀台
                             if jug_extra_auto != "なし":
+                                _jg_exc_u = _exc_base_u | _kon_bans
+                                if _cat_ux:
+                                    # ⑦📝と同じく、チェックONの「その他の優秀台」の候補台は流さない
+                                    for _ufn_h, _uv_h in _cat_ux_src.items():
+                                        if (_uv_h.get("kind") == "sonota"
+                                                and _pv_is_on(store, uploaded.name, _ufn_h)):
+                                            _jg_exc_u |= {int(b) for b in _uv_h.get("bans", [])}
                                 _jg_u = _manual_juggler_auto_extract(
-                                    _dfu, _diu, jug_extra_auto, _cfg_u, _exc_base_u | _kon_bans)
+                                    _dfu, _diu, jug_extra_auto, _cfg_u, _jg_exc_u)
+                                if _cat_ux and _jg_u is not None and not _jg_u.empty:
+                                    _jg_u, _jg_ball_u = _unit_ex_kind_pick(_cat_ux_state, "juggler", _jg_u)
+                                    _cat_ux_src["ジャグラーシリーズ優秀台.jpg"] = {
+                                        "kind": "juggler", "machine": None, "bans": _jg_ball_u}
+                                elif _cat_ux:
+                                    _cat_ux_src.pop("ジャグラーシリーズ優秀台.jpg", None)
                                 if _jg_u is not None and not _jg_u.empty:
                                     _cat_put("ジャグラーシリーズ優秀台.jpg", _build_machine_img(
                                         _jg_u, _manual_jug_title(_kon_macs, _cfg_u), None))
@@ -15115,6 +15215,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _cat_drop("ジャグラーシリーズ優秀台.jpg")
                             else:
                                 _cat_drop("ジャグラーシリーズ優秀台.jpg")
+                                if _cat_ux:
+                                    _cat_ux_src.pop("ジャグラーシリーズ優秀台.jpg", None)
+                            if _cat_ux:
+                                st.session_state[_aprev_unit_key] = _cat_ux_src
                             st.session_state[_aprev_key] = _dedup_previews(_cat_prev)
                             _cat_done = True
                         except Exception as _cat_e:
@@ -15561,6 +15665,24 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _all_diffs = _upd_extra_diffs
                         else:
                             _all_dfs = []
+                        # 🎯掲載台を選ぶ（📝・_manual_unit_on のページ）: 作り直した「その他の優秀台」へ
+                        # ⑦📝と同じ除外を適用し、パネルの候補台も作り直した内容へ更新する
+                        _son_ux = bool(_all_dfs) and _manual_son_upd and _manual_unit_on(store)
+                        if _son_ux:
+                            _sx_comb = pd.concat(_all_dfs, ignore_index=True).drop_duplicates(subset=["台番"])
+                            _sx_comb, _sx_ball = _unit_ex_kind_pick(
+                                _unit_ex_state(store, _excel_stem), "sonota", _sx_comb)
+                            _sx_key = f"{_make_safe_fn(sonota_extra_title.strip() or 'その他の優秀台ピックアップ')}.jpg"
+                            _sx_src = dict(st.session_state.get(_aprev_unit_key, {}) or {})
+                            _sx_src[_sx_key] = {"kind": "sonota", "machine": None, "bans": _sx_ball}
+                            st.session_state[_aprev_unit_key] = _sx_src
+                            if _sx_comb is None or _sx_comb.empty:
+                                # 全台除外 → 画像を作らない（パネルは孤児パネルから戻せる）
+                                _new_prev = [(_pn_x, _im_x) for _pn_x, _im_x in _new_prev if _pn_x != _sx_key]
+                                _all_dfs = []
+                                _updated = True
+                            else:
+                                _all_dfs = [_sx_comb]
                         if _all_dfs:
                             _son_comb  = pd.concat(_all_dfs,   ignore_index=True)
                             _son_comb  = _son_comb.drop_duplicates(subset=["台番"])
@@ -15620,6 +15742,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _jug_comb = pd.concat(_jug_all_dfs, ignore_index=True)
                             _jug_ord  = _jug_comb["台番"].argsort()
                             _jug_comb = _jug_comb.iloc[_jug_ord].reset_index(drop=True)
+                            # 🎯掲載台を選ぶ（📝・_manual_unit_on のページ）: 作り直した統合画像へ
+                            # ⑦📝と同じ除外を適用する（5台以下の判定は除外前の既存条件のまま）
+                            _jug_ux = _manual_son_upd and _manual_unit_on(store)
+                            if _jug_ux:
+                                _jug_comb_ux, _jug_ball_ux = _unit_ex_kind_pick(
+                                    _unit_ex_state(store, _excel_stem), "juggler",
+                                    _jug_comb.drop_duplicates(subset=["台番"]))
                             if len(_jug_comb) <= 5:
                                 # 5台以下 → overflowと同じ扱い: その他の優秀台ピックアップへ
                                 _ov_ex_bans = {item["ban"] for item in _pv_ex}
@@ -15628,14 +15757,18 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _ov_son = pd.concat(_ov_dfs, ignore_index=True)
                                 _ov_son = _ov_son.drop_duplicates(subset=["台番"])
                                 _ov_son = _ov_son.iloc[_ov_son["台番"].argsort()].reset_index(drop=True)
-                                _ov_img = _build_machine_img(_ov_son, "その他の優秀台ピックアップ", None)
-                                for _ci2, (_pn2, _) in enumerate(_new_prev):
-                                    if _pn2 == "その他の優秀台ピックアップ.jpg":
-                                        _new_prev[_ci2] = (_pn2, _ov_img)
-                                        break
-                                else:
-                                    _new_prev.append(("その他の優秀台ピックアップ.jpg", _ov_img))
-                                    _pv_set_on(store, uploaded.name, _new_prev[-1][0])
+                                if _jug_ux:
+                                    _ov_son, _ = _unit_ex_kind_pick(
+                                        _unit_ex_state(store, _excel_stem), "sonota", _ov_son)
+                                if _ov_son is not None and not _ov_son.empty:
+                                    _ov_img = _build_machine_img(_ov_son, "その他の優秀台ピックアップ", None)
+                                    for _ci2, (_pn2, _) in enumerate(_new_prev):
+                                        if _pn2 == "その他の優秀台ピックアップ.jpg":
+                                            _new_prev[_ci2] = (_pn2, _ov_img)
+                                            break
+                                    else:
+                                        _new_prev.append(("その他の優秀台ピックアップ.jpg", _ov_img))
+                                        _pv_set_on(store, uploaded.name, _new_prev[-1][0])
                                 _updated = True
                             else:
                                 _has_kojin_jug = any(m.strip() in _jug_series_set for m in (kojin_zentai_machines + kojin_yushu_machines) if m.strip())
@@ -15645,17 +15778,29 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     for _sp, _ in _auto_previews
                                 )
                                 _jug_title = "その他のジャグラーシリーズの優秀台" if _still_jug_other else "ジャグラーシリーズの優秀台"
-                                _jug_img = _build_machine_img(_jug_comb, _jug_title, None)
+                                if _jug_ux:
+                                    _jug_comb = _jug_comb_ux
+                                    _jx_src = dict(st.session_state.get(_aprev_unit_key, {}) or {})
+                                    _jx_src["ジャグラーシリーズ優秀台.jpg"] = {
+                                        "kind": "juggler", "machine": None, "bans": _jug_ball_ux}
+                                    st.session_state[_aprev_unit_key] = _jx_src
+                                _jug_img = (_build_machine_img(_jug_comb, _jug_title, None)
+                                            if _jug_comb is not None and not _jug_comb.empty else None)
                                 # スランプ合成用：画像に実際に載せた台番（overflow 由来の台を含む）
                                 _jug_comb_bans_upd = [int(str(b).split(".")[0]) for b in _jug_comb["台番"].dropna()
                                                       if str(b).split(".")[0].lstrip("-").isdigit()]
-                                for _jpi, (_jpn, _) in enumerate(_new_prev):
-                                    if _jpn == "ジャグラーシリーズ優秀台.jpg":
-                                        _new_prev[_jpi] = (_jpn, _jug_img)
-                                        break
+                                if _jug_img is None:
+                                    # 🎯で全台除外 → 画像を作らない（パネルは孤児パネルから戻せる）
+                                    _new_prev = [(_pn_j, _im_j) for _pn_j, _im_j in _new_prev
+                                                 if _pn_j != "ジャグラーシリーズ優秀台.jpg"]
                                 else:
-                                    _new_prev.append(("ジャグラーシリーズ優秀台.jpg", _jug_img))
-                                    _pv_set_on(store, uploaded.name, _new_prev[-1][0])
+                                    for _jpi, (_jpn, _) in enumerate(_new_prev):
+                                        if _jpn == "ジャグラーシリーズ優秀台.jpg":
+                                            _new_prev[_jpi] = (_jpn, _jug_img)
+                                            break
+                                    else:
+                                        _new_prev.append(("ジャグラーシリーズ優秀台.jpg", _jug_img))
+                                        _pv_set_on(store, uploaded.name, _new_prev[-1][0])
                                 _updated = True
                         # 🔄で作り直した⑤オススメ画像の掲載台番（スランプ合成用）。
                         # ⑦は _rec_ban_map、⑧は _exec_rec_ban_map で同じものを持つ。
@@ -15743,7 +15888,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _jug_bans_upd = []
                                     for _jdf in ([_pv_jug_pool.copy()] if _pv_jug_pool is not None and not _pv_jug_pool.empty else []) + _jug_extra_dfs:
                                         _jug_bans_upd += [int(str(b).split(".")[0]) for b in _jdf["台番"].dropna() if str(b).split(".")[0].lstrip("-").isdigit()]
-                                    if _jug_ov_move_on(store) and locals().get("_jug_comb_bans_upd"):
+                                    if ((_jug_ov_move_on(store) and locals().get("_jug_comb_bans_upd"))
+                                            or (locals().get("_jug_ux")
+                                                and locals().get("_jug_comb_bans_upd") is not None)):
                                         _jug_bans_upd = list(locals()["_jug_comb_bans_upd"])
                                     _upd_dyn_ban_map["ジャグラーシリーズ優秀台.jpg"] = sorted(dict.fromkeys(_jug_bans_upd))
                                 if _all_dfs:
@@ -15972,7 +16119,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                     # 🎯掲載台を選ぶ（新宿歌舞伎町＝かぶぱポストの結果のみ）
                     _kabupa_unit_e = _is_kabupa_pg
                     # 📝経路の②個別「優秀台」🎯（📝プレビューと同じ判定・同じ安定キー）
-                    _manual_unit_ky_e = _kabupa_unit_e or (with_slump and store == "秋葉原")
+                    # 結果ページ全般（_manual_unit_on）: ②個別優秀台・その他・ジャグラー統合・
+                    # ④末尾・⑤バラエティの全種類（📝プレビューと同じ判定・同じ安定キー）
+                    _manual_all_ky_e = _manual_unit_on(store)
+                    _manual_unit_ky_e = (_kabupa_unit_e or (with_slump and store == "秋葉原")
+                                         or _manual_all_ky_e)
+                    # 🎯で除外した台をジャグラー自動抽出へ流さないための除外前の候補台番
+                    _manual_unit_hold_e: set[int] = set()
 
                     def _kabupa_rm_stale(base_fn: str) -> None:
                         """全台除外で画像を作らない場合に、前回実行の同名画像を消す。
@@ -16066,6 +16219,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 # 🎯掲載台を選ぶ（②個別・優秀台）: 📝プレビューと同じ安定キーで間引く
                                 _mgp_e, _mik_ky_e, _mball_ky_e = _unit_ex_pick(
                                     _unit_ex_state(store, _excel_stem_run), "kojin_yushu", _km_e, _mgp_e)
+                                if _manual_all_ky_e:
+                                    _manual_unit_hold_e |= set(_mball_ky_e)
                                 if _mgp_e.empty:
                                     # 全台除外: 画像を作らず、前回実行の同名画像（縦・横）を削除する
                                     _kabupa_rm_stale(f"{_make_safe_fn(_metit)}.jpg")
@@ -16129,6 +16284,18 @@ def show_auto_page(with_slump: bool = False) -> None:
                             # 合流したときだけ整列（合流が無いときは従来の並びをそのまま使う）
                             _se_df_e = _se_df_e.drop_duplicates(subset=["台番"])
                             _se_df_e = _se_df_e.iloc[_se_df_e["台番"].argsort()].reset_index(drop=True)
+                        if _manual_all_ky_e and not _se_df_e.empty:
+                            # 🎯掲載台を選ぶ（その他の優秀台）: 📝プレビューと同じ除外を画像生成前に適用。
+                            # 最終 _se_df_e が画像・ban_map・結果テキストの唯一の正（fd42ccf）のまま。
+                            _se_tit_ux_e = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
+                            _se_df_e, _se_ball_e = _unit_ex_kind_pick(
+                                _unit_ex_state(store, _excel_stem_run), "sonota", _se_df_e)
+                            if _pv_is_on(store, uploaded.name, f"{_make_safe_fn(_se_tit_ux_e)}.jpg"):
+                                _manual_unit_hold_e |= set(_se_ball_e)
+                            if _se_df_e is None or _se_df_e.empty:
+                                _se_df_e = pd.DataFrame()
+                                _kabupa_rm_stale(f"{_make_safe_fn(_se_tit_ux_e)}.jpg")
+                                _m_log("  その他の優秀台: 掲載台が0台のため画像なし")
                         if not _se_df_e.empty:
                             _se_tit_e = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
                             _sefn_e = _unique_fn_e(f"{_make_safe_fn(_se_tit_e)}.jpg")
@@ -16161,8 +16328,18 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 if not _pv_is_on(store, uploaded.name, _fn_je):
                                     continue   # チェックOFFの②画像は除外集合へ入れない
                                 _jg_exc_e |= {int(b) for b in (_bl_je or [])}
+                            if _manual_all_ky_e:
+                                # 🎯で除外した台は他カテゴリへ流さない（📝プレビューと同じ）
+                                _jg_exc_e |= _manual_unit_hold_e
                             _jg_df_e = _manual_juggler_auto_extract(
                                 _df_exec_m, _diff_exec_m, jug_extra_auto, _jg_cfg_e, _jg_exc_e)
+                            if _manual_all_ky_e and _jg_df_e is not None and not _jg_df_e.empty:
+                                # 🎯掲載台を選ぶ（ジャグラー統合）: 📝プレビューと同じ除外を画像生成前に適用
+                                _jg_df_e, _ = _unit_ex_kind_pick(
+                                    _unit_ex_state(store, _excel_stem_run), "juggler", _jg_df_e)
+                                if _jg_df_e is None or _jg_df_e.empty:
+                                    _kabupa_rm_stale("ジャグラーシリーズ優秀台.jpg")
+                                    _m_log("  ジャグラーシリーズ優秀台: 掲載台が0台のため画像なし")
                             if _jg_df_e is not None and not _jg_df_e.empty:
                                 # タイトルは「現在チェックONの②画像」基準
                                 _jg_tit_e = _manual_jug_title(_kon_macs_e, _jg_cfg_e)
@@ -16246,7 +16423,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _exec_order.append(_fn_e)
                             _m_exec_ban_map_e[_fn_e] = _sue_bans_out_e.get(_ofn_e, [])
                             _m_log(f"  ✅ 末尾画像「{_fn_e}」")
-                        if _kabupa_unit_e:
+                        if _kabupa_unit_e or _manual_all_ky_e:
                             # 全台除外で作られなかった末尾画像は、前回実行の同名画像を残さない
                             for _ofn_rm in _sue_src_out_e:
                                 if _ofn_rm not in _sue_bans_out_e:
@@ -16264,7 +16441,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _exec_order.append(_fn_e)
                             _m_exec_ban_map_e[_fn_e] = _jsue_bans_out_e.get(_ofn_e, [])
                             _m_log(f"  ✅ ジャグラー末尾画像「{_fn_e}」")
-                        if _kabupa_unit_e:
+                        if _kabupa_unit_e or _manual_all_ky_e:
                             for _ofn_rm in _jsue_src_out_e:
                                 if _ofn_rm not in _jsue_bans_out_e:
                                     _kabupa_rm_stale(_ofn_rm)
@@ -16331,7 +16508,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _mvtit_e, _mvdf_e)
                                     if _mvdf_e.empty:
                                         # 全台除外: 前回実行の同名画像（縦・横）を残さない（かぶぱのみ）
-                                        if _kabupa_unit_e:
+                                        if _kabupa_unit_e or _manual_all_ky_e:
                                             _kabupa_rm_stale(f"{_make_safe_fn(_mvtit_e)}.jpg")
                                         _m_log("  バラエティ: 掲載台が0台のため画像なし")
                                     else:

@@ -7329,6 +7329,19 @@ def _manual_sonota_auto_bans(df, store, kojin_zentai_machines, kojin_yushu_machi
                     _exc_ban.add(_b)
     return _exc_mac, _exc_ban
 
+def _manual_kojin_add_cand(cand_df, base_df, exc_bans):
+    """📝の②個別優秀台🎯で**追加できる候補台**（⑦📝・⑧📝で共用）。
+    候補＝その機種の当日全台。ただし並び・列・末尾・ジャグラー末尾・個別ピック・
+    台番範囲・②全台・バラエティなど他画像へ掲載される台（exc_bans）は追加候補にしない。
+    既定掲載台（base_df＝_kojin_yushu_filter の通過台）は exc_bans に関係なく残す
+    （初期掲載を従来から変えないため）。"""
+    _base = {int(str(b).split(".")[0]) for b in base_df["台番"].dropna()}
+    _exc = {int(b) for b in (exc_bans or set())}
+    _keep = cand_df["台番"].apply(
+        lambda b: (int(str(b).split(".")[0]) in _base) or (int(str(b).split(".")[0]) not in _exc))
+    return cand_df[_keep.values]
+
+
 def _manual_sonota_auto_extract(df, diff, thr, exc_mac, exc_ban,
                                 exc_series: set | frozenset = frozenset()):
     """差枚>=thr かつ 機種名∉exc_mac かつ 台番∉exc_ban の台を台番順で返す。
@@ -14595,6 +14608,24 @@ def show_auto_page(with_slump: bool = False) -> None:
 
                             # ② 個別画像 - 優秀台
                             _m_cfg = get_store_config(store)
+                            # 🎯の追加候補から外す台（並び・列・末尾・個別ピック・台番範囲・②全台・バラエティ）
+                            _ky_cand_exc_m: set[int] = set()
+                            if _manual_all_ky and _high_unit_add_on():
+                                _, _ky_cand_exc_m = _manual_sonota_auto_bans(
+                                    _df_m, store, [], [],
+                                    narabi_ranges if narabi_ok else [],
+                                    "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi_range_{store}", ""),
+                                    "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi2_range_{store}", ""),
+                                    retsu_ranges=(retsu_ranges if retsu_ok else []),
+                                )
+                                _ky_cand_exc_m = set(_ky_cand_exc_m) | {
+                                    int(b) for _fn_z, _bl in _manual_ban_map.items()
+                                    if _pv_is_on(store, uploaded.name, _fn_z) for b in (_bl or [])}
+                                if _variety_ui and variety_enabled and variety_ranges_text.strip():
+                                    try:
+                                        _ky_cand_exc_m |= ranges_to_bans(parse_ranges(variety_ranges_text.strip()))
+                                    except Exception:
+                                        pass
                             for _km in kojin_yushu_machines:
                                 _km = _km.strip()
                                 if not _km:
@@ -14611,11 +14642,27 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _km_base, _mga, _mda, _m_cfg,
                                     force_1k=(with_slump and store == "秋葉原"),
                                 ).reset_index(drop=True)
-                                if _mgp.empty:
+                                # 🎯で候補台を**追加**できる（⑦🔍の②個別優秀台と同じ方式・同じ候補）:
+                                # 候補＝その機種の当日全台、既定掲載＝_kojin_yushu_filter の通過台
+                                _ky_add_m = _manual_all_ky and _high_unit_add_on()
+                                if _mgp.empty and not _ky_add_m:
                                     continue
                                 _mtit = f"{_km}（優秀台）"
                                 _mfn_ky = f"{_make_safe_fn(_mtit)}.jpg"
-                                if _manual_unit_ky:
+                                if _ky_add_m:
+                                    _mgp, _mik_ky, _mball_ky, _mbase_ky = _unit_ex_pick_add(
+                                        _unit_ex_state(store, _excel_stem), "kojin_yushu", _km,
+                                        _manual_kojin_add_cand(_mga, _mgp, _ky_cand_exc_m), _mgp)
+                                    _manual_unit_src[_mfn_ky] = {"kind": "kojin_yushu",
+                                                                 "machine": _mik_ky, "bans": _mball_ky,
+                                                                 "base": _mbase_ky}
+                                    # 他カテゴリへ流さないのは既定掲載台（🎯で外した台を含む）だけ。
+                                    # 追加していない候補台は従来どおり他カテゴリの抽出対象のまま。
+                                    if _pv_is_on(store, uploaded.name, _mfn_ky):
+                                        _manual_unit_hold |= set(_mbase_ky)
+                                    if _mgp.empty:
+                                        continue   # 掲載台0台 → 画像を作らない（孤児パネルから追加できる）
+                                elif _manual_unit_ky:
                                     # 🎯掲載台を選ぶ（②個別・優秀台）: 抽出後・画像生成前に間引く。
                                     # kind/安定キーはフルプレビュー・⑧実行と同一。
                                     _mgp, _mik_ky, _mball_ky = _unit_ex_pick(
@@ -15200,6 +15247,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         if (_uv_h.get("kind") == "sonota"
                                                 and _pv_is_on(store, uploaded.name, _ufn_h)):
                                             _jg_exc_u |= {int(b) for b in _uv_h.get("bans", [])}
+                                        # ②個別優秀台で🎯から追加した台（＝現在の掲載台）も重複させない
+                                        if (_uv_h.get("kind") == "kojin_yushu" and _uv_h.get("base") is not None
+                                                and _pv_is_on(store, uploaded.name, _ufn_h)):
+                                            _base_h = {int(b) for b in _uv_h["base"]}
+                                            _jg_exc_u |= {int(b) for b in _uv_h.get("bans", [])
+                                                          if _unit_ex_is_on(_cat_ux_state, "kojin_yushu",
+                                                                            _uv_h.get("machine"), int(b), _base_h)}
                                 _jg_u = _manual_juggler_auto_extract(
                                     _dfu, _diu, jug_extra_auto, _cfg_u, _jg_exc_u)
                                 if _cat_ux and _jg_u is not None and not _jg_u.empty:
@@ -16162,6 +16216,23 @@ def show_auto_page(with_slump: bool = False) -> None:
 
                         # ② 個別画像 - 優秀台
                         _me_cfg = get_store_config(store)
+                        # 🎯の追加候補から外す台（📝プレビューと同じ集合）
+                        _ky_cand_exc_e: set[int] = set()
+                        if _manual_all_ky_e and _high_unit_add_on():
+                            _, _ky_cand_exc_e = _manual_sonota_auto_bans(
+                                _df_exec_m, store, [], [],
+                                narabi_ranges if narabi_ok else [],
+                                "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi_range_{store}", ""),
+                                "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi2_range_{store}", ""),
+                                retsu_ranges=(retsu_ranges if retsu_ok else []),
+                            )
+                            _ky_cand_exc_e = set(_ky_cand_exc_e) | {
+                                int(b) for _bl in _m_exec_ban_map_e.values() for b in (_bl or [])}
+                            if _variety_ui and variety_enabled and variety_ranges_text.strip():
+                                try:
+                                    _ky_cand_exc_e |= ranges_to_bans(parse_ranges(variety_ranges_text.strip()))
+                                except Exception:
+                                    pass
                         for _km_e in kojin_yushu_machines:
                             _km_e = _km_e.strip()
                             if not _km_e:
@@ -16176,7 +16247,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _km_base_e, _mga_e, _mda_e, _me_cfg,
                                 force_1k=(with_slump and store == "秋葉原"),
                             ).reset_index(drop=True)
-                            if _mgp_e.empty:
+                            # 🎯で候補台を追加できる（📝プレビューと同じ判定・同じ候補・同じ安定キー）
+                            _ky_add_e2 = _manual_all_ky_e and _high_unit_add_on()
+                            if _mgp_e.empty and not _ky_add_e2:
                                 continue
                             _metit = f"{_km_e}（優秀台）"
                             # 📝プレビューで「生成する」をOFFにした②個別優秀台は、生成してから
@@ -16216,11 +16289,18 @@ def show_auto_page(with_slump: bool = False) -> None:
                                            f"（その他へ {0 if _to_jug_off_e else len(_off_bans_e)}台）")
                                     continue
                             if _manual_unit_ky_e:
-                                # 🎯掲載台を選ぶ（②個別・優秀台）: 📝プレビューと同じ安定キーで間引く
-                                _mgp_e, _mik_ky_e, _mball_ky_e = _unit_ex_pick(
-                                    _unit_ex_state(store, _excel_stem_run), "kojin_yushu", _km_e, _mgp_e)
-                                if _manual_all_ky_e:
-                                    _manual_unit_hold_e |= set(_mball_ky_e)
+                                if _ky_add_e2:
+                                    # 候補＝その機種の当日全台・既定掲載＝抽出通過台（📝プレビューと同一）
+                                    _mgp_e, _mik_ky_e, _mball_ky_e, _mbase_ky_e = _unit_ex_pick_add(
+                                        _unit_ex_state(store, _excel_stem_run), "kojin_yushu", _km_e,
+                                        _manual_kojin_add_cand(_mga_e, _mgp_e, _ky_cand_exc_e), _mgp_e)
+                                    _manual_unit_hold_e |= set(_mbase_ky_e)
+                                else:
+                                    # 🎯掲載台を選ぶ（②個別・優秀台）: 📝プレビューと同じ安定キーで間引く
+                                    _mgp_e, _mik_ky_e, _mball_ky_e = _unit_ex_pick(
+                                        _unit_ex_state(store, _excel_stem_run), "kojin_yushu", _km_e, _mgp_e)
+                                    if _manual_all_ky_e:
+                                        _manual_unit_hold_e |= set(_mball_ky_e)
                                 if _mgp_e.empty:
                                     # 全台除外: 画像を作らず、前回実行の同名画像（縦・横）を削除する
                                     _kabupa_rm_stale(f"{_make_safe_fn(_metit)}.jpg")

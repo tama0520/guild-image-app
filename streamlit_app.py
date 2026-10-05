@@ -5309,6 +5309,18 @@ def run_step3_other(
         count_f  = len(filtered)
 
         if count_f == 0:
+            # 高配分の対象台が0台（＝確率条件機種で +1,000枚台がすべて2,000G未満のときに起きる）。
+            # 高配分の判定・画像・high_ratio_list は作らないまま、下の else 側と同じ
+            # 除外済みデータ（grp_ex）の +1,000枚以上の台だけを「その他の優秀台」へ回す。
+            # 確率条件を使わない機種は mask に dr>=1000 を含むため、ここでは常に空＝従来動作。
+            mask_ex = dr_ex >= 1000
+            filt_ex = grp_ex[mask_ex].copy().reset_index(drop=True)
+            dr_f_ex = dr_ex[mask_ex].reset_index(drop=True)
+            if machine not in recommended_machines and machine not in sonota_exclude and not filt_ex.empty:
+                other_dfs.append(filt_ex)
+                other_diffs.append(dr_f_ex)
+                for _i in range(len(filt_ex)):
+                    excellent_list.append({"name": machine, "diff": int(dr_f_ex.iloc[_i]), "ban": int(filt_ex.iloc[_i]["台番"])})
             continue
         if _use_rb_mask:
             _meets_thr = count_f >= max(2, math.ceil(total * 0.35))

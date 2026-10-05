@@ -9115,6 +9115,7 @@ _ART_CMT_CK_LABELS: "dict[str, tuple[str, ...]]" = {
 _ART_CMT_CK_FIXED: "frozenset[str]" = frozenset({"D"})   # 常にON固定（OFFにできない）
 _ART_CMT_CK_OTHER_MIN = 8000        # E候補①に使う台（+8,000枚以上）
 _ART_CMT_CK_OSU_MAX = 3             # D に並べる機種数の上限
+_ART_CMT_CK_SHOW_MAX = 3            # 全台系・ニブイチ系の候補①②に並べる機種数の上限
 
 
 def _art_cmt_ck_logical(sec: str, idx: int, store: str) -> str:
@@ -9127,20 +9128,24 @@ def _art_ck_series_cands(stats, label: str) -> "list[str | None]":
     _ms = sorted([m for m in (stats or []) if m], key=lambda m: -m["avg"])
     if not _ms:
         return [None, None, None]
-    _n, _top = len(_ms), _ms[0]
-    _tail = f"平均差枚{_cmt_exact(_top['avg'])}で{_cmt_n(_top['plus'])}台がプラス！"
-    if _n == 1:
-        _c1 = f"{_top['name']}が{label}！{_tail}"
+    _n = len(_ms)                    # 「○機種」は判定に該当した全機種数のまま
+    # 文中へ出すのは平均差枚がプラスの機種だけ・大きい順に最大3機種
+    _show = [m for m in _ms if m["avg"] > 0][:_ART_CMT_CK_SHOW_MAX]
+    if not _show:
+        _c1 = _c2 = None             # プラスの機種が無ければ候補①②は「対象データなし」
     else:
-        _c1 = (f"{'、'.join(m['name'] for m in _ms)}の{_n}機種が{label}！"
-               f"{_top['name']}は{_tail}")
-    _parts = [f"平均差枚{_cmt_exact(m['avg'])}の{m['name']}" for m in _ms]
-    if _n == 1:
-        _c2 = f"{_parts[0]}が{label}！"
-    elif _n == 2:
-        _c2 = f"{_parts[0]}と{_parts[1]}の2機種が{label}！"
-    else:
-        _c2 = f"{_parts[0]}と{_parts[1]}、{'、'.join(_parts[2:])}の{_n}機種が{label}！"
+        _top = _show[0]
+        _tail = f"平均差枚{_cmt_exact(_top['avg'])}で{_cmt_n(_top['plus'])}台がプラス！"
+        # 列挙しきれない機種があるときだけ「など」（全機種を列挙できたときは付けない）
+        _cnt = (f"など{_n}機種が{label}！" if len(_show) < _n
+                else ("" if _n == 1 else f"の{_n}機種が{label}！"))
+        if _n == 1:
+            _c1 = f"{_top['name']}が{label}！{_tail}"
+            _c2 = f"平均差枚{_cmt_exact(_top['avg'])}の{_top['name']}が{label}！"
+        else:
+            _c1 = f"{'、'.join(m['name'] for m in _show)}{_cnt}{_top['name']}は{_tail}"
+            _c2 = ("、".join(f"平均差枚{_cmt_exact(m['avg'])}の{m['name']}" for m in _show)
+                   + _cnt)
     # 多台数＝10台以上が1機種でもある／少台数＝全機種が4台以下（既存しきい値）。
     # どちらでもない日（5〜9台だけ等）は候補③を無効にする。
     if any(m["total"] >= _ART_CMT_MANY for m in _ms):

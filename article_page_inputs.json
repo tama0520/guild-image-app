@@ -4473,7 +4473,7 @@
   "20261004_新宿歌舞伎町_20S.xlsx": {
     "art_kojin_enabled": true,
     "art_narabi_enabled": true,
-    "art_narabi_ranges_input": "Lｿｰﾄﾞｱｰﾄ･ｵﾝﾗｲﾝII　65-67\nﾏｲｼﾞｬｸﾞﾗｰV　617-619\nL戦国乙女5　638-641\nLﾓﾝｽﾀｰﾊﾝﾀｰﾗｲｽﾞ　705-707\nL東京喰種　804-806\nL東京喰種　844-847\nL炎炎ﾉ消防隊2　880-884\nﾏｲｼﾞｬｸﾞﾗｰV　1019-1021",
+    "art_narabi_ranges_input": "L炎炎ﾉ消防隊2　880-883",
     "art_retsu_enabled": false,
     "art_retsu_ranges_input": "",
     "art_suebangai_enabled": true,
@@ -4553,6 +4553,19 @@
     "art_kojin_z_10_新宿歌舞伎町": "",
     "art_kojin_y_10_新宿歌舞伎町": "",
     "art_kojin_z_11_新宿歌舞伎町": "",
-    "art_kojin_y_11_新宿歌舞伎町": ""
+    "art_kojin_y_11_新宿歌舞伎町": "",
+    "art_comment_ck_A_1_新宿歌舞伎町": true,
+    "art_comment_ck_A_2_新宿歌舞伎町": false,
+    "art_comment_ck_A_3_新宿歌舞伎町": false,
+    "art_comment_ck_B_1_新宿歌舞伎町": true,
+    "art_comment_ck_B_2_新宿歌舞伎町": false,
+    "art_comment_ck_B_3_新宿歌舞伎町": false,
+    "art_comment_ck_C_1_新宿歌舞伎町": true,
+    "art_comment_ck_C_2_新宿歌舞伎町": false,
+    "art_comment_ck_C_3_新宿歌舞伎町": "",
+    "art_comment_ck_E_1_新宿歌舞伎町": false,
+    "art_comment_ck_E_2_新宿歌舞伎町": true,
+    "art_comment_ck_S_1_新宿歌舞伎町": true,
+    "art_comment_ck_S_2_新宿歌舞伎町": false
   }
 }

@@ -8383,6 +8383,10 @@ def _art_wp_comments(store: str) -> "dict[str, str]":
     埋めた logical キー）だけを見るので、**別日の値は構造的に混入しない**。
     """
     _out: "dict[str, str]" = {}
+    # 候補の複数チェック方式の店舗：📝記事コメント欄が今回の実行で作った
+    # 「チェック済み候補だけを①→②→③でつないだ文章」をそのまま使う（まとめは無い）。
+    if store in _ART_CMT_CK_STORES:
+        return dict(st.session_state.get(f"_art_cmt_ck_out_{store}") or {})
     for _sec, _ in _ART_CMT_SECTIONS:
         if _art_comment_is_enabled(store, _sec):
             _out[_ART_CMT_WP_KEYS[_sec]] = _art_comment_final_text(store, _sec)
@@ -9089,6 +9093,137 @@ def _art_cmt_cands_summary(f) -> "list[str]":
     return ["\n".join(_c1), "\n".join(_c2), "\n".join(_c3)]
 
 
+# ── 新宿歌舞伎町：WordPress用文章を「候補の複数チェック方式」にする（2026-10-05）──
+#    候補①〜③を常時表示し、チェックした候補だけを本文へ入れる（同カテゴリは①→②→③）。
+#    まとめ(F)は出さない。オススメ機種(D)は候補1つで、データがある日は常にON固定。
+#    旧「1つ選択＋最終文」（art_comment_pick_* / art_comment_*）の保存値は削除せず、
+#    この店舗では読まないだけ。★渋谷新館は従来方式のまま（このゲートに入れない）。
+#    数値はすべて既存集計（_cmt_machine_stat / nami_list / _zendai_total_stat 由来の
+#    facts）から取り、独自に再計算しない。
+_ART_CMT_CK_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+_ART_CMT_CK_SECTIONS: "tuple[tuple[str, str], ...]" = (
+    ("A", "全台系"), ("B", "ニブイチ系"), ("C", "並び"),
+    ("D", "オススメ機種"), ("E", "その他の単品優秀台"),
+)
+_ART_CMT_CK_LABELS: "dict[str, tuple[str, ...]]" = {
+    "A": ("候補① 機種名と差枚数", "候補② 差枚数と機種名", "候補③ バランス型"),
+    "B": ("候補① 機種名と差枚数", "候補② 差枚数と機種名", "候補③ バランス型"),
+    "C": ("候補① 機種名と箇所と平均差枚", "候補② 箇所", "候補③ 列がある場合"),
+    "D": ("候補 機種ごとのNo.1差枚",),
+    "E": ("候補① 機種名と出玉", "候補② 全体データ"),
+}
+_ART_CMT_CK_FIXED: "frozenset[str]" = frozenset({"D"})   # 常にON固定（OFFにできない）
+_ART_CMT_CK_OTHER_MIN = 8000        # E候補①に使う台（+8,000枚以上）
+_ART_CMT_CK_OSU_MAX = 3             # D に並べる機種数の上限
+
+
+def _art_cmt_ck_logical(sec: str, idx: int, store: str) -> str:
+    """候補チェックの保存キー（article_page_inputs.json・日付単位）。idx は1始まり。"""
+    return f"art_comment_ck_{sec}_{idx}_{store}"
+
+
+def _art_ck_series_cands(stats, label: str) -> "list[str | None]":
+    """全台系／ニブイチ系の候補①②③。stats は _cmt_machine_stat() の結果（平均差枚あり）。"""
+    _ms = sorted([m for m in (stats or []) if m], key=lambda m: -m["avg"])
+    if not _ms:
+        return [None, None, None]
+    _n, _top = len(_ms), _ms[0]
+    _tail = f"平均差枚{_cmt_exact(_top['avg'])}で{_cmt_n(_top['plus'])}台がプラス！"
+    if _n == 1:
+        _c1 = f"{_top['name']}が{label}！{_tail}"
+    else:
+        _c1 = (f"{'、'.join(m['name'] for m in _ms)}の{_n}機種が{label}！"
+               f"{_top['name']}は{_tail}")
+    _parts = [f"平均差枚{_cmt_exact(m['avg'])}の{m['name']}" for m in _ms]
+    if _n == 1:
+        _c2 = f"{_parts[0]}が{label}！"
+    elif _n == 2:
+        _c2 = f"{_parts[0]}と{_parts[1]}の2機種が{label}！"
+    else:
+        _c2 = f"{_parts[0]}と{_parts[1]}、{'、'.join(_parts[2:])}の{_n}機種が{label}！"
+    # 多台数＝10台以上が1機種でもある／少台数＝全機種が4台以下（既存しきい値）。
+    # どちらでもない日（5〜9台だけ等）は候補③を無効にする。
+    if any(m["total"] >= _ART_CMT_MANY for m in _ms):
+        _c3 = f"本日は{_n}機種が{label}！多台数に仕掛けがありました。"
+    elif all(m["total"] <= _ART_CMT_FEW for m in _ms):
+        _c3 = f"本日は{_n}機種が{label}！少台数{label}のラインナップでした。"
+    else:
+        _c3 = None
+    return [_c1, _c2, _c3]
+
+
+def _art_ck_narabi_cands(items, retsu_macs) -> "list[str | None]":
+    """並びの候補①②③。items は nami_list 由来（machine / count / avg / plus）。"""
+    _boxes = [i for i in (items or []) if (i.get("machine") or "").strip()]
+    _n_big = sum(1 for i in _boxes if int(i.get("count") or 0) >= 3)
+    _c1 = None
+    if _boxes:
+        _by_avg = sorted(_boxes, key=lambda i: -int(i.get("avg") or 0))
+        _macs = list(dict.fromkeys(i["machine"].strip() for i in _by_avg))
+        _top = _by_avg[0]
+        _tail = f"{_top['machine'].strip()}は平均差枚{_cmt_exact(_top.get('avg') or 0)}"
+        _tail += (f"で{_cmt_n(_top['plus'])}台がプラス！"
+                  if _top.get("plus") is not None else "！")
+        if len(_macs) == 1:
+            _c1 = f"{_macs[0]}に計{_cmt_n(len(_boxes))}か所の並び仕掛けが！{_tail}"
+        else:
+            _c1 = (f"{'、'.join(_macs)}の{len(_macs)}機種、"
+                   f"計{_cmt_n(len(_boxes))}か所に並び仕掛けが！{_tail}")
+    _c2 = (f"本日は3台以上並びが{_cmt_n(_n_big)}か所！様々な機種に並び仕掛けがありました。"
+           if _n_big else None)
+    _rm = [m for m in (retsu_macs or []) if m]
+    _c3 = None
+    if _rm:
+        _c3 = f"{'、'.join(_rm)}に列仕掛けが！"
+        if _n_big:
+            _c3 += f"3台以上並びも{_cmt_n(_n_big)}か所！"
+    return [_c1, _c2, _c3]
+
+
+def _art_ck_osusume_cands(f_osu) -> "list[str | None]":
+    """オススメ機種（候補1つ）。⑤画像に実際に載った台の、機種ごとのNo.1差枚台。"""
+    _rows = [r for r in ((f_osu or {}).get("by_machine_max") or []) if int(r["diff"]) > 0]
+    _rows = _rows[:_ART_CMT_CK_OSU_MAX]
+    if not _rows:
+        return [None]
+    return ['、'.join(str(r["name"]) + "から" + _cmt_exact(r["diff"]) for r in _rows)
+            + "と大量出玉を確認！"]
+
+
+def _art_ck_other_cands(f_oth, f_sum) -> "list[str | None]":
+    """その他の単品優秀台の候補①②。②の数値は結果テキストと同じ全台集計（累積の台数）。"""
+    _best: "dict[str, dict]" = {}
+    for _r in sorted((f_oth or {}).get("rows") or [], key=lambda r: -int(r["diff"])):
+        if int(_r["diff"]) >= _ART_CMT_CK_OTHER_MIN and _r.get("name"):
+            _best.setdefault(_r["name"], _r)
+    _c1 = None
+    if _best:
+        _c1 = ('、'.join(str(r["name"]) + "から" + _cmt_exact(r["diff"]) for r in _best.values())
+               + "と単品からも大量出玉獲得台が出現！")
+    _c2 = None
+    if f_sum:
+        _c2 = ("単品からも好成績台が多数出現！本日の全体の結果は"
+               f"総差枚{_cmt_hall_avg(f_sum['total_diff'])}、"
+               f"平均差枚{_cmt_hall_avg(f_sum['avg_diff'])}！"
+               f"万枚オーバーが{_cmt_n(f_sum['c10k'])}台、"
+               f"+5,000枚オーバーが{_cmt_n(f_sum['c5k'])}台、"
+               f"+1,000枚オーバーが{_cmt_n(f_sum['c1k'])}台と"
+               "様々なコーナーから優秀台を確認できました。")
+    return [_c1, _c2]
+
+
+def _art_ck_cands_all(zen_stats, high_stats, nami_items, retsu_macs,
+                      f_osu, f_oth, f_sum) -> "dict[str, list[str | None]]":
+    """新宿歌舞伎町用の全候補。None は「対象データなし」。"""
+    return {
+        "A": _art_ck_series_cands(zen_stats, "全台系"),
+        "B": _art_ck_series_cands(high_stats, "ニブイチ系"),
+        "C": _art_ck_narabi_cands(nami_items, retsu_macs),
+        "D": _art_ck_osusume_cands(f_osu),
+        "E": _art_ck_other_cands(f_oth, f_sum),
+    }
+
+
 # ── ★おすすめ判定（**表示のみ**。自動選択はしない）────────────────────
 def _art_cmt_recommend(sec: str, f) -> int:
     """1〜3 を返す（該当なしは 3＝バランス型）。前回9/5・9/6試作の判定を関数化。"""
@@ -9280,6 +9415,14 @@ def _article_input_keys(store: str) -> list[str]:
     if store in _ART_COMMENT_STORES:
         for _s, _ in _ART_CMT_SECTIONS:
             keys += [f"art_comment_pick_{_s}_{store}", f"art_comment_{_s}_{store}"]
+        # 候補の複数チェック方式の店舗だけ、各候補のチェック状態も日付単位で保存する
+        # （D は常にON固定なので保存しない）。旧キーは上で従来どおり残す。
+        if store in _ART_CMT_CK_STORES:
+            for _s, _ in _ART_CMT_CK_SECTIONS:
+                if _s in _ART_CMT_CK_FIXED:
+                    continue
+                keys += [_art_cmt_ck_logical(_s, _i, store)
+                         for _i in range(1, len(_ART_CMT_CK_LABELS[_s]) + 1)]
     for i in range(_KOJIN_PICK_COUNT):
         keys += [f"art_kojin_pick_title_{i}_{store}", f"art_kojin_pick_bans_{i}_{store}"]
     # ★⑤オススメ機種の優秀台（タイトル・機種名・抽出条件）は **店舗単位** で
@@ -20025,6 +20168,18 @@ def show_auto_article_page() -> None:
                             # （渋谷新館の記事用のみ。他店舗は art_osusume_machines が空）
                             osusume_machines={m.strip() for m in art_osusume_machines if m.strip()},
                         )
+                        # 📝記事コメント（候補の複数チェック方式）用：並び各か所の「プラス台数」。
+                        # 結果テキストの並びの平均と同じ **補正前の差枚** で数える（読み取りのみ）。
+                        _art_nami_plus: "dict[tuple, int]" = {}
+                        if store in _ART_CMT_CK_STORES and _art_pr.get("nami_list"):
+                            try:
+                                _npdf, _npdr = _load_pipeline_df(_art_txl)
+                                for _nx in _art_pr.get("nami_list") or []:
+                                    _nbs = tuple(int(b) for b in (_nx.get("bans") or []))
+                                    _nsub = _npdf[_npdf["台番"].isin(set(_nbs))]
+                                    _art_nami_plus[_nbs] = int((_npdr.loc[_nsub.index] > 0).sum())
+                            except Exception:
+                                _art_nami_plus = {}
                         # 記事用の全台系・高配分は掲載台数に関係なく2倍で描く（合成側と共有）
                         _art_zh_fns = _art_zh_fn_set(
                             _art_pr.get("zen_dai_list"),
@@ -20715,7 +20870,9 @@ def show_auto_article_page() -> None:
                                            [h["name"] for h in _art_pr.get("high_ratio_list", [])
                                             if h.get("has_image")]),
                             "nami": [{"machine": x.get("machine"), "count": x.get("count"),
-                                      "avg_diff": x.get("avg_diff")}
+                                      "avg_diff": x.get("avg_diff"),
+                                      "plus": _art_nami_plus.get(
+                                          tuple(int(b) for b in (x.get("bans") or [])))}
                                      for x in _art_pr.get("nami_list", [])],
                             "retsu": [list(_b or []) for _b in _art_col_map.values()],
                             "sonota": (list(_art_cmt_son_manual) if _art_manual else
@@ -21173,6 +21330,7 @@ def show_auto_article_page() -> None:
         _cmt_di  = st.session_state.get(f"art_preview_diff_{store}")
         if _cmt_src is None or _cmt_df is None or _cmt_di is None:
             st.caption("🔍 プレビューを生成すると、その日の実データからコメント候補を作ります。")
+            st.session_state.pop(f"_art_cmt_ck_out_{store}", None)
         else:
             _f_zen = _art_cmt_facts_zendai(_cmt_df, _cmt_di,
                                            _cmt_src.get("zen_names"), _cmt_src.get("kojin_zen"))
@@ -21209,97 +21367,163 @@ def show_auto_article_page() -> None:
             if _cmt_manual:
                 st.caption("📝 記入部分のみモードのため、**プレビューへ実際に出た記入由来の"
                            "掲載内容だけ**から候補を作っています（自動抽出の機種は使いません）。")
-            st.caption("候補は公開記事の書き方ルールと当日の実データから自動生成しています"
-                       "（AIは使っていません）。★おすすめは目安で、**選ぶまでは未確定**です。"
-                       "　**選んで確定した最終文だけ**が WordPress 本文へ入ります。")
+            # ── 新宿歌舞伎町：候補の複数チェック方式（2026-10-05）──
+            if store in _ART_CMT_CK_STORES:
+                _ck_zen = list(_f_zen.get("stats") or [])
+                _ck_high = [m for m in (_cmt_machine_stat(_cmt_df, _cmt_di, _n)
+                                        for _n in (_f_high.get("machines") or [])) if m]
+                _ck_nami = [{"machine": (_x.get("machine") or "").strip(),
+                             "count": _x.get("count"),
+                             "avg": int(_x.get("avg_diff") or 0),
+                             "plus": _x.get("plus")}
+                            for _x in (_cmt_src.get("nami") or [])]
+                _ck_b2m = {}
+                try:
+                    for _cb, _cm in zip(_cmt_df["台番"], _cmt_df["機種名"]):
+                        _ck_b2m[int(str(_cb).split(".")[0])] = str(_cm or "").strip()
+                except Exception:
+                    _ck_b2m = {}
+                _ck_retsu = []
+                for _cbl in (_cmt_src.get("retsu") or []):
+                    for _cb in (_cbl or []):
+                        _cmn = _ck_b2m.get(int(_cb))
+                        if _cmn and _cmn not in _ck_retsu:
+                            _ck_retsu.append(_cmn)
+                _ck_cands = _art_ck_cands_all(_ck_zen, _ck_high, _ck_nami, _ck_retsu,
+                                              _f_osu, _f_oth, _f_sum)
+                if _cmt_empty:
+                    _ck_cands = {_k: [None] * len(_v) for _k, _v in _ck_cands.items()}
+                st.caption("候補は当日の実データから自動生成しています（AIは使っていません）。"
+                           "**チェックした候補だけ**が WordPress 本文へ入ります"
+                           "（同じカテゴリで複数チェックしたときは ①→②→③ の順）。")
+                _ck_out: "dict[str, str]" = {}
+                for _sec, _sec_name in _ART_CMT_CK_SECTIONS:
+                    _cs = _ck_cands[_sec]
+                    _lb = _ART_CMT_CK_LABELS[_sec]
+                    _use: "list[str]" = []
+                    with st.expander(f"📝 {_sec_name}", expanded=True):
+                        for _i, _lab in enumerate(_lb, start=1):
+                            _txt = _cs[_i - 1]
+                            if not _txt:
+                                st.checkbox(f"{_lab}：対象データなし", value=False,
+                                            disabled=True,
+                                            key=f"_art_ck_na_{store}_{_sec}_{_i}")
+                                continue
+                            if _sec in _ART_CMT_CK_FIXED:
+                                st.checkbox(f"{_lab}（常に掲載）", value=True, disabled=True,
+                                            key=f"_art_ck_fix_{store}_{_sec}_{_i}")
+                                _on = True
+                            else:
+                                _on = _art_chk(_lab, _art_cmt_ck_logical(_sec, _i, store),
+                                               default=False)
+                            st.text(_txt)
+                            if _on:
+                                _use.append(_txt)
+                    if _use:
+                        _ck_out[_ART_CMT_WP_KEYS[_sec]] = "\n".join(_use)
+                st.session_state[f"_art_cmt_ck_out_{store}"] = _ck_out
+                with st.expander("📄 WordPress掲載予定の文章（チェック済みの候補）", expanded=False):
+                    for _sec, _sec_name in _ART_CMT_CK_SECTIONS:
+                        _t = _ck_out.get(_ART_CMT_WP_KEYS[_sec])
+                        if _t:
+                            st.markdown(f"**{_sec_name}：掲載**")
+                            st.text(_t)
+                        else:
+                            st.caption(f"{_sec_name}：チェックが無いため掲載されません")
+                    st.caption(f"掲載予定 {len(_ck_out)} / {len(_ART_CMT_CK_SECTIONS)} カテゴリ。"
+                               "該当カテゴリの画像がその日に無い場合は文章も挿入されません。")
+            else:
+                st.caption("候補は公開記事の書き方ルールと当日の実データから自動生成しています"
+                           "（AIは使っていません）。★おすすめは目安で、**選ぶまでは未確定**です。"
+                           "　**選んで確定した最終文だけ**が WordPress 本文へ入ります。")
 
-            def _on_art_cmt_pick(_store, _pick_logical, _pick_wk, _txt_logical, _txt_wk,
-                                 _expected, _map) -> None:
-                """候補を選んだ**そのイベントのときだけ**最終文へコピーする。
+                def _on_art_cmt_pick(_store, _pick_logical, _pick_wk, _txt_logical, _txt_wk,
+                                     _expected, _map) -> None:
+                    """候補を選んだ**そのイベントのときだけ**最終文へコピーする。
 
-                ★rerun では呼ばれないので、人間が手修正した最終文を候補本文へ戻さない。
-                ★「選択してください」へ戻したときは最終文を触らない（消さない）。
-                """
-                if st.session_state.get("art_current_excel") != _expected:
-                    return
-                _sel = st.session_state.get(_pick_wk)
-                st.session_state[_pick_logical] = _sel
-                if _sel is not None and _sel != _ART_CMT_PICK_UNSET:
-                    _new = _map.get(_sel, "")
-                    st.session_state[_txt_wk] = _new
-                    st.session_state[_txt_logical] = _new
-                    st.session_state[_art_edited_key(_txt_wk)] = True
-                _save_article_inputs(_store, True)
+                    ★rerun では呼ばれないので、人間が手修正した最終文を候補本文へ戻さない。
+                    ★「選択してください」へ戻したときは最終文を触らない（消さない）。
+                    """
+                    if st.session_state.get("art_current_excel") != _expected:
+                        return
+                    _sel = st.session_state.get(_pick_wk)
+                    st.session_state[_pick_logical] = _sel
+                    if _sel is not None and _sel != _ART_CMT_PICK_UNSET:
+                        _new = _map.get(_sel, "")
+                        st.session_state[_txt_wk] = _new
+                        st.session_state[_txt_logical] = _new
+                        st.session_state[_art_edited_key(_txt_wk)] = True
+                    _save_article_inputs(_store, True)
 
-            for _sec, _sec_name in _ART_CMT_SECTIONS:
-                _f = _cmt_facts[_sec]
-                _pick_logical = f"art_comment_pick_{_sec}_{store}"
-                _txt_logical  = f"art_comment_{_sec}_{store}"
-                _pick_wk = _art_widget_key(_art_excel_w, _pick_logical)
-                _txt_wk  = _art_widget_key(_art_excel_w, _txt_logical)
-                _cs = _cmt_cands[_sec]
-                _lb = _ART_CMT_LABELS[_sec]
-                _opts = [_ART_CMT_PICK_UNSET] + list(_lb) + [_ART_CMT_PICK_NONE]
-                _map  = {_lb[_i]: _cs[_i] for _i in range(3)}
-                _map[_ART_CMT_PICK_NONE] = ""
-                _reco = _art_cmt_recommend(_sec, _f)
-                with st.expander(f"📝 {_sec_name}", expanded=False):
-                    if not any(_map.get(l) for l in _lb):
-                        st.caption("⑤オススメ優秀台の掲載対象がありません"
-                                   "（コメントなしで問題ありません）。"
-                                   if _sec == "D" else
-                                   "この日は対象データが無いため候補を作れません"
-                                   "（コメントなしで問題ありません）。")
-                    if _reco:
-                        st.markdown(f"★おすすめ：**{_ART_CMT_LABELS[_sec][_reco - 1]}**"
-                                    "　（表示のみ・自動では選ばれません）")
-                    _sv = _art_saved_value(_art_excel_w, store, _pick_logical, None)
-                    st.selectbox(
-                        "コメント候補", _opts, key=_pick_wk,
-                        index=(_opts.index(_sv) if _sv in _opts else 0),
-                        on_change=_on_art_cmt_pick,
-                        args=(store, _pick_logical, _pick_wk, _txt_logical, _txt_wk,
-                              _art_excel_w, _map))
-                    st.session_state[_pick_logical] = st.session_state.get(_pick_wk)
-                    with st.expander("候補を読む（3件）", expanded=False):
-                        for _i, _lab in enumerate(_lb):
-                            st.markdown(f"**{_lab}**")
-                            st.text(_cs[_i] or "（この日は候補なし）")
-                    with st.expander("使用データを見る", expanded=False):
-                        st.json(_art_cmt_facts_view(_sec, _f), expanded=False)
-                    _art_txt("最終文（WordPress掲載予定・編集できます）",
-                             _txt_logical, area=True, height=140,
-                             placeholder="候補を選ぶとここへコピーされます")
-
-            # ── WordPress掲載予定コメントの確認表示（画像へは焼き込まない）──
-            #    ★第2段階（2026-09-08）: ここで「掲載」と出たセクションだけが
-            #      WordPress 本文へ入る。未選択・コメントなし・空欄は掲載しない。
-            #      候補を強制選択させない（未選択でも⑧・下書き作成は実行できる）。
-            with st.expander("📄 WordPress掲載予定コメント（現在の最終文）", expanded=False):
-                _n_use = 0
                 for _sec, _sec_name in _ART_CMT_SECTIONS:
-                    _t = _art_comment_final_text(store, _sec)
-                    _p = _art_comment_pick(store, _sec)
-                    if _art_comment_is_enabled(store, _sec):
-                        _n_use += 1
-                        st.markdown(f"**{_sec} {_sec_name}：掲載**　`{_p}`")
-                        st.text(_t)
-                    elif _p == _ART_CMT_PICK_NONE:
-                        st.caption(f"{_sec} {_sec_name}：**掲載しない**"
-                                   "（「コメントを使用しない」を選択中）")
-                    elif _p in list(_ART_CMT_LABELS.get(_sec) or ()):
-                        st.caption(f"{_sec} {_sec_name}：**掲載しない**"
-                                   "（最終文が空欄のため掲載されません）")
-                    else:
-                        st.caption(f"{_sec} {_sec_name}：**未選択**のため"
-                                   "コメントは掲載されません")
-                st.caption(f"掲載予定 {_n_use} / {len(_ART_CMT_SECTIONS)} セクション。"
-                           "★おすすめは自動採用されません（選んだものだけが入ります）。")
-                st.info("WordPress本文へは、ここで「掲載」と表示された"
-                        "**確定済みの最終文だけ**が入ります"
-                        "（候補①②③の本文がそのまま入ることはありません）。"
-                        "該当セクションの画像がその日に生成されていない場合は、"
-                        "コメントも挿入されません。")
+                    _f = _cmt_facts[_sec]
+                    _pick_logical = f"art_comment_pick_{_sec}_{store}"
+                    _txt_logical  = f"art_comment_{_sec}_{store}"
+                    _pick_wk = _art_widget_key(_art_excel_w, _pick_logical)
+                    _txt_wk  = _art_widget_key(_art_excel_w, _txt_logical)
+                    _cs = _cmt_cands[_sec]
+                    _lb = _ART_CMT_LABELS[_sec]
+                    _opts = [_ART_CMT_PICK_UNSET] + list(_lb) + [_ART_CMT_PICK_NONE]
+                    _map  = {_lb[_i]: _cs[_i] for _i in range(3)}
+                    _map[_ART_CMT_PICK_NONE] = ""
+                    _reco = _art_cmt_recommend(_sec, _f)
+                    with st.expander(f"📝 {_sec_name}", expanded=False):
+                        if not any(_map.get(l) for l in _lb):
+                            st.caption("⑤オススメ優秀台の掲載対象がありません"
+                                       "（コメントなしで問題ありません）。"
+                                       if _sec == "D" else
+                                       "この日は対象データが無いため候補を作れません"
+                                       "（コメントなしで問題ありません）。")
+                        if _reco:
+                            st.markdown(f"★おすすめ：**{_ART_CMT_LABELS[_sec][_reco - 1]}**"
+                                        "　（表示のみ・自動では選ばれません）")
+                        _sv = _art_saved_value(_art_excel_w, store, _pick_logical, None)
+                        st.selectbox(
+                            "コメント候補", _opts, key=_pick_wk,
+                            index=(_opts.index(_sv) if _sv in _opts else 0),
+                            on_change=_on_art_cmt_pick,
+                            args=(store, _pick_logical, _pick_wk, _txt_logical, _txt_wk,
+                                  _art_excel_w, _map))
+                        st.session_state[_pick_logical] = st.session_state.get(_pick_wk)
+                        with st.expander("候補を読む（3件）", expanded=False):
+                            for _i, _lab in enumerate(_lb):
+                                st.markdown(f"**{_lab}**")
+                                st.text(_cs[_i] or "（この日は候補なし）")
+                        with st.expander("使用データを見る", expanded=False):
+                            st.json(_art_cmt_facts_view(_sec, _f), expanded=False)
+                        _art_txt("最終文（WordPress掲載予定・編集できます）",
+                                 _txt_logical, area=True, height=140,
+                                 placeholder="候補を選ぶとここへコピーされます")
+
+                # ── WordPress掲載予定コメントの確認表示（画像へは焼き込まない）──
+                #    ★第2段階（2026-09-08）: ここで「掲載」と出たセクションだけが
+                #      WordPress 本文へ入る。未選択・コメントなし・空欄は掲載しない。
+                #      候補を強制選択させない（未選択でも⑧・下書き作成は実行できる）。
+                with st.expander("📄 WordPress掲載予定コメント（現在の最終文）", expanded=False):
+                    _n_use = 0
+                    for _sec, _sec_name in _ART_CMT_SECTIONS:
+                        _t = _art_comment_final_text(store, _sec)
+                        _p = _art_comment_pick(store, _sec)
+                        if _art_comment_is_enabled(store, _sec):
+                            _n_use += 1
+                            st.markdown(f"**{_sec} {_sec_name}：掲載**　`{_p}`")
+                            st.text(_t)
+                        elif _p == _ART_CMT_PICK_NONE:
+                            st.caption(f"{_sec} {_sec_name}：**掲載しない**"
+                                       "（「コメントを使用しない」を選択中）")
+                        elif _p in list(_ART_CMT_LABELS.get(_sec) or ()):
+                            st.caption(f"{_sec} {_sec_name}：**掲載しない**"
+                                       "（最終文が空欄のため掲載されません）")
+                        else:
+                            st.caption(f"{_sec} {_sec_name}：**未選択**のため"
+                                       "コメントは掲載されません")
+                    st.caption(f"掲載予定 {_n_use} / {len(_ART_CMT_SECTIONS)} セクション。"
+                               "★おすすめは自動採用されません（選んだものだけが入ります）。")
+                    st.info("WordPress本文へは、ここで「掲載」と表示された"
+                            "**確定済みの最終文だけ**が入ります"
+                            "（候補①②③の本文がそのまま入ることはありません）。"
+                            "該当セクションの画像がその日に生成されていない場合は、"
+                            "コメントも挿入されません。")
 
     # ── ⑥ 実行ボタン ─────────────────────────────────────────────────
     # 見出しは全店舗共通で「{丸数字} 実行」。記事構成で採番する店舗（_art_v2）は

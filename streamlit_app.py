@@ -9111,10 +9111,11 @@ _ART_CMT_CK_LABELS: "dict[str, tuple[str, ...]]" = {
     "B": ("候補① 機種名と差枚数", "候補② 差枚数と機種名", "候補③ バランス型"),
     "S": ("候補① 平均差枚", "候補② 平均差枚＋最優秀台"),
     "C": ("候補① 機種名と箇所と平均差枚", "候補② 箇所", "候補③ 列がある場合"),
-    "D": ("候補 機種ごとのNo.1差枚",),
+    "D": ("候補① 機種名と出玉", "候補② ニブイチ系と出玉"),
     "E": ("候補① 機種名と出玉", "候補② 全体データ"),
 }
-_ART_CMT_CK_FIXED: "frozenset[str]" = frozenset({"D"})   # 常にON固定（OFFにできない）
+# 常にON固定のカテゴリ（2026-10-05 にオススメ機種も通常のチェック式へ変更し、現在は無し）
+_ART_CMT_CK_FIXED: "frozenset[str]" = frozenset()
 _ART_CMT_CK_OTHER_MIN = 8000        # E候補①に使う台（+8,000枚以上）
 _ART_CMT_CK_OSU_MAX = 3             # D に並べる機種数の上限
 _ART_CMT_CK_SHOW_MAX = 3            # 全台系・ニブイチ系の候補①②に並べる機種数の上限
@@ -9187,14 +9188,59 @@ def _art_ck_narabi_cands(items, retsu_macs) -> "list[str | None]":
     return [_c1, _c2, _c3]
 
 
-def _art_ck_osusume_cands(f_osu) -> "list[str | None]":
-    """オススメ機種（候補1つ）。⑤画像に実際に載った台の、機種ごとのNo.1差枚台。"""
-    _rows = [r for r in ((f_osu or {}).get("by_machine_max") or []) if int(r["diff"]) > 0]
-    _rows = _rows[:_ART_CMT_CK_OSU_MAX]
+def _art_osu_high_list(pr, osu_machines) -> "list[dict]":
+    """⑤入力機種のうち、既存判定でニブイチ系（高配分）になった機種 [{"name","avg"}]。
+
+    pipeline 結果の zen_dai_list → high_ratio_list → meta_only_list の順に先勝ちで種別を決める
+    （⑧の⑤H3平均表示と同じ順）。全台系(zen)に先に当たった機種は含めない。読み取り専用。
+    """
+    _osu = [str(m or "").strip() for m in (osu_machines or []) if str(m or "").strip()]
+    if not _osu or not pr:
+        return []
+    _kind: "dict[str, tuple]" = {}
+    for _kd, _it in ([("zen", _x) for _x in (pr.get("zen_dai_list") or [])]
+                     + [("high", _x) for _x in (pr.get("high_ratio_list") or [])]
+                     + [(str(_x.get("kind") or ""), _x) for _x in (pr.get("meta_only_list") or [])]):
+        _nm = str(_it.get("name") or "").strip()
+        if not _nm:
+            continue
+        try:
+            _av = int(_it.get("all_avg_diff", 0))
+        except Exception:
+            continue
+        for _k in (_nm, _art_osu_norm(_nm)):
+            if _k and _k not in _kind:
+                _kind[_k] = (_kd, _av)
+    _out, _seen = [], set()
+    for _m in _osu:
+        _hit = _kind.get(_m) or _kind.get(_art_osu_norm(_m))
+        if _hit and _hit[0] == "high" and _m not in _seen:
+            _seen.add(_m)
+            _out.append({"name": _m, "avg": _hit[1]})
+    return _out
+
+
+def _art_ck_osusume_cands(f_osu, osu_high=None) -> "list[str | None]":
+    """オススメ機種の候補①②。⑤画像に実際に載った台の、機種ごとのNo.1差枚台を使う。
+
+    osu_high: ⑤のうちニブイチ系と判定された機種 [{"name","avg"}]（既存の高配分判定の結果。
+              ⑤最優先で画像を作らない機種は pipeline の meta_only_list(kind=high) から取る）。
+              全台系はニブイチ系として扱わない。
+    """
+    _all = [r for r in ((f_osu or {}).get("by_machine_max") or [])]
+    _rows = [r for r in _all if int(r["diff"]) > 0][:_ART_CMT_CK_OSU_MAX]
+    _hi = sorted([h for h in (osu_high or []) if h.get("name")], key=lambda h: -int(h.get("avg") or 0))
+    _hi_names = list(dict.fromkeys(str(h["name"]) for h in _hi))
+    _back = next((r for r in _all if str(r["name"]) not in set(_hi_names)
+                  and int(r["diff"]) > 0), None)
+    _c2 = None
+    if _hi_names and _back:
+        _c2 = (f"オススメ機種は{'と'.join(_hi_names)}がニブイチ系！"
+               f"{_back['name']}の単品からも{_cmt_exact(_back['diff'])}の爆発台が出現！")
     if not _rows:
-        return [None]
+        return [None, _c2]
     return ['、'.join(str(r["name"]) + "から" + _cmt_exact(r["diff"]) for r in _rows)
-            + "と大量出玉を確認！"]
+            + "と大量出玉を確認！", _c2]
 
 
 def _art_ck_other_cands(f_oth, f_sum) -> "list[str | None]":
@@ -9275,14 +9321,15 @@ def _art_ck_sue_cands(rows) -> "list[str | None]":
 
 
 def _art_ck_cands_all(zen_stats, high_stats, nami_items, retsu_macs,
-                      f_osu, f_oth, f_sum, sue_rows=None) -> "dict[str, list[str | None]]":
+                      f_osu, f_oth, f_sum, sue_rows=None,
+                      osu_high=None) -> "dict[str, list[str | None]]":
     """新宿歌舞伎町用の全候補。None は「対象データなし」。"""
     return {
         "A": _art_ck_series_cands(zen_stats, "全台系"),
         "B": _art_ck_series_cands(high_stats, "ニブイチ系"),
         "S": _art_ck_sue_cands(sue_rows),
         "C": _art_ck_narabi_cands(nami_items, retsu_macs),
-        "D": _art_ck_osusume_cands(f_osu),
+        "D": _art_ck_osusume_cands(f_osu, osu_high),
         "E": _art_ck_other_cands(f_oth, f_sum),
     }
 
@@ -20230,6 +20277,9 @@ def show_auto_article_page() -> None:
                             # ⑤オススメ機種の優秀台へ載る台は「その他の優秀台」へ入れない
                             # （渋谷新館の記事用のみ。他店舗は art_osusume_machines が空）
                             osusume_machines={m.strip() for m in art_osusume_machines if m.strip()},
+                            # ⑤最優先で抑制した機種の全台系／ニブイチ系判定（⑧と同じ・読み取り専用）。
+                            # 記事コメント「オススメ機種」候補②だけが使う。画像・出力は変わらない。
+                            meta_only_machines=_art_osu_prio,
                         )
                         # 📝記事コメント（候補の複数チェック方式）用：並び各か所の「プラス台数」。
                         # 結果テキストの並びの平均と同じ **補正前の差枚** で数える（読み取りのみ）。
@@ -20956,6 +21006,10 @@ def show_auto_article_page() -> None:
                                 art_osusume_blocks, _art_osu_bans, _apdf),
                             "osu_names": sorted({m.strip() for m in art_osusume_machines
                                                  if (m or "").strip()}),
+                            # オススメ機種 候補②用：⑤のうちニブイチ系と判定された機種と平均。
+                            # ⑧の⑤H3と同じ「全台系→高配分→meta_only の先勝ち」で種別を決め、
+                            # 全台系はニブイチ系として扱わない。
+                            "osu_high": _art_osu_high_list(_art_pr, art_osusume_machines),
                         }
                     # 「未反映」判定用スナップショット（今回のプレビューへ反映済みの内容）
                     st.session_state[_art_unit_snap_key] = _unit_ex_snapshot(_art_unit_state)
@@ -21460,7 +21514,8 @@ def show_auto_article_page() -> None:
                             _ck_retsu.append(_cmn)
                 _ck_sue = _art_ck_sue_rows(_cmt_src.get("sue"), _cmt_df)
                 _ck_cands = _art_ck_cands_all(_ck_zen, _ck_high, _ck_nami, _ck_retsu,
-                                              _f_osu, _f_oth, _f_sum, sue_rows=_ck_sue)
+                                              _f_osu, _f_oth, _f_sum, sue_rows=_ck_sue,
+                                              osu_high=_cmt_src.get("osu_high"))
                 if _cmt_empty:
                     _ck_cands = {_k: ([None] * len(_v) if _k != "S" else _v)
                                  for _k, _v in _ck_cands.items()}

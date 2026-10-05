@@ -290,14 +290,7 @@
       ],
       "title": "月間オススメ ジャグラーシリーズ",
       "machine_name": "ジャグラー系",
-      "cell_machines": {
-        "4,6": [
-          "マイジャグV",
-          "ネオアイム",
-          "ファンキー2",
-          "ゴージャグ3"
-        ]
-      },
+      "cell_machines": {},
       "start_date": "2026-10-05",
       "blank_days": [
         false,

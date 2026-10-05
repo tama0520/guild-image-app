@@ -4655,6 +4655,11 @@ _ART_SUE_PINK_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 # 記事用📝記入部分のみで、④末尾画像へ実際に掲載された台番を「その他の優秀台」から
 # 除外する店舗（⑦プレビュー・⑧本番で同じ集合を使う）。
 _ART_MANUAL_SUE_EXC_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+# 記事用⑦で「その他の優秀台」を台番テキスト／自動抽出（_manual_sonota_auto_extract）へ
+# 差し替えるのを **📝記入部分のみのときだけ** にする店舗。🔍フルプレビューでは
+# 🔄その他を更新・⑧本番と同じパイプライン版（末尾条件の台・高配分・全台系を除外済み）を使う。
+_ART_SONOTA_MANUAL_ONLY_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 # 記事用📝の「ジャグラーシリーズ優秀台」（自動抽出）を正規化する店舗。
 #   ・②個別「全台」画像へ**実際に掲載した台番**をジャグラー自動抽出から除外する
 #   ・⑦📝でも⑧と同じく掲載台番を ban_map へ登録し、パネル＋表＋スランプにする
@@ -20281,7 +20286,9 @@ def show_auto_article_page() -> None:
                             _art_son_added = False
                             _art_son_fn = f"{_make_safe_fn(art_sonota_extra_title.strip() or 'その他の優秀台ピックアップ')}.jpg"
                             _art_son_bans: list[int] = []
-                            if _apdf is not None:
+                            # 🔍では⑧・🔄と同じパイプライン版を使う店舗（差し替えは📝のときだけ）
+                            if _apdf is not None and (_art_manual
+                                                      or store not in _ART_SONOTA_MANUAL_ONLY_STORES):
                                 if art_sonota_extra_text.strip():
                                     _se_bans_a = set(expand_machine_numbers(art_sonota_extra_text))
                                     if _se_bans_a:

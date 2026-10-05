@@ -8347,6 +8347,7 @@ _ART_CMT_D_REP = 3000     # ブロック代表台が「強い」と判定する�
 _ART_CMT_WP_KEYS: "dict[str, str]" = {
     "A": "zendai", "B": "high", "C": "narabi",
     "D": "osusume", "E": "other", "F": "summary",
+    "S": "suebangai",   # 末尾（新宿歌舞伎町の候補チェック方式だけ）
 }
 
 
@@ -9102,12 +9103,13 @@ def _art_cmt_cands_summary(f) -> "list[str]":
 #    facts）から取り、独自に再計算しない。
 _ART_CMT_CK_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 _ART_CMT_CK_SECTIONS: "tuple[tuple[str, str], ...]" = (
-    ("A", "全台系"), ("B", "ニブイチ系"), ("C", "並び"),
+    ("A", "全台系"), ("B", "ニブイチ系"), ("S", "末尾"), ("C", "並び"),
     ("D", "オススメ機種"), ("E", "その他の単品優秀台"),
 )
 _ART_CMT_CK_LABELS: "dict[str, tuple[str, ...]]" = {
     "A": ("候補① 機種名と差枚数", "候補② 差枚数と機種名", "候補③ バランス型"),
     "B": ("候補① 機種名と差枚数", "候補② 差枚数と機種名", "候補③ バランス型"),
+    "S": ("候補① 平均差枚", "候補② 平均差枚＋最優秀台"),
     "C": ("候補① 機種名と箇所と平均差枚", "候補② 箇所", "候補③ 列がある場合"),
     "D": ("候補 機種ごとのNo.1差枚",),
     "E": ("候補① 機種名と出玉", "候補② 全体データ"),
@@ -9217,12 +9219,68 @@ def _art_ck_other_cands(f_oth, f_sum) -> "list[str | None]":
     return [_c1, _c2]
 
 
+_ART_CMT_CK_CIRCLE = {"0": "⓪", "1": "①", "2": "②", "3": "③", "4": "④",
+                      "5": "⑤", "6": "⑥", "7": "⑦", "8": "⑧", "9": "⑨"}
+
+
+def _art_ck_sue_label(tail: str, is_juggler: bool) -> str:
+    """末尾画像のタイトルと同じ呼び方（_build_sue_images の _lbl_base と同じ規則）。"""
+    _t = str(tail or "").strip()
+    if _t == "ゾロ目":
+        return "ジャグラーの末尾ゾロ目番台" if is_juggler else "末尾ゾロ目の台"
+    _c = _ART_CMT_CK_CIRCLE.get(_t, _t)
+    return f"ジャグラーの末尾{_c}番台" if is_juggler else f"末尾{_c}番台"
+
+
+def _art_ck_sue_rows(sue_src, df) -> "list[dict]":
+    """末尾画像1枚ごとの集計。sue_src は _build_sue_images の出力（表示順）。
+
+    total / plus / avg ＝ stat_bans（末尾画像のピンクバーと同じ集計対象・補正後差枚）、
+    最優秀台 ＝ 画像へ実際に載った台（bans）のうち差枚が最も多い台。再抽出しない。
+    """
+    if df is None:
+        return []
+    _by: "dict[int, tuple[str, int]]" = {}
+    for _b, _nm, _d in zip(df["台番"], df["機種名"], df["差枚"]):
+        try:
+            _by[int(str(_b).split(".")[0])] = (str(_nm or "").strip(), int(_d))
+        except (TypeError, ValueError):
+            continue
+    _out: "list[dict]" = []
+    for _s in (sue_src or []):
+        _pub = [int(b) for b in (_s.get("bans") or [])]
+        if not _pub:
+            continue                  # 掲載0台で画像を作らなかった末尾は出さない
+        _st = [_by[int(b)][1] for b in (_s.get("stat_bans") or []) if int(b) in _by]
+        if not _st:
+            continue
+        _best = None
+        for _b in _pub:
+            if _b in _by and (_best is None or _by[_b][1] > _best["diff"]):
+                _best = {"ban": _b, "name": _by[_b][0], "diff": _by[_b][1]}
+        _out.append({"label": _art_ck_sue_label(_s.get("tail"), bool(_s.get("is_juggler"))),
+                     "total": len(_st), "plus": sum(1 for x in _st if x > 0),
+                     "avg": int(round(sum(_st) / len(_st))), "best": _best})
+    return _out
+
+
+def _art_ck_sue_cands(rows) -> "list[str | None]":
+    """末尾の候補①②。末尾が複数なら1末尾1文ずつ（表示順）。"""
+    _c1 = [f"{r['label']}は平均差枚{_cmt_exact(r['avg'])}で"
+           f"{_cmt_n(r['total'])}台中{_cmt_n(r['plus'])}台がプラス！" for r in (rows or [])]
+    _c2 = [f"{r['label']}は平均差枚{_cmt_exact(r['avg'])}で{_cmt_n(r['plus'])}台がプラス！"
+           f"{r['best']['ban']}番台の{r['best']['name']}は{_cmt_exact(r['best']['diff'])}！"
+           for r in (rows or []) if r.get("best") and r["best"].get("name")]
+    return ["\n".join(_c1) or None, "\n".join(_c2) or None]
+
+
 def _art_ck_cands_all(zen_stats, high_stats, nami_items, retsu_macs,
-                      f_osu, f_oth, f_sum) -> "dict[str, list[str | None]]":
+                      f_osu, f_oth, f_sum, sue_rows=None) -> "dict[str, list[str | None]]":
     """新宿歌舞伎町用の全候補。None は「対象データなし」。"""
     return {
         "A": _art_ck_series_cands(zen_stats, "全台系"),
         "B": _art_ck_series_cands(high_stats, "ニブイチ系"),
+        "S": _art_ck_sue_cands(sue_rows),
         "C": _art_ck_narabi_cands(nami_items, retsu_macs),
         "D": _art_ck_osusume_cands(f_osu),
         "E": _art_ck_other_cands(f_oth, f_sum),
@@ -20885,6 +20943,12 @@ def show_auto_article_page() -> None:
                                          "diff": e.get("diff")}
                                         for e in (_art_pr.get("sonota_excellent_list") or [])]),
                             "manual": bool(_art_manual),
+                            # 末尾コメント用：末尾画像1枚ごとの掲載台・集計対象台（画面の表示順）
+                            "sue": [{"tail": _sv.get("tail"),
+                                     "is_juggler": bool(_sv.get("is_juggler")),
+                                     "bans": list(_art_sue_ban.get(_sfn) or []),
+                                     "stat_bans": list(_art_sue_stat.get(_sfn) or [])}
+                                    for _sfn, _sv in _art_sue_src.items()],
                             "osu_plan": list(st.session_state.get(f"_art_osu_plan_{store}") or []),
                             # D⑤コメントの母集団＝⑤画像へ実際に掲載された台
                             # （_art_osusume_block_images() の bans をそのまま使う）
@@ -21394,10 +21458,12 @@ def show_auto_article_page() -> None:
                         _cmn = _ck_b2m.get(int(_cb))
                         if _cmn and _cmn not in _ck_retsu:
                             _ck_retsu.append(_cmn)
+                _ck_sue = _art_ck_sue_rows(_cmt_src.get("sue"), _cmt_df)
                 _ck_cands = _art_ck_cands_all(_ck_zen, _ck_high, _ck_nami, _ck_retsu,
-                                              _f_osu, _f_oth, _f_sum)
+                                              _f_osu, _f_oth, _f_sum, sue_rows=_ck_sue)
                 if _cmt_empty:
-                    _ck_cands = {_k: [None] * len(_v) for _k, _v in _ck_cands.items()}
+                    _ck_cands = {_k: ([None] * len(_v) if _k != "S" else _v)
+                                 for _k, _v in _ck_cands.items()}
                 st.caption("候補は当日の実データから自動生成しています（AIは使っていません）。"
                            "**チェックした候補だけ**が WordPress 本文へ入ります"
                            "（同じカテゴリで複数チェックしたときは ①→②→③ の順）。")

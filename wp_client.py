@@ -1076,6 +1076,7 @@ _CMT_NARABI  = "narabi"
 _CMT_OSUSUME = "osusume"
 _CMT_OTHER   = "other"
 _CMT_SUMMARY = "summary"
+_CMT_SUE     = "suebangai"   # 末尾（新宿歌舞伎町の記事用だけが渡す）
 
 
 def _comment_paras(payload: dict, key: str) -> "list[dict]":
@@ -1288,6 +1289,9 @@ def plan_blocks(payload: dict) -> list[dict]:
         plan.append({"type": "h2", "text": H2_SUEBANGAI})
         for fn in sue_files:
             plan.append({"type": "image", "file": fn, "label": f"末尾 {fn}"})
+        # 末尾コメントは **末尾画像の後に1回だけ**。payload["comments"] に
+        # "suebangai" を渡した店舗だけ入る（他店舗は1ブロックも変わらない）。
+        plan += _comment_paras(payload, _CMT_SUE)
 
     # ── 並び・列: H2 →（H3 + 画像）× 並び数 →（H3 + 画像）× 列数 ──
     #    列は渋谷新館の記事用にだけある。payload["retsu"] が無い店舗（高田馬場）は

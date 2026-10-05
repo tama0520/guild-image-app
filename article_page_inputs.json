@@ -4566,6 +4566,8 @@
     "art_comment_ck_E_1_新宿歌舞伎町": false,
     "art_comment_ck_E_2_新宿歌舞伎町": true,
     "art_comment_ck_S_1_新宿歌舞伎町": true,
-    "art_comment_ck_S_2_新宿歌舞伎町": false
+    "art_comment_ck_S_2_新宿歌舞伎町": false,
+    "art_comment_ck_D_1_新宿歌舞伎町": false,
+    "art_comment_ck_D_2_新宿歌舞伎町": true
   }
 }

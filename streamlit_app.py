@@ -20923,6 +20923,7 @@ def show_auto_article_page() -> None:
                         _anp = list(_art_auto_previews)
                         _aup = False
                         _upd_bm: dict[str, list[int]] = {}  # 更新画像の台番map（スランプ合成用）
+                        _aj_regen_new = False  # ジャグラー統合を新仕様（青バーなし・4分割）で作り直したか
                         def _bans_from_df(df: "pd.DataFrame") -> list[int]:
                             return [int(str(b).split(".")[0]) for b in df["台番"].dropna()
                                     if str(b).split(".")[0].lstrip("-").isdigit()]
@@ -20998,7 +20999,12 @@ def show_auto_article_page() -> None:
                                     for _si, (_sp, _) in enumerate(_art_auto_previews)
                                 )
                                 _ajt = "その他のジャグラーシリーズの優秀台" if _asto else "ジャグラーシリーズの優秀台"
-                                _aji = _build_machine_img(_ajc, _ajt, None)
+                                if _art_jug_regen_on(store) and not st.session_state.get(
+                                        f"_art_prev_manual_{store}", False):
+                                    _aji = _art_jug_regen_img(store, _ajc)
+                                    _aj_regen_new = True
+                                else:
+                                    _aji = _build_machine_img(_ajc, _ajt, None)
                                 _upd_bm["ジャグラーシリーズ優秀台.jpg"] = _bans_from_df(_ajc)
                                 for _ji, (_jn, _) in enumerate(_anp):
                                     if _jn == "ジャグラーシリーズ優秀台.jpg":
@@ -21076,7 +21082,8 @@ def show_auto_article_page() -> None:
                                                         is_multi=_is_multi_u,
                                                         # 列仕掛けも並びと同じパネル選定ルールへ
                                                         narabi_like=_art_is_narabi_fn(_bare_u),
-                                                        max_panels=_art_panel_max(store, _bare_u))
+                                                        max_panels=(4 if (_aj_regen_new and _bare_u == _ART_JUG_FN)
+                                                                    else _art_panel_max(store, _bare_u)))
                                                 # 高解像度対象（その他／ジャグラー統合）はスランプも2倍で描画
                                                 _hq_u = _art_hq_scale_for(
                                                     re.sub(r"^\d{2}_", "", _fn_u),
@@ -21988,6 +21995,7 @@ def show_auto_article_page() -> None:
 
             # ── プレビューでチェックを外した画像を削除・再生成 ────────────
             _art_aprev_imgs = st.session_state.get(f"art_preview_imgs_{store}")
+            _arj_regen_bans_e = None  # 新仕様で作り直したジャグラー統合の掲載台（ban_map・4分割用）
             if _art_aprev_imgs and result["ok"]:
                 _ardf   = result.get("df")
                 _ardr   = result.get("diff_raw")
@@ -22078,7 +22086,23 @@ def show_auto_article_page() -> None:
                     _arjp    = os.path.join(output_dir, "ジャグラーシリーズ優秀台.jpg")
                     _arjexb  = {it["ban"] for it in result.get("jug_excellent_list", [])}
                     _arjbase = [_ardf[_ardf["台番"].apply(lambda b: int(b) in _arjexb)].copy().reset_index(drop=True)] if _arjexb else []
+                    _arj_new = _art_jug_regen_on(store) and not _art_exec_manual
+                    if _arj_new:
+                        # 🔄その他を更新と同じ組み立て（統合プール優先・末尾台と🎯OFF台を除外）
+                        _arjpool = result.get("jug_pool_df")
+                        if _arjpool is not None and not _arjpool.empty:
+                            _arjbase = [_arjpool.copy()]
                     _arjcomb = pd.concat(_arjbase + _arjdfs, ignore_index=True)
+                    if _arj_new:
+                        _arj_tb = (_art_tail_bans(_ardf, _sue_tails_art)
+                                   | _art_tail_bans(_ardf, _jug_sue_tails_art))
+                        if _arj_tb:
+                            _arjcomb = _arjcomb[~_arjcomb["台番"].apply(int).isin(_arj_tb)].copy()
+                        _arj_ex = _art_unit_state_e.get("art_juggler") or {}
+                        if _arj_ex:
+                            _arjcomb = _arjcomb[~_arjcomb.apply(
+                                lambda _r: int(_r["台番"]) in (_arj_ex.get(str(_r["機種名"])) or set()),
+                                axis=1).values].copy()
                     _arjcomb = _arjcomb.iloc[_arjcomb["台番"].argsort()].reset_index(drop=True)
                     if len(_arjcomb) <= 5:
                         # 5台以下 → overflowと同じ扱い: その他の優秀台ピックアップへ
@@ -22096,7 +22120,14 @@ def show_auto_article_page() -> None:
                     else:
                         _arjhkj  = any(m.strip() in _arjss for m in (kojin_zentai_machines + kojin_yushu_machines) if m.strip())
                         _arjt    = "その他のジャグラーシリーズの優秀台" if _arjhkj else "ジャグラーシリーズの優秀台"
-                        _save_jpeg(_build_machine_img(_arjcomb, _arjt, None), _arjp, target_kb=800)
+                        if _arj_new:
+                            _arj_img = _art_jug_regen_img(store, _arjcomb)
+                            _save_jpeg(_arj_img, _arjp,
+                                       target_kb=(_ART_HQ_TARGET_KB if _art_hq_scale_for(
+                                           _ART_JUG_FN, store, len(_arjcomb)) > 1.0 else 800))
+                            _arj_regen_bans_e = [int(b) for b in _arjcomb["台番"].tolist()]
+                        else:
+                            _save_jpeg(_build_machine_img(_arjcomb, _arjt, None), _arjp, target_kb=800)
                         _log(f"  ✅ ジャグラーシリーズ優秀台再生成: {len(_arjcomb)}台")
 
             # ── スランプグラフ合成（記事用）────────────────────────────────
@@ -22151,6 +22182,9 @@ def show_auto_article_page() -> None:
                     _art_bm_sl[_man_son_fn_e] = _man_son_bans_e
                 if _man_jug_bans_e:
                     _art_bm_sl["ジャグラーシリーズ優秀台.jpg"] = _man_jug_bans_e
+                # 作り直したジャグラー統合は、実際に表へ載せた台番でスランプを付ける
+                if _arj_regen_bans_e:
+                    _art_bm_sl[_ART_JUG_FN] = _arj_regen_bans_e
                 # 並び・列の ban_map。
                 # _ART_NARABI_BANMAP_STORES の店舗だけ、⑦プレビューが残した
                 # session_state のスナップショットではなく **現在の入力値から再計算**する。
@@ -22277,7 +22311,8 @@ def show_auto_article_page() -> None:
                                         is_multi=_is_multi_sl or _osu_multi_sl,
                                         # 列仕掛けも並びと同じパネル選定ルールへ
                                         narabi_like=_art_is_narabi_fn(_bare_sl),
-                                        max_panels=_art_panel_max(store, _bare_sl))
+                                        max_panels=(4 if (_arj_regen_bans_e and _bare_sl == _ART_JUG_FN)
+                                                    else _art_panel_max(store, _bare_sl)))
                                     if _mn_sl is not None and not _pok_sl:
                                         _art_missing_panels.add(_mn_sl)
                                 # 高解像度対象（その他／ジャグラー統合）はスランプも2倍で描画
@@ -27487,6 +27522,26 @@ _ART_JUG_PANEL2_STORES: "frozenset[str]" = frozenset({"渋谷新館", "新宿歌
 # ★`_ART_JUG_PANEL2_STORES`（ジャグラー統合画像用）とは **別仕様。統合しない。**
 # ★表・スランプ・掲載台・抽出条件は減らさない（減るのは上部のパネル枚数だけ）。
 _ART_OSU_PANEL2_STORES: "frozenset[str]" = frozenset({"渋谷新館", "新宿歌舞伎町"})
+
+
+# 記事用で、⑦後に個別ジャグラー画像をチェックOFFして 🔄その他を更新／⑧が
+# **作り直す**「ジャグラーシリーズ優秀台.jpg」を、初回の自動抽出と同じ
+# 「青タイトルバーなし・高解像度」で描き、パネルは「その他の優秀台」と同じ
+# 既存の4分割（最大4・_build_variety_panel_grid）にする店舗。
+# 初回生成（作り直しなし）の画像は従来どおり（_art_panel_max の上限2）。
+_ART_JUG_REGEN_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+_ART_JUG_FN = "ジャグラーシリーズ優秀台.jpg"
+
+
+def _art_jug_regen_on(store: str) -> bool:
+    """作り直したジャグラー統合画像を新仕様（青バーなし・4分割）で描く店舗か。"""
+    return store in _ART_JUG_REGEN_STORES
+
+
+def _art_jug_regen_img(store: str, df: "pd.DataFrame") -> "Image.Image":
+    """作り直すジャグラー統合画像の表。初回（run_step2_juggler の article_mode）と同じ描画。"""
+    return _build_machine_img_no_bar(
+        df, hq_scale=_art_hq_scale_for(_ART_JUG_FN, store, len(df)))
 
 
 def _art_panel_max(store: str, bare_fn: str) -> int:

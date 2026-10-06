@@ -6167,12 +6167,22 @@ def format_result_memo_sections(
     return "\n".join(lines).rstrip(), missing
 
 
+# 結果ポスト用の結果テキストを「はにぃポスト結果考察」の固定構成で出す店舗。
+# 見出し・🍯機種名（画像を作った機種数）・📍×3・画像を作った機種の結果・💬・🔍 だけを出力する。
+_HONEY_POST_RESULT_STORES: "frozenset[str]" = frozenset({"新大久保"})
+# はにぃポスト結果テキスト内だけの機種表示名（元データ名・画像名・変換マスタは変えない）。
+_HONEY_POST_NAME_ALIASES: "dict[str, str]" = {"喰霊零Re": "喰霊零"}
+
+
 def insert_formatted_result_before_other_picks(
     result_text: str, formatted_text: str, store_name: str = ""
 ) -> str:
     """formatted_text を「{e2}その他の優秀台」直前に挿入して返す。
     新小岩は「{e2}優秀機種」（旧「全台系濃厚機種」）の前に挿入する。"""
     if not formatted_text.strip():
+        return result_text
+    # 固定構成の店舗は⑤・素材メモなどの追加ブロックを差し込まない
+    if store_name in _HONEY_POST_RESULT_STORES:
         return result_text
     e2 = STORE_EMOJI_CONFIG.get(store_name, ("💫", "👑"))[1]
     if store_name == "新小岩":
@@ -7051,6 +7061,32 @@ def generate_report_text(
     # 既存店舗は _other_display_name() が None を返し、従来経路のまま。
     store_display = (_other_display_name(store_name)
                      or _STORE_DISPLAY_NAMES.get(store_name, f"エスパス{store_name}"))
+    if store_name in _HONEY_POST_RESULT_STORES:
+        # 固定構成：見出し → 🍯機種名×画像を作った機種数 → 📍×3
+        #          → 画像を作った機種の結果 → 💬 → 空行2 → 🔍。
+        # 画像を作っていない高配分項目（has_image=False）と(1/2台)降格は出さない。
+        # 並びは全台系・高配分をまとめて平均差枚の多い順（同値は機種名＝画像名の昇順）。
+        # 🍯の行と結果ブロックは同じリストから作るので順序が必ず一致する。
+        _hp_items = (
+            [(it, int(it.get("all_avg_diff", 0)))
+             for it in zen_dai_list if it.get("name") not in _hide_sum]
+            + [(it, _high_avg_of(it)) for it in high_ratio_list
+               if it.get("has_image", True) is not False
+               and it["name"] not in _demoted_names
+               and it["name"] not in _hide_sum])
+        _hp_items.sort(key=lambda p: (-p[1], _make_safe_fn(str(p[0].get("name", "")))))
+        _hp_items = [({**it, "name": _HONEY_POST_NAME_ALIASES.get(it["name"], it["name"])}, avg)
+                     for it, avg in _hp_items]
+        _hp_blocks = ["\n".join(_result_summary_lines(it, avg, _avg_show_thr))
+                      for it, avg in _hp_items]
+        _hp = [header, store_display, "", "🐝はにぃポスト結果考察🐝", ""]
+        if _hp_items:
+            _hp += [f"🍯{it['name']}" for it, _ in _hp_items] + [""]
+        _hp += ["📍", "📍", "📍", ""]
+        if _hp_blocks:
+            _hp += ["\n\n".join(_hp_blocks), ""]
+        _hp += ["💬", "", "", "🔍"]
+        return "\n".join(_hp)
     parts = [
         header,
         store_display,

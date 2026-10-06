@@ -5378,7 +5378,7 @@ def run_step1_main(
                     "all_avg_diff": int(round(dr_all.mean())),
                 })
             continue
-        title = machine.replace('\uff65', '\u30fb')
+        title = _img_title_name(machine)
         if article_mode:
             # 記事用: 全台系は掲載台数に関係なく最初から2倍解像度で描画（zh_hq_scale）
             _zh1 = _pipeline_zh_hq(zh_hq_scale, hq_scale, len(grp))
@@ -5402,6 +5402,7 @@ def run_step1_main(
         log(f"  {machine}（{len(dr_m)}台）")
         zen_dai_list.append({
             "name":         machine,
+            "img_name":     title,   # 画像タイトルに使った機種名表記（結果テキストと共通化）
             "count":        int((dr_m > 0).sum()),
             "total":        total_raw,
             "diffs":        sorted([int(d) for d in dr_m.tolist() if int(d) >= 1000], reverse=True),
@@ -5558,7 +5559,7 @@ def run_step2_juggler(
                     img = _art_high_title_bar(img, hq_scale=_zhj)
             else:
                 _zhj = _pipeline_hq(hq_scale, len(_img_j))
-                img = _build_machine_img(_img_j, machine.replace('･', '・') + "（優秀台）", None)
+                img = _build_machine_img(_img_j, _img_title_name(machine) + "（優秀台）", None)
             out   = os.path.join(output_dir, f"{_make_safe_fn(machine)}_高配分.jpg")
             _save_jpeg(img, out, **({"target_kb": _ART_HQ_TARGET_KB}
                                     if _zhj > 1.0 else {}))
@@ -5566,6 +5567,7 @@ def run_step2_juggler(
             log(f"  {machine} 高配分: {len(_img_j)}台")
             high_ratio_list.append({
                 "name":       machine,
+                "img_name":   _img_title_name(machine),   # 画像タイトルと共通の機種名表記
                 "count":      count_orig,
                 "total":      total_orig,
                 "diffs":      sorted([int(d) for d in _img_dr_j.tolist() if int(d) >= 1000], reverse=True),
@@ -5934,7 +5936,7 @@ def run_step3_other(
                         img = _art_high_title_bar(img, hq_scale=_zho)
                 else:
                     _zho = _pipeline_hq(hq_scale, len(_img_o))
-                    img = _build_machine_img(_img_o, machine.replace('･', '・') + "（優秀台）", None)
+                    img = _build_machine_img(_img_o, _img_title_name(machine) + "（優秀台）", None)
                 out   = os.path.join(output_dir, f"{_make_safe_fn(machine)}_高配分.jpg")
                 _save_jpeg(img, out, **({"target_kb": _ART_HQ_TARGET_KB}
                                         if _zho > 1.0 else {}))
@@ -5942,6 +5944,7 @@ def run_step3_other(
                 log(f"  {machine}: {len(_img_o)}/{total}台")
                 high_ratio_list.append({
                     "name":         machine,
+                    "img_name":     _img_title_name(machine),   # 画像タイトルと共通の機種名表記
                     "count":        int((dr_m > 0).sum()),
                     "total":        total,
                     "diffs":        sorted([int(d) for d in _img_dr_o.tolist() if int(d) >= 1000], reverse=True),
@@ -6170,8 +6173,13 @@ def format_result_memo_sections(
 # 結果ポスト用の結果テキストを「はにぃポスト結果考察」の固定構成で出す店舗。
 # 見出し・🍯機種名（画像を作った機種数）・📍×3・画像を作った機種の結果・💬・🔍 だけを出力する。
 _HONEY_POST_RESULT_STORES: "frozenset[str]" = frozenset({"新大久保"})
-# はにぃポスト結果テキスト内だけの機種表示名（元データ名・画像名・変換マスタは変えない）。
-_HONEY_POST_NAME_ALIASES: "dict[str, str]" = {"喰霊零Re": "喰霊零"}
+
+
+def _img_title_name(machine: str) -> str:
+    """自動生成画像（全台系・高配分）のタイトルに使う機種名表記。
+    半角中黒「･」だけを全角「・」へ直す（従来の画像タイトルと同一）。
+    画像タイトルと結果テキストの機種名を一致させるため、両方でこの関数を使う。"""
+    return str(machine).replace("\uff65", "\u30fb")
 
 
 def insert_formatted_result_before_other_picks(
@@ -7075,7 +7083,9 @@ def generate_report_text(
                and it["name"] not in _demoted_names
                and it["name"] not in _hide_sum])
         _hp_items.sort(key=lambda p: (-p[1], _make_safe_fn(str(p[0].get("name", "")))))
-        _hp_items = [({**it, "name": _HONEY_POST_NAME_ALIASES.get(it["name"], it["name"])}, avg)
+        # 機種名は画像タイトルに使った表記をそのまま使う（img_name。無ければ name＝
+        # ②個別画像など name がそのまま画像タイトルの経路）。結果テキストだけの置換はしない。
+        _hp_items = [({**it, "name": it.get("img_name") or it["name"]}, avg)
                      for it, avg in _hp_items]
         _hp_blocks = ["\n".join(_result_summary_lines(it, avg, _avg_show_thr))
                       for it, avg in _hp_items]

@@ -3328,15 +3328,15 @@ _SP_STORE_ORDER: "tuple[str, ...]" = (
     "新宿歌舞伎町", "秋葉原", "上野本館", "上野新館", "新小岩", "渋谷新館", "新大久保",
     "高田馬場", "赤坂見附", "西武新宿", "溝の口本館", "溝の口新館", "稲毛",
 )
-# 「おすすめ」ボタンだけの薄い紫（PC・スマホ共通）。
+# スマホ用トップの「おすすめ」ボタン（sp_store_osusume_top）だけの薄い紫。
+# PC／タブレット用の「おすすめ」（store_osusume_top）には色指定をかけず、他店舗と同じ白のまま。
 _OSU_TOP_BTN_CSS = (
     "<style>"
-    ".st-key-store_osusume_top button,.st-key-sp_store_osusume_top button{"
+    ".st-key-sp_store_osusume_top button{"
     "background:#EFE6FA!important;border-color:#C7B4DD!important;color:#3D1A6E!important;}"
-    ".st-key-store_osusume_top button:hover,.st-key-sp_store_osusume_top button:hover{"
+    ".st-key-sp_store_osusume_top button:hover{"
     "background:#E3D4F5!important;border-color:#A98BD0!important;color:#3D1A6E!important;}"
-    ".st-key-store_osusume_top button:active,.st-key-sp_store_osusume_top button:active,"
-    ".st-key-store_osusume_top button:focus,.st-key-sp_store_osusume_top button:focus{"
+    ".st-key-sp_store_osusume_top button:active,.st-key-sp_store_osusume_top button:focus{"
     "background:#D8C6EF!important;border-color:#A98BD0!important;color:#3D1A6E!important;}"
     # PC用・スマホ用のトップメニューを幅で出し分ける（DOMの並べ替えはしない）
     ".st-key-store_menu_sp{display:none!important;}"

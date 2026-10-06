@@ -3321,31 +3321,85 @@ def show_osusume_top_page() -> None:
         st.code(_osu_top_text(_day, _order, _order2), language=None)
 
 
+# スマホ幅（既存のスマホ用CSSと同じ max-width:640px）だけで使うトップの並び。
+# PC／タブレット幅は従来の4列（STORES 順）のまま。遷移先は _store_menu_go() で共通化する。
+_SP_MENU_BREAKPOINT = 640
+_SP_STORE_ORDER: "tuple[str, ...]" = (
+    "新宿歌舞伎町", "秋葉原", "上野本館", "上野新館", "新小岩", "渋谷新館", "新大久保",
+    "高田馬場", "赤坂見附", "西武新宿", "溝の口本館", "溝の口新館", "稲毛",
+)
+# 「おすすめ」ボタンだけの薄い紫（PC・スマホ共通）。
+_OSU_TOP_BTN_CSS = (
+    "<style>"
+    ".st-key-store_osusume_top button,.st-key-sp_store_osusume_top button{"
+    "background:#EFE6FA!important;border-color:#C7B4DD!important;color:#3D1A6E!important;}"
+    ".st-key-store_osusume_top button:hover,.st-key-sp_store_osusume_top button:hover{"
+    "background:#E3D4F5!important;border-color:#A98BD0!important;color:#3D1A6E!important;}"
+    ".st-key-store_osusume_top button:active,.st-key-sp_store_osusume_top button:active,"
+    ".st-key-store_osusume_top button:focus,.st-key-sp_store_osusume_top button:focus{"
+    "background:#D8C6EF!important;border-color:#A98BD0!important;color:#3D1A6E!important;}"
+    # PC用・スマホ用のトップメニューを幅で出し分ける（DOMの並べ替えはしない）
+    ".st-key-store_menu_sp{display:none!important;}"
+    f"@media (max-width:{_SP_MENU_BREAKPOINT}px){{"
+    ".st-key-store_menu_pc{display:none!important;}"
+    ".st-key-store_menu_sp{display:flex!important;}}"
+    "</style>"
+)
+
+
+def _store_menu_go(target: str) -> None:
+    """トップメニューの遷移先（PC用・スマホ用で共通）。target は店舗名／"other"／"osusume_top"。"""
+    if target == "other":
+        _navigate("other")
+    elif target == "osusume_top":
+        _navigate("osusume_top")
+    else:
+        _navigate("image_type", store=target)
+
+
 def show_store_page() -> None:
     """画面1: 店舗選択"""
     st.markdown("---")
-
-    # 4列固定で並べる
     store_list = list(STORES.keys())
-    cols       = st.columns(4)
+    _has_other = bool(_load_other_stores())
 
-    for i, store in enumerate(store_list):
-        with cols[i % len(cols)]:
-            if st.button(store, key=f"store_{store}", use_container_width=True):
-                _navigate("image_type", store=store)
+    # ── PC／タブレット幅：従来どおり4列固定（並び・キーは変更しない） ──
+    with st.container(key="store_menu_pc"):
+        cols = st.columns(4)
 
-    # 既存13店舗の次に「その他」（エスパス以外）を1つだけ追加する。
-    # 既存の店舗ボタン・並び・キーは一切変更しない。
-    if _load_other_stores():
-        with cols[len(store_list) % len(cols)]:
-            if st.button("その他", key="store_other", use_container_width=True):
-                _navigate("other")
+        for i, store in enumerate(store_list):
+            with cols[i % len(cols)]:
+                if st.button(store, key=f"store_{store}", use_container_width=True):
+                    _store_menu_go(store)
 
-    # 「その他」の直後に「おすすめ」（スプレッドシートからおすすめ店舗を抽出）。
-    _osu_idx = len(store_list) + (1 if _load_other_stores() else 0)
-    with cols[_osu_idx % len(cols)]:
-        if st.button("おすすめ", key="store_osusume_top", use_container_width=True):
-            _navigate("osusume_top")
+        # 既存13店舗の次に「その他」（エスパス以外）を1つだけ追加する。
+        # 既存の店舗ボタン・並び・キーは一切変更しない。
+        if _has_other:
+            with cols[len(store_list) % len(cols)]:
+                if st.button("その他", key="store_other", use_container_width=True):
+                    _store_menu_go("other")
+
+        # 「その他」の直後に「おすすめ」（スプレッドシートからおすすめ店舗を抽出）。
+        _osu_idx = len(store_list) + (1 if _has_other else 0)
+        with cols[_osu_idx % len(cols)]:
+            if st.button("おすすめ", key="store_osusume_top", use_container_width=True):
+                _store_menu_go("osusume_top")
+
+    # ── スマホ幅：おすすめ → 指定順の店舗 → その他 を1列で ──
+    with st.container(key="store_menu_sp"):
+        # CSS はこの（PC幅では非表示の）コンテナ内に置き、PC幅のレイアウトに余白を増やさない。
+        # <style> は非表示要素の中でもページ全体へ効く。
+        st.markdown(_OSU_TOP_BTN_CSS, unsafe_allow_html=True)
+        if st.button("おすすめ", key="sp_store_osusume_top", use_container_width=True):
+            _store_menu_go("osusume_top")
+        _sp_stores = [_s for _s in _SP_STORE_ORDER if _s in STORES]
+        _sp_stores += [_s for _s in store_list if _s not in _sp_stores]   # 想定外の店舗は末尾へ
+        for store in _sp_stores:
+            if st.button(store, key=f"sp_store_{store}", use_container_width=True):
+                _store_menu_go(store)
+        if _has_other:
+            if st.button("その他", key="sp_store_other", use_container_width=True):
+                _store_menu_go("other")
 
 
 def show_other_store_page() -> None:

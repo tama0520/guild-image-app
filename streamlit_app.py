@@ -2989,21 +2989,245 @@ def _osu_top_extract(rows: list, col: int) -> list:
         _s["row"]))
 
 
-def _osu_top_text(day: datetime.date, names: list) -> str:
-    return f"{day.month}/{day.day}のおすすめです\n\n" + "\n".join(names)
+# ── 追加の2タブ（取材・来店スケジュール） ─────────────────────
+# 参照元（読み取り専用。共有設定「リンクを知っている全員・閲覧者」の CSV エクスポートを読む）:
+#   https://docs.google.com/spreadsheets/d/11XhABCZJr5a5PBg91ZaXz36bBavyfyGPT4t42wImPWY/edit?gid=2112181980
+#   https://docs.google.com/spreadsheets/d/11XhABCZJr5a5PBg91ZaXz36bBavyfyGPT4t42wImPWY/edit?gid=603219537
+# シート構造の前提（2026-10 の実データで確認）:
+#   - 見出し行（タブ①=3行目／タブ②=2行目）の A列が「日付」。列位置はタブで違うため
+#     見出しの「ホール」「都道府県」（セル内改行は除いて照合）から列を探す。
+#       タブ①: A=日付 / D=都道府県 / E=ホール   タブ②: A=日付 / B=ホール / D=都道府県
+#   - 日付は「10/1(木)」の文字列（年なし・曜日付き）。年は選択日の年とみなし、
+#     曜日が書かれていれば選択日の曜日とも一致するものだけを採る（年違いの誤一致を防ぐ）。
+#     「2026/10/1」「2026-10-01 0:00:00」のような年付き・日時形式は日付部分で照合する。
+#   - 同じ日付の行が複数続く（1行=1店舗）。系列・住所の列はないので系列は店名の先頭から判定する。
+_OSU_EXTRA_SHEET_ID = "11XhABCZJr5a5PBg91ZaXz36bBavyfyGPT4t42wImPWY"
+_OSU_EXTRA_TABS: "tuple[tuple[str, str], ...]" = (   # (表示名, gid)。この順＝タブ①→タブ②
+    ("タブ①", "2112181980"),
+    ("タブ②", "603219537"),
+)
+_OSU_EXTRA_HEAD_SCAN = 10          # 見出し行を探す先頭行数
+_OSU_EXTRA_H_DATE = "日付"
+_OSU_EXTRA_H_HALL = "ホール"
+_OSU_EXTRA_H_PREF = "都道府県"
+# 系列判定（店名の先頭一致・長いものから判定）。ここにない店名は「単独系列」。
+_OSU_EXTRA_SERIES_TOP = "マルハン"   # 最優先の系列
+_OSU_EXTRA_SERIES_PREFIX: "tuple[tuple[str, tuple[str, ...]], ...]" = (
+    ("マルハン", ("マルハン",)),
+    ("エスパス", ("エスパス",)),
+    ("PIA", ("PIA",)),
+    ("SAP", ("SAP",)),
+    ("ピーアーク", ("ピーアーク",)),
+    ("トワーズ", ("トワーズ",)),
+    ("ラカータ", ("ラカータ",)),          # 「ラ・カータ」は正規化で「ラカータ」になる
+    ("パラッツォ", ("パラッツォ",)),
+    ("楽園", ("楽園",)),
+    ("ガイア", ("ガイアネクスト", "ガイア", "メガガイア")),
+    ("BIGディッパー", ("BIGディッパー",)),
+    ("PSブランド", ("PSブランド",)),
+    ("ウエスタン", ("ウエスタン",)),
+    ("エクスアリーナ", ("エクスアリーナ",)),
+    ("ゴードン", ("ゴードン",)),
+    ("ジアス", ("ジアス",)),
+    ("ヒロキ", ("ヒロキ",)),
+    ("ミュー", ("ミュー",)),
+    ("第一プラザ", ("第一プラザ",)),
+    ("ガーデン", ("ガーデン",)),          # 「新！ガーデン」は正規化で「ガーデン」になる
+    ("アスカ", ("アスカ",)),
+)
+# 2タブ側の店名をエスパス側の表記へ寄せる（同一店舗）。キーは空白を除いた店名。
+_OSU_EXTRA_NAME_ALIASES: "dict[str, str]" = {
+    "エスパス稲毛新館": "エスパス稲毛",
+}
+# 2タブ側の店名の先頭だけを置き換える（途中に同じ文字列があっても置換しない）。
+_OSU_EXTRA_NAME_PREFIX_REPL: "tuple[tuple[str, str], ...]" = (
+    ("新！ガーデン", "ガーデン"),     # 新！ガーデン亀戸 → ガーデン亀戸
+    ("ラ・カータ", "ラカータ"),       # ラ・カータ狭山本店 → ラカータ狭山本店
+)
+# 都道府県セルに関係なく東京扱いにする地名（店名に含まれていれば東京）。
+_OSU_EXTRA_TOKYO_WORDS: "tuple[str, ...]" = ("恵比寿",)
+# 系列内の都県順。ここにない都道府県・空欄は最後。
+_OSU_EXTRA_PREF_ORDER: "tuple[str, ...]" = ("東京", "神奈川", "埼玉", "千葉")
+_OSU_EXTRA_DATE_RE = re.compile(
+    r"^\s*(?:(\d{4})\s*[/\-.年]\s*)?(\d{1,2})\s*[/\-.月]\s*(\d{1,2})\s*日?\s*(?:[（(]\s*([月火水木金土日])\s*[)）])?")
+_OSU_WEEKDAYS = "月火水木金土日"
 
 
-def _osu_top_move(i: int, delta: int) -> None:
-    _o = list(st.session_state.get("_osu_top_order", []))
+@st.cache_data(ttl=300, show_spinner=False)
+def _osu_top_fetch_csv(url: str) -> list:
+    """任意の CSV URL を GET して行リストを返す（成功時だけ5分キャッシュ）。"""
+    import csv as _csv
+    import requests as _rq
+    try:
+        _r = _rq.get(url, timeout=_OSU_TOP_TIMEOUT)
+    except _rq.exceptions.Timeout:
+        raise _OsuTopError(f"スプレッドシートへの接続がタイムアウトしました（{_OSU_TOP_TIMEOUT}秒）。")
+    except _rq.exceptions.RequestException as _e:
+        raise _OsuTopError(f"スプレッドシートへ接続できませんでした（{type(_e).__name__}）。")
+    if _r.status_code != 200:
+        raise _OsuTopError(
+            f"スプレッドシートを取得できませんでした（HTTP {_r.status_code}）。"
+            "共有設定（リンクを知っている全員・閲覧者）が外れた可能性があります。")
+    if "text/csv" not in (_r.headers.get("Content-Type") or ""):
+        raise _OsuTopError("スプレッドシートが CSV 以外の形式を返しました（共有設定を確認してください）。")
+    try:
+        _txt = _r.content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise _OsuTopError("スプレッドシートの文字コードを読み取れませんでした。")
+    return [list(_row) for _row in _csv.reader(io.StringIO(_txt))]
+
+
+def _osu_extra_url(gid: str) -> str:
+    return (f"https://docs.google.com/spreadsheets/d/{_OSU_EXTRA_SHEET_ID}/export"
+            f"?format=csv&gid={gid}")
+
+
+def _osu_name_key(name: str) -> str:
+    """重複判定用の店名キー（前後・途中の半角／全角空白の差を吸収）。"""
+    return re.sub(r"[\s\u3000]+", "", str(name or ""))
+
+
+def _osu_extra_date_match(text: str, day: datetime.date) -> bool:
+    """A列の日付文字列が選択日と一致するか（年なしは月日＋曜日で照合）。"""
+    _m = _OSU_EXTRA_DATE_RE.match(str(text or ""))
+    if not _m:
+        return False
+    _y, _mo, _d, _wd = _m.group(1), int(_m.group(2)), int(_m.group(3)), _m.group(4)
+    if (_mo, _d) != (day.month, day.day):
+        return False
+    if _y and int(_y) != day.year:
+        return False
+    if _wd and _OSU_WEEKDAYS[day.weekday()] != _wd:
+        return False
+    return True
+
+
+def _osu_extra_cols(rows: list) -> "tuple[int, int, int]":
+    """見出し行の位置と ホール・都道府県 の列（0始まり）を返す。"""
+    _norm = lambda _c: re.sub(r"[\s\u3000]+", "", str(_c or ""))
+    for _ri, _row in enumerate(rows[:_OSU_EXTRA_HEAD_SCAN]):
+        _h = [_norm(_c) for _c in _row]
+        if _h and _h[0] == _OSU_EXTRA_H_DATE and _OSU_EXTRA_H_HALL in _h:
+            _pc = _h.index(_OSU_EXTRA_H_PREF) if _OSU_EXTRA_H_PREF in _h else -1
+            return _ri, _h.index(_OSU_EXTRA_H_HALL), _pc
+    raise _OsuTopError("見出し行（日付・ホール）が見つかりませんでした。シートの構成が変わった可能性があります。")
+
+
+def _osu_extra_extract(rows: list, day: datetime.date, tab_idx: int) -> list:
+    """選択日の行から店舗を返す。[{"name","pref","tab","row"}, …]（店名空欄は除く）。"""
+    _hr, _hc, _pc = _osu_extra_cols(rows)
+    _out = []
+    for _ri in range(_hr + 1, len(rows)):
+        _row = rows[_ri]
+        if not _row or not _osu_extra_date_match(_row[0], day):
+            continue
+        _nm = (_row[_hc] if _hc < len(_row) else "").strip()
+        if not _nm:
+            continue
+        _nm = _osu_extra_norm_name(_nm)
+        _pf = (_row[_pc] if 0 <= _pc < len(_row) else "").strip()
+        _out.append({"name": _nm, "pref": _pf, "tab": tab_idx, "row": _ri + 1})
+    return _out
+
+
+def _osu_extra_series(name: str) -> str:
+    """店名から系列を返す（定義外は店名そのもの＝単独系列）。"""
+    _n = str(name or "").strip()
+    _best = None
+    for _ser, _pres in _OSU_EXTRA_SERIES_PREFIX:
+        for _p in _pres:
+            if _n.startswith(_p) and (_best is None or len(_p) > _best[1]):
+                _best = (_ser, len(_p))
+    return _best[0] if _best else f"単独:{_n}"
+
+
+def _osu_extra_norm_name(name: str) -> str:
+    """2タブ側の店名を正規化する（表示・重複除去・系列判定・並び順すべてに使う）。"""
+    _nm = str(name or "").strip()
+    _nm = _OSU_EXTRA_NAME_ALIASES.get(_osu_name_key(_nm), _nm)
+    for _old, _new in _OSU_EXTRA_NAME_PREFIX_REPL:
+        if _nm.startswith(_old):
+            _nm = _new + _nm[len(_old):]
+            break
+    return _nm
+
+
+def _osu_extra_pref_rank(pref: str, name: str = "") -> int:
+    if any(_w in str(name or "") for _w in _OSU_EXTRA_TOKYO_WORDS):
+        return 0   # 東京
+    _p = str(pref or "")
+    for _i, _k in enumerate(_OSU_EXTRA_PREF_ORDER):
+        if _p.startswith(_k):
+            return _i
+    return len(_OSU_EXTRA_PREF_ORDER)
+
+
+def _osu_extra_merge(hits: list, exclude_keys: "set[str]") -> list:
+    """タブ内・タブ間の重複とエスパス一覧との重複を除き、初期順に並べる。
+    初期順（系列はひとかたまり）:
+      1. マルハン系列 → 2. 抽出店舗数の多い系列
+      3. 同数の系列（単独系列を含む）どうしは、系列内で最も優先度の高い都県
+         （東京→神奈川→埼玉→千葉→その他・不明）で比較
+      4. 系列内の店舗も同じ都県順
+      5. すべて同じならタブ①→タブ②→シート行順（系列どうしは最初に出た位置）。"""
+    _seen = set(exclude_keys)
+    _uniq = []
+    for _h in sorted(hits, key=lambda _x: (_x["tab"], _x["row"])):
+        _k = _osu_name_key(_h["name"])
+        if not _k or _k in _seen:
+            continue
+        _seen.add(_k)
+        _uniq.append(dict(_h, series=_osu_extra_series(_h["name"]),
+                          prank=_osu_extra_pref_rank(_h["pref"], _h["name"])))
+    _cnt: dict = {}
+    _first: dict = {}
+    _best: dict = {}
+    for _pos, _h in enumerate(_uniq):
+        _sr = _h["series"]
+        _cnt[_sr] = _cnt.get(_sr, 0) + 1
+        _first.setdefault(_sr, _pos)
+        _best[_sr] = min(_best.get(_sr, _h["prank"]), _h["prank"])
+    return sorted(_uniq, key=lambda _h: (
+        0 if _h["series"] == _OSU_EXTRA_SERIES_TOP else 1,
+        -_cnt[_h["series"]],
+        _best[_h["series"]],
+        _first[_h["series"]],
+        _h["prank"],
+        _h["tab"], _h["row"]))
+
+
+def _osu_top_text(day: datetime.date, names: list, extra: "list | tuple" = ()) -> str:
+    """完成テキスト。見出しの後に空行1行、以降はエスパス一覧に続けて追加店舗を空行なしで並べる。"""
+    return f"{day.month}/{day.day}のおすすめです\n\n" + "\n".join(list(names) + list(extra))
+
+
+def _osu_top_move(i: int, delta: int, key: str = "_osu_top_order") -> None:
+    _o = list(st.session_state.get(key, []))
     _j = i + delta
     if 0 <= i < len(_o) and 0 <= _j < len(_o):
         _o[i], _o[_j] = _o[_j], _o[i]
-        st.session_state["_osu_top_order"] = _o
+        st.session_state[key] = _o
 
 
 def _osu_top_refetch() -> None:
     _osu_top_fetch_rows.clear()
+    _osu_top_fetch_csv.clear()
     st.session_state.pop("_osu_top_order_key", None)
+    st.session_state.pop("_osu_top_order2_key", None)
+
+
+def _osu_top_list(order: list, key: str, btn: str, start: int = 1) -> None:
+    """並べ替えリスト（▲／▼ ボタン付き）。"""
+    _n = len(order)
+    for _i, _nm in enumerate(order):
+        with st.container(border=True):
+            st.markdown(f"**{_i + start}. {_nm}**")
+            # st.columns はスマホ幅で縦に積まれるため、横並びコンテナで常に1行にする。
+            with st.container(horizontal=True):
+                st.button("▲ 上へ", key=f"_osu_top_up{btn}_{_i}", width="stretch",
+                          disabled=(_i == 0), on_click=_osu_top_move, args=(_i, -1, key))
+                st.button("▼ 下へ", key=f"_osu_top_dn{btn}_{_i}", width="stretch",
+                          disabled=(_i == _n - 1), on_click=_osu_top_move, args=(_i, 1, key))
 
 
 def show_osusume_top_page() -> None:
@@ -3017,52 +3241,81 @@ def show_osusume_top_page() -> None:
     st.button("🔄 シートを再取得", key="_osu_top_refetch_btn", on_click=_osu_top_refetch)
     if not _day:
         return
+    _failed = False
+
+    # ── エスパス（既存シート） ──
+    _names: list = []
     try:
         with st.spinner("スプレッドシートを読み込んでいます…"):
             _rows = _osu_top_fetch_rows()
         _col = _osu_top_date_col(_rows, _day)
+        if _col is None:
+            st.warning(f"⚠️ エスパスのシートに {_day.month}/{_day.day} の日付列がありません"
+                       f"（シートの対象月: {_osu_top_sheet_month(_rows) or '不明'}）。")
+        else:
+            _names = [_s["name"] for _s in _osu_top_extract(_rows, _col)]
     except _OsuTopError as _e:
-        st.error(f"❌ {_e}")
-        return
+        st.error(f"❌ エスパス: {_e}")
+        _failed = True
     except Exception as _e:   # 想定外の構造でもページ全体は落とさない
-        st.error(f"❌ スプレッドシートの読み取りに失敗しました（{type(_e).__name__}）。")
-        return
-    if _col is None:
-        st.warning(f"⚠️ シートに {_day.month}/{_day.day} の日付列がありません"
-                   f"（シートの対象月: {_osu_top_sheet_month(_rows) or '不明'}）。")
-        return
-    _hits = _osu_top_extract(_rows, _col)
-    if not _hits:
-        st.info(f"{_day.month}/{_day.day} のおすすめ対象店舗はありません。")
+        st.error(f"❌ エスパス: スプレッドシートの読み取りに失敗しました（{type(_e).__name__}）。")
+        _failed = True
+
+    # ── 追加の2タブ ──
+    _ex_hits: list = []
+    for _ti, (_tlabel, _gid) in enumerate(_OSU_EXTRA_TABS):
+        try:
+            with st.spinner(f"{_tlabel} を読み込んでいます…"):
+                _xr = _osu_top_fetch_csv(_osu_extra_url(_gid))
+            _ex_hits += _osu_extra_extract(_xr, _day, _ti)
+        except _OsuTopError as _e:
+            st.error(f"❌ {_tlabel}: {_e}")
+            _failed = True
+        except Exception as _e:
+            st.error(f"❌ {_tlabel}: スプレッドシートの読み取りに失敗しました（{type(_e).__name__}）。")
+            _failed = True
+    _ex_names = [_h["name"] for _h in
+                 _osu_extra_merge(_ex_hits, {_osu_name_key(_n) for _n in _names})]
+
+    if not _names and not _ex_names:
+        if not _failed:
+            st.info(f"{_day.month}/{_day.day} のおすすめ対象店舗はありません。")
         return
 
-    _names = [_s["name"] for _s in _hits]
-    _key = (_day.isoformat(), tuple(_names))
-    if st.session_state.get("_osu_top_order_key") != _key:   # 日付変更・再抽出で初期順へ戻す
-        st.session_state["_osu_top_order_key"] = _key
-        st.session_state["_osu_top_order"] = list(_names)
+    # 日付変更・再抽出で初期順へ戻す（並べ替えは画面内だけで保持）
+    for _sk, _lst in (("_osu_top_order", _names), ("_osu_top_order2", _ex_names)):
+        _key = (_day.isoformat(), tuple(_lst))
+        if st.session_state.get(f"{_sk}_key") != _key:
+            st.session_state[f"{_sk}_key"] = _key
+            st.session_state[_sk] = list(_lst)
     _order = list(st.session_state.get("_osu_top_order", _names))
+    _order2 = list(st.session_state.get("_osu_top_order2", _ex_names))
 
-    st.markdown(f"#### {_day.month}/{_day.day} のおすすめ店舗（{len(_order)}店舗）")
+    st.markdown(f"#### {_day.month}/{_day.day} のおすすめ店舗"
+                f"（{len(_order) + len(_order2)}店舗）")
     st.caption("▲／▼ で順番を入れ替えられます。")
-    _n = len(_order)
-    for _i, _nm in enumerate(_order):
-        with st.container(border=True):
-            st.markdown(f"**{_i + 1}. {_nm}**")
-            # st.columns はスマホ幅で縦に積まれるため、横並びコンテナで常に1行にする。
-            with st.container(horizontal=True):
-                st.button("▲ 上へ", key=f"_osu_top_up_{_i}", width="stretch",
-                          disabled=(_i == 0), on_click=_osu_top_move, args=(_i, -1))
-                st.button("▼ 下へ", key=f"_osu_top_dn_{_i}", width="stretch",
-                          disabled=(_i == _n - 1), on_click=_osu_top_move, args=(_i, 1))
+    st.markdown(f"**エスパス（{len(_order)}店舗）**")
+    if _order:
+        _osu_top_list(_order, "_osu_top_order", "")
+    else:
+        st.caption("エスパスの対象店舗はありません。")
+    st.markdown(f"**取材・来店の店舗（{len(_order2)}店舗）**")
+    if _order2:
+        _osu_top_list(_order2, "_osu_top_order2", "2", start=len(_order) + 1)
+    else:
+        st.caption("取材・来店の対象店舗はありません。")
 
     st.markdown("---")
+    if _failed:
+        st.warning("⚠️ 読み取りに失敗したシートがあるため、テキストは作成できません。"
+                   "「🔄 シートを再取得」を試してください。")
+        return
     if st.button("📝 テキストを作成", key="_osu_top_make", type="primary",
                  use_container_width=True):
         st.session_state["_osu_top_show"] = True
     if st.session_state.get("_osu_top_show"):
         st.caption("右上のアイコンでコピーできます。")
-        st.code(_osu_top_text(_day, _order), language=None)
+        st.code(_osu_top_text(_day, _order, _order2), language=None)
 
 
 def show_store_page() -> None:

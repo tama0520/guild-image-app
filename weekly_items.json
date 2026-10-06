@@ -1007,8 +1007,8 @@
         ],
         "2026-10-06": [
           true,
-          false,
-          false,
+          true,
+          true,
           false,
           false,
           false,

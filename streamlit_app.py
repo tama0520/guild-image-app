@@ -2830,6 +2830,241 @@ def img_to_bytes(img: Image.Image) -> bytes:
     return buf.getvalue()
 
 
+# ══════════════════════════════════════════════════════════════
+# 「おすすめ」ページ（Googleスプレッドシートから選択日のおすすめ店舗を抽出）
+# ══════════════════════════════════════════════════════════════
+# 参照元（読み取り専用。書き込み・編集は一切しない）:
+#   https://docs.google.com/spreadsheets/d/1SyJsgBjMx1qVTB-kRElonqrPyowj85VfOOH8HXqQtCw/edit?gid=482501502
+#   共有設定「リンクを知っている全員・閲覧者」を前提に、同じスプレッドシートIDとgidの
+#   CSVエクスポート（/export?format=csv&gid=…）を認証なしの GET で読む。
+#   「ウェブに公開」のURLは使わない。共有設定が外れると HTTP 401（ログイン画面）になる。
+#
+# シート構造の前提（2026-10 の公開CSVで確認）:
+#   - 1行目: B1 = "2026年10月"（年月）／ C1〜AG1 = "1日"〜"31日"（日付は文字列）
+#   - 2行目: 曜日
+#   - 3〜94行目: エスパス13店舗。各店舗は B列に「エスパス…・×／・〇」を持つ見出し行から始まり、
+#     以降 B列 = ②③④⑤⑥（店舗により空欄・「何の日」）と「カリスマ・天下無双・SSなど」が続く。
+#     原則1店舗7行だが **稲毛だけ ⑦ 行を持つ8行（87〜94行）** なので、7行固定では区切らず
+#     「B列にエスパスを含む見出し行」から次の見出し行の直前（最後の店舗は94行目）までを1店舗とする。
+#     94行目より下（96行目以降の「全体予想」・他店舗の表）は読まない。
+#   - 日付セルの値: 主に丸数字（①②④⑤⑥⑦）。ほかにイベント名・メモ文字列。
+#   - 分類: セル値の丸数字 → なければ B列の丸数字 → 見出し行は① → それ以外は「数字なし」。
+#   - 初期表示順: 分類を ①→②→③→⑥→④→⑤→⑦→数字なし の順（⑥は④⑤より先）、
+#     同じ分類内は _OSU_TOP_STORE_ORDER の固定店舗順。未知のエスパス店舗は既知13店舗の後ろにシート順。
+_OSU_TOP_SHEET_ID = "1SyJsgBjMx1qVTB-kRElonqrPyowj85VfOOH8HXqQtCw"
+_OSU_TOP_SHEET_GID = "482501502"
+_OSU_TOP_SHEET_EDIT_URL = (
+    f"https://docs.google.com/spreadsheets/d/{_OSU_TOP_SHEET_ID}/edit?gid={_OSU_TOP_SHEET_GID}")
+_OSU_TOP_CSV_URL = (
+    f"https://docs.google.com/spreadsheets/d/{_OSU_TOP_SHEET_ID}/export"
+    f"?format=csv&gid={_OSU_TOP_SHEET_GID}")
+_OSU_TOP_TIMEOUT = 20
+_OSU_TOP_HEADER_ROW = 1          # 1始まり。B1=年月／C1〜AG1=日
+_OSU_TOP_ROW_START = 3           # エスパス店舗データの先頭行（1始まり・含む）
+_OSU_TOP_ROW_END = 94            # エスパス店舗データの末尾行（1始まり・含む）
+_OSU_TOP_COL_NAME = 1            # B列（0始まり）
+_OSU_TOP_COL_START = 2           # C列（0始まり）
+_OSU_TOP_COL_END = 32            # AG列（0始まり・含む）
+_OSU_TOP_STORE_MARK = "エスパス"   # 見出し行（店舗名行）の判定
+_OSU_TOP_RANKS = "①②③⑥④⑤⑦"   # この順で優先（⑥は④⑤より先）。含まれない場合は「数字なし」
+# 同じ分類内の店舗順（シート上の店名表記そのまま。並び替えの順位にだけ使う）。
+_OSU_TOP_STORE_ORDER: "tuple[str, ...]" = (
+    "エスパス 新宿 歌舞伎 町",
+    "エスパス秋葉原",
+    "エスパス上野新館",
+    "エスパス上野本館",
+    "エスパス新小岩",
+    "エスパス渋谷新館",
+    "エスパス新大久保",
+    "エスパス高田馬場",
+    "エスパス赤坂見附",
+    "エスパス西武新宿",
+    "エスパス溝の口本館",
+    "エスパス溝の口新館",
+    "エスパス稲毛",
+)
+_OSU_TOP_NO_RANK = len(_OSU_TOP_RANKS)
+_OSU_TOP_CIRCLED_RE = re.compile(r"[①-⑳]")
+# 店舗名末尾の「・×」「・〇」等（全角/半角の中黒・前後空白も許容）だけを外す。
+_OSU_TOP_SUFFIX_RE = re.compile(r"\s*[・･]\s*[×✕xX〇○◯]\s*$")
+
+
+class _OsuTopError(Exception):
+    """おすすめページのシート取得・解析エラー（ユーザー向け文面）。"""
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _osu_top_fetch_rows() -> list:
+    """公開CSVを GET して行リストを返す（成功時だけ5分キャッシュ。失敗は例外＝キャッシュしない）。"""
+    import csv as _csv
+    import requests as _rq
+    try:
+        _r = _rq.get(_OSU_TOP_CSV_URL, timeout=_OSU_TOP_TIMEOUT)
+    except _rq.exceptions.Timeout:
+        raise _OsuTopError(f"スプレッドシートへの接続がタイムアウトしました（{_OSU_TOP_TIMEOUT}秒）。")
+    except _rq.exceptions.RequestException as _e:
+        raise _OsuTopError(f"スプレッドシートへ接続できませんでした（{type(_e).__name__}）。")
+    if _r.status_code != 200:
+        raise _OsuTopError(
+            f"スプレッドシートを取得できませんでした（HTTP {_r.status_code}）。"
+            "共有設定（リンクを知っている全員・閲覧者）が外れた可能性があります。")
+    if "text/csv" not in (_r.headers.get("Content-Type") or ""):
+        raise _OsuTopError("スプレッドシートが CSV 以外の形式を返しました（共有設定を確認してください）。")
+    try:
+        _txt = _r.content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise _OsuTopError("スプレッドシートの文字コードを読み取れませんでした。")
+    return [list(_row) for _row in _csv.reader(io.StringIO(_txt))]
+
+
+def _osu_top_cell(rows: list, r1: int, c0: int) -> str:
+    """1始まり行・0始まり列のセル値（範囲外は空文字）。"""
+    if r1 - 1 >= len(rows):
+        return ""
+    _row = rows[r1 - 1]
+    return str(_row[c0]) if c0 < len(_row) else ""
+
+
+def _osu_top_rank_of(text: str) -> "int | None":
+    """文字列に含まれる最初の丸数字の順位（_OSU_TOP_RANKS の位置／それ以外の丸数字は数字なし扱い）。"""
+    _m = _OSU_TOP_CIRCLED_RE.search(text or "")
+    if not _m:
+        return None
+    _i = _OSU_TOP_RANKS.find(_m.group(0))
+    return _i if _i >= 0 else _OSU_TOP_NO_RANK
+
+
+def _osu_top_store_name(label: str) -> str:
+    """B列の見出しから店舗名部分だけを返す（末尾の「・×」「・〇」だけ外す・表記は変えない）。"""
+    return _OSU_TOP_SUFFIX_RE.sub("", str(label or "")).rstrip()
+
+
+def _osu_top_date_col(rows: list, day: datetime.date) -> "int | None":
+    """選択日と一致する日付列（0始まり）。年月が違う・該当列がなければ None。"""
+    _ym = re.search(r"(\d{4})\s*年\s*(\d{1,2})\s*月",
+                    _osu_top_cell(rows, _OSU_TOP_HEADER_ROW, _OSU_TOP_COL_NAME))
+    if not _ym:
+        raise _OsuTopError("シートの年月（B1）を読み取れませんでした。シートの構成が変わった可能性があります。")
+    if (int(_ym.group(1)), int(_ym.group(2))) != (day.year, day.month):
+        return None
+    for _c in range(_OSU_TOP_COL_START, _OSU_TOP_COL_END + 1):
+        _d = re.fullmatch(r"\s*(\d{1,2})\s*日\s*", _osu_top_cell(rows, _OSU_TOP_HEADER_ROW, _c))
+        if _d and int(_d.group(1)) == day.day:
+            return _c
+    return None
+
+
+def _osu_top_sheet_month(rows: list) -> str:
+    return _osu_top_cell(rows, _OSU_TOP_HEADER_ROW, _OSU_TOP_COL_NAME).strip()
+
+
+def _osu_top_extract(rows: list, col: int) -> list:
+    """選択日の列に値がある店舗を初期優先順で返す。[{"name","rank","row"}, …]"""
+    _found: list = []
+    _cur = None
+    for _r in range(_OSU_TOP_ROW_START, _OSU_TOP_ROW_END + 1):
+        _label = _osu_top_cell(rows, _r, _OSU_TOP_COL_NAME)
+        _is_head = _OSU_TOP_STORE_MARK in _label
+        if _is_head:
+            _cur = {"name": _osu_top_store_name(_label), "row": _r, "rank": None}
+            _found.append(_cur)
+        if _cur is None:
+            continue
+        _val = _osu_top_cell(rows, _r, col)
+        if not _val.strip():
+            continue
+        _rk = _osu_top_rank_of(_val)
+        if _rk is None:
+            _rk = _osu_top_rank_of(_label) if not _is_head else 0
+        if _rk is None:
+            _rk = _OSU_TOP_NO_RANK
+        if _cur["rank"] is None or _rk < _cur["rank"]:
+            _cur["rank"] = _rk
+    _hits = [_s for _s in _found if _s["rank"] is not None]
+    _n_known = len(_OSU_TOP_STORE_ORDER)
+    # 分類 → 固定店舗順 → （未知の店舗は既知13店舗の後ろに）シート順
+    return sorted(_hits, key=lambda _s: (
+        _s["rank"],
+        _OSU_TOP_STORE_ORDER.index(_s["name"]) if _s["name"] in _OSU_TOP_STORE_ORDER else _n_known,
+        _s["row"]))
+
+
+def _osu_top_text(day: datetime.date, names: list) -> str:
+    return f"{day.month}/{day.day}のおすすめです\n\n" + "\n".join(names)
+
+
+def _osu_top_move(i: int, delta: int) -> None:
+    _o = list(st.session_state.get("_osu_top_order", []))
+    _j = i + delta
+    if 0 <= i < len(_o) and 0 <= _j < len(_o):
+        _o[i], _o[_j] = _o[_j], _o[i]
+        st.session_state["_osu_top_order"] = _o
+
+
+def _osu_top_refetch() -> None:
+    _osu_top_fetch_rows.clear()
+    st.session_state.pop("_osu_top_order_key", None)
+
+
+def show_osusume_top_page() -> None:
+    """画面: おすすめ（選択日のおすすめ店舗を並べ替えて投稿用テキストを作る）。
+    状態は session_state（_osu_top_*）だけに持ち、JSON へは保存しない。"""
+    st.markdown("## 【おすすめ】")
+    st.caption("スプレッドシート（閲覧のみ）から、選んだ日のおすすめ店舗を抽出します。")
+    st.markdown("---")
+    _day = st.date_input("日付を選択", value=datetime.date.today(),
+                         format="YYYY/MM/DD", key="_osu_top_date")
+    st.button("🔄 シートを再取得", key="_osu_top_refetch_btn", on_click=_osu_top_refetch)
+    if not _day:
+        return
+    try:
+        with st.spinner("スプレッドシートを読み込んでいます…"):
+            _rows = _osu_top_fetch_rows()
+        _col = _osu_top_date_col(_rows, _day)
+    except _OsuTopError as _e:
+        st.error(f"❌ {_e}")
+        return
+    except Exception as _e:   # 想定外の構造でもページ全体は落とさない
+        st.error(f"❌ スプレッドシートの読み取りに失敗しました（{type(_e).__name__}）。")
+        return
+    if _col is None:
+        st.warning(f"⚠️ シートに {_day.month}/{_day.day} の日付列がありません"
+                   f"（シートの対象月: {_osu_top_sheet_month(_rows) or '不明'}）。")
+        return
+    _hits = _osu_top_extract(_rows, _col)
+    if not _hits:
+        st.info(f"{_day.month}/{_day.day} のおすすめ対象店舗はありません。")
+        return
+
+    _names = [_s["name"] for _s in _hits]
+    _key = (_day.isoformat(), tuple(_names))
+    if st.session_state.get("_osu_top_order_key") != _key:   # 日付変更・再抽出で初期順へ戻す
+        st.session_state["_osu_top_order_key"] = _key
+        st.session_state["_osu_top_order"] = list(_names)
+    _order = list(st.session_state.get("_osu_top_order", _names))
+
+    st.markdown(f"#### {_day.month}/{_day.day} のおすすめ店舗（{len(_order)}店舗）")
+    st.caption("▲／▼ で順番を入れ替えられます。")
+    _n = len(_order)
+    for _i, _nm in enumerate(_order):
+        with st.container(border=True):
+            st.markdown(f"**{_i + 1}. {_nm}**")
+            # st.columns はスマホ幅で縦に積まれるため、横並びコンテナで常に1行にする。
+            with st.container(horizontal=True):
+                st.button("▲ 上へ", key=f"_osu_top_up_{_i}", width="stretch",
+                          disabled=(_i == 0), on_click=_osu_top_move, args=(_i, -1))
+                st.button("▼ 下へ", key=f"_osu_top_dn_{_i}", width="stretch",
+                          disabled=(_i == _n - 1), on_click=_osu_top_move, args=(_i, 1))
+
+    st.markdown("---")
+    if st.button("📝 テキストを作成", key="_osu_top_make", type="primary",
+                 use_container_width=True):
+        st.session_state["_osu_top_show"] = True
+    if st.session_state.get("_osu_top_show"):
+        st.caption("右上のアイコンでコピーできます。")
+        st.code(_osu_top_text(_day, _order), language=None)
+
+
 def show_store_page() -> None:
     """画面1: 店舗選択"""
     st.markdown("---")
@@ -2849,6 +3084,12 @@ def show_store_page() -> None:
         with cols[len(store_list) % len(cols)]:
             if st.button("その他", key="store_other", use_container_width=True):
                 _navigate("other")
+
+    # 「その他」の直後に「おすすめ」（スプレッドシートからおすすめ店舗を抽出）。
+    _osu_idx = len(store_list) + (1 if _load_other_stores() else 0)
+    with cols[_osu_idx % len(cols)]:
+        if st.button("おすすめ", key="store_osusume_top", use_container_width=True):
+            _navigate("osusume_top")
 
 
 def show_other_store_page() -> None:
@@ -29837,6 +30078,8 @@ def main() -> None:
             st.markdown("　→ **📈 スランプ付き結果**")
         elif page == "other":
             st.markdown("📍 **その他**")
+        elif page == "osusume_top":
+            st.markdown("📍 **おすすめ**")
         elif page == "other_slump":
             st.markdown("📍 **その他**")
             st.markdown(f"　→ **{st.session_state.selected_store}**")
@@ -29874,6 +30117,8 @@ def main() -> None:
         show_auto_page(with_slump=True)
     elif st.session_state.page == "other":
         show_other_store_page()
+    elif st.session_state.page == "osusume_top":
+        show_osusume_top_page()
     elif st.session_state.page == "other_slump":
         # 「その他」配下のスランプ付き結果。既存 auto_slump / auto_slump2 とは
         # **別 page** なので、既存店舗の挙動は 1 ビットも変わらない。

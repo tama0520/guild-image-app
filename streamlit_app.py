@@ -3610,7 +3610,8 @@ def _wp_tasks_for(work_date) -> dict:
     return {"tasks": _tasks, "errors": _errors, "warnings": _warnings}
 
 
-def _wp_load_progress() -> dict:
+def _wp_read_file() -> dict:
+    """手元の work_progress.json（Cloud はコンテナ内・8502 は複製フォルダ内）。"""
     try:
         with open(os.path.join(BASE_DIR, _WP_PROGRESS_FN), encoding="utf-8") as _f:
             _d = json.load(_f)
@@ -3619,33 +3620,161 @@ def _wp_load_progress() -> dict:
         return {}
 
 
-def _wp_toggle(task: dict) -> None:
-    """完了 ↔ 未完了を切り替えて work_progress.json へ保存する（Cloud は SHA 確認付きで GitHub へ）。"""
-    import datetime as _dt
-    _data = _wp_load_progress()
-    if task["key"] in _data:
-        _data.pop(task["key"])                 # 完了 → 未完了（キー削除）
-    else:
-        _data[task["key"]] = {
-            "work_date": task["work_date"].isoformat(),
-            "target_date": task["target_date"].isoformat(),
-            "store": task["store"], "cat": task["cat"], "kind": task["kind"],
-            "person": task["person"],
-            "done_at": _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=9))).isoformat(timespec="seconds"),
-        }
-    _js = json.dumps(_data, ensure_ascii=False, indent=2, sort_keys=True)
-    with open(os.path.join(BASE_DIR, _WP_PROGRESS_FN), "w", encoding="utf-8") as _f:
-        _f.write(_js)
+def _wp_dump(data: dict) -> str:
+    """work_progress.json の正式な書式（キー順・インデントは従来どおり）。"""
+    return json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+# ── 完了状態の同期（work_progress.json だけの限定例外） ──
+# Cloud と、.git のあるローカル（8501）は GitHub 上の work_progress.json を正とする。
+# 保存は「GitHub の最新を取得 → 今回の1キーだけ追加/削除 → 取得したSHAで PUT」。
+# 手元の古いJSON全体は送らない。409（取得後に他で更新）は再送も再適用もせず中止する。
+# .git の無い環境（8502 の確認用複製）は GitHub を読まず書かず、手元のファイルだけを使う。
+_WP_CACHE_KEY = "_wp_progress_cache"      # 8501 の表示用（GitHub の最新・セッション単位）
+_WP_MSG_KEY = "_wp_progress_msg"           # 保存結果の通知（次の描画で1回だけ表示）
+_WP_CONFLICT_MSG = "同時に更新されたため保存できませんでした。最新状態を読み込みました。もう一度押してください。"
+
+
+def _wp_sync_on() -> bool:
+    """本日の仕事の完了状態を GitHub と同期する環境か（Cloud・.git のあるローカル）。"""
+    return _IS_CLOUD or os.path.isdir(os.path.join(BASE_DIR, ".git"))
+
+
+def _wp_remote_get() -> "tuple[dict | None, str | None, str]":
+    """GitHub 上の最新（内容・SHA）。失敗時は (None, None, 理由)。JSON が壊れていても失敗扱い。"""
+    _content, _sha, _msg = _github_fetch_file(_WP_PROGRESS_FN)
+    if _content is None or not _sha:
+        return None, None, _msg
+    try:
+        _d = json.loads(_content)
+    except Exception as e:
+        return None, None, f"JSON解析失敗: {type(e).__name__}"
+    if not isinstance(_d, dict):
+        return None, None, "JSONの形式が不正です"
+    return _d, _sha, "取得しました"
+
+
+def _wp_remote_put(content_str: str, sha: str) -> "tuple[str, str]":
+    """取得したSHAを付けて PUT する（work_progress.json 専用）。
+    戻り値: ("ok", 新SHA) / ("conflict", 理由) / ("error", 理由)。409 は再送しない。"""
+    import urllib.request, urllib.error, base64 as _b64
+    token = get_secret_value("GITHUB_TOKEN", "")
+    if not token:
+        return "error", "GITHUB_TOKEN未設定"
+    url = f"https://api.github.com/repos/tama0520/guild-image-app/contents/{_WP_PROGRESS_FN}"
+    hdrs = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json",
+            "Content-Type": "application/json"}
+    body = json.dumps({
+        "message": "auto: Cloud上のチェック状態を保存" if _IS_CLOUD else "auto: 本日の仕事の完了状態を保存",
+        "content": _b64.b64encode(content_str.encode("utf-8")).decode("ascii"),
+        "sha": sha, "branch": "main",
+    }).encode("utf-8")
+    try:
+        req = urllib.request.Request(url, data=body, headers=hdrs, method="PUT")
+        with urllib.request.urlopen(req, timeout=15) as r:
+            _res = json.loads(r.read())
+        return "ok", ((_res.get("content") or {}).get("sha") or "")
+    except urllib.error.HTTPError as e:
+        if e.code == 409:
+            return "conflict", "SHA競合（409）"
+        return "error", f"HTTP {e.code}"
+    except Exception as e:
+        return "error", type(e).__name__
+
+
+def _wp_set_view(data: dict, sha: "str | None") -> None:
+    """表示用の完了状態を更新する。Cloud はコンテナ内ファイル（従来の表示元）、
+    8501 はセッション内キャッシュ（作業ツリーの work_progress.json は書き換えない）。"""
     if _IS_CLOUD:
-        _ok, _msg = _github_push_file(
-            _js, _WP_PROGRESS_FN,
-            base_sha=st.session_state.get(_gh_sha_key(_WP_PROGRESS_FN)))
-        # 競合時は _github_push_file が最新をファイルへ取り込み済み（黙ってマージしない）。
-        if not _ok:
-            try:
-                st.toast(f"❌ 完了状態: {_msg}", icon="❌")
-            except Exception:
-                pass
+        try:
+            with open(os.path.join(BASE_DIR, _WP_PROGRESS_FN), "w", encoding="utf-8") as _f:
+                _f.write(_wp_dump(data))
+        except Exception:
+            pass
+        if sha:
+            st.session_state[_gh_sha_key(_WP_PROGRESS_FN)] = sha
+    else:
+        st.session_state[_WP_CACHE_KEY] = {"data": data, "ok": True, "msg": ""}
+
+
+def _wp_refresh() -> None:
+    """「🔄 最新を読み込む」。GitHub の最新を表示へ反映する（書き込みはしない）。"""
+    if not _wp_sync_on():
+        return
+    _d, _sha, _msg = _wp_remote_get()
+    if _d is None:
+        st.session_state[_WP_MSG_KEY] = ("error", f"最新の読み込みに失敗しました（{_msg}）")
+        if not _IS_CLOUD:
+            st.session_state[_WP_CACHE_KEY] = {"data": None, "ok": False, "msg": _msg}
+        return
+    _wp_set_view(_d, _sha)
+
+
+def _wp_load_progress() -> dict:
+    """表示用の完了状態。Cloud・8502 は手元のファイル、8501 は GitHub の最新
+    （セッションで1回取得。F5 で新しいセッションになり取り直す）。取得失敗時は手元の
+    ファイルを表示するだけで、GitHub へは書き込まない。"""
+    if _IS_CLOUD or not _wp_sync_on():
+        return _wp_read_file()
+    _c = st.session_state.get(_WP_CACHE_KEY)
+    if _c is None:
+        _d, _sha, _msg = _wp_remote_get()
+        _c = ({"data": _d, "ok": True, "msg": ""} if _d is not None
+              else {"data": None, "ok": False, "msg": _msg})
+        st.session_state[_WP_CACHE_KEY] = _c
+    return _c["data"] if _c.get("ok") else _wp_read_file()
+
+
+def _wp_apply(data: dict, task: dict, set_done: bool) -> dict:
+    """data の写しに対象キー1件だけ追加/削除した結果を返す（他キーは触らない）。"""
+    import datetime as _dt
+    _new = dict(data)
+    if set_done:
+        if task["key"] not in _new:
+            _new[task["key"]] = {
+                "work_date": task["work_date"].isoformat(),
+                "target_date": task["target_date"].isoformat(),
+                "store": task["store"], "cat": task["cat"], "kind": task["kind"],
+                "person": task["person"],
+                "done_at": _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=9))).isoformat(timespec="seconds"),
+            }
+    else:
+        _new.pop(task["key"], None)
+    return _new
+
+
+def _wp_set(task: dict, set_done: bool) -> None:
+    """完了にする（set_done=True）／未完了に戻す（False）。画面に見えていた状態から決めた操作。"""
+    if not _wp_sync_on():
+        # 8502 など .git の無い環境：手元のファイルだけ（GitHub 同期の対象外）
+        _cur = _wp_read_file()
+        _new = _wp_apply(_cur, task, set_done)
+        if _new != _cur:
+            with open(os.path.join(BASE_DIR, _WP_PROGRESS_FN), "w", encoding="utf-8") as _f:
+                _f.write(_wp_dump(_new))
+        return
+    # 1) GitHub の最新とSHAを取得（失敗したら保存しない）
+    _latest, _sha, _msg = _wp_remote_get()
+    if _latest is None:
+        st.session_state[_WP_MSG_KEY] = ("error", f"保存できませんでした（最新の取得に失敗: {_msg}）")
+        return
+    # 2) 対象キー1件だけ操作。変化が無ければ PUT しない（同じ操作が済んでいる）
+    _new = _wp_apply(_latest, task, set_done)
+    if _new == _latest:
+        _wp_set_view(_latest, _sha)
+        return
+    # 3) 取得したSHAで保存
+    _st, _info = _wp_remote_put(_wp_dump(_new), _sha)
+    if _st == "ok":
+        _wp_set_view(_new, _info or None)
+    elif _st == "conflict":
+        # 再送・再適用はしない。最新を読み直して表示だけ更新する
+        _again, _sha2, _ = _wp_remote_get()
+        if _again is not None:
+            _wp_set_view(_again, _sha2)
+        st.session_state[_WP_MSG_KEY] = ("warning", _WP_CONFLICT_MSG)
+    else:
+        st.session_state[_WP_MSG_KEY] = ("error", f"保存できませんでした（{_info}）")
 
 
 def _wp_set_date(delta: int | None) -> None:
@@ -3689,6 +3818,7 @@ _WP_CSS = """
 .wpc-h { font-size: .9rem; } .wpc-n { font-size: .75rem; color: #666; } .wpc-z { font-size: .75rem; color: #999; }
 @media (min-width: 641px) {
     .st-key-wp_list_sp { display: none !important; }
+    .st-key-wp_sp_toggle { display: none !important; }
     .st-key-wp_section, [data-testid="stLayoutWrapper"]:has(> .st-key-wp_section) { order: 99; }
     .st-key-wp_section { margin-top: .5rem; }
 }
@@ -3716,13 +3846,32 @@ def _wp_task_label_pc(t: dict, done: bool) -> str:
     return f"✅完了 {_txt}" if done else f"⬜ {_txt}"
 
 
+def _wp_sp_toggle_open() -> None:
+    st.session_state["wp_sp_open"] = not st.session_state.get("wp_sp_open", False)
+
+
 def show_work_progress_section() -> None:
-    """トップ画面「本日の仕事」。取得失敗時もページ全体は止めない。"""
-    import hashlib as _hl
-    st.markdown(_WP_CSS, unsafe_allow_html=True)
+    """トップ画面「本日の仕事」。取得失敗時もページ全体は止めない。
+    スマホ幅（640px以下）だけ、作業日から下を開閉できる（初期は閉じた状態）。PC幅は常に表示。"""
+    _open = st.session_state.get("wp_sp_open", False)
+    # 閉じている間だけ、スマホ幅で中身を隠す（既存CSSと同じ1つの markdown にまとめ、要素を増やさない）
+    st.markdown(_WP_CSS + ("" if _open else
+                "<style>@media (max-width: 640px) { .st-key-wp_body { display: none !important; } }</style>"),
+                unsafe_allow_html=True)
     st.markdown("#### 📋 本日の仕事")
     if "wp_date_val" not in st.session_state:
         st.session_state["wp_date_val"] = _wp_today()
+    _wd0 = st.session_state["wp_date_val"]
+    _dlab = f"作業日 {_wd0.year}/{_wd0.month:02d}/{_wd0.day:02d}"
+    st.button((f"▼ {_dlab}（タップで閉じる）" if _open else f"▶ {_dlab}（タップで開く）"),
+              key="wp_sp_toggle", use_container_width=True, on_click=_wp_sp_toggle_open)
+    with st.container(key="wp_body"):
+        _wp_section_body()
+
+
+def _wp_section_body() -> None:
+    """本日の仕事の中身（作業日から下）。"""
+    import hashlib as _hl
     _dk = f"wp_date_{st.session_state.get('wp_date_ver', 0)}"
     st.date_input("作業日", value=st.session_state["wp_date_val"], key=_dk, format="YYYY/MM/DD",
                   on_change=_wp_on_date_pick, args=(_dk,))
@@ -3734,6 +3883,14 @@ def show_work_progress_section() -> None:
                    on_click=_wp_set_date, args=(None,))
         _c3.button("翌日 ▶", key="wp_next", use_container_width=True,
                    on_click=_wp_set_date, args=(1,))
+    if _wp_sync_on():
+        st.button("🔄 最新を読み込む", key="wp_reload", on_click=_wp_refresh)
+    else:
+        st.caption("この環境は本日の仕事のGitHub同期対象外です（完了状態はこのフォルダ内だけに保存）。")
+    _wmsg = st.session_state.pop(_WP_MSG_KEY, None)
+    if _wmsg:
+        (st.warning if _wmsg[0] == "warning" else st.error)(
+            f"{'⚠️' if _wmsg[0] == 'warning' else '❌'} {_wmsg[1]}")
     _wd = st.session_state["wp_date_val"]
     try:
         with st.spinner("予定表を読み込み中…"):
@@ -3754,6 +3911,10 @@ def show_work_progress_section() -> None:
             st.info("この日の対象作業はありません")
         return
     _prog = _wp_load_progress()
+    _wc = st.session_state.get(_WP_CACHE_KEY)
+    if not _IS_CLOUD and _wp_sync_on() and _wc and not _wc.get("ok"):
+        st.warning(f"⚠️ GitHubの最新を取得できませんでした（{_wc.get('msg')}）。"
+                   "手元のファイルを表示しています。最新と違う可能性があり、この状態では保存できません。")
     _persons = list(_WP_PERSONS) + [_WP_UNKNOWN_PERSON]
     _kind_rank = {k: i for i, k in enumerate(_WP_KINDS)}
 
@@ -3778,7 +3939,7 @@ def show_work_progress_section() -> None:
                 _h = _hl.md5(_t["key"].encode("utf-8")).hexdigest()[:12]
                 with st.container(key=f"{'wpd' if _isdone else 'wpt'}_{_h}"):
                     st.button(_wp_task_label(_t, _isdone), key=f"wpb_{_h}",
-                              use_container_width=True, on_click=_wp_toggle, args=(_t,))
+                              use_container_width=True, on_click=_wp_set, args=(_t, not _isdone))
 
     # ── PC／タブレット（641px以上）：担当者6人を横1列の小さなカードに（スマホ幅では非表示） ──
     _pc_persons = list(_WP_PERSONS) + (
@@ -3800,7 +3961,7 @@ def show_work_progress_section() -> None:
                     _h = _hl.md5(_t["key"].encode("utf-8")).hexdigest()[:12]
                     with st.container(key=f"{'wpcd' if _isdone else 'wpct'}_{_h}"):
                         st.button(_wp_task_label_pc(_t, _isdone), key=f"wpcb_{_h}",
-                                  use_container_width=True, on_click=_wp_toggle, args=(_t,))
+                                  use_container_width=True, on_click=_wp_set, args=(_t, not _isdone))
 
 
 def show_store_page() -> None:

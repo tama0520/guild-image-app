@@ -3382,7 +3382,7 @@ _WP_RULES: "dict[str, tuple[tuple[str, int], ...]]" = {
     "①": (("事前", -1), ("結果", 0), ("ローテ", 0)),
     "②": (("事前", -1), ("結果", 0)),
     "④": (("事前", -1), ("結果", 1)),
-    "⑤": (("ローテ", 0),),
+    "⑤": (("事前", -1), ("ローテ", 0)),     # ⑤は結果なし
     "⑥": (("事前", -1), ("ローテ", 0), ("結果", 1)),
     "⑦": (("事前", -1),),
 }
@@ -3569,6 +3569,12 @@ def _wp_tasks_for(work_date) -> dict:
             for _kind, _off in _rules:
                 if _d + _dt.timedelta(days=_off) != work_date:
                     continue
+                if (_cat == "⑤" and _kind == "事前"
+                        and any(c != "⑤" and any(k == "事前" for k, _o in _WP_RULES.get(c, ()))
+                                for c, _w, _rr in _assign[(_s, _d)])):
+                    # 同じ店舗・同じ日に他の区分の事前がある日は、従来どおりそちらを1件として残す
+                    # （表示の区分・完了保存のキーを変えない）。
+                    continue
                 _dk = (_s, _d, _kind)
                 if _dk in _seen:
                     continue
@@ -3666,6 +3672,33 @@ _WP_CSS = """
 [class*="st-key-wpt_"] button p, [class*="st-key-wpd_"] button p { text-align: left; }
 .st-key-wp_nav [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: .4rem; }
 .st-key-wp_nav [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; flex: 1 1 0 !important; }
+/* PC／タブレット（641px以上）：本日の仕事を店舗ボタン群の下へ・担当者別の小さなカード */
+.st-key-wp_list_pc [data-testid="stColumn"] {
+    border: 1px solid #DDD3EA; border-radius: 8px; padding: .4rem .45rem; background: #FCFAFF; }
+.st-key-wp_list_pc [data-testid="stColumn"] [data-testid="stVerticalBlock"] { gap: .25rem; }
+.st-key-wp_list_pc [data-testid="stHorizontalBlock"] { gap: .45rem; align-items: flex-start !important; }
+.st-key-wp_list_pc [data-testid="stColumn"] { height: auto !important; align-self: flex-start !important; }
+.st-key-wp_list_pc [data-testid="stMarkdownContainer"] { margin-bottom: 0 !important; }
+.st-key-wp_list_pc [data-testid="stMarkdownContainer"] p { margin: 0; line-height: 1.3; }
+[class*="st-key-wpcd_"] button { opacity: .55; }
+[class*="st-key-wpcd_"] button p { text-decoration: line-through; }
+[class*="st-key-wpct_"] button, [class*="st-key-wpcd_"] button {
+    min-height: 0; padding: .2rem .4rem; justify-content: flex-start; text-align: left; white-space: normal; }
+[class*="st-key-wpct_"] button p, [class*="st-key-wpcd_"] button p {
+    text-align: left; font-size: .78rem; line-height: 1.25; }
+.wpc-h { font-size: .9rem; } .wpc-n { font-size: .75rem; color: #666; } .wpc-z { font-size: .75rem; color: #999; }
+@media (min-width: 641px) {
+    .st-key-wp_list_sp { display: none !important; }
+    .st-key-wp_section, [data-testid="stLayoutWrapper"]:has(> .st-key-wp_section) { order: 99; }
+    .st-key-wp_section { margin-top: .5rem; }
+}
+@media (min-width: 641px) and (max-width: 1100px) {
+    .st-key-wp_list_pc [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
+    .st-key-wp_list_pc [data-testid="stColumn"] { flex: 1 1 30% !important; min-width: 30% !important; }
+}
+@media (max-width: 640px) {
+    .st-key-wp_list_pc { display: none !important; }
+}
 </style>
 """
 
@@ -3674,6 +3707,13 @@ def _wp_task_label(t: dict, done: bool) -> str:
     _d = t["target_date"]
     _txt = f"{t['store']}　{t['cat']}{t['kind']}（{_d.month}/{_d.day}分）"
     return f"✅ 完了　{_txt}" if done else f"⬜ {_txt}"
+
+
+def _wp_task_label_pc(t: dict, done: bool) -> str:
+    """PC用カードの短いラベル（店舗・区分作業・対象日・完了状態は残す）。"""
+    _d = t["target_date"]
+    _txt = f"{t['store']} {t['cat']}{t['kind']} {_d.month}/{_d.day}分"
+    return f"✅完了 {_txt}" if done else f"⬜ {_txt}"
 
 
 def show_work_progress_section() -> None:
@@ -3716,30 +3756,61 @@ def show_work_progress_section() -> None:
     _prog = _wp_load_progress()
     _persons = list(_WP_PERSONS) + [_WP_UNKNOWN_PERSON]
     _kind_rank = {k: i for i, k in enumerate(_WP_KINDS)}
-    for _p in _persons:
+
+    def _wp_split(_p):
         _mine = [t for t in _tasks if t["person"] == _p]
-        if not _mine:
-            continue
         _mine.sort(key=lambda t: (t["target_date"], t["store"], _kind_rank.get(t["kind"], 9)))
         _undone = [t for t in _mine if t["key"] not in _prog]
         _done = [t for t in _mine if t["key"] in _prog]
-        st.markdown(f"**{_p}**　未完了 {len(_undone)}／全 {len(_mine)}")
-        if _p == _WP_UNKNOWN_PERSON:
-            st.caption("前日の予定が見つからないため担当者を判定できない作業です。")
-        for _t in _undone + _done:
-            _isdone = _t["key"] in _prog
-            _h = _hl.md5(_t["key"].encode("utf-8")).hexdigest()[:12]
-            with st.container(key=f"{'wpd' if _isdone else 'wpt'}_{_h}"):
-                st.button(_wp_task_label(_t, _isdone), key=f"wpb_{_h}",
-                          use_container_width=True, on_click=_wp_toggle, args=(_t,))
+        return _mine, _undone, _done
+
+    # ── スマホ（640px以下）：従来どおりの縦並び（PC幅ではCSSで非表示） ──
+    with st.container(key="wp_list_sp"):
+        for _p in _persons:
+            _mine, _undone, _done = _wp_split(_p)
+            if not _mine:
+                continue
+            st.markdown(f"**{_p}**　未完了 {len(_undone)}／全 {len(_mine)}")
+            if _p == _WP_UNKNOWN_PERSON:
+                st.caption("前日の予定が見つからないため担当者を判定できない作業です。")
+            for _t in _undone + _done:
+                _isdone = _t["key"] in _prog
+                _h = _hl.md5(_t["key"].encode("utf-8")).hexdigest()[:12]
+                with st.container(key=f"{'wpd' if _isdone else 'wpt'}_{_h}"):
+                    st.button(_wp_task_label(_t, _isdone), key=f"wpb_{_h}",
+                              use_container_width=True, on_click=_wp_toggle, args=(_t,))
+
+    # ── PC／タブレット（641px以上）：担当者6人を横1列の小さなカードに（スマホ幅では非表示） ──
+    _pc_persons = list(_WP_PERSONS) + (
+        [_WP_UNKNOWN_PERSON] if any(t["person"] == _WP_UNKNOWN_PERSON for t in _tasks) else [])
+    with st.container(key="wp_list_pc"):
+        for _col, _p in zip(st.columns(len(_pc_persons), gap="small"), _pc_persons):
+            _mine, _undone, _done = _wp_split(_p)
+            with _col:
+                st.markdown(
+                    f"<div class='wpc-h'><b>{_p}</b></div>"
+                    f"<div class='wpc-n'>未完了 {len(_undone)}／全 {len(_mine)}</div>",
+                    unsafe_allow_html=True)
+                if not _mine:
+                    st.markdown("<div class='wpc-z'>作業なし</div>", unsafe_allow_html=True)
+                if _p == _WP_UNKNOWN_PERSON:
+                    st.caption("前日の予定が見つからず担当者を判定できない作業")
+                for _t in _undone + _done:
+                    _isdone = _t["key"] in _prog
+                    _h = _hl.md5(_t["key"].encode("utf-8")).hexdigest()[:12]
+                    with st.container(key=f"{'wpcd' if _isdone else 'wpct'}_{_h}"):
+                        st.button(_wp_task_label_pc(_t, _isdone), key=f"wpcb_{_h}",
+                                  use_container_width=True, on_click=_wp_toggle, args=(_t,))
 
 
 def show_store_page() -> None:
     """画面1: 店舗選択"""
-    try:
-        show_work_progress_section()
-    except Exception as e:   # 本日の仕事の不具合で店舗ボタン等を止めない
-        st.error(f"❌ 本日の仕事を表示できませんでした: {type(e).__name__}")
+    # 本日の仕事：スマホは見出し直下、PC／タブレット（641px以上）は CSS の order で店舗ボタン群の下へ。
+    with st.container(key="wp_section"):
+        try:
+            show_work_progress_section()
+        except Exception as e:   # 本日の仕事の不具合で店舗ボタン等を止めない
+            st.error(f"❌ 本日の仕事を表示できませんでした: {type(e).__name__}")
     st.markdown("---")
     store_list = list(STORES.keys())
     _has_other = bool(_load_other_stores())

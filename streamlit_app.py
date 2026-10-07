@@ -3357,8 +3357,389 @@ def _store_menu_go(target: str) -> None:
         _navigate("image_type", store=target)
 
 
+# ── トップ画面「本日の仕事」：予定表（Googleスプレッドシート）→担当者別の作業と完了状態 ──
+# 予定表は通常URL由来の XLSX エクスポート（GETのみ・認証なし）で読み、セル背景色で担当者を判定する。
+# ★Googleスプレッドシートへは一切書き込まない。完了状態は work_progress.json にだけ保存する。
+# シートは XLSX 内で「B1 が対象年月の日付になっているシート」（例: 10月案件）を選ぶ
+# （XLSX には gid が無いため）。差し替えが必要なときは下の定数だけを直す。
+_WP_SHEET_ID = "1SyJsgBjMx1qVTB-kRElonqrPyowj85VfOOH8HXqQtCw"
+_WP_XLSX_URL = f"https://docs.google.com/spreadsheets/d/{_WP_SHEET_ID}/export?format=xlsx"
+_WP_SHEET_TITLE_HINT = "月案件"      # 候補シート名に含まれる文字（B1の年月で最終確定する）
+_WP_DAY_COL0 = 3                      # C列＝1日
+_WP_FIRST_ROW = 3                     # エスパス13店舗の範囲（95行目以降は対象外）
+_WP_LAST_ROW = 94
+_WP_TIMEOUT = 20
+# 担当者の色（RGB 6桁・大文字）。表示順もこの順。
+_WP_PERSON_COLORS: "dict[str, str]" = {
+    "FF00FF": "伊藤", "000000": "飯尾", "FF9900": "宇井",
+    "999999": "古川", "38761D": "鈴木", "0000FF": "高橋",
+}
+_WP_PERSONS: "tuple[str, ...]" = tuple(_WP_PERSON_COLORS.values())
+_WP_UNKNOWN_PERSON = "担当者不明"
+_WP_CIRC = "①②③④⑤⑥⑦"
+# 区分 → (作業種別, 作業日のずれ)。作業日 = 予定表の対象日 + ずれ。③は対象外。
+_WP_RULES: "dict[str, tuple[tuple[str, int], ...]]" = {
+    "①": (("事前", -1), ("結果", 0), ("ローテ", 0)),
+    "②": (("事前", -1), ("結果", 0)),
+    "④": (("事前", -1), ("結果", 1)),
+    "⑤": (("ローテ", 0),),
+    "⑥": (("事前", -1), ("ローテ", 0), ("結果", 1)),
+    "⑦": (("事前", -1),),
+}
+_WP_KINDS: "tuple[str, ...]" = ("事前", "何の日", "結果", "ローテ")
+# 事前だけ「対象日の前日（＝作業日）に予定がある人」が作る店舗。
+_WP_PRE_PREV_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町", "秋葉原"})
+# 「何の日」を作る（店舗, 区分）→ 前日が空欄のときの代わりの（店舗, 区分）。
+# 何の日は対象日の前日に作り、担当は事前と同じ（前日の秋葉原② → 空欄なら前日の新宿歌舞伎町①）。
+_WP_NANNOHI: "dict[tuple[str, str], tuple[str, str]]" = {("秋葉原", "②"): ("新宿歌舞伎町", "①")}
+_WP_PROGRESS_FN = "work_progress.json"
+
+
+class _WPError(Exception):
+    """予定表を正しく読めないとき（誤った担当・作業を表示しないため処理を止める）。"""
+
+
+def _wp_today() -> "datetime.date":
+    """日本時間の今日（Cloud は UTC で動くため明示する）。"""
+    import datetime as _dt
+    return _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=9))).date()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _wp_fetch_xlsx() -> bytes:
+    """予定表を XLSX で取得する（成功時だけ5分キャッシュ・失敗は例外でキャッシュしない）。"""
+    import requests
+    try:
+        _r = requests.get(_WP_XLSX_URL, timeout=_WP_TIMEOUT, allow_redirects=True)
+    except requests.exceptions.Timeout:
+        raise _WPError(f"予定表の取得がタイムアウトしました（{_WP_TIMEOUT}秒）。")
+    except Exception as e:
+        raise _WPError(f"予定表に接続できませんでした: {type(e).__name__}")
+    if _r.status_code != 200:
+        raise _WPError(f"予定表を取得できませんでした（HTTP {_r.status_code}）。"
+                       "共有設定（リンクを知っている全員が閲覧可）を確認してください。")
+    if not _r.content[:2] == b"PK":
+        raise _WPError("予定表がXLSX形式で返りませんでした（共有設定が変わった可能性があります）。")
+    return _r.content
+
+
+def _wp_theme_colors(wb) -> "list[str]":
+    """ブックのテーマ色（Excelのテーマ番号順: lt1, dk1, lt2, dk2, accent1〜6, hlink, folHlink）。"""
+    try:
+        import xml.etree.ElementTree as _ET
+        _root = _ET.fromstring(wb.loaded_theme)
+        _ns = {"a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
+        _cs = _root.find(".//a:clrScheme", _ns)
+        _vals = {}
+        for _el in list(_cs):
+            _tag = _el.tag.split("}")[-1]
+            _c = _el[0]
+            _vals[_tag] = (_c.get("lastClr") or _c.get("val") or "").upper()
+        _order = ["lt1", "dk1", "lt2", "dk2", "accent1", "accent2", "accent3",
+                  "accent4", "accent5", "accent6", "hlink", "folHlink"]
+        return [_vals.get(_k, "") for _k in _order]
+    except Exception:
+        return []
+
+
+def _wp_apply_tint(hex6: str, tint: float) -> str:
+    if not tint:
+        return hex6
+    _rgb = [int(hex6[i:i + 2], 16) for i in (0, 2, 4)]
+    _out = [round(v * (1 + tint)) if tint < 0 else round(v + (255 - v) * tint) for v in _rgb]
+    return "".join(f"{max(0, min(255, v)):02X}" for v in _out)
+
+
+def _wp_cell_color(cell, theme: "list[str]") -> "str | None":
+    """セル背景色を RGB 6桁（大文字）へ正規化する。塗りなしは None・判定不能は '?'。"""
+    _f = getattr(cell, "fill", None)
+    if _f is None or _f.fill_type != "solid":
+        return None
+    _c = _f.fgColor
+    try:
+        if _c.type == "rgb" and isinstance(_c.rgb, str):
+            return _c.rgb[-6:].upper()
+        if _c.type == "indexed":
+            from openpyxl.styles.colors import COLOR_INDEX
+            return COLOR_INDEX[_c.indexed][-6:].upper()
+        if _c.type == "theme" and 0 <= _c.theme < len(theme) and theme[_c.theme]:
+            return _wp_apply_tint(theme[_c.theme], float(_c.tint or 0))
+    except Exception:
+        pass
+    return "?"
+
+
+def _wp_store_name(b_value: str) -> str:
+    """B列の店名（例『エスパス 新宿 歌舞伎 町・×』）→ 店舗名（『新宿歌舞伎町』）。"""
+    _s = str(b_value).split("・")[0]
+    return _s.replace("エスパス", "").replace(" ", "").replace("　", "").strip()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _wp_month_schedule(year: int, month: int) -> dict:
+    """対象年月のシートから担当（予定）を読む。
+
+    戻り値: {"ok": bool, "error": str, "sheet": str,
+             "cells": [(店舗, 日, 区分, 担当, 行)], "bad": [不明色の説明]}
+    担当として採用するのは「セル値が①〜⑦」かつ「指定6色」のセルだけ。
+    区分は行ラベル（B列の丸数字）を優先し、行ラベルが無い行（店名行・秋葉原の行）はセル値を使う。"""
+    import io as _io, datetime as _dt, calendar as _cal
+    import openpyxl as _ox
+    _wb = _ox.load_workbook(_io.BytesIO(_wp_fetch_xlsx()), read_only=True)
+    _ws = None
+    for _w in _wb.worksheets:
+        if _WP_SHEET_TITLE_HINT not in _w.title:
+            continue
+        _b1 = next(_w.iter_rows(min_row=1, max_row=1, min_col=2, max_col=2, values_only=True))[0]
+        if isinstance(_b1, _dt.datetime) and (_b1.year, _b1.month) == (year, month):
+            _ws = _w
+            break
+    if _ws is None:
+        return {"ok": False, "error": f"{month}月のシートがありません", "sheet": "",
+                "cells": [], "bad": []}
+    _ndays = _cal.monthrange(year, month)[1]
+    _rows = list(_ws.iter_rows(min_row=1, max_row=_WP_LAST_ROW,
+                               max_col=_WP_DAY_COL0 + _ndays - 1))
+    # 日付見出し（C1〜）が「1日〜末日」になっているか（レイアウト変更の検知）
+    _hdr = [str(_rows[0][_WP_DAY_COL0 - 1 + i].value or "").strip() for i in range(_ndays)]
+    if _hdr != [f"{i + 1}日" for i in range(_ndays)]:
+        return {"ok": False, "sheet": _ws.title, "cells": [], "bad": [],
+                "error": f"「{_ws.title}」の日付見出し（C1〜）が想定と違います。予定表のレイアウトを確認してください。"}
+    _theme = _wp_theme_colors(_wb)
+    _cells, _bad, _store, _nstores = [], [], None, 0
+    for _ri in range(_WP_FIRST_ROW - 1, min(len(_rows), _WP_LAST_ROW)):
+        _row = _rows[_ri]
+        _b = str(_row[1].value or "").strip() if len(_row) > 1 else ""
+        if "エスパス" in _b:
+            _store = _wp_store_name(_b)
+            _nstores += 1
+        if _store is None:
+            continue
+        _label = _b[:1] if _b[:1] in _WP_CIRC else None
+        for _di in range(_ndays):
+            _cidx = _WP_DAY_COL0 - 1 + _di
+            if _cidx >= len(_row):
+                break
+            _cell = _row[_cidx]
+            _v = str(_cell.value or "").strip()
+            if not _v or _v not in _WP_CIRC:
+                continue
+            _cat = _label or _v
+            _col = _wp_cell_color(_cell, _theme)
+            _who = _WP_PERSON_COLORS.get(_col or "")
+            if _who is None:
+                _bad.append(f"{_store} {month}/{_di + 1} {_cat}（色 {_col or '塗りなし'}）")
+                continue
+            _cells.append((_store, _di + 1, _cat, _who, _ri + 1))
+    if _nstores == 0:
+        return {"ok": False, "sheet": _ws.title, "cells": [], "bad": [],
+                "error": f"「{_ws.title}」に店舗行（エスパス〜）が見つかりません。予定表のレイアウトを確認してください。"}
+    return {"ok": True, "error": "", "sheet": _ws.title, "cells": _cells, "bad": _bad}
+
+
+def _wp_tasks_for(work_date) -> dict:
+    """作業日の作業一覧を返す。
+
+    戻り値: {"tasks": [dict], "errors": [str], "warnings": [str]}
+    dict = 作業日・対象日・店舗・区分・作業種別・担当者・key。
+    同じ「店舗・対象日・作業種別」は1件にまとめる（先に読んだ行を採用）。"""
+    import datetime as _dt
+    _need = sorted({(d.year, d.month) for d in
+                    (work_date - _dt.timedelta(days=1), work_date, work_date + _dt.timedelta(days=1))})
+    _errors, _warnings = [], []
+    _assign: dict = {}          # (店舗, date) -> [(区分, 担当, 行)]
+    _loaded = set()
+    for _y, _m in _need:
+        _res = _wp_month_schedule(_y, _m)
+        if not _res["ok"]:
+            _errors.append(_res["error"])
+            continue
+        _loaded.add((_y, _m))
+        for _s, _d, _cat, _who, _r in _res["cells"]:
+            _assign.setdefault((_s, _dt.date(_y, _m, _d)), []).append((_cat, _who, _r))
+        for _bad in _res["bad"]:
+            _warnings.append(f"担当色を判定できないセル: {_bad}")
+    _tasks, _seen = [], set()
+    _order = sorted(_assign.keys(), key=lambda k: (k[1], min(r for _, _, r in _assign[k])))
+    for (_s, _d) in _order:
+        for _cat, _who, _r in sorted(_assign[(_s, _d)], key=lambda t: t[2]):
+            _rules = _WP_RULES.get(_cat, ())
+            if (_s, _cat) in _WP_NANNOHI:
+                _rules = _rules + (("何の日", -1),)
+            for _kind, _off in _rules:
+                if _d + _dt.timedelta(days=_off) != work_date:
+                    continue
+                _dk = (_s, _d, _kind)
+                if _dk in _seen:
+                    continue
+                _seen.add(_dk)
+                _person = _who
+                if (_s, _cat) in _WP_NANNOHI and _kind in ("事前", "何の日"):
+                    # 秋葉原②の事前・何の日（同じ担当）: 前日の秋葉原②担当 →
+                    # 空欄なら前日の新宿歌舞伎町①担当。どちらも無ければ割り当てずエラー。
+                    _prev = _d - _dt.timedelta(days=1)
+                    _fs, _fc = _WP_NANNOHI[(_s, _cat)]
+                    _p = [w for c, w, rr in _assign.get((_s, _prev), []) if c == _cat]
+                    if not _p:
+                        _p = [w for c, w, rr in _assign.get((_fs, _prev), []) if c == _fc]
+                    if not _p:
+                        _why = ("前月のシートを読めないため" if (_prev.year, _prev.month) not in _loaded
+                                else f"{_prev.month}/{_prev.day}の{_s}{_cat}・{_fs}{_fc}がどちらも空欄のため")
+                        _errors.append(f"{_s} {_d.month}/{_d.day}分の{_kind}の担当者を決められません"
+                                       f"（{_why}）。")
+                        continue
+                    _person = _p[0]
+                elif _kind == "事前" and _s in _WP_PRE_PREV_STORES:
+                    # 対象日の前日に「同じ店舗・同じ区分」で予定がある人が作る
+                    # （前日が前月の場合もあるので行番号ではなく区分で照合する）
+                    _prev = _d - _dt.timedelta(days=1)
+                    if (_prev.year, _prev.month) not in _loaded:
+                        _person = _WP_UNKNOWN_PERSON
+                    else:
+                        _p = [w for c, w, rr in _assign.get((_s, _prev), []) if c == _cat]
+                        _person = _p[0] if _p else _WP_UNKNOWN_PERSON
+                _key = "|".join([work_date.isoformat(), _d.isoformat(), _s, _cat, _kind, _person])
+                _tasks.append({"work_date": work_date, "target_date": _d, "store": _s,
+                               "cat": _cat, "kind": _kind, "person": _person, "key": _key})
+    return {"tasks": _tasks, "errors": _errors, "warnings": _warnings}
+
+
+def _wp_load_progress() -> dict:
+    try:
+        with open(os.path.join(BASE_DIR, _WP_PROGRESS_FN), encoding="utf-8") as _f:
+            _d = json.load(_f)
+        return _d if isinstance(_d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _wp_toggle(task: dict) -> None:
+    """完了 ↔ 未完了を切り替えて work_progress.json へ保存する（Cloud は SHA 確認付きで GitHub へ）。"""
+    import datetime as _dt
+    _data = _wp_load_progress()
+    if task["key"] in _data:
+        _data.pop(task["key"])                 # 完了 → 未完了（キー削除）
+    else:
+        _data[task["key"]] = {
+            "work_date": task["work_date"].isoformat(),
+            "target_date": task["target_date"].isoformat(),
+            "store": task["store"], "cat": task["cat"], "kind": task["kind"],
+            "person": task["person"],
+            "done_at": _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=9))).isoformat(timespec="seconds"),
+        }
+    _js = json.dumps(_data, ensure_ascii=False, indent=2, sort_keys=True)
+    with open(os.path.join(BASE_DIR, _WP_PROGRESS_FN), "w", encoding="utf-8") as _f:
+        _f.write(_js)
+    if _IS_CLOUD:
+        _ok, _msg = _github_push_file(
+            _js, _WP_PROGRESS_FN,
+            base_sha=st.session_state.get(_gh_sha_key(_WP_PROGRESS_FN)))
+        # 競合時は _github_push_file が最新をファイルへ取り込み済み（黙ってマージしない）。
+        if not _ok:
+            try:
+                st.toast(f"❌ 完了状態: {_msg}", icon="❌")
+            except Exception:
+                pass
+
+
+def _wp_set_date(delta: int | None) -> None:
+    """前日／今日／翌日。日付の正本は非widgetの wp_date_val に持ち、
+    カレンダーは版数付きの key で作り直す（widget状態との競合で初回クリックが効かないのを防ぐ）。"""
+    import datetime as _dt
+    _cur = st.session_state.get("wp_date_val") or _wp_today()
+    st.session_state["wp_date_val"] = _wp_today() if delta is None else _cur + _dt.timedelta(days=delta)
+    st.session_state["wp_date_ver"] = st.session_state.get("wp_date_ver", 0) + 1
+
+
+def _wp_on_date_pick(widget_key: str) -> None:
+    _v = st.session_state.get(widget_key)
+    if _v:
+        st.session_state["wp_date_val"] = _v
+
+
+_WP_CSS = """
+<style>
+[class*="st-key-wpd_"] button { opacity: .55; }
+[class*="st-key-wpd_"] button p { text-decoration: line-through; }
+[class*="st-key-wpt_"] button, [class*="st-key-wpd_"] button {
+    min-height: 3rem; justify-content: flex-start; text-align: left; white-space: normal; }
+[class*="st-key-wpt_"] button p, [class*="st-key-wpd_"] button p { text-align: left; }
+.st-key-wp_nav [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: .4rem; }
+.st-key-wp_nav [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; flex: 1 1 0 !important; }
+</style>
+"""
+
+
+def _wp_task_label(t: dict, done: bool) -> str:
+    _d = t["target_date"]
+    _txt = f"{t['store']}　{t['cat']}{t['kind']}（{_d.month}/{_d.day}分）"
+    return f"✅ 完了　{_txt}" if done else f"⬜ {_txt}"
+
+
+def show_work_progress_section() -> None:
+    """トップ画面「本日の仕事」。取得失敗時もページ全体は止めない。"""
+    import hashlib as _hl
+    st.markdown(_WP_CSS, unsafe_allow_html=True)
+    st.markdown("#### 📋 本日の仕事")
+    if "wp_date_val" not in st.session_state:
+        st.session_state["wp_date_val"] = _wp_today()
+    _dk = f"wp_date_{st.session_state.get('wp_date_ver', 0)}"
+    st.date_input("作業日", value=st.session_state["wp_date_val"], key=_dk, format="YYYY/MM/DD",
+                  on_change=_wp_on_date_pick, args=(_dk,))
+    with st.container(key="wp_nav"):
+        _c1, _c2, _c3 = st.columns(3)
+        _c1.button("◀ 前日", key="wp_prev", use_container_width=True,
+                   on_click=_wp_set_date, args=(-1,))
+        _c2.button("今日", key="wp_today", use_container_width=True,
+                   on_click=_wp_set_date, args=(None,))
+        _c3.button("翌日 ▶", key="wp_next", use_container_width=True,
+                   on_click=_wp_set_date, args=(1,))
+    _wd = st.session_state["wp_date_val"]
+    try:
+        with st.spinner("予定表を読み込み中…"):
+            _res = _wp_tasks_for(_wd)
+    except _WPError as e:
+        st.error(f"❌ {e}")
+        return
+    except Exception as e:
+        st.error(f"❌ 予定表を読み込めませんでした: {type(e).__name__}")
+        return
+    for _e in _res["errors"]:
+        st.error(f"❌ {_e}（取得できた分の作業だけを表示しています）")
+    for _w in _res["warnings"]:
+        st.warning(f"⚠️ {_w}（このセルの作業は表示していません）")
+    _tasks = _res["tasks"]
+    if not _tasks:
+        if not _res["errors"]:
+            st.info("この日の対象作業はありません")
+        return
+    _prog = _wp_load_progress()
+    _persons = list(_WP_PERSONS) + [_WP_UNKNOWN_PERSON]
+    _kind_rank = {k: i for i, k in enumerate(_WP_KINDS)}
+    for _p in _persons:
+        _mine = [t for t in _tasks if t["person"] == _p]
+        if not _mine:
+            continue
+        _mine.sort(key=lambda t: (t["target_date"], t["store"], _kind_rank.get(t["kind"], 9)))
+        _undone = [t for t in _mine if t["key"] not in _prog]
+        _done = [t for t in _mine if t["key"] in _prog]
+        st.markdown(f"**{_p}**　未完了 {len(_undone)}／全 {len(_mine)}")
+        if _p == _WP_UNKNOWN_PERSON:
+            st.caption("前日の予定が見つからないため担当者を判定できない作業です。")
+        for _t in _undone + _done:
+            _isdone = _t["key"] in _prog
+            _h = _hl.md5(_t["key"].encode("utf-8")).hexdigest()[:12]
+            with st.container(key=f"{'wpd' if _isdone else 'wpt'}_{_h}"):
+                st.button(_wp_task_label(_t, _isdone), key=f"wpb_{_h}",
+                          use_container_width=True, on_click=_wp_toggle, args=(_t,))
+
+
 def show_store_page() -> None:
     """画面1: 店舗選択"""
+    try:
+        show_work_progress_section()
+    except Exception as e:   # 本日の仕事の不具合で店舗ボタン等を止めない
+        st.error(f"❌ 本日の仕事を表示できませんでした: {type(e).__name__}")
     st.markdown("---")
     store_list = list(STORES.keys())
     _has_other = bool(_load_other_stores())
@@ -4191,7 +4572,8 @@ def _check_github_token() -> tuple[bool, str]:
 
 # Cloud同期の対象ファイル（GitHub APIで読み書きするもの）
 _GH_SYNC_FILES: tuple[str, ...] = ("weekly_items.json", "rote_machines.json",
-                                   "article_shared_inputs.json")
+                                   "article_shared_inputs.json",
+                                   "work_progress.json")   # トップ「本日の仕事」の完了状態
 
 
 def _gh_sha_key(repo_path: str) -> str:

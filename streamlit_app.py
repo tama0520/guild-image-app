@@ -7781,6 +7781,7 @@ _KOJIN_DATE_SCOPED_STORES: frozenset[str] = frozenset({
     "溝の口本館",
     "溝の口新館",
     "赤坂見附",
+    "BEAM新井薬師",   # 「その他」配下（other_slump）。旧②永続値は残置・参照しない
 })
 
 

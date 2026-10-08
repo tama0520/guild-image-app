@@ -3040,6 +3040,7 @@ _OSU_EXTRA_SERIES_PREFIX: "tuple[tuple[str, tuple[str, ...]], ...]" = (
 _OSU_EXTRA_NAME_ALIASES: "dict[str, str]" = {
     "エスパス稲毛新館": "エスパス稲毛",
     "ビッグパンドラ井土ヶ谷店新館": "ビッグパンドラ井土ヶ谷新館",   # この店名だけ（完全一致）
+    "BIGディッパー新橋２号店": "BIGディッパー新橋2号",             # この店名だけ（完全一致）
 }
 # 2タブ側の店名の先頭だけを置き換える（途中に同じ文字列があっても置換しない）。
 _OSU_EXTRA_NAME_PREFIX_REPL: "tuple[tuple[str, str], ...]" = (

@@ -3344,7 +3344,18 @@ _OSU_TOP_BTN_CSS = (
     ".st-key-store_menu_sp{display:none!important;}"
     f"@media (max-width:{_SP_MENU_BREAKPOINT}px){{"
     ".st-key-store_menu_pc{display:none!important;}"
-    ".st-key-store_menu_sp{display:flex!important;}}"
+    ".st-key-store_menu_sp{display:flex!important;}"
+    # スマホのトップだけ余白を詰める（このCSSはトップ画面でしか出力されない）
+    # 上部の空き（既定 6rem）→ ヘッダー分を残して詰める
+    '[data-testid="stMainBlockContainer"]{padding-top:4rem!important;}'
+    # 非表示のPC用メニューの外枠が残り、要素間の隙間だけ空くのを防ぐ
+    '[data-testid="stLayoutWrapper"]:has(> .st-key-store_menu_pc){display:none!important;}'
+    # スマホ用メニュー先頭のCSSだけの要素（高さ0）の隙間を消す（<style>は非表示でも効く）
+    '.st-key-store_menu_sp > [data-testid="stElementContainer"]:first-child{display:none!important;}'
+    # 本日の仕事の下の区切り線の上下余白（既定 32px）を詰める。要素間の隙間(1rem)が上側にだけ
+    # 足されるため、線の上下の見た目がそろう値（上 .25rem・下 1.25rem）にする
+    '[data-testid="stLayoutWrapper"]:has(> .st-key-wp_section) + [data-testid="stElementContainer"] hr'
+    "{margin:.25rem 0 1.25rem!important;}}"
     "</style>"
 )
 
@@ -3905,7 +3916,8 @@ def show_work_progress_section() -> None:
     _open = st.session_state.get("wp_sp_open", False)
     # 閉じている間だけ、スマホ幅で中身を隠す（既存CSSと同じ1つの markdown にまとめ、要素を増やさない）
     st.markdown(_WP_CSS + ("" if _open else
-                "<style>@media (max-width: 640px) { .st-key-wp_body { display: none !important; } }</style>"),
+                "<style>@media (max-width: 640px) { .st-key-wp_body, "
+                "[data-testid=\"stLayoutWrapper\"]:has(> .st-key-wp_body) { display: none !important; } }</style>"),
                 unsafe_allow_html=True)
     st.markdown("#### 📋 本日の仕事")
     if "wp_date_val" not in st.session_state:

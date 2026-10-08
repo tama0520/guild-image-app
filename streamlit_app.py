@@ -3379,10 +3379,11 @@ _WP_PERSON_COLORS: "dict[str, str]" = {
 _WP_PERSONS: "tuple[str, ...]" = tuple(_WP_PERSON_COLORS.values())
 _WP_UNKNOWN_PERSON = "担当者不明"
 _WP_CIRC = "①②③④⑤⑥⑦"
-# 区分 → (作業種別, 作業日のずれ)。作業日 = 予定表の対象日 + ずれ。③は対象外。
+# 区分 → (作業種別, 作業日のずれ)。作業日 = 予定表の対象日 + ずれ。
 _WP_RULES: "dict[str, tuple[tuple[str, int], ...]]" = {
     "①": (("事前", -1), ("結果", 0), ("ローテ", 0)),
     "②": (("事前", -1), ("結果", 0)),
+    "③": (("事前", -1), ("結果", 1)),      # ③はローテなし
     "④": (("事前", -1), ("結果", 1)),
     "⑤": (("事前", -1), ("ローテ", 0)),     # ⑤は結果なし
     "⑥": (("事前", -1), ("ローテ", 0), ("結果", 1)),
@@ -3395,6 +3396,12 @@ _WP_PRE_PREV_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町", "秋葉
 # 何の日は対象日の前日に作り、担当は事前と同じ（前日の秋葉原② → 空欄なら前日の新宿歌舞伎町①）。
 _WP_NANNOHI: "dict[tuple[str, str], tuple[str, str]]" = {("秋葉原", "②"): ("新宿歌舞伎町", "①")}
 _WP_PROGRESS_FN = "work_progress.json"
+# エスパス13店舗の範囲（3〜94行目）の外にある追加店舗。B列の店名と完全一致する1行だけを読み、
+# 行位置は月ごとに違うため名前で探す（シート上の店名 → 表示名）。区分はセル値の丸数字。
+_WP_EXTRA_STORES: "dict[str, str]" = {
+    "プレサス飯田橋": "プレサス飯田橋",
+    "BEAM新井薬師": "BEAM新井薬師",
+}
 
 
 class _WPError(Exception):
@@ -3500,8 +3507,8 @@ def _wp_month_schedule(year: int, month: int) -> dict:
         return {"ok": False, "error": f"{month}月のシートがありません", "sheet": "",
                 "cells": [], "bad": []}
     _ndays = _cal.monthrange(year, month)[1]
-    _rows = list(_ws.iter_rows(min_row=1, max_row=_WP_LAST_ROW,
-                               max_col=_WP_DAY_COL0 + _ndays - 1))
+    # 追加店舗（_WP_EXTRA_STORES）は95行目以降にあるため最終行まで読む（13店舗の処理範囲は3〜94行目のまま）
+    _rows = list(_ws.iter_rows(min_row=1, max_col=_WP_DAY_COL0 + _ndays - 1))
     # 日付見出し（C1〜）が「1日〜末日」になっているか（レイアウト変更の検知）
     _hdr = [str(_rows[0][_WP_DAY_COL0 - 1 + i].value or "").strip() for i in range(_ndays)]
     if _hdr != [f"{i + 1}日" for i in range(_ndays)]:
@@ -3536,7 +3543,45 @@ def _wp_month_schedule(year: int, month: int) -> dict:
     if _nstores == 0:
         return {"ok": False, "sheet": _ws.title, "cells": [], "bad": [],
                 "error": f"「{_ws.title}」に店舗行（エスパス〜）が見つかりません。予定表のレイアウトを確認してください。"}
-    return {"ok": True, "error": "", "sheet": _ws.title, "cells": _cells, "bad": _bad}
+    # 追加店舗：B列が店名と完全一致する行（1店舗1行）。日付列は直前の日付見出し行
+    # （C列が「1日」の行）がC1と同じ並びのときだけ読む。見つからない・ずれは警告して読まない。
+    _missing = []
+    for _sname, _disp in _WP_EXTRA_STORES.items():
+        _hits = [_ri for _ri in range(_WP_LAST_ROW, len(_rows))
+                 if len(_rows[_ri]) > 1 and str(_rows[_ri][1].value or "").strip() == _sname]
+        if not _hits:
+            _missing.append(f"{_disp}（シートに「{_sname}」の行が見つかりません）")
+            continue
+        if len(_hits) > 1:
+            _missing.append(f"{_disp}（「{_sname}」の行が複数あります: "
+                            f"{', '.join(str(h + 1) for h in _hits)}行目。先頭の行を使います）")
+        _ri = _hits[0]
+        _hri = next((_h for _h in range(_ri - 1, _WP_LAST_ROW - 1, -1)
+                     if len(_rows[_h]) > _WP_DAY_COL0 - 1
+                     and str(_rows[_h][_WP_DAY_COL0 - 1].value or "").strip() == "1日"), None)
+        _hdr2 = (None if _hri is None else
+                 [str(_rows[_hri][_WP_DAY_COL0 - 1 + i].value or "").strip()
+                  if _WP_DAY_COL0 - 1 + i < len(_rows[_hri]) else "" for i in range(_ndays)])
+        if _hdr2 != _hdr:
+            _missing.append(f"{_disp}（{_ri + 1}行目の上の日付見出しがC1と違うため読みません）")
+            continue
+        _row = _rows[_ri]
+        for _di in range(_ndays):
+            _cidx = _WP_DAY_COL0 - 1 + _di
+            if _cidx >= len(_row):
+                break
+            _cell = _row[_cidx]
+            _v = str(_cell.value or "").strip()
+            if not _v or _v not in _WP_CIRC:
+                continue
+            _col = _wp_cell_color(_cell, _theme)
+            _who = _WP_PERSON_COLORS.get(_col or "")
+            if _who is None:
+                _bad.append(f"{_disp} {month}/{_di + 1} {_v}（色 {_col or '塗りなし'}）")
+                continue
+            _cells.append((_disp, _di + 1, _v, _who, _ri + 1))
+    return {"ok": True, "error": "", "sheet": _ws.title, "cells": _cells, "bad": _bad,
+            "missing": _missing}
 
 
 def _wp_tasks_for(work_date) -> dict:
@@ -3561,6 +3606,8 @@ def _wp_tasks_for(work_date) -> dict:
             _assign.setdefault((_s, _dt.date(_y, _m, _d)), []).append((_cat, _who, _r))
         for _bad in _res["bad"]:
             _warnings.append(f"担当色を判定できないセル: {_bad}")
+        for _ms in _res.get("missing", []):
+            _warnings.append(f"{_y}/{_m} 追加店舗を読めません: {_ms}")
     _tasks, _seen = [], set()
     _order = sorted(_assign.keys(), key=lambda k: (k[1], min(r for _, _, r in _assign[k])))
     for (_s, _d) in _order:

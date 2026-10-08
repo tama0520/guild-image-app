@@ -3413,6 +3413,13 @@ _WP_EXTRA_STORES: "dict[str, str]" = {
     "プレサス飯田橋": "プレサス飯田橋",
     "BEAM新井薬師": "BEAM新井薬師",
 }
+# 担当者ごとの作業一覧の店舗順（表示だけに使う。作業の抽出・担当判定・完了保存には関係しない）。
+# ここに無い店舗は末尾（店名順）。
+_WP_STORE_ORDER: "tuple[str, ...]" = (
+    "新宿歌舞伎町", "秋葉原", "上野本館", "上野新館", "渋谷新館", "高田馬場", "赤坂見附",
+    "新大久保", "新小岩", "西武新宿", "溝の口本館", "溝の口新館", "稲毛",
+    "プレサス飯田橋", "BEAM新井薬師",
+)
 
 
 class _WPError(Exception):
@@ -3978,10 +3985,14 @@ def _wp_section_body() -> None:
                    "手元のファイルを表示しています。最新と違う可能性があり、この状態では保存できません。")
     _persons = list(_WP_PERSONS) + [_WP_UNKNOWN_PERSON]
     _kind_rank = {k: i for i, k in enumerate(_WP_KINDS)}
+    _store_rank = {s: i for i, s in enumerate(_WP_STORE_ORDER)}
 
     def _wp_split(_p):
+        # 店舗ごとにまとめる：固定の店舗順 → 対象日の古い順 → 作業種別（従来の相対順）。
+        # 完了／未完了では並べ替えない（完了チェックしても位置は変わらない）。
         _mine = [t for t in _tasks if t["person"] == _p]
-        _mine.sort(key=lambda t: (t["target_date"], t["store"], _kind_rank.get(t["kind"], 9)))
+        _mine.sort(key=lambda t: (_store_rank.get(t["store"], len(_store_rank)), t["store"],
+                                  t["target_date"], _kind_rank.get(t["kind"], 9)))
         _undone = [t for t in _mine if t["key"] not in _prog]
         _done = [t for t in _mine if t["key"] in _prog]
         return _mine, _undone, _done
@@ -3995,7 +4006,7 @@ def _wp_section_body() -> None:
             st.markdown(f"**{_p}**　未完了 {len(_undone)}／全 {len(_mine)}")
             if _p == _WP_UNKNOWN_PERSON:
                 st.caption("前日の予定が見つからないため担当者を判定できない作業です。")
-            for _t in _undone + _done:
+            for _t in _mine:
                 _isdone = _t["key"] in _prog
                 _h = _hl.md5(_t["key"].encode("utf-8")).hexdigest()[:12]
                 with st.container(key=f"{'wpd' if _isdone else 'wpt'}_{_h}"):
@@ -4017,7 +4028,7 @@ def _wp_section_body() -> None:
                     st.markdown("<div class='wpc-z'>作業なし</div>", unsafe_allow_html=True)
                 if _p == _WP_UNKNOWN_PERSON:
                     st.caption("前日の予定が見つからず担当者を判定できない作業")
-                for _t in _undone + _done:
+                for _t in _mine:
                     _isdone = _t["key"] in _prog
                     _h = _hl.md5(_t["key"].encode("utf-8")).hexdigest()[:12]
                     with st.container(key=f"{'wpcd' if _isdone else 'wpct'}_{_h}"):

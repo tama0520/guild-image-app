@@ -3426,10 +3426,17 @@ class _WPError(Exception):
     """予定表を正しく読めないとき（誤った担当・作業を表示しないため処理を止める）。"""
 
 
-def _wp_today() -> "datetime.date":
-    """日本時間の今日（Cloud は UTC で動くため明示する）。"""
+# 「本日の仕事」の1日の切替時刻（日本時間）。0:00〜6:59 は前日を「今日」として扱う。
+_WP_DAY_START_HOUR = 7
+
+
+def _wp_today(now: "datetime.datetime | None" = None) -> "datetime.date":
+    """「本日の仕事」の“今日”（日本時間 7:00 切替。Cloud は UTC で動くため JST を明示する）。
+    now は境界テスト用（省略時は現在時刻）。本日の仕事以外では使わない。"""
     import datetime as _dt
-    return _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=9))).date()
+    _jst = _dt.timezone(_dt.timedelta(hours=9))
+    _n = (now or _dt.datetime.now(_jst)).astimezone(_jst)
+    return (_n - _dt.timedelta(hours=_WP_DAY_START_HOUR)).date()
 
 
 @st.cache_data(ttl=300, show_spinner=False)

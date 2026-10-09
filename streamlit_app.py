@@ -4130,6 +4130,11 @@ def show_other_store_page() -> None:
         _navigate("store")
 
 
+# 店舗の機能選択画面で「⚡ 結果ポスト用」ボタンだけを表示しない店舗。
+# 表示を消すだけで、結果ポスト用ページ（page=auto）・処理・ルーティングは残す（URLからは従来どおり開ける）。
+_AUTO_BTN_HIDE_STORES: "frozenset[str]" = frozenset({"上野本館", "上野新館"})
+
+
 def show_image_type_page() -> None:
     """画面2: 画像種類選択"""
     store = st.session_state.selected_store
@@ -4230,22 +4235,31 @@ def show_image_type_page() -> None:
                 </style>""",
                 unsafe_allow_html=True,
             )
-            _col_l, _col_r = st.columns(2)
-            with _col_l:
-                if st.button(
-                    "⚡ 結果ポスト用",
-                    key="auto_mode_btn",
-                    type="primary",
-                    use_container_width=True,
-                ):
-                    _navigate("auto")
-            with _col_r:
+            if store in _AUTO_BTN_HIDE_STORES:
+                # 結果ポスト用(auto)のボタンだけ表示しない（ページ・処理・URLは残す）
                 if st.button(
                     "📊 スランプ付き結果ポスト",
                     key="auto_slump_btn",
                     use_container_width=True,
                 ):
                     _navigate("auto_slump")
+            else:
+                _col_l, _col_r = st.columns(2)
+                with _col_l:
+                    if st.button(
+                        "⚡ 結果ポスト用",
+                        key="auto_mode_btn",
+                        type="primary",
+                        use_container_width=True,
+                    ):
+                        _navigate("auto")
+                with _col_r:
+                    if st.button(
+                        "📊 スランプ付き結果ポスト",
+                        key="auto_slump_btn",
+                        use_container_width=True,
+                    ):
+                        _navigate("auto_slump")
             if st.button(
                 "📋 ローテ用",
                 key="rote_mode_btn",
@@ -4403,22 +4417,31 @@ def show_image_type_page() -> None:
                 </style>""",
                 unsafe_allow_html=True,
             )
-            _col_l, _col_r = st.columns(2)
-            with _col_l:
-                if st.button(
-                    "⚡ 結果ポスト用",
-                    key="auto_mode_btn",
-                    type="primary",
-                    use_container_width=True,
-                ):
-                    _navigate("auto")
-            with _col_r:
+            if store in _AUTO_BTN_HIDE_STORES:
+                # 結果ポスト用(auto)のボタンだけ表示しない（ページ・処理・URLは残す）
                 if st.button(
                     "📊 スランプ付き結果ポスト",
                     key="auto_slump_btn",
                     use_container_width=True,
                 ):
                     _navigate("auto_slump")
+            else:
+                _col_l, _col_r = st.columns(2)
+                with _col_l:
+                    if st.button(
+                        "⚡ 結果ポスト用",
+                        key="auto_mode_btn",
+                        type="primary",
+                        use_container_width=True,
+                    ):
+                        _navigate("auto")
+                with _col_r:
+                    if st.button(
+                        "📊 スランプ付き結果ポスト",
+                        key="auto_slump_btn",
+                        use_container_width=True,
+                    ):
+                        _navigate("auto_slump")
         elif store == "秋葉原":
             # 秋葉原：スランプ付き結果ポスト（左）＋ 記事用（右）
             st.markdown(

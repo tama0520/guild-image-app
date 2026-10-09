@@ -21397,10 +21397,10 @@
   "20260909_上野新館_20S.xlsx": {
     "kojin_enabled": true,
     "narabi_enabled": true,
-    "narabi_ranges_input": "",
+    "narabi_ranges_input": "2017-2020番台\n2036-2039番台 \n2044-2047番台 \n2049-2052番台 \n2102-2105番台 \n2115-2118番台 \n2134-2138番台 \n2149-2152番台 \n2264-2267番台 \n3031-3034番台",
     "retsu_enabled": false,
     "retsu_ranges_input": "",
-    "suebangai_enabled": true,
+    "suebangai_enabled": false,
     "suebangai_tail_input_1": "",
     "suebangai_tail_input_2": "",
     "suebangai_tail_input_3": "",

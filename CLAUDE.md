@@ -25953,3 +25953,93 @@ def _wp_today(now: "datetime.datetime | None" = None) -> "datetime.date":
 6. `_AUTO_BTN_HIDE_STORES`（上野本館・上野新館の結果ポスト用非表示）を変えない
 7. `work_progress.json`・`wrt_machines.json` の既存差分、未追跡ファイル、stash 5件、アプリ自動commit履歴を保全する。
    `git add .` / `git add -A` / reset / restore / clean / stash操作 / rebase / merge / revert / force push は禁止
+
+## 【正式仕様】不正・未知の `page=` によるCloud無限rerunの防止（2026-10-12・`5c429cc`）
+
+**正式仕様。巻き戻し禁止。**対象は**`main()` 最後の、どのページにも当てはまらない状態を処理する `else` だけ**（全ページ・全店舗共通）。
+**8502と Streamlit Cloud 実機で確認済み（2026-10-12）。**既存節は削除・圧縮・統合・書き換えしない。
+
+### A. 正式commit
+
+| 項目 | 内容 |
+|---|---|
+| 正式commit | **`5c429cc96fa9fdadc7478da39ee36af1037252aa`**（`fix: 不正pageでの無限rerunを防止`・`streamlit_app.py` のみ・+4 / −3） |
+| 変更箇所 | `main()` 最後の `else` だけ。新規・削除関数0 |
+
+`5c429cc` の後の Cloud 自動commit **`0117d9f` / `2276df4`**（`work_progress.json` のみ）は有効な履歴として保全し、`git merge --ff-only origin/main` で取り込み済み。
+**`5c429cc` へ reset・revert しない**（正式仕様の根拠commitであって HEAD を戻す意味ではない）。
+
+### B. 症状
+
+- Streamlit Cloud で `[RSS] main() 起動直後` が**1秒に数回**の頻度で出続け、アプリが動かないように見える。
+- **SyntaxError / ImportError / ModuleNotFoundError / OOM / Segmentation fault / Secrets / GitHub API / Pision・Streamlit の例外は1件もない。**
+- Manage app のログ画面に約1万行が溜まって重くなり、「起動していない」ように見える。新しいタブで開くと正常に表示される。
+- 2026-10-12 は、修正を push した直後の反映待ちの間にも Cloud 上で連続rerunが再発しており、
+  **11:05:02〜11:08:02 UTC の約3分間に約888回**（1秒に約5回）出ていた。
+
+### C. 再現できた原因経路
+
+URLの `page=` に**現在存在しない値**が入ると：
+
+1. `_sync_from_query_params()` が未知の page を `st.session_state.page` へ入れる
+2. `main()` 最後の `else` が **session_state だけ**を `store` に戻して `st.rerun()`
+3. **URL側の未知の `page=` は残っている**ため、次の実行で 1 に戻って再び読み込まれる
+4. 「戻す → 未知値を読み直す」を**待ち時間なしで繰り返す**
+
+修正前の再現（`?page=__unknown_page__`）：**40秒で2,635回以上実行され停止しない**（AppTest）。
+正常なページ（`?page=store`）では `main()` は1回で完了する。
+
+### D. 正式修正
+
+```python
+    else:
+        # 不正な状態はトップに戻す。URL の page も store に直さないと、
+        # 次の実行で _sync_from_query_params() が未知の page を再び読み込み、
+        # 「戻す→読み直す」の無限再実行になる（Cloud で main() が連続再実行した件）。
+        _navigate("store")
+```
+
+- 旧：`st.session_state.page = "store"` ＋ `st.rerun()`
+- 新：**`_navigate("store")`**（既存関数をそのまま使う）
+- **session_state と URL の `page` を同時に `store` へ直す**ので、次の実行で `_sync_from_query_params()` が未知値を読み直さず、**2回で収束**する。
+- `_navigate()` / `_sync_from_query_params()` の中身、正常ページのルーティング、戻る・進む（popstate）の仕組みは変更していない。
+
+### E. 確認結果
+
+**8502（`.git` なしの複製）**
+- 未知の page は **`main()` 2回で停止**、URLは **`page=store`** に直る。
+- 40秒観察して**2回のまま増加なし**。
+- 日本語・空白を含む値、存在しない page 名（`work_progress` / `auto_mode`）、大文字の `STORE`、空白だけ、
+  店舗付き（`store=新宿歌舞伎町`）・種類付き（`store=稲毛&type=foo`）の未知 page も**すべて2回で収束**。
+- 正常17ページ（store / image_type / auto / auto_slump / auto_slump2 / かぶぱ auto_slump / rote / auto_article ×2 /
+  other / other_slump / osusume_top / weekly_result_text / work / name_conversion / slump_graph / machine_image）は
+  **修正前と同じく `main()` 1回・例外なし・URL変更なし**。
+- 戻る・進む（トップ → 高田馬場 → ローテ用）正常。「戻る」で履歴の中の未知URLに入っても2回で収束。
+
+**Cloud**
+- 新コードへの更新前（11:05〜11:08 UTC）は連続rerunが実際に再発していた。
+- **`Updated app!`（11:08:02 UTC）の後に連続rerunが停止**（その後は2回・1回だけ）。
+- `?page=__unknown_page__` → **トップへ戻り、URLも `page=store`**。
+- その後 **40秒超の観察でログの増加なし**（41秒間0行）。
+- 通常ページ遷移（トップ → 高田馬場 → ローテ用）正常・エラー表示なし。
+- **health 200 `ok`・約0.2秒**。8501 もHTTP 200。
+
+### F. 発生源についての扱い（断定しない）
+
+- **今回発生したタブの元URLそのものはログに残っていないため、発生源までは断定しない。**
+- ただし、**同じ症状を確実に起こす無限rerun経路を再現・修正し、修正版の反映時点で Cloud 上の連続rerunが止まった**ことは記録する。
+- 2026-10-08 の未解決事象（約55分間 `[RSS]` 約3,600回）は症状が同じで、**この経路が強く関連した可能性はあるが、
+  10/8 の事象まで遡って原因確定とはしない。**
+- 再発した場合は、開いていた全タブのURL（特に `?page=…`）・直前の操作・連続が始まる直前のログを控えてから調べる。
+
+### G. 禁止事項・保全
+
+1. `main()` 最後の `else` を、session_state だけを書き換えて `st.rerun()` する形へ戻さない
+2. URLの `page` を残したまま再実行する処理を、ページ判定の外側に新しく作らない
+3. `_navigate()` / `_sync_from_query_params()` を本仕様を理由に変更しない
+4. 正常ページのルーティング・戻る／進む・popstate の仕組みを本仕様を理由に変えない
+5. 発生源を断定した記録へ書き換えない
+6. `auto_page_inputs.json`・`store_settings/新宿歌舞伎町.json`・`wrt_machines.json` の既存差分、未追跡4件、stash 5件、
+   `C:\Program Files\Git\tmp_chk.json`、アプリ自動commit履歴を保全する。
+   `git add .` / `git add -A` / reset / restore / clean / stash操作 / rebase / 通常merge / revert / force push / 削除操作は禁止
+7. `5c429cc` へ reset・revert しない

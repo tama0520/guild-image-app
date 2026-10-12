@@ -31231,9 +31231,10 @@ def main() -> None:
     elif st.session_state.page == "machine_image":
         show_machine_image_page()
     else:
-        # 不正な状態はトップに戻す
-        st.session_state.page = "store"
-        st.rerun()
+        # 不正な状態はトップに戻す。URL の page も store に直さないと、
+        # 次の実行で _sync_from_query_params() が未知の page を再び読み込み、
+        # 「戻す→読み直す」の無限再実行になる（Cloud で main() が連続再実行した件）。
+        _navigate("store")
 
 
 if __name__ == "__main__":

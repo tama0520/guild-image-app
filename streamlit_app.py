@@ -14000,7 +14000,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _do_rt_existing = st.button("📂 既存のデータを取得", key=f"auto_tb_rt_existing_{store}",
                                                 use_container_width=True,
                                                 help="新しい収集を開始せず、過去に取得済みの直近データを読み込みます。")
-            elif with_slump and _sg_enabled(store):
+            elif with_slump and _sg_enabled(store) and not _is_kabupa_pg:
+                # ★新宿歌舞伎町のかぶぱ（auto_slump）には出さない（auto_slump2 だけ）。
                 # スランプ付き結果ポスト用（auto_slump / auto_slump2）の確定データのみ。
                 # 通常の結果ポスト用（auto・with_slump=False）には出さない。
                 # 左＝既存Pision取得（keyは従来どおり）／右＝slotterguild取得。
@@ -28565,8 +28566,11 @@ def fetch_pision_results(api_key: str, hall_id: str, date: str) -> "list | None"
 # 同じ session_state キーへ流し、以降（normalize_df / 画像生成 / スランプ）は共通経路を使う。
 # slotterguild 側の hall_id は Pision 側の hall id とは別体系（稲毛: SG=566 / Pision=4031）。
 _SG_BASE_URL = "https://slotterguild.com/hall_data_db/halldata"
-_SG_FETCH_STORES: "frozenset[str]" = frozenset({"稲毛", "上野新館", "新小岩"})
-_SG_HALL_IDS: "dict[str, int]" = {"稲毛": 566, "上野新館": 570, "新小岩": 573}
+_SG_FETCH_STORES: "frozenset[str]" = frozenset({"稲毛", "上野新館", "新小岩",
+                                                 "新宿歌舞伎町", "上野本館", "秋葉原"})
+# hall_id は slotterguild の店舗一覧（halls.php）で確認した値。
+_SG_HALL_IDS: "dict[str, int]" = {"稲毛": 566, "上野新館": 570, "新小岩": 573,
+                                  "新宿歌舞伎町": 572, "上野本館": 571, "秋葉原": 568}
 _SG_TIMEOUT = 20
 
 

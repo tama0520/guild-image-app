@@ -26216,3 +26216,92 @@ _SG_HALL_IDS = {"稲毛": 566, "上野新館": 570, "新小岩": 573,
 5. Cloud確認のために `store_settings/新宿歌舞伎町.json` を commit しない／衝突条件を Cloud 確認済みと書かない
 6. `store_settings/新宿歌舞伎町.json`・`auto_page_inputs.json`・`wrt_machines.json` の既存差分、未追跡ファイル、stash 5件、
    アプリ自動commit履歴を保全する。`git add .` / `git add -A` / reset / restore / clean / stash操作 / rebase / 通常merge / revert / force push は禁止
+
+## 【正式仕様】新宿歌舞伎町 スランプ付き結果ポスト用：初期チェック状態をCloudとローカルで一致（2026-10-13・`3e8a051`）
+
+**正式仕様。巻き戻し禁止。**対象は**【新宿歌舞伎町】スランプ付き結果ポスト用（`page=auto_slump2`）の初期チェック状態だけ**。
+**Cloud 実機で確認済み（2026-10-13・ユーザー承認）。**既存節は削除・圧縮・統合・書き換えしない。
+
+### A. 正式commit
+
+| 項目 | 内容 |
+|---|---|
+| 正式commit | **`3e8a05110bb1c9c679eda39edf39cb96a765f4cd`**（`fix: 新宿歌舞伎町の初期チェック状態を修正`） |
+| 変更 | **保存データ2行だけ**（`article_shared_inputs.json` 1行・`store_settings/新宿歌舞伎町.json` 1行）。**コード変更なし** |
+
+**`3e8a051` へ reset・revert しない**（正式仕様の根拠commitであって HEAD を戻す意味ではない）。
+
+### B. 正しい初期状態
+
+| 項目 | 正しい初期状態 |
+|---|---|
+| **⑤ オススメ機種ピックアップ** | **OFF** |
+| **② 個別画像「下記の条件で『ジャグラーシリーズ優秀台』を自動抽出」** | **`+1,000枚以上`** |
+
+### C. 原因（コード不具合ではない）
+
+Cloud とローカルで参照している**保存ファイルの内容が違っていた**。
+
+| 項目 | ファイル | Cloud／GitHub HEAD版 | ローカル作業ツリー版 |
+|---|---|---|---|
+| ⑤ | `store_settings/新宿歌舞伎町.json` の `rec_enabled` | **true** | **false** |
+| ② | `article_shared_inputs.json` の `jug_extra_auto_slump2` | **"なし"** | **"+1,000枚以上"** |
+
+- `rec_enabled: true` は 10/12 23:28 のローカル自動commit `6e585e5` で GitHub に入り、ローカルは false に戻したまま push されていなかった。
+- `"なし"` は 10/11 03:02 の Cloud 自動commit `87f25dc` で GitHub に入り、ローカルは +1,000枚以上 に戻したまま push されていなかった。
+- **`auto_page_inputs.json` はこの2項目に関係しない。**
+
+### D. 値の決まり方
+
+**⑤**
+- `_init_recommended_settings()` が `store_settings/新宿歌舞伎町.json` の `rec_enabled` を `rec_enabled_{店舗}` の初期値として読む。
+- **保存値がある場合、コード上のデフォルト False より保存値が優先される。**
+- **データ取得後の処理で⑤を書き換えることはない**（seed は session_state にキーが無いときだけ）。
+- `store_settings` には Cloud↔GitHub の同期経路が無いため、Cloud は**最後の Reboot 時点の HEAD 版**を読む。
+
+**②**
+- **`_jug_auto_mem_resolve()` が描画のたびに表示値を決める**。
+- 優先順は **`article_shared_inputs.json` の記憶値 → 日付保存値（「なし」以外）→ `+1,000枚以上`**。
+- **記憶値が `"なし"` の場合も有効値として採用されるため、コード初期値 `+1,000枚以上` には戻らない。**
+- `article_shared_inputs.json` は `_GH_SYNC_FILES` の対象で、Cloud はセッション開始時に GitHub の最新を取り込む。
+
+### E. 正式修正（GitHub上の保存データをローカルの正しい状態へ合わせた）
+
+変更は2行だけ：
+
+1. `article_shared_inputs.json`：`jug_extra_auto_slump2` を `"なし"` → **`"+1,000枚以上"`**
+2. `store_settings/新宿歌舞伎町.json`：`rec_enabled` を `true` → **`false`**
+
+**★重要**
+- ローカル作業ツリーの `store_settings/新宿歌舞伎町.json` には、**東京喰種・マギレコ・モンキーターンV 等の10/12テスト用⑤設定が未コミットで存在する**。
+- **そのファイルを丸ごと commit せず、HEAD 版を基準に `rec_enabled` だけを false へ変えた内容を Git へ登録した**
+  （作業ツリーのファイルには触れていない）。
+- **テスト用⑤設定は正式commitへ含めていない。**
+
+### F. Cloud確認（2026-10-13）
+
+Reboot 後、新宿歌舞伎町・スランプ付き結果ポスト用で **10/12 の Pision 確定データ 749台**を取得。
+
+- **⑤ オススメ機種ピックアップ：OFF**
+- ②は「個別画像も生成する」を ON にした際に表示され、**`+1,000枚以上` が選択**されていることを確認。確認後「個別画像も生成する」は OFF へ戻した。
+- **再読み込み・新しいセッションでも⑤は OFF。**
+- ②は **GitHub 上の `article_shared_inputs.json` の `+1,000枚以上` を毎回読む**ことを確認。
+
+### G. 他店舗への影響
+
+今回の変更は新宿歌舞伎町専用。Cloud で以下も確認し、非回帰なし：
+
+| 店舗 | Cloud の⑤ | 設定（HEAD版） |
+|---|---|---|
+| 新小岩 | ON | true |
+| 上野本館 | ON | true |
+| 稲毛 | OFF | false |
+
+### H. 禁止事項・保全
+
+1. ⑤・②の初期状態をコードの変更で合わせようとしない（原因は保存データ）
+2. `store_settings/新宿歌舞伎町.json` を丸ごと commit しない／10/12テスト用⑤設定を commit しない
+3. Cloud の画面で⑤を切り替えて直そうとしない（`store_settings` はコンテナ内にしか残らず Reboot で消える）
+4. `_init_recommended_settings()` / `_jug_auto_mem_resolve()` の優先順を本件を理由に変えない
+5. `auto_page_inputs.json`・`store_settings/新宿歌舞伎町.json`（テスト用⑤設定）・`wrt_machines.json` の既存差分、未追跡4件、stash 5件、
+   アプリ自動commit履歴を保全する。`git add .` / `git add -A` / reset / restore / clean / stash操作 / rebase / merge / revert / force push は禁止

@@ -11848,20 +11848,40 @@ def _collect_kojin_bans(df, diff_raw, zentai: list[str], yushu: list[str],
     return bans
 
 
+_REC_THR_SUFFIX: "dict[int, str]" = {1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
+
+
+def _rec_block_fn_map(blocks: list[dict]) -> "dict[tuple[int, int], str]":
+    """⑤オススメ画像のファイル名を {(ブロック番号, 閾値): ファイル名} で返す（⑦・📝・🔄・⑧共通）。
+    基本は `オススメ_{safe(タイトル)}_{閾値サフィックス}.jpg`。同じタイトル・同じ閾値の
+    ブロックが複数あるときだけ、2つ目以降に `(2)` `(3)` … を付けて上書きを防ぐ
+    （衝突がなければ従来と同じ名前）。機種名が1つもないブロックは画像を作らないので名前も割り当てない。
+    画像の有無ではなくブロック設定だけで決めるので、どの経路でも同じ名前になる。"""
+    _used: set[str] = set()
+    _out: "dict[tuple[int, int], str]" = {}
+    for _i, _b in enumerate(blocks):
+        if not any(str(m).strip() for m in _b.get("machines", [])):
+            continue
+        _t = str(_b.get("title") or "").strip() or "オススメ機種"
+        for _thr in _b.get("thresholds", [1]):
+            _stem = f"オススメ_{_make_safe_fn(_t)}_{_REC_THR_SUFFIX.get(_thr, str(_thr))}"
+            _fn = f"{_stem}.jpg"
+            _n = 2
+            while _fn in _used:
+                _fn = f"{_stem}({_n}).jpg"
+                _n += 1
+            _used.add(_fn)
+            _out[(_i, _thr)] = _fn
+    return _out
+
+
 def _rec_off_machines(fn: str, blocks: list[dict]) -> list[str]:
     """⑤オススメ画像のファイル名から、そのブロックの掲載対象機種名を返す。
-    ファイル名は `オススメ_{safe(タイトル)}_{閾値サフィックス}.jpg`（⑦⑧共通）。
+    ファイル名は _rec_block_fn_map()（⑦・📝・🔄・⑧共通）。
     該当しなければ空リスト（＝何も戻さない）。"""
-    _sfx_map = {1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
-    for _b in blocks:
-        _t = _b["title"].strip()
-        if not _t and not any(m.strip() for m in _b["machines"]):
-            continue
-        if not _t:
-            _t = "オススメ機種"
-        for _thr in _b.get("thresholds", [1]):
-            if fn == f"オススメ_{_make_safe_fn(_t)}_{_sfx_map.get(_thr, str(_thr))}.jpg":
-                return [m.strip() for m in _b["machines"] if m.strip()]
+    for (_i, _thr), _fn in _rec_block_fn_map(blocks).items():
+        if fn == _fn:
+            return [m.strip() for m in blocks[_i]["machines"] if m.strip()]
     return []
 
 
@@ -15758,7 +15778,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             store, force_1k=(with_slump and store == "秋葉原"))
                                     st.session_state[_aprev_pub_bans_key] = _pv_pub_bans
                                 _sfx_map  = {1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
-                                for _block in recommended_blocks:
+                                _rec_fn_map = _rec_block_fn_map(recommended_blocks)
+                                for _bi, _block in enumerate(recommended_blocks):
                                     _bt = _block["title"].strip()
                                     _bm = _block["machines"]
                                     if not _bt and not any(m.strip() for m in _bm):
@@ -15776,7 +15797,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         if _rec_img is None:
                                             continue
                                         _sfx = _sfx_map.get(_thr, str(_thr))
-                                        _rec_fn = f"オススメ_{_make_safe_fn(_bt)}_{_sfx}.jpg"
+                                        _rec_fn = _rec_fn_map[(_bi, _thr)]
                                         _prev_img_list.append((_rec_fn, _rec_img))
                                         # スランプグラフ合成用：画像に含まれる台番を収集
                                         _rec_bans: list[int] = []
@@ -16438,7 +16459,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                         # ⑤ オススメ機種ピックアップ
                         if recommended_blocks:
                             _ms_sfx ={1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
-                            for _blk in recommended_blocks:
+                            _ms_fn_map = _rec_block_fn_map(recommended_blocks)
+                            for _mbi, _blk in enumerate(recommended_blocks):
                                 _mbt = _blk["title"].strip() or "オススメ機種"
                                 _mbm = [m.strip() for m in _blk["machines"] if m.strip()]
                                 if not _mbm:
@@ -16451,7 +16473,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     if _mrimg is None:
                                         continue
                                     _ms_sfxv = _ms_sfx.get(_mthr, str(_mthr))
-                                    _manual_imgs.append((f"オススメ_{_make_safe_fn(_mbt)}_{_ms_sfxv}.jpg", _mrimg))
+                                    _ms_fn = _ms_fn_map[(_mbi, _mthr)]
+                                    _manual_imgs.append((_ms_fn, _mrimg))
                                     _rec_bans_m: list[int] = []
                                     for _rvm in _mbm:
                                         _rg = _df_m[_df_m["機種名"] == _rvm].copy()
@@ -16461,7 +16484,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _rmk = _rd >= _mthr
                                         _rec_bans_m +=[int(b) for b in _rg[_rmk]["台番"].dropna()]
                                     if _rec_bans_m:
-                                        _manual_ban_map[f"オススメ_{_make_safe_fn(_mbt)}_{_ms_sfxv}.jpg"] = sorted(set(_rec_bans_m))
+                                        _manual_ban_map[_ms_fn] = sorted(set(_rec_bans_m))
 
                         # ⑤ バラエティ画像（秋葉原スランプ付き＋高田馬場）
                         if _variety_ui and variety_enabled and variety_ranges_text.strip():
@@ -17492,7 +17515,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _pv_df[_pv_df["機種名"].isin(_rec_unchecked_machines)]["台番"].dropna()
                                     }
                             _sfx_map_r = {1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
-                            for _block_r in recommended_blocks:
+                            _rec_fn_map_r = _rec_block_fn_map(recommended_blocks)
+                            for _bi_r, _block_r in enumerate(recommended_blocks):
                                 _bt_r = _block_r["title"].strip() or "オススメ機種"
                                 _bm_r = _block_r["machines"]
                                 if not any(m.strip() in _rec_unchecked_machines for m in _bm_r if m.strip()):
@@ -17508,7 +17532,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     if _rec_img_r is None:
                                         continue
                                     _sfx_r = _sfx_map_r.get(_thr_r, str(_thr_r))
-                                    _tgt_r = f"オススメ_{_make_safe_fn(_bt_r)}_{_sfx_r}.jpg"
+                                    _tgt_r = _rec_fn_map_r[(_bi_r, _thr_r)]
                                     # スランプグラフ合成用：画像に含まれる台番を収集
                                     _rb_r = _rec_block_bans(_valid_r, _pv_df, _pv_diff, _upd_nb,
                                                             min_diff=_thr_r, exclude_bans=_upd_pub_bans)
@@ -18136,7 +18160,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                     # ⑤ オススメ機種ピックアップ
                     if recommended_blocks:
                         _ms_sfx_e ={1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
-                        for _blk_e in recommended_blocks:
+                        _ms_fn_map_e = _rec_block_fn_map(recommended_blocks)
+                        for _mbi_e, _blk_e in enumerate(recommended_blocks):
                             _mbt_e = _blk_e["title"].strip() or "オススメ機種"
                             _mbm_e = [m.strip() for m in _blk_e["machines"] if m.strip()]
                             if not _mbm_e:
@@ -18146,7 +18171,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 if _mrimg_e is None:
                                     continue
                                 _ms_sfxv_e = _ms_sfx_e.get(_mthr_e, str(_mthr_e))
-                                _mrfn_e = f"オススメ_{_make_safe_fn(_mbt_e)}_{_ms_sfxv_e}.jpg"
+                                _mrfn_e = _ms_fn_map_e[(_mbi_e, _mthr_e)]
                                 _mrfn_e = _unique_fn_e(_mrfn_e)
                                 _mrout_e = os.path.join(output_dir, _mrfn_e)
                                 _save_jpeg(_mrimg_e, _mrout_e)
@@ -19308,7 +19333,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _exec_pub_bans |= _collect_kojin_bans(
                                 df_pipe, diff_pipe, kojin_zentai_machines, kojin_yushu_machines,
                                 store, force_1k=(with_slump and store == "秋葉原"))
-                    for block in recommended_blocks:
+                    _rec_fn_map_exec = _rec_block_fn_map(recommended_blocks)
+                    for _bi_exec, block in enumerate(recommended_blocks):
                         b_title    = block["title"].strip()
                         b_machines = block["machines"]
                         # タイトルも機種名もすべて空なら丸ごとスキップ
@@ -19334,7 +19360,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _log(f"  オススメ「{b_title}」({_threshold_suffix.get(_thr, str(_thr))}): 該当台なし")
                                 continue
                             _sfx = _threshold_suffix.get(_thr, str(_thr))
-                            _rec_fn_exec = f"オススメ_{_make_safe_fn(b_title)}_{_sfx}.jpg"
+                            _rec_fn_exec = _rec_fn_map_exec[(_bi_exec, _thr)]
                             out_rec = os.path.join(output_dir, _rec_fn_exec)
                             _save_jpeg(img, out_rec)
                             result["files"].append(out_rec)
@@ -19697,11 +19723,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                 else:
                     _order.append("その他の優秀台ピックアップ.jpg")
                 # オススメ
-                _sfx_r = {1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
-                for _blk in recommended_blocks:
-                    _bt2 = _blk["title"].strip() or "オススメ機種"
-                    for _thr in _blk.get("thresholds", [1]):
-                        _order.append(f"オススメ_{_make_safe_fn(_bt2)}_{_sfx_r.get(_thr, str(_thr))}.jpg")
+                # ⑤のファイル名は _rec_block_fn_map()（同名ブロックは (2)(3)… 付き）
+                for _rec_ord_fn in _rec_block_fn_map(recommended_blocks).values():
+                    _order.append(_rec_ord_fn)
                 # 再実行時に前回の連番プレフィックスが残っていると衝突するため、先に剥がしておく
                 for _ef in os.listdir(output_dir):
                     _pm = re.match(r"^\d{2}_(.+)$", _ef)

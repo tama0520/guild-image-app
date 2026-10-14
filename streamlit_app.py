@@ -4145,6 +4145,9 @@ _SLUMP_FIRST_STORES: "frozenset[str]" = frozenset({"新小岩"})
 # ⑥「個別に生成する場合は以下から選択：」のボタン群を出すか（全店舗共通・False＝非表示）。
 _SHOW_ITYPE_BUTTONS: bool = False
 
+# 左サイドバーのトップ画面で「📍 店舗選択」を出すか（False＝非表示・その上の区切り線も出さない）。
+_SIDEBAR_STORE_CRUMB: bool = False
+
 
 def show_image_type_page() -> None:
     """画面2: 画像種類選択"""
@@ -31184,12 +31187,15 @@ def main() -> None:
         if st.button("🖼️ 機種画像紐づけ", use_container_width=True, key="nav_mi"):
             _navigate("machine_image")
 
-        st.markdown("---")
-
         # 現在地をパンくずで表示
         page = st.session_state.page
+        # トップ（店舗選択）では「📍 店舗選択」とその上の区切り線を出さない。
+        # 戻すときは _SIDEBAR_STORE_CRUMB を True にするだけ。
+        if page != "store" or _SIDEBAR_STORE_CRUMB:
+            st.markdown("---")
         if page == "store":
-            st.markdown("📍 **店舗選択**")
+            if _SIDEBAR_STORE_CRUMB:
+                st.markdown("📍 **店舗選択**")
         elif page == "image_type":
             st.markdown(f"📍 **{st.session_state.selected_store}**")
             st.markdown("　→ 画像種類選択")

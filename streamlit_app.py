@@ -4148,6 +4148,14 @@ _SHOW_ITYPE_BUTTONS: bool = False
 # 左サイドバーのトップ画面で「📍 店舗選択」を出すか（False＝非表示・その上の区切り線も出さない）。
 _SIDEBAR_STORE_CRUMB: bool = False
 
+# 左サイドバーで「📍 現在地」とその上の区切り線を出さない単独機能ページ
+# （上部4ボタンと同じページ名を重複表示するため）。戻すときは集合から外すだけ。
+_SIDEBAR_CRUMB_HIDE_PAGES: "frozenset[str]" = frozenset({
+    "slump_graph",
+    "name_conversion",
+    "machine_image",
+})
+
 
 def show_image_type_page() -> None:
     """画面2: 画像種類選択"""
@@ -31191,7 +31199,10 @@ def main() -> None:
         page = st.session_state.page
         # トップ（店舗選択）では「📍 店舗選択」とその上の区切り線を出さない。
         # 戻すときは _SIDEBAR_STORE_CRUMB を True にするだけ。
-        if page != "store" or _SIDEBAR_STORE_CRUMB:
+        # 単独機能ページ（_SIDEBAR_CRUMB_HIDE_PAGES）も現在地と区切り線を出さない。
+        _crumb_on = ((page != "store" or _SIDEBAR_STORE_CRUMB)
+                     and page not in _SIDEBAR_CRUMB_HIDE_PAGES)
+        if _crumb_on:
             st.markdown("---")
         if page == "store":
             if _SIDEBAR_STORE_CRUMB:
@@ -31227,11 +31238,14 @@ def main() -> None:
             st.markdown(f"📍 **{st.session_state.selected_store}**")
             st.markdown("　→ **📅 1週間の結果テキスト**")
         elif page == "name_conversion":
-            st.markdown("📍 **機種名変換**")
+            if _crumb_on:
+                st.markdown("📍 **機種名変換**")
         elif page == "slump_graph":
-            st.markdown("📍 **スランプグラフ生成**")
+            if _crumb_on:
+                st.markdown("📍 **スランプグラフ生成**")
         elif page == "machine_image":
-            st.markdown("📍 **機種画像紐づけ**")
+            if _crumb_on:
+                st.markdown("📍 **機種画像紐づけ**")
 
     # ── アプリタイトル ────────────────────────────────────────────
     st.title("ギルド画像生成")

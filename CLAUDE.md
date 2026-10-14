@@ -26391,3 +26391,90 @@ _SHOW_ITYPE_BUTTONS: bool = False
 6. `wrt_machines.json`・`auto_page_inputs.json` の既存差分、未追跡4件、stash 5件、アプリ自動commit履歴を保全する。
    `git add .` / `git add -A` / reset / restore / clean / stash操作 / rebase / merge / revert / force push は禁止
 7. `44dbe11` へ reset・revert しない
+
+## 【正式仕様】トップ画面の左サイドバー「📍 店舗選択」を非表示（2026-10-14・`a1d5595`）
+
+**正式仕様。巻き戻し禁止。**対象は**トップ画面（`page == "store"`）の左サイドバー下部にある「📍 店舗選択」と、その表示専用の区切り線だけ**。
+**8502 と Streamlit Cloud 実機で確認済み（2026-10-14・ユーザー承認）。**既存節は削除・圧縮・統合・書き換えしない。
+
+### A. 正式commit
+
+| 項目 | 内容 |
+|---|---|
+| 正式commit | **`a1d55959ed5838bc987be60ed7ce994678079e0c`**（`fix: トップ画面の店舗選択表示を非表示`・`streamlit_app.py` のみ・+9 / −3） |
+| 変更箇所 | 定数 **`_SIDEBAR_STORE_CRUMB: bool = False`** の新設と、`main()` のサイドバー「現在地」表示の冒頭だけ。新規・削除関数0 |
+
+`a1d5595` は現HEADの祖先であることを確認済み。**`a1d5595` へ reset・revert しない**（正式仕様の根拠commitであって HEAD を戻す意味ではない）。
+
+### B. 正式仕様
+
+- **トップ画面では「📍 店舗選択」を表示しない。**
+- **その表示専用の区切り線（上部4ボタンと現在地表示の間の `---`）もトップ画面では表示しない。**不自然な空白を残さない。
+- 左サイドバー上部4ボタン（画像生成／スランプグラフ生成／機種名変換／機種画像紐づけ）は従来どおり。
+- 中央の店舗一覧（おすすめ・その他を含む15個）は従来どおり。
+- **店舗選択機能・session_state・ルーティングは変更しない。**
+- **店舗選択後や他ページの「📍 現在地」表示（区切り線＋現在地）は従来どおり残す。**
+- 将来必要になったら**定数を `True` にするだけで戻せる**状態を維持する。
+
+### C. 実装
+
+```python
+# 左サイドバーのトップ画面で「📍 店舗選択」を出すか（False＝非表示・その上の区切り線も出さない）。
+_SIDEBAR_STORE_CRUMB: bool = False
+...
+        # 現在地をパンくずで表示
+        page = st.session_state.page
+        # トップ（店舗選択）では「📍 店舗選択」とその上の区切り線を出さない。
+        # 戻すときは _SIDEBAR_STORE_CRUMB を True にするだけ。
+        if page != "store" or _SIDEBAR_STORE_CRUMB:
+            st.markdown("---")
+        if page == "store":
+            if _SIDEBAR_STORE_CRUMB:
+                st.markdown("📍 **店舗選択**")
+        elif page == "image_type":
+            ...（以降の分岐は無変更）
+```
+
+- 区切り線は全ページ共通の1本だったため、トップ画面で文字だけ消すと線が最後に1本残る。
+  そのため**トップ画面のときだけ線も出さない**形にした。
+- 他ページの分岐・ルーティング・session_state は変更していない。CSSで隠す方式ではない。
+
+### D. 8502確認
+
+- トップ画面で「📍 店舗選択」と専用区切り線が非表示。サイドバーは上部4ボタンで自然に終わる（区切り線 2本 → 1本）。
+- 中央店舗ボタン15個は従来どおり。PC正常、390px相当正常、横スクロールなし。
+- 稲毛を選ぶと従来どおり「📍 稲毛 → 画像種類選択」（区切り線2本）。サイドバー「画像生成」でトップへ戻ると再び非表示。
+- 他ページの現在地表示に非回帰なし（8501 と比較）。`git diff --check` OK、構文チェックOK。
+
+### E. Cloud確認（2026-10-14）
+
+- `a1d5595` 反映済み。**Reboot不要で約40秒後に反映**。
+- トップ画面：「📍 店舗選択」非表示・専用区切り線非表示・余分な空白なし・上部4ボタン正常・中央店舗一覧15個正常。
+- PC正常、390px相当正常、横スクロールなし。稲毛選択後は従来どおり現在地表示あり。
+- **Cloudで確認済みの他ページ**：rote ／ auto_slump2 ／ other_slump ／ osusume_top ／ name_conversion ／ work ／ auto_article
+  （auto_article はもともと現在地表示の分岐がないページで、従来どおり区切り線のみ）。
+- **8502で追加確認済み**：image_type ／ auto ／ auto_slump ／ other ／ slump_graph ／ machine_image ／ weekly_result_text。
+
+### F. 影響範囲
+
+トップ画面のサイドバー表示だけ。他ページの現在地表示、店舗選択機能、各ページ遷移には影響なし。
+
+### G. 別件（今回のUI変更とは無関係）
+
+作業中、8501 の画面を短時間に複数開いた際に `_git_auto_pull()`（`git stash` → `git pull` → `git stash pop`、
+pull が失敗すると pop へ進まない）による**事故的な stash** が一度発生した。
+ユーザー承認のうえ `git stash pop stash@{0}` で復旧済みで、
+**stash は5件、`auto_page_inputs.json`・`wrt_machines.json`・未追跡4件はいずれも保全済み**。
+**`_git_auto_pull()` 自体は今回変更していない**（別件として後日調査）。
+検証時は 8501 の画面を同時に複数開かないこと。
+
+### H. 禁止事項
+
+1. トップ画面で「📍 店舗選択」・専用区切り線を復活させない（戻すときは `_SIDEBAR_STORE_CRUMB` を True にする）
+2. `_SIDEBAR_STORE_CRUMB` の定数・分岐を削除しない
+3. 他ページの現在地表示・区切り線を本仕様を理由に変えない／CSSで隠す方式へ変えない
+4. 上部4ボタン・中央の店舗一覧・店舗選択機能・session_state・ルーティングを本仕様を理由に変えない
+5. `_git_auto_pull()` を本仕様の記録を理由に変更しない（別件）
+6. `auto_page_inputs.json`・`wrt_machines.json` の既存差分、未追跡4件、stash 5件、アプリ自動commit履歴を保全する。
+   `git add .` / `git add -A` / reset / restore / clean / stash操作 / rebase / merge / revert / force push は禁止
+7. `a1d5595` へ reset・revert しない

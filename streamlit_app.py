@@ -4142,6 +4142,10 @@ _ARTICLE_BTN_HIDE_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
 _SLUMP_FIRST_STORES: "frozenset[str]" = frozenset({"新小岩"})
 
 
+# ⑥「個別に生成する場合は以下から選択：」のボタン群を出すか（全店舗共通・False＝非表示）。
+_SHOW_ITYPE_BUTTONS: bool = False
+
+
 def show_image_type_page() -> None:
     """画面2: 画像種類選択"""
     store = st.session_state.selected_store
@@ -4514,16 +4518,19 @@ def show_image_type_page() -> None:
             ):
                 _navigate("auto")
 
-    st.markdown("---")
-    st.markdown("**個別に生成する場合は以下から選択：**")
+    # 個別生成ボタン群（⑥ page=work への入口）。現状使わないため全店舗で非表示。
+    # 戻すときは _SHOW_ITYPE_BUTTONS を True にするだけ（show_work_page 等の処理は残している）。
+    if _SHOW_ITYPE_BUTTONS:
+        st.markdown("---")
+        st.markdown("**個別に生成する場合は以下から選択：**")
 
-    image_types = STORES.get(store, [])
-    if not image_types:
-        st.warning("この店舗に対応する画像種類が設定されていません。")
-    else:
-        for itype in image_types:
-            if st.button(itype, key=f"itype_{itype}", use_container_width=True):
-                _navigate("work", itype=itype)
+        image_types = STORES.get(store, [])
+        if not image_types:
+            st.warning("この店舗に対応する画像種類が設定されていません。")
+        else:
+            for itype in image_types:
+                if st.button(itype, key=f"itype_{itype}", use_container_width=True):
+                    _navigate("work", itype=itype)
 
     st.markdown("---")
     if st.button("← 店舗選択に戻る", key="back_to_store"):

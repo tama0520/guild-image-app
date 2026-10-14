@@ -26478,3 +26478,108 @@ pull が失敗すると pop へ進まない）による**事故的な stash** �
 6. `auto_page_inputs.json`・`wrt_machines.json` の既存差分、未追跡4件、stash 5件、アプリ自動commit履歴を保全する。
    `git add .` / `git add -A` / reset / restore / clean / stash操作 / rebase / merge / revert / force push は禁止
 7. `a1d5595` へ reset・revert しない
+
+## 【正式仕様】単独機能ページ（スランプグラフ生成・機種名変換・機種画像紐づけ）の左サイドバー現在地表示を非表示（2026-10-14・`921646e`）
+
+**正式仕様。巻き戻し禁止。**対象は**左サイドバー下部の「📍 現在地」表示のうち、次の3ページだけ**。
+**8502 と Streamlit Cloud 実機で確認済み（2026-10-14・ユーザー承認）。**既存節は削除・圧縮・統合・書き換えしない。
+直前の節「トップ画面の左サイドバー「📍 店舗選択」を非表示（`a1d5595`）」と同じ考え方の追加仕様であり、同節はそのまま有効。
+
+| ページ | page 値（コードの `_navigate(...)` と現在地分岐で確認済み） |
+|---|---|
+| スランプグラフ生成 | **`slump_graph`** |
+| 機種名変換 | **`name_conversion`** |
+| 機種画像紐づけ | **`machine_image`** |
+
+### A. 正式commit
+
+| 項目 | 内容 |
+|---|---|
+| 正式commit | **`921646e8bfe4081f0a904d26f4396437892eee18`**（`fix: 単独機能ページの現在地表示を非表示`・`streamlit_app.py` のみ・+18 / −4） |
+| 変更箇所 | 定数 **`_SIDEBAR_CRUMB_HIDE_PAGES`** の新設と、`main()` のサイドバー「現在地」表示の判定だけ。新規・削除関数0 |
+
+`921646e` は現HEADの祖先であることを確認済み。**`921646e` へ reset・revert しない**（正式仕様の根拠commitであって HEAD を戻す意味ではない）。
+
+### B. 正式仕様
+
+- 上記3ページでは**「📍 現在地」を表示しない**。**その現在地表示用の区切り線も表示しない**（サイドバーは上部4ボタンで終わる）。
+- **トップ画面（`page == "store"`）の既存仕様（「📍 店舗選択」非表示・専用区切り線非表示）を維持**する。
+- **店舗系ページの「📍 店舗名 → …」は従来どおり表示**する。
+- **`other` / `osusume_top` / `other_slump` など指定外ページの現在地表示も変更しない。**
+- **`auto_article` の既存表示（もともと現在地なし・区切り線のみ）も変更しない。**
+- 左上4ボタン（画像生成／スランプグラフ生成／機種名変換／機種画像紐づけ）、ルーティング、session_state、各ページ本体機能は変更しない。
+
+### C. 実装
+
+```python
+# 左サイドバーで「📍 現在地」とその上の区切り線を出さない単独機能ページ
+# （上部4ボタンと同じページ名を重複表示するため）。戻すときは集合から外すだけ。
+_SIDEBAR_CRUMB_HIDE_PAGES: "frozenset[str]" = frozenset({
+    "slump_graph",
+    "name_conversion",
+    "machine_image",
+})
+...
+        # 単独機能ページ（_SIDEBAR_CRUMB_HIDE_PAGES）も現在地と区切り線を出さない。
+        _crumb_on = ((page != "store" or _SIDEBAR_STORE_CRUMB)
+                     and page not in _SIDEBAR_CRUMB_HIDE_PAGES)
+        if _crumb_on:
+            st.markdown("---")
+        ...
+        elif page == "name_conversion":
+            if _crumb_on:
+                st.markdown("📍 **機種名変換**")
+        elif page == "slump_graph":
+            if _crumb_on:
+                st.markdown("📍 **スランプグラフ生成**")
+        elif page == "machine_image":
+            if _crumb_on:
+                st.markdown("📍 **機種画像紐づけ**")
+```
+
+- 表示判定は **`_crumb_on`** の1か所にまとめた。共通区切り線と対象3ページの現在地文字は `_crumb_on` が True のときだけ描く。
+- **`_SIDEBAR_STORE_CRUMB` の意味は変更していない**（トップ画面専用のまま。別の役割を持たせない）。
+- 将来戻す場合は **`_SIDEBAR_CRUMB_HIDE_PAGES` から対象 page を外すだけ**。CSSで隠す方式ではない。
+
+### D. 8502確認
+
+- トップ画面・`slump_graph`・`name_conversion`・`machine_image`：現在地なし、専用区切り線なし（区切り線1本）。
+- 店舗系ページ **image_type ／ auto ／ auto_slump ／ auto_slump2 ／ rote ／ weekly_result_text ／ work** は従来どおり店舗名入り現在地あり（区切り線2本）。
+- other ／ osusume_top ／ other_slump は従来どおり。auto_article も従来どおり。
+- PC正常、390px相当正常、横スクロールなし。左上4ボタンの順番・遷移正常。
+- 3ページの機能本体に非回帰なし（スランプグラフ生成で10/13新小岩485台取得、機種名変換の3タブ切替、機種画像紐づけのプレビュー切替）。
+- `git diff --check` OK、構文チェックOK。
+
+### E. Cloud確認（2026-10-14）
+
+- `921646e` 反映後、**Reboot不要で約40秒後に反映**。
+- **トップ画面・slump_graph・name_conversion・machine_image の4画面すべてで**：現在地非表示、区切り線1本、横スクロールなし、390px相当でも正常。
+- 左上4ボタン（画像生成 → スランプグラフ生成 → 機種名変換 → 機種画像紐づけ）の順番・遷移先とも従来どおり。
+- 他ページ非回帰：image_type（稲毛）／ auto_slump2（新宿歌舞伎町）／ rote（西武新宿）は区切り線2本＋店舗名入り現在地で従来どおり。
+  other ／ osusume_top ／ other_slump も従来どおり。auto_article は従来どおり区切り線のみ。
+- 機能確認：
+  - 機種名変換：3タブすべて正常、マスタ1,207件表示。
+  - 機種画像紐づけ：一覧2つと、プレビューのパネル・液晶画像4枚が正常表示。
+  - スランプグラフ生成：10/13 新小岩で485台取得＋集計表表示。10/14 は確定データ未取得のため既存の
+    「データを取得できませんでした」表示で正常。
+
+### F. 影響範囲
+
+今回変更したのはサイドバーの現在地表示制御のみ。ルーティング・session_state・各機能本体には影響なし。
+
+### G. 別件
+
+`_git_auto_pull()` の stash 事故（`a1d5595` の節 G 参照）については今回変更していない。復旧済みで、今回の作業でも再発なし
+（作業中は 8501 を停止し、8501 の画面は開かずに確認した）。
+
+### H. 禁止事項
+
+1. 対象3ページで現在地・区切り線を復活させない（戻すときは `_SIDEBAR_CRUMB_HIDE_PAGES` から外す）
+2. `_SIDEBAR_CRUMB_HIDE_PAGES` / `_crumb_on` を削除しない／`_SIDEBAR_STORE_CRUMB` に別の役割を持たせない
+3. 店舗系ページ・other ／ osusume_top ／ other_slump ・auto_article の現在地表示を本仕様を理由に変えない
+4. 指定外ページを `_SIDEBAR_CRUMB_HIDE_PAGES` へ勝手に追加しない／CSSで隠す方式へ変えない
+5. 左上4ボタン・ルーティング・session_state・各ページ本体機能を本仕様を理由に変えない
+6. `_git_auto_pull()` を本仕様の記録を理由に変更しない（別件）
+7. `auto_page_inputs.json`・`wrt_machines.json` の既存差分、未追跡4件、stash 5件、アプリ自動commit履歴を保全する。
+   `git add .` / `git add -A` / reset / restore / clean / stash操作 / rebase / merge / revert / force push は禁止
+8. `921646e` へ reset・revert しない

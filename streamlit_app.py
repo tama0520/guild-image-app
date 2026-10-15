@@ -503,18 +503,46 @@ def get_store_config(store: str) -> dict:
 # ★store_settings は Cloud→GitHub の同期経路が無い（2026-08-10 正式運用ルール）。
 #   編集はローカルで行い、push → Cloud Reboot で反映する。
 _OTHER_STORES_PATH = os.path.join(BASE_DIR, "store_settings", "_other_stores.json")
+# 「YG用」配下の店舗設定。書式は _other_stores.json と同じで、店舗追加はこのファイルへ
+# 1ブロック足すだけ。読込時に「その他」と同じ店舗集合へ合流させ、Pision取得・
+# スランプ付き結果（other_slump）の既存経路をそのまま使う（YG専用の取得処理は作らない）。
+_YG_STORES_PATH = os.path.join(BASE_DIR, "store_settings", "_yg_stores.json")
+_YG_GROUP = "yg"
 
 
-@st.cache_data(show_spinner=False)
-def _load_other_stores() -> dict:
-    """store_settings/_other_stores.json を読み込む（読み取り専用・失敗時は空 dict）。"""
+def _read_store_json(path: str) -> dict:
+    """店舗設定 JSON の stores を読む（読み取り専用・失敗時は空 dict）。"""
     try:
-        with open(_OTHER_STORES_PATH, encoding="utf-8") as _f:
+        with open(path, encoding="utf-8") as _f:
             _data = json.load(_f)
         _stores = _data.get("stores", {})
         return _stores if isinstance(_stores, dict) else {}
     except Exception:
         return {}
+
+
+@st.cache_data(show_spinner=False)
+def _load_other_stores() -> dict:
+    """「その他」＋「YG用」の店舗設定（読み取り専用・失敗時は空 dict）。
+
+    YG用の店舗には `_group: "yg"` を付けて合流させる（同名は「その他」側を優先）。
+    一覧表示を分けたいときは _other_group_stores() を使う。"""
+    _stores = dict(_read_store_json(_OTHER_STORES_PATH))
+    for _nm, _cfg in _read_store_json(_YG_STORES_PATH).items():
+        if _nm not in _stores and isinstance(_cfg, dict):
+            _stores[_nm] = {**_cfg, "_group": _YG_GROUP}
+    return _stores
+
+
+def _other_group_stores(group: str = "") -> dict:
+    """一覧表示用：group="" は「その他」、group="yg" は「YG用」の店舗だけを返す。"""
+    return {_k: _v for _k, _v in _load_other_stores().items()
+            if (_v or {}).get("_group", "") == group}
+
+
+def _is_yg_store(store: str) -> bool:
+    """「YG用」配下の店舗か（既存13店舗・「その他」は False）。"""
+    return _is_other_store(store) and _other_store_cfg(store).get("_group") == _YG_GROUP
 
 
 def _other_store_cfg(store: str) -> dict:
@@ -3364,6 +3392,8 @@ def _store_menu_go(target: str) -> None:
     """トップメニューの遷移先（PC用・スマホ用で共通）。target は店舗名／"other"／"osusume_top"。"""
     if target == "other":
         _navigate("other")
+    elif target == "yg":
+        _navigate("yg")
     elif target == "osusume_top":
         _navigate("osusume_top")
     else:
@@ -4053,7 +4083,8 @@ def show_store_page() -> None:
             st.error(f"❌ 本日の仕事を表示できませんでした: {type(e).__name__}")
     st.markdown("---")
     store_list = list(STORES.keys())
-    _has_other = bool(_load_other_stores())
+    _has_other = bool(_other_group_stores(""))
+    _has_yg = bool(_other_group_stores(_YG_GROUP))
 
     # ── PC／タブレット幅：従来どおり4列固定（並び・キーは変更しない） ──
     with st.container(key="store_menu_pc"):
@@ -4071,8 +4102,15 @@ def show_store_page() -> None:
                 if st.button("その他", key="store_other", use_container_width=True):
                     _store_menu_go("other")
 
-        # 「その他」の直後に「おすすめ」（スプレッドシートからおすすめ店舗を抽出）。
-        _osu_idx = len(store_list) + (1 if _has_other else 0)
+        # 「その他」の直後に「YG用」（store_settings/_yg_stores.json の店舗）。
+        _yg_idx = len(store_list) + (1 if _has_other else 0)
+        if _has_yg:
+            with cols[_yg_idx % len(cols)]:
+                if st.button("YG用", key="store_yg", use_container_width=True):
+                    _store_menu_go("yg")
+
+        # 「YG用」の直後に「おすすめ」（スプレッドシートからおすすめ店舗を抽出）。
+        _osu_idx = _yg_idx + (1 if _has_yg else 0)
         with cols[_osu_idx % len(cols)]:
             if st.button("おすすめ", key="store_osusume_top", use_container_width=True):
                 _store_menu_go("osusume_top")
@@ -4092,6 +4130,9 @@ def show_store_page() -> None:
         if _has_other:
             if st.button("その他", key="sp_store_other", use_container_width=True):
                 _store_menu_go("other")
+        if _has_yg:
+            if st.button("YG用", key="sp_store_yg", use_container_width=True):
+                _store_menu_go("yg")
 
 
 def show_other_store_page() -> None:
@@ -4102,7 +4143,7 @@ def show_other_store_page() -> None:
     st.markdown("## 【その他】")
     st.caption("エスパス以外の店舗です。店舗の追加は `store_settings/_other_stores.json` へ追記してください。")
     st.markdown("---")
-    _others = _load_other_stores()
+    _others = _other_group_stores("")
     if not _others:
         st.warning("`store_settings/_other_stores.json` に店舗が登録されていません。")
     else:
@@ -4127,6 +4168,30 @@ def show_other_store_page() -> None:
 
     st.markdown("---")
     if st.button("← 店舗選択に戻る", key="back_to_store_from_other"):
+        _navigate("store")
+
+
+def show_yg_store_page() -> None:
+    """画面: 「YG用」配下の店舗選択（店舗ごとにボタン）。
+
+    対象店舗は store_settings/_yg_stores.json だけで管理する。各店舗は「その他」と同じ
+    スランプ付き結果（page=other_slump）へ進み、Pision取得・画像生成は既存経路を使う。"""
+    st.markdown("## 【YG用】")
+    st.caption("YG用の店舗です。店舗の追加は `store_settings/_yg_stores.json` へ追記してください。")
+    st.markdown("---")
+    _ygs = _other_group_stores(_YG_GROUP)
+    if not _ygs:
+        st.warning("`store_settings/_yg_stores.json` に店舗が登録されていません。")
+    else:
+        _cols = st.columns(4)
+        for _i, _nm in enumerate(_ygs.keys()):
+            with _cols[_i % len(_cols)]:
+                if st.button(_other_display_name(_nm) or _nm, key=f"yg_store_{_nm}",
+                             use_container_width=True):
+                    _navigate("other_slump", store=_nm)
+
+    st.markdown("---")
+    if st.button("← 店舗選択に戻る", key="back_to_store_from_yg"):
         _navigate("store")
 
 
@@ -20375,7 +20440,10 @@ def show_auto_page(with_slump: bool = False) -> None:
     # ── 戻るボタン（常に末尾に1つだけ描画）──────────────────────────
     st.markdown("---")
     if st.button("← 戻る", key="auto_back"):
-        _navigate("image_type")
+        if _is_yg_store(store):
+            _navigate("yg")
+        else:
+            _navigate("image_type")
 
 
 def show_auto_article_page() -> None:
@@ -31226,10 +31294,13 @@ def main() -> None:
             st.markdown("　→ **📈 スランプ付き結果**")
         elif page == "other":
             st.markdown("📍 **その他**")
+        elif page == "yg":
+            st.markdown("📍 **YG用**")
         elif page == "osusume_top":
             st.markdown("📍 **おすすめ**")
         elif page == "other_slump":
-            st.markdown("📍 **その他**")
+            st.markdown("📍 **YG用**" if _is_yg_store(st.session_state.selected_store)
+                        else "📍 **その他**")
             st.markdown(f"　→ **{st.session_state.selected_store}**")
             st.markdown("　→ **📊 スランプ付き結果**")
         elif page == "rote":
@@ -31268,6 +31339,8 @@ def main() -> None:
         show_auto_page(with_slump=True)
     elif st.session_state.page == "other":
         show_other_store_page()
+    elif st.session_state.page == "yg":
+        show_yg_store_page()
     elif st.session_state.page == "osusume_top":
         show_osusume_top_page()
     elif st.session_state.page == "other_slump":

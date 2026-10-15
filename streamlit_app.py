@@ -3351,6 +3351,269 @@ def show_osusume_top_page() -> None:
         st.code(_osu_top_text(_day, _order, _order2), language=None)
 
 
+# ══════════════════════════════════════════════════════════════
+# 「YG用」→「一覧」ページ（選択日の YG 一覧の店舗と企画をテキスト化）
+# ══════════════════════════════════════════════════════════════
+# 参照元は「おすすめ」の追加2タブと**同じスプレッドシート・同じ gid**
+# （_OSU_EXTRA_SHEET_ID / _OSU_EXTRA_TABS）。月替わりでシートが変わる場合も、
+# おすすめと同じその定数を差し替えれば YG 一覧も同時に切り替わる（URL を別に持たない）。
+# 取得（_osu_top_fetch_csv・成功時5分キャッシュ）・日付照合（_osu_extra_date_match）・
+# 見出し行と「ホール」列の検出（_osu_extra_cols）は既存処理をそのまま使う。
+# シート構造（2026-10 の実データで確認）:
+#   見出し行に「YG」、その下の行に「一覧／事前／事後」（YG はセル結合のため先頭列にだけ値が入る）。
+#     タブ①: 3行目 M列=YG／4行目 M列=一覧／F列=企画   タブ②: 2行目 G列=YG／3行目 G列=一覧（企画列なし）
+#   「一覧」列に 〇 がある行だけを対象にする（列位置は固定せず見出しから探す）。
+# 並びはタブ①の上から順 → タブ②の上から順。同じ店舗は最初に出た位置に1ブロックへまとめる。
+# 企画はタブ①だけ使う（タブ②は店舗名のみ）。「○の日✖」はタブ①の店舗だけ・画面で店舗ごとにON/OFF。
+_YG_LIST_H_GROUP = "YG"
+_YG_LIST_H_SUB = "一覧"
+_YG_LIST_H_KIKAKU = "企画"
+_YG_LIST_MARKS = frozenset({"〇", "◯", "○"})
+# 企画名の表示（キー＝元データから「取材」と空白を除いた表記）。
+_YG_KIKAKU_DISPLAY: "dict[str, str]" = {
+    "裏パス": "🙃裏パス",
+    "ゆらちゃん": "👩‍🦰ゆらちゃん",
+    "SS・ヒカルくん": "💡SS・ヒカルくん",
+    "SS・蓮くん": "⚡SS・蓮くん",
+    "SS・判沢くん": "🌓SS・判沢くん",
+    "SS・ボムくん": "💣SS・ボムくん",
+    "SS・摩天楼": "😈SS・摩天楼",
+    "SS・冥王摩天楼": "👿SS・冥王摩天楼",
+    "SS・ハナコちゃん": "🌺SS・ハナコちゃん",
+    "SS・ビッグボム": "💣SS・ビッグボム",
+    "SS・紫冥の判沢": "🟪SS・紫冥の判沢",
+    "SS・蓮二郎": "⚡⚡SS・蓮二郎",
+    "一刀両断": "🗡️一刀両断",
+    "PP・うずまきちゃん": "🌀PP・うずまきちゃん",
+    "次回東スロ": "次回東スロ🛸",
+    "百戦錬磨X": "ⓍⓍ百戦錬磨XⓍⓍ",
+    "裏桜梅桃李": "🌸裏・桜梅桃李",
+    "裏・桜梅桃李": "🌸裏・桜梅桃李",
+    "エヴァCUP": "🏆エヴァCUP",
+    "男ライター来店": "👦男ライター来店",
+    "女ライター来店": "👧女ライター来店",
+    "渋沢が行く": "💴渋沢が行く‼️",
+    "渋沢が行く!": "💴渋沢が行く‼️",
+    "渋沢が行く！": "💴渋沢が行く‼️",
+    "渋沢が行く‼️": "💴渋沢が行く‼️",
+    "NYANJA": "😼NYANJA(ニャンジャ)",
+    "NYANJA(ニャンジャ)": "😼NYANJA(ニャンジャ)",
+    "狂鬼の宴": "👹狂鬼の宴",
+    "天下無双": "⚔️天下無双",
+    "天下無双滅": "⚔️天下無双【滅】",
+    "天下無双【滅】": "⚔️天下無双【滅】",
+    "マスターパピィ": "🦹‍♀️マスターパピィ",
+    "ライテン": "⚡ライテン",
+    "蓮パーちゃん": "🪩蓮パーちゃん",
+}
+# 戦極は「戦極~X~」の X を () に入れる。定義外の X は未定義企画として元表記を残す。
+_YG_SENGOKU_MARK: "dict[str, str]" = {
+    "電光石火": "⚔️", "百花繚乱": "⚔️", "獅子奮迅": "⚔️", "威風堂々": "⚔️", "一球入魂": "🅿️",
+}
+# 天誅は「天誅~灼&閃~」の各要素をこの順・この絵文字で ✖ 連結する。
+_YG_TENCHU_PARTS: "tuple[tuple[str, str], ...]" = (("灼", "🔥"), ("閃", "🌀"), ("斬", "⚡"))
+_YG_WAVE = r"[~～〜]"
+_YG_SENGOKU_RE = re.compile(rf"^戦極{_YG_WAVE}(.+?){_YG_WAVE}$")
+_YG_TENCHU_RE = re.compile(rf"^天誅{_YG_WAVE}(.+?){_YG_WAVE}$")
+_YG_AMP_RE = re.compile(r"\s*[&＆]\s*")
+# 「○の日」の数字（日付の1の位）。
+_YG_DAY_KEYCAP: "dict[str, str]" = {
+    str(_i): f"{_i}️⃣" for _i in range(10)}
+
+
+def _yg_day_prefix(day: datetime.date) -> str:
+    """「5️⃣の日✖」（日付の1の位）。"""
+    return f"{_YG_DAY_KEYCAP[str(day.day % 10)]}の日✖"
+
+
+def _yg_kikaku_norm(raw: str) -> "tuple[str, list]":
+    """企画1セルを表示用に変換する。戻り値: (表示文字列, 未定義だった表記のリスト)。
+    「取材」と空白を除き、天誅・戦極・&区切り（SS・など）を辞書で表示へ寄せる。"""
+    _t = re.sub(r"[\s　]+", "", str(raw or "").replace("取材", ""))
+    if not _t:
+        return "", []
+    _m = _YG_TENCHU_RE.match(_t)
+    if _m:
+        _ps = set(_YG_AMP_RE.split(_m.group(1)))
+        if _ps and _ps <= {_p for _p, _ in _YG_TENCHU_PARTS}:
+            return "天誅" + "✖".join(f"{_e}～{_p}～" for _p, _e in _YG_TENCHU_PARTS if _p in _ps), []
+        return _t, [_t]
+    _m = _YG_SENGOKU_RE.match(_t)
+    if _m:
+        _x = _m.group(1)
+        if _x in _YG_SENGOKU_MARK:
+            return f"{_YG_SENGOKU_MARK[_x]}戦極({_x})", []
+        return _t, [_t]
+    if _t in _YG_KIKAKU_DISPLAY:
+        return _YG_KIKAKU_DISPLAY[_t], []
+    _mem = _YG_AMP_RE.split(_t)
+    if len(_mem) < 2:
+        return _t, [_t]
+    # 「SS・A&B」→ B は「SS・B」→「B」の順に辞書を引く
+    _pre = _mem[0].split("・", 1)[0] + "・" if "・" in _mem[0] else ""
+    _out, _und = [], []
+    for _i, _x in enumerate(_mem):
+        _cands = [_x] if _i == 0 else [_pre + _x, _x]
+        _hit = next((_YG_KIKAKU_DISPLAY[_c] for _c in _cands if _c in _YG_KIKAKU_DISPLAY), None)
+        if _hit is None:
+            _und.append(_cands[0])
+            _hit = _x
+        _out.append(_hit)
+    return "&".join(_out), _und
+
+
+def _yg_list_col(rows: list, head_row: int) -> int:
+    """「YG」見出しの下の「一覧」列（0始まり）。見つからなければエラー（推測しない）。"""
+    _norm = lambda _c: re.sub(r"[\s　]+", "", str(_c or ""))
+    if head_row + 1 >= len(rows):
+        raise _OsuTopError("「YG」の下の「一覧」見出しが見つかりませんでした。シートの構成が変わった可能性があります。")
+    _top, _sub = rows[head_row], rows[head_row + 1]
+    _grp = ""
+    for _c in range(max(len(_top), len(_sub))):
+        _t = _norm(_top[_c]) if _c < len(_top) else ""
+        if _t:
+            _grp = _t   # 結合見出しは先頭列にだけ値が入るので右へ引き継ぐ
+        if _grp == _YG_LIST_H_GROUP and _c < len(_sub) and _norm(_sub[_c]) == _YG_LIST_H_SUB:
+            return _c
+    raise _OsuTopError("「YG」の下の「一覧」見出しが見つかりませんでした。シートの構成が変わった可能性があります。")
+
+
+def _yg_list_extract(rows: list, day: datetime.date, with_kikaku: bool = False) -> "tuple[list, list]":
+    """選択日かつ YG 一覧に 〇 がある行を、シートの上から順に返す。
+    戻り値: ([(店舗名, 企画の元表記), …], 想定外の印の値リスト)。店名空欄の行は除く。
+    with_kikaku=True のときだけ「企画」列を見出しから探して読む（無ければエラー）。"""
+    _hr, _hc, _ = _osu_extra_cols(rows)
+    _yc = _yg_list_col(rows, _hr)
+    _kc = -1
+    if with_kikaku:
+        _h = [re.sub(r"[\s　]+", "", str(_c or "")) for _c in rows[_hr]]
+        if _YG_LIST_H_KIKAKU not in _h:
+            raise _OsuTopError("「企画」見出しが見つかりませんでした。シートの構成が変わった可能性があります。")
+        _kc = _h.index(_YG_LIST_H_KIKAKU)
+    _out: list = []
+    _odd: list = []
+    for _ri in range(_hr + 2, len(rows)):
+        _row = rows[_ri]
+        if not _row or not _osu_extra_date_match(_row[0], day):
+            continue
+        _mk = (_row[_yc] if _yc < len(_row) else "").strip()
+        if not _mk:
+            continue
+        if _mk not in _YG_LIST_MARKS:
+            _odd.append(f"{_ri + 1}行目「{_mk}」")
+            continue
+        _nm = (_row[_hc] if _hc < len(_row) else "").strip()
+        if _nm:
+            _out.append((_nm, (_row[_kc] if 0 <= _kc < len(_row) else "").strip()))
+    return _out, _odd
+
+
+def _yg_list_blocks(hits: list) -> "tuple[list, list]":
+    """[(店舗名, 企画元表記, タブ①か)] を店舗ごとのブロックにまとめる（最初に出た位置を維持）。
+    戻り値: ([{"name","key","tab1","kikaku":[表示…]}], 未定義企画の表記リスト)。"""
+    _blocks: list = []
+    _idx: dict = {}
+    _und: list = []
+    for _nm, _raw, _tab1 in hits:
+        _k = _osu_name_key(_nm)
+        if _k not in _idx:
+            _idx[_k] = len(_blocks)
+            _blocks.append({"name": _nm, "key": _k, "tab1": False, "kikaku": []})
+        _b = _blocks[_idx[_k]]
+        if not _tab1:
+            continue
+        _b["tab1"] = True
+        _disp, _u = _yg_kikaku_norm(_raw)
+        _und += [_x for _x in _u if _x not in _und]
+        if _disp and _disp not in _b["kikaku"]:
+            _b["kikaku"].append(_disp)
+    return _blocks, _und
+
+
+# 店舗名の表示変換（表示だけ。重複判定は元の店名で行う）。先頭が一致する店名だけ置き換える。
+_YG_STORE_NAME_PREFIX_REPL: "tuple[tuple[str, str], ...]" = (
+    ("マルハンメガシティ", "マルハン メガシティ"),   # マルハンメガシティ市原 → マルハン メガシティ市原
+)
+
+
+def _yg_list_display_store_name(name: str) -> str:
+    """YG一覧の店舗表示名。「マルハンメガシティ」で始まる店名だけ「マルハン メガシティ」にする。"""
+    _nm = str(name or "").strip()
+    for _old, _new in _YG_STORE_NAME_PREFIX_REPL:
+        if _nm.startswith(_old):
+            return _new + _nm[len(_old):]
+    return _nm
+
+
+def _yg_list_text(day: datetime.date, blocks: list, day_on: "dict[str, bool]") -> str:
+    """完成テキスト。冒頭「明日(M/D)のYG」＋空行、店舗ブロックは空行区切り。"""
+    _parts = []
+    for _b in blocks:
+        _pre = _yg_day_prefix(day) if (_b["tab1"] and day_on.get(_b["key"], True)) else ""
+        _line = _pre + "&".join(_b["kikaku"])
+        _parts.append(f"♦{_yg_list_display_store_name(_b['name'])}" + (f"\n{_line}" if _line else ""))
+    return f"明日({day.month}/{day.day})のYG\n\n" + "\n\n".join(_parts)
+
+
+def _yg_list_refetch() -> None:
+    _osu_top_fetch_csv.clear()
+
+
+def show_yg_list_page() -> None:
+    """画面: YG用 → 一覧（選択日の YG 一覧の店舗と企画をテキスト化）。状態は session_state だけ。"""
+    st.markdown("## 【YG用】一覧")
+    st.caption("スプレッドシート（閲覧のみ）から、選んだ日の「YG 一覧」に〇がある店舗を抽出します。")
+    st.markdown("---")
+    _day = st.date_input("日付を選択", value=datetime.date.today(),
+                         format="YYYY/MM/DD", key="_yg_list_date")
+    st.button("🔄 シートを再取得", key="_yg_list_refetch_btn", on_click=_yg_list_refetch)
+    _failed = False
+    _hits: list = []
+    if _day:
+        for _ti, (_tlabel, _gid) in enumerate(_OSU_EXTRA_TABS):
+            try:
+                with st.spinner(f"{_tlabel} を読み込んでいます…"):
+                    _xr = _osu_top_fetch_csv(_osu_extra_url(_gid))
+                _rs, _odd = _yg_list_extract(_xr, _day, with_kikaku=(_ti == 0))
+                if _odd:
+                    st.warning(f"⚠️ {_tlabel}: 「一覧」列に〇以外の値があるため対象外にしました（"
+                               + "、".join(_odd) + "）。")
+                _hits += [(_nm, _kk, _ti == 0) for _nm, _kk in _rs]
+            except _OsuTopError as _e:
+                st.error(f"❌ {_tlabel}: {_e}")
+                _failed = True
+            except Exception as _e:   # 想定外の構造でもページ全体は落とさない
+                st.error(f"❌ {_tlabel}: スプレッドシートの読み取りに失敗しました（{type(_e).__name__}）。")
+                _failed = True
+
+        if _failed:
+            st.warning("⚠️ 読み取りに失敗したシートがあるため、テキストは作成できません。"
+                       "「🔄 シートを再取得」を試してください。")
+        elif not _hits:
+            st.info(f"{_day.month}/{_day.day} の YG 一覧の対象店舗はありません。")
+        else:
+            _blocks, _und = _yg_list_blocks(_hits)
+            if _und:
+                st.warning("⚠️ 表示ルールにない企画があります（元の表記のまま出力）: " + "、".join(_und))
+            _pre = _yg_day_prefix(_day)
+            _day_on: dict = {}
+            _t1 = [_b for _b in _blocks if _b["tab1"]]
+            if _t1:
+                st.markdown(f"**「{_pre}」を付ける店舗**")
+                st.caption("外した店舗だけ「○の日✖」を消します（店舗名と企画は残ります）。")
+                for _b in _t1:
+                    _day_on[_b["key"]] = st.checkbox(
+                        _yg_list_display_store_name(_b["name"]), value=True,
+                        key=f"_yg_day_on_{_day.isoformat()}_{_b['key']}")
+            st.markdown(f"#### {_day.month}/{_day.day} の YG 一覧（{len(_blocks)}店舗）")
+            st.caption("右上のアイコンでコピーできます。")
+            st.code(_yg_list_text(_day, _blocks, _day_on), language=None, wrap_lines=True)
+
+    st.markdown("---")
+    if st.button("← YG用に戻る", key="back_to_yg_from_list"):
+        _navigate("yg")
+
+
 # スマホ幅（既存のスマホ用CSSと同じ max-width:640px）だけで使うトップの並び。
 # PC／タブレット幅は従来の4列（STORES 順）のまま。遷移先は _store_menu_go() で共通化する。
 _SP_MENU_BREAKPOINT = 640
@@ -4179,6 +4442,9 @@ def show_yg_store_page() -> None:
     st.markdown("## 【YG用】")
     st.caption("YG用の店舗です。店舗の追加は `store_settings/_yg_stores.json` へ追記してください。")
     st.markdown("---")
+    # 選択日の YG 一覧テキスト（page=yg_list）。店舗ボタンより上に置く。
+    if st.button("一覧", key="yg_list_btn", use_container_width=True):
+        _navigate("yg_list")
     _ygs = _other_group_stores(_YG_GROUP)
     if not _ygs:
         st.warning("`store_settings/_yg_stores.json` に店舗が登録されていません。")
@@ -31296,6 +31562,9 @@ def main() -> None:
             st.markdown("📍 **その他**")
         elif page == "yg":
             st.markdown("📍 **YG用**")
+        elif page == "yg_list":
+            st.markdown("📍 **YG用**")
+            st.markdown("　→ **一覧**")
         elif page == "osusume_top":
             st.markdown("📍 **おすすめ**")
         elif page == "other_slump":
@@ -31341,6 +31610,8 @@ def main() -> None:
         show_other_store_page()
     elif st.session_state.page == "yg":
         show_yg_store_page()
+    elif st.session_state.page == "yg_list":
+        show_yg_list_page()
     elif st.session_state.page == "osusume_top":
         show_osusume_top_page()
     elif st.session_state.page == "other_slump":

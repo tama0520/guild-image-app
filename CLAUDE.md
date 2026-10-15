@@ -27177,3 +27177,49 @@ pisionチェックでYG3店舗（マルハン大山・大山オーシャン・�
 4. 既存の企画表示（ヒカルくん・蓮くん・ゆらちゃん・一刀両断・天下無双・天誅・戦極ほか）を本仕様を理由に変えない
 5. `wrt_machines.json` の既存差分、未追跡4件、stash 5件、アプリ自動commit履歴を保全する。
    `git add .` / `git add -A` / reset / restore / clean / stash操作 / rebase / merge / revert / force push は禁止
+
+## 【正式仕様】YG用ページの「一覧」ボタンを薄いピンクにする（2026-10-15・`349eebc` / `0faf8e3`）
+
+**正式仕様。巻き戻し禁止。**対象は**YG用ページ（`page=yg`・`show_yg_store_page()`）の「一覧」ボタン（`key="yg_list_btn"`）の見た目だけ**。
+**Cloud 実機で通常・hover・active とも確認済み（ユーザー確認）。**既存節は削除・圧縮・統合・書き換えしない。
+
+### A. 正式commit（いずれも `streamlit_app.py` のみ・現HEADの祖先であることを確認済み）
+
+| commit | 内容 |
+|---|---|
+| **`349eebc`** | `style: YG用一覧ボタンを薄いピンクに変更`（定数 `_YG_LIST_BTN_CSS` を新設・+15 / −1） |
+| **`0faf8e3`** | `fix: YG用一覧ボタンのhover・押下色が効くようにCSSを独立ブロック化`（+3 / −1） |
+
+**どちらへも reset・revert しない**（正式仕様の根拠commitであって HEAD を戻す意味ではない）。
+
+### B. 正式な色
+
+| 状態 | 背景 | 枠 | 文字 |
+|---|---|---|---|
+| 通常 | **`#FFE8EE`** | **`#FFB6C1`** | **`#6B2140`** |
+| hover | **`#FFD9E2`** | **`#F48FA8`** | `#6B2140` |
+| active（`:active` / `:focus`） | **`#FFCCD8`** | **`#F48FA8`** | `#6B2140` |
+
+- CSS は `.st-key-yg_list_btn button` に限定する（key 単位）。
+- **YG3店舗ボタン・戻る・トップ・おすすめ・その他には影響しない。**
+- **クリック先は従来どおり `page=yg_list`。**ボタンの key・位置（3店舗ボタンより上）・遷移は変えていない。
+
+### C. ★CSSは見出しと別のMarkdownブロックにする（`0faf8e3`）
+
+- 最初（`349eebc`）は `st.markdown("## 【YG用】" + _YG_LIST_BTN_CSS)` と**見出しと同じ行**に `<style>` を入れていたため、
+  `:hover{…}` が Markdown のディレクティブとして解釈され、**Cloud で hover / active の指定が消えていた**（通常色だけ効いていた）。
+- 正式は **`st.markdown("## 【YG用】\n\n" + _YG_LIST_BTN_CSS, unsafe_allow_html=True)`**（空行で別ブロックに分離）。
+- **見出しと同じ行へ CSS を戻さない。**
+
+### D. Cloud確認
+
+PC・390px相当とも正常・横スクロールなし。通常・hover・active の3状態とも指定色。他ボタンへの影響なし。
+
+### E. 禁止事項・保全
+
+1. 色の指定を YG3店舗ボタン・戻る・トップ・おすすめ・その他など他ボタンへ広げない（key 単位を維持）
+2. CSS を見出しと同じ Markdown ブロックへ戻さない
+3. 「一覧」ボタンの key・位置・遷移先（`page=yg_list`）を本仕様を理由に変えない
+4. `wrt_machines.json` の既存差分、未追跡4件、stash 5件、アプリ自動commit履歴を保全する。
+   `git add .` / `git add -A` / reset / restore / clean / stash操作 / rebase / merge / revert / force push は禁止
+5. `349eebc` / `0faf8e3` へ reset・revert しない

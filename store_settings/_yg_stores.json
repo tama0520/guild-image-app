@@ -9,6 +9,24 @@
       "panel": false,
       "side": true,
       "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "大山オーシャン": {
+      "display_name": "大山オーシャン",
+      "pision_hall_id": "270",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": false,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "阿佐ヶ谷オーシャン": {
+      "display_name": "阿佐ヶ谷オーシャン",
+      "pision_hall_id": "254",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": false,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
     }
   }
 }

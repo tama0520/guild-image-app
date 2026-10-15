@@ -4457,12 +4457,26 @@ def show_other_store_page() -> None:
         _navigate("store")
 
 
+# YG用ページの「一覧」ボタン（yg_list_btn）だけの薄いピンク。枠は既存ピンクバーの色（#FFB6C1）。
+# key 単位のクラスに限定し、3店舗ボタンや他ページのボタンには効かせない。
+_YG_LIST_BTN_CSS = (
+    "<style>"
+    ".st-key-yg_list_btn button{"
+    "background:#FFE8EE!important;border-color:#FFB6C1!important;color:#6B2140!important;}"
+    ".st-key-yg_list_btn button:hover{"
+    "background:#FFD9E2!important;border-color:#F48FA8!important;color:#6B2140!important;}"
+    ".st-key-yg_list_btn button:active,.st-key-yg_list_btn button:focus{"
+    "background:#FFCCD8!important;border-color:#F48FA8!important;color:#6B2140!important;}"
+    "</style>"
+)
+
+
 def show_yg_store_page() -> None:
     """画面: 「YG用」配下の店舗選択（店舗ごとにボタン）。
 
     対象店舗は store_settings/_yg_stores.json だけで管理する。各店舗は「その他」と同じ
     スランプ付き結果（page=other_slump）へ進み、Pision取得・画像生成は既存経路を使う。"""
-    st.markdown("## 【YG用】")
+    st.markdown("## 【YG用】" + _YG_LIST_BTN_CSS, unsafe_allow_html=True)
     st.caption("YG用の店舗です。店舗の追加は `store_settings/_yg_stores.json` へ追記してください。")
     st.markdown("---")
     # 選択日の YG 一覧テキスト（page=yg_list）。店舗ボタンより上に置く。

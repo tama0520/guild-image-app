@@ -4102,18 +4102,18 @@ def show_store_page() -> None:
                 if st.button("その他", key="store_other", use_container_width=True):
                     _store_menu_go("other")
 
-        # 「その他」の直後に「YG用」（store_settings/_yg_stores.json の店舗）。
-        _yg_idx = len(store_list) + (1 if _has_other else 0)
+        # 「その他」の直後に「おすすめ」（スプレッドシートからおすすめ店舗を抽出）。
+        _osu_idx = len(store_list) + (1 if _has_other else 0)
+        with cols[_osu_idx % len(cols)]:
+            if st.button("おすすめ", key="store_osusume_top", use_container_width=True):
+                _store_menu_go("osusume_top")
+
+        # 「おすすめ」の直後に「YG用」（store_settings/_yg_stores.json の店舗）。
+        _yg_idx = _osu_idx + 1
         if _has_yg:
             with cols[_yg_idx % len(cols)]:
                 if st.button("YG用", key="store_yg", use_container_width=True):
                     _store_menu_go("yg")
-
-        # 「YG用」の直後に「おすすめ」（スプレッドシートからおすすめ店舗を抽出）。
-        _osu_idx = _yg_idx + (1 if _has_yg else 0)
-        with cols[_osu_idx % len(cols)]:
-            if st.button("おすすめ", key="store_osusume_top", use_container_width=True):
-                _store_menu_go("osusume_top")
 
     # ── スマホ幅：おすすめ → 指定順の店舗 → その他 を1列で ──
     with st.container(key="store_menu_sp"):

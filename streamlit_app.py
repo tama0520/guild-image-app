@@ -3549,7 +3549,8 @@ def _yg_list_text(day: datetime.date, blocks: list, day_on: "dict[str, bool]") -
     """完成テキスト。冒頭「明日(M/D)のYG」＋空行、店舗ブロックは空行区切り。"""
     _parts = []
     for _b in blocks:
-        _pre = _yg_day_prefix(day) if (_b["tab1"] and day_on.get(_b["key"], True)) else ""
+        # 「○の日」はシート①・②の全店舗が対象（店舗単位で1つ・未指定はON）。企画はシート①由来だけ。
+        _pre = _yg_day_prefix(day) if day_on.get(_b["key"], True) else ""
         _line = _pre + "&".join(_b["kikaku"])
         _parts.append(f"♦{_yg_list_display_store_name(_b['name'])}" + (f"\n{_line}" if _line else ""))
     return f"明日({day.month}/{day.day})のYG\n\n" + "\n\n".join(_parts)
@@ -3597,14 +3598,20 @@ def show_yg_list_page() -> None:
                 st.warning("⚠️ 表示ルールにない企画があります（元の表記のまま出力）: " + "、".join(_und))
             _pre = _yg_day_prefix(_day)
             _day_on: dict = {}
-            _t1 = [_b for _b in _blocks if _b["tab1"]]
-            if _t1:
-                st.markdown(f"**「{_pre}」を付ける店舗**")
-                st.caption("外した店舗だけ「○の日✖」を消します（店舗名と企画は残ります）。")
-                for _b in _t1:
-                    _day_on[_b["key"]] = st.checkbox(
-                        _yg_list_display_store_name(_b["name"]), value=True,
-                        key=f"_yg_day_on_{_day.isoformat()}_{_b['key']}")
+            # シート①・②の全店舗（統合後の1店舗につき1個）。キーは日付ごと。
+            st.markdown(f"**「{_pre}」を付ける店舗**")
+            st.caption("外した店舗だけ「○の日✖」を消します（店舗名と企画は残ります）。")
+            # ON/OFF はウィジェット状態とは別の辞書へ「日付|店舗キー」で控える。
+            # （表示していない日付のチェック状態は Streamlit が破棄するため、戻ったとき復元できるように）
+            _mem = st.session_state.setdefault("_yg_day_on_mem", {})
+            for _b in _blocks:
+                _mk = f"{_day.isoformat()}|{_b['key']}"
+                _wk = f"_yg_day_on_{_day.isoformat()}_{_b['key']}"
+                if _wk not in st.session_state:
+                    st.session_state[_wk] = bool(_mem.get(_mk, True))
+                _day_on[_b["key"]] = st.checkbox(
+                    _yg_list_display_store_name(_b["name"]), key=_wk)
+                _mem[_mk] = bool(_day_on[_b["key"]])
             st.markdown(f"#### {_day.month}/{_day.day} の YG 一覧（{len(_blocks)}店舗）")
             st.caption("右上のアイコンでコピーできます。")
             st.code(_yg_list_text(_day, _blocks, _day_on), language=None, wrap_lines=True)

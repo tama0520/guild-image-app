@@ -799,6 +799,33 @@ def _table_theme_new() -> bool:
         return False
 
 
+# ── YG用画像のデザイン（2026-10-16・第1段階：色まわりだけ）──────────────
+# 対象は「YG用」配下の店舗 × スランプ付き結果ポスト（page=other_slump）だけ。
+# 表テーマ（_table_theme_new）・スランプテーマ（_slump_theme_new）の上に、
+# YG用のときだけ色を差し替える。**データ・計算・サイズ・レイアウトは変えない。**
+_YG_THEME_PAGES: frozenset[str] = frozenset({"other_slump"})
+C_YG_TITLE_BG_RGBA = (0, 0, 0, 255)        # タイトルバー：黒
+C_YG_HEADER_BG     = C_MACH_HEADER_BG      # #f3e6c8 表の見出し行（台番・機種名…）：薄い肌色
+C_YG_HEADER_FG     = C_MACH_HEADER_FG      # #4B0082 見出し文字：濃い紫
+C_YG_SL_CARD_BG    = (235, 0, 0)           # スランプカード内部：赤
+C_YG_SL_CARD_INK   = (255, 255, 255)       # 枠・区切り・軸・補助線・目盛（元テンプレの白インクのまま）
+# 第2段階：グラフ線は白・右下は猫ではなく「YG」の透かし・縦軸スケールは ±5,000。
+C_YG_SL_LINE       = (255, 255, 255, 255)  # 折れ線：白
+_YG_SL_SCALE_MAX   = 5000                  # 上端 +5,000 / 下端 -5,000（元テンプレの ±3,000 と同じ高さに収める）
+_YG_SL_WM_TEXT     = "YG"                  # 右下の透かし文字
+_YG_SL_WM_K        = 0.30                  # 透かしの濃さ（赤地を暗くする割合）
+
+
+def _yg_theme() -> bool:
+    """YG用画像のデザインで描くか（page × store の AND・保存フラグなし）。
+    Streamlit 外（純粋テスト・subprocess）では False。"""
+    try:
+        return (st.session_state.get("page") in _YG_THEME_PAGES
+                and _is_yg_store(st.session_state.get("selected_store")))
+    except Exception:
+        return False
+
+
 def _bar_crop_h(width: int) -> int:
     """機種別画像の上部（青タイトルバー＋赤ライン）の合計高さ。
 
@@ -1281,6 +1308,95 @@ def _slump_template_image(template_path) -> "Image.Image":
                         round(bg[2] + (fg[2] - bg[2]) * t), 255)
 
     _SL_TMPL_CACHE[_key] = dst
+    return dst
+
+
+_YG_SL_TMPL_CACHE: dict = {}
+
+
+def _yg_slump_card_image(template_path) -> "Image.Image":
+    """base_3000_bk.png を**メモリ上だけ**で「赤地＋白インク」へ再配色して返す（YG用）。
+    元PNGは読み取るだけ。再配色エンジン（明るさ t で背景→前景を補間）・座標は
+    `_slump_template_image()` と同じなので、下流の座標計算は変わらない。
+    右下は猫ではなく「YG」の透かし。縦軸は ±5,000（0ライン±141px の中に1,000枚ごとの点線）。"""
+    _key = str(template_path)
+    try:
+        _key = (_key, os.path.getmtime(_key))
+    except Exception:
+        _key = (_key, 0)
+    _hit = _YG_SL_TMPL_CACHE.get(_key)
+    if _hit is not None:
+        return _hit
+    src = Image.open(str(template_path)).convert("RGB")
+    w, h = src.size
+    sp = src.load()
+    # ── 縦軸スケールを ±3,000 → ±5,000 へ（**元PNGは読み取るだけ。コピー上で描き直す**）──
+    # 元テンプレの補助線（±1,000/±2,000/±3,000 の点線）と目盛文字（+3.000/-3.000）を
+    # 地色で消し、同じ高さ（0ライン±141px）の中へ 1,000 枚ごとの点線と ±5,000 の目盛を描く。
+    # 外枠・区切り・縦軸・0ラインは元のまま。
+    _Y0, _PX_OLD = 290, 47
+    _span = 3 * _PX_OLD                                   # 0ライン→上下端（141px）
+    _dark = (_SL_DARK_V, 6, 6)
+    _pat = [sp[_x, _Y0 - _span] for _x in range(w)]       # 元の点線パターン（1行分）
+    _gx0, _gx1 = _SL_AXIS_X[1] + 1, w - _SL_FRAME_PAD - 7 # 点線の描画範囲（元と同じ 26〜371）
+    for _k in (1, 2, 3):
+        for _sg in (-1, 1):
+            for _dy in (-2, -1, 0, 1, 2):                 # 縁の薄い残りも消す
+                _yy = _Y0 + _sg * _k * _PX_OLD + _dy
+                for _x in range(_gx0, w - _SL_FRAME_PAD - 1):
+                    sp[_x, _yy] = _dark
+    for _y0l, _y1l in ((128, 145), (435, 452)):           # 目盛文字の領域
+        for _yy in range(_y0l, _y1l + 1):
+            for _x in range(_SL_FRAME_PAD + 4, 80):          # 縦軸はこの行範囲に無い（148〜432）
+                sp[_x, _yy] = _dark
+    _n = _YG_SL_SCALE_MAX // 1000
+    for _k in range(1, _n + 1):
+        _off = round(_k * _span / _n)
+        for _sg in (-1, 1):
+            for _dy in (-1, 0, 1):
+                _yy = _Y0 + _sg * _off + _dy
+                for _x in range(_gx0, _gx1 + 1):
+                    sp[_x, _yy] = _pat[_x]
+    _lbl = ImageDraw.Draw(src)
+    try:   # 小さい文字でもカンマが読める Noto Sans JP（同梱）
+        _lf = ImageFont.truetype(os.path.join(_FONTS_DIR, "NotoSansJP-Regular.ttf"), 12)
+    except Exception:
+        _lf = load_font(11)
+    for _txt, _yy in ((f"+{_YG_SL_SCALE_MAX:,}", _Y0 - _span),
+                      (f"-{_YG_SL_SCALE_MAX:,}", _Y0 + _span)):
+        _bb = _lf.getbbox(_txt)
+        _ty = _yy - 9 - _bb[3] if _yy < _Y0 else _yy + 7 - _bb[1]
+        for _ox in (0, 1):                                 # 1pxずらし重ねで太らせる
+            _lbl.text((28 + _ox - _bb[0], _ty), _txt, fill=(255, 255, 255), font=_lf)
+    sp = src.load()
+    # ── 右下の透かし：猫ではなく「YG」（猫と同じ右下寄り・赤地を少し暗くする）──
+    _bgmap = [[C_YG_SL_CARD_BG] * w for _ in range(h)]
+    _wm = Image.new("L", (w, h), 0)
+    _wf = load_font(96)
+    _wb = _wf.getbbox(_YG_SL_WM_TEXT)
+    _wx = w - _SL_FRAME_PAD - 14 - (_wb[2] - _wb[0]) - _wb[0]
+    _wy = (h - _SL_FRAME_PAD - 12) - (_wb[3] - _wb[1]) - _wb[1]
+    ImageDraw.Draw(_wm).text((_wx, _wy), _YG_SL_WM_TEXT, fill=255, font=_wf)
+    _wp = _wm.load()
+    for _yy in range(_SL_SEP2[1] + 1, h - _SL_FRAME_PAD):
+        for _xx in range(_SL_FRAME_PAD, w - _SL_FRAME_PAD):
+            _a = _wp[_xx, _yy] / 255.0 * _YG_SL_WM_K
+            if _a > 0.0:
+                _bgmap[_yy][_xx] = tuple(max(0, min(255, round(_c * (1.0 - _a))))
+                                         for _c in C_YG_SL_CARD_BG)
+    dst = Image.new("RGBA", (w, h))
+    dp = dst.load()
+    _den = float(_SL_LIGHT_V - _SL_DARK_V)
+    _fg = C_YG_SL_CARD_INK
+    for y in range(h):
+        for x in range(w):
+            t = (max(sp[x, y]) - _SL_DARK_V) / _den
+            t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+            _bg = _bgmap[y][x]
+            dp[x, y] = (round(_bg[0] + (_fg[0] - _bg[0]) * t),
+                        round(_bg[1] + (_fg[1] - _bg[1]) * t),
+                        round(_bg[2] + (_fg[2] - _bg[2]) * t), 255)
+    _YG_SL_TMPL_CACHE[_key] = dst
     return dst
 
 
@@ -2175,6 +2291,9 @@ def draw_table_image(
     # 同じ header_bg / header_fg で描かれるため、列ごとのハードコードは不要。
     if _table_theme_new():
         header_bg, header_fg = C_NEW_HEADER_BG, C_NEW_HEADER_FG
+    # YG用は見出し行を薄い肌色＋濃い紫文字に（本文文字は新テーマの濃い紫のまま）
+    if _yg_theme():
+        header_bg, header_fg = C_YG_HEADER_BG, C_YG_HEADER_FG
     # 記事用（新宿歌舞伎町 × auto_article）は**見出し行だけ**を黒地・白文字にし、
     # 見出しセル間の罫線を薄いグレーへ。**本文セルの罫線（C_BORDER）・本文文字・
     # 差枚数の値の色・列幅・行高・タイトルバー・サマリーは変更しない。**
@@ -5657,7 +5776,8 @@ def _build_machine_img(
     BAR_H   = round(w * 73 / 950)   # 標準幅950pxのとき73px
     FONT_SZ = round(BAR_H * 40 / 73)
 
-    _bar_rgba = C_NEW_TITLE_BG_RGBA if _table_theme_new() else (38, 76, 161, 255)
+    _bar_rgba = (C_YG_TITLE_BG_RGBA if _yg_theme()
+                 else (C_NEW_TITLE_BG_RGBA if _table_theme_new() else (38, 76, 161, 255)))
     bar  = Image.new("RGBA", (w, BAR_H),  _bar_rgba)
     line = Image.new("RGBA", (w, LINE_H), (204, 0, 0, 255))
     bd   = ImageDraw.Draw(bar)
@@ -8685,7 +8805,7 @@ def ranges_to_bans(ranges: list[list[int]]) -> set[int]:
 def _patch_and_run_narabi(
     script_path: str, input_path: str, split_dir: str, ranges: list,
     no_bar: bool = False, hq_scale: float = 1.0, col_ranges: list | None = None,
-    hq_min_rows: int | None = None, theme_new: bool = False,
+    hq_min_rows: int | None = None, theme_new: bool = False, yg_theme: bool = False,
     font_path: str | None = None, art_header: bool = False,
     art_sum_center: bool = False, art_line: bool = False,
 ) -> tuple[bool, str, str]:
@@ -8704,6 +8824,10 @@ def _patch_and_run_narabi(
     # 既定 False＝従来デザイン。記事用の呼び出しには渡さない。
     if theme_new:
         code = re.sub(r'^THEME_NEW\s*=\s*(True|False)', 'THEME_NEW = True',
+                      code, flags=re.MULTILINE)
+    # YG用（黒タイトルバー・肌色見出し）。既定 False＝従来どおり。
+    if yg_theme:
+        code = re.sub(r'^YG_THEME\s*=\s*(True|False)', 'YG_THEME = True',
                       code, flags=re.MULTILINE)
     # 記事用（新宿歌舞伎町）の見出し行だけを黒地・白文字＋薄グレー罫線にする。
     # **THEME_NEW は流用しない**（本文文字色・行高・タイトルバー・サマリーまで変わるため）。
@@ -19766,6 +19890,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     col_ranges=(retsu_ranges if retsu_ok else None),
                     # ⑦プレビュー（_build_machine_img）と⑧本番の色を必ず一致させる
                     theme_new=_table_theme_new(),
+                    yg_theme=_yg_theme(),
                 )
                 narabi_result = {"ok": ok_n, "stdout": out_n, "stderr": err_n}
                 st.write(f"{'✅' if ok_n else '❌'} 並び画像{'完了' if ok_n else 'エラー'}")
@@ -30176,9 +30301,16 @@ def draw_slump_graph(
     # 記事用（新宿歌舞伎町 × auto_article）は白地＋黒罫線の専用テンプレ。
     # ページが互いに排他（auto_slump系 / auto_article）なので同時に True にならないが、
     # 既存の淡紫デザインを優先する形で明示的に分岐する。
-    _sl_new = _slump_theme_new()
-    _sl_art = (not _sl_new) and _art_slump_card_new()
-    if _sl_new:
+    # YG用は赤いカード（文字色は従来の黒テンプレと同じ：上部白・差枚と下部機種名は黄）
+    _sl_yg  = _yg_theme()
+    _sl_new = _slump_theme_new() and not _sl_yg
+    _sl_art = (not _sl_new) and (not _sl_yg) and _art_slump_card_new()
+    if _sl_yg:
+        base = _yg_slump_card_image(template_path)
+        # YG用：線は白・縦軸は ±5,000（同じ高さ 3*47px に 5,000 枚を収める）
+        LINE_RGB = C_YG_SL_LINE
+        PX_1000 = 3 * PX_1000 / (_YG_SL_SCALE_MAX / 1000)
+    elif _sl_new:
         base = _slump_template_image(template_path)
     elif _sl_art:
         base = _art_slump_card_image(template_path)
@@ -30719,7 +30851,9 @@ def _paste_slump_area_bg(canvas: "Image.Image", bg_path, x0: int, y0: int,
     if bg_color is not None:
         canvas.paste(Image.new("RGB", (w, h), tuple(bg_color)), (x0, y0))
         return
-    if _slump_theme_new():
+    if _yg_theme():
+        bg_path = bg_path or _find_slump_bg()   # 以前のレインボー背景（bbb.jpg）をそのまま使う
+    elif _slump_theme_new():
         canvas.paste(Image.new("RGB", (w, h), C_SLUMP_AREA_BG), (x0, y0))
         return
     if bg_path is None:

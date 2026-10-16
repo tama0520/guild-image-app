@@ -47,6 +47,8 @@ COL_CALC_D = False
 # 既定 False＝従来デザイン（記事用・他店舗は必ずこちら）。
 # ⑦プレビュー（streamlit_app._build_machine_img）と同じ配色にすること。
 THEME_NEW = False
+# YG用（2026-10-16）：タイトルバー黒・見出し行は肌色＋濃い紫。既定 False＝従来どおり。
+YG_THEME = False
 
 # ── 記事用の表見出し（新宿歌舞伎町 × auto_article の⑧本番だけ）────────
 # True のとき **最上段の見出し行だけ** を黒地・白文字にし、見出しセル間の罫線を
@@ -278,9 +280,11 @@ ROW_H_TBL     = round(28 * SCALE)   # 44px  行高（28 CSS px × 1.5625）
 PAD_Y         = (ROW_H_TBL - FONT_SIZE_TBL) // 2  # 11px  上下パディング
 
 HEADER_BG  = ((0, 0, 0) if ART_HEADER
-              else ((41, 0, 104) if THEME_NEW else (243, 230, 200)))   # 記事#000000 / 新#290068 / 旧#f3e6c8
+              else ((243, 230, 200) if YG_THEME
+                    else ((41, 0, 104) if THEME_NEW else (243, 230, 200))))   # 記事#000000 / 新#290068 / 旧#f3e6c8
 HEADER_FG  = ((255, 255, 255) if ART_HEADER
-              else ((255, 255, 255) if THEME_NEW else (75, 0, 130)))   # 記事・新#FFFFFF / 旧#4B0082
+              else ((75, 0, 130) if YG_THEME
+                    else ((255, 255, 255) if THEME_NEW else (75, 0, 130))))   # 記事・新#FFFFFF / 旧#4B0082
 CELL_BG    = (255, 255, 255)   # white
 BORDER_C   = (170, 170, 170)   # #AAAAAA
 # 見出しセル間の罫線。ART_HEADER のときだけ薄いグレー #DDDDDD へ。
@@ -440,7 +444,8 @@ for run_idx, (run, title, _dup_set) in enumerate(_JOBS):
     font_size_bar = round(bar_h * 40 / 73)
 
     blue_bar = Image.new("RGBA", (w, bar_h),
-                         ((112, 0, 224, 255) if THEME_NEW else (38, 76, 161, 255)))
+                         ((0, 0, 0, 255) if YG_THEME
+                          else ((112, 0, 224, 255) if THEME_NEW else (38, 76, 161, 255))))
     red_line = Image.new("RGBA", (w, line_h), (204, 0, 0, 255))
     bar_draw = ImageDraw.Draw(blue_bar)
     bar_font = _load_font(font_size_bar)

@@ -34,6 +34,13 @@ HQ_MIN_ROWS = 10
 # 「機種名(列仕掛け)」（台数表記なし・半角括弧）にする。
 COL_RANGES = []
 COL_SUFFIX = "(列仕掛け)"
+# 列画像だけ本体と同じ差枚補正（_pipeline_calc_d）で表・ピンクバーを作るか。
+# Streamlit 側 _patch_and_run_narabi(col_ranges=...) のときだけ True へ書き換えられ、
+# 本体の _PIPELINE_KEEP_VALS / _pipeline_calc_d のソースがそのまま注入される
+# （⑦プレビュー・結果テキストの列＝補正後差枚と一致させるため）。
+# 既定 False＝補正しない。並び画像は常に補正しない（従来どおり）。
+COL_CALC_D = False
+# __COL_CALC_D_INJECT__
 
 # 結果ポスト系の新デザイン（2026-09-10）。
 # Streamlit 側 _patch_and_run_narabi(theme_new=True) のときだけ True へ書き換えられる。
@@ -406,6 +413,10 @@ def build_table_pil(group, diff_raw_s, hq=1.0):
 for run_idx, (run, title, _dup_set) in enumerate(_JOBS):
     run_df_full = df.iloc[run].copy().reset_index(drop=True)
     diff_raw_s  = diff_raw.iloc[run].reset_index(drop=True)
+    # 列画像だけ本体と同じ補正後差枚で表・ピンクバーを作る（並びは補正しない）
+    if COL_CALC_D and run_idx >= len(runs):
+        diff_raw_s = diff_raw_s.apply(_pipeline_calc_d)
+        run_df_full["差枚数_disp"] = diff_raw_s.apply(fmt_diff)
 
     print(f"\n[{run_idx+1}/{len(_JOBS)}] {title}")
 

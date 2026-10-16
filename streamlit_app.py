@@ -8752,6 +8752,16 @@ def _patch_and_run_narabi(
         code = re.sub(r'^COL_RANGES\s*=\s*\[[^\]]*\]',
                       lambda m, _v=repr(list(col_ranges)): f'COL_RANGES = {_v}',
                       code, flags=re.MULTILINE)
+        # 列画像の差枚を本体と同じ補正後にする（⑦プレビュー・結果テキストの列と一致）。
+        # 補正式は独自に書かず、本体の _PIPELINE_KEEP_VALS と _pipeline_calc_d の
+        # ソースをそのまま注入する。並び画像は補正しない（従来どおり）。
+        import inspect as _insp
+        _calc_src = ("import pandas as pd\n"
+                     f"_PIPELINE_KEEP_VALS = {sorted(_PIPELINE_KEEP_VALS)!r}\n"
+                     + _insp.getsource(_pipeline_calc_d))
+        code = re.sub(r'^COL_CALC_D\s*=\s*(True|False)', 'COL_CALC_D = True',
+                      code, flags=re.MULTILINE)
+        code = code.replace("# __COL_CALC_D_INJECT__", _calc_src, 1)
 
     ranges_str = repr(ranges)
     m_ranges = re.search(r'^RANGES\s*=\s*', code, re.MULTILINE)

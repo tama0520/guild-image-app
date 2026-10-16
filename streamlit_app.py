@@ -10226,6 +10226,65 @@ def _cmt_machine_stat(df, diff_raw, name: str) -> "dict | None":
             "all_plus": all(x > 0 for x in _ds)}
 
 
+def _art_cmt_src_after_update(base_src, cur_src, on_off, zen_fn_map, hr_fn_map,
+                              kojin_zen_in, kojin_yushu_in, df, diff_raw,
+                              son_bans=None) -> dict:
+    """「🔄 その他を更新」後に**実際に掲載する状態**で記事コメントの facts ソースを作り直す。
+
+    base_src : プレビュー生成時の facts ソース（チェックOFFを反映する前の基準）
+    cur_src  : 現在の facts ソース（その他の優秀台を作り直さなかった時はこれを維持）
+    on_off   : [(プレビュー画像名, ON?)]
+    zen_fn_map / hr_fn_map : 自動全台系／自動高配分の 画像名→機種名（⑦が保存済みのもの）
+    kojin_zen_in / kojin_yushu_in : ②個別「全台」「優秀台」の入力機種名
+    son_bans : 作り直した「その他の優秀台ピックアップ」の掲載台番（None＝作り直していない）
+
+    ★掲載画像がすべてOFFの機種だけを全台系／高配分から外す（ONへ戻せば復活する）。
+    ★コメント生成関数そのものは変えず、入力だけを差し替える。
+    """
+    _zen_seen, _zen_on, _hi_seen, _hi_on = set(), set(), set(), set()
+    _kz = [(m or "").strip() for m in (kojin_zen_in or []) if (m or "").strip()]
+    _ky = [(m or "").strip() for m in (kojin_yushu_in or []) if (m or "").strip()]
+
+    def _base(_km):
+        try:
+            return (_resolve_kojin_name(df, _km)[0] or _km).strip()
+        except Exception:
+            return _km
+    for _fn, _on in (on_off or []):
+        _owners_z = [zen_fn_map.get(_fn)] if (zen_fn_map or {}).get(_fn) else []
+        _owners_h = [hr_fn_map.get(_fn)] if (hr_fn_map or {}).get(_fn) else []
+        _owners_z += [_base(_km) for _km in _kz if _fn == f"{_km}.jpg"]
+        _owners_h += [_base(_km) for _km in _ky if _fn == f"{_km}（優秀台）.jpg"]
+        for _n in _owners_z:
+            _zen_seen.add(_n)
+            if _on:
+                _zen_on.add(_n)
+        for _n in _owners_h:
+            _hi_seen.add(_n)
+            if _on:
+                _hi_on.add(_n)
+    _zen_off = _zen_seen - _zen_on
+    _hi_off = _hi_seen - _hi_on
+    _new = dict(cur_src or {})
+    _b = base_src or {}
+    _new["zen_names"] = [n for n in (_b.get("zen_names") or []) if (n or "").strip() not in _zen_off]
+    _new["kojin_zen"] = [n for n in (_b.get("kojin_zen") or []) if (n or "").strip() not in _zen_off]
+    _new["high_names"] = [n for n in (_b.get("high_names") or []) if (n or "").strip() not in _hi_off]
+    if son_bans is not None and df is not None and diff_raw is not None:
+        _sb = {int(x) for x in son_bans}
+        _rows = []
+        for _i in df.index:
+            try:
+                _bi = int(str(df.at[_i, "台番"]).split(".")[0])
+            except (TypeError, ValueError):
+                continue
+            if _bi in _sb:
+                _rows.append({"name": str(df.at[_i, "機種名"]), "ban": _bi,
+                              "diff": int(diff_raw.loc[_i])})
+        _new["sonota"] = _rows
+    return _new
+
+
 def _art_cmt_facts_zendai(df, diff_raw, zen_names, kojin_zen) -> dict:
     """A 全台系の facts。母集団＝**全台系として掲載される機種の全台だけ**。
 
@@ -22775,6 +22834,8 @@ def show_auto_article_page() -> None:
                             # 全台系はニブイチ系として扱わない。
                             "osu_high": _art_osu_high_list(_art_pr, art_osusume_machines),
                         }
+                        # 🔄その他を更新でのコメント再生成の基準は、新しく生成したこのソース
+                        st.session_state.pop(f"_art_cmt_src_base_{store}", None)
                     # 「未反映」判定用スナップショット（今回のプレビューへ反映済みの内容）
                     st.session_state[_art_unit_snap_key] = _unit_ex_snapshot(_art_unit_state)
                     # 控えたOFFを再生成後の同名画像へ付け直し、残っていれば
@@ -23064,6 +23125,27 @@ def show_auto_article_page() -> None:
                                     _anp.append(("ジャグラーシリーズ優秀台.jpg", _aji))
                                     st.session_state[_art_ck_key(store, _anp, len(_anp) - 1)] = True
                                 _aup = True
+                        # 📝記事コメントも「🔄後に実際に掲載する状態」で作り直す（2026-10-16）。
+                        # 生成時の facts ソースを基準に、チェックOFFの全台系／高配分の機種を外し、
+                        # その他の優秀台を作り直した時はその掲載台へ差し替える。
+                        # ★画像を作り直さない（_aup=False）🔄でも必ず通す（ここは if _aup の外）。
+                        if store in _ART_COMMENT_STORES:
+                            _cs_key  = f"_art_cmt_src_{store}"
+                            _csb_key = f"_art_cmt_src_base_{store}"
+                            _cs_cur  = st.session_state.get(_cs_key)
+                            if _cs_cur is not None:
+                                _cs_base = st.session_state.get(_csb_key) or _cs_cur
+                                st.session_state[_csb_key] = _cs_base
+                                st.session_state[_cs_key] = _art_cmt_src_after_update(
+                                    _cs_base, _cs_cur,
+                                    [(_pn3, bool(st.session_state.get(
+                                        _art_ck_key(store, _art_auto_previews, _ci3), True)))
+                                     for _ci3, (_pn3, _) in enumerate(_art_auto_previews)],
+                                    _apzen, _aphr,
+                                    (kojin_zentai_machines if kojin_enabled else []),
+                                    (kojin_yushu_machines if kojin_enabled else []),
+                                    _apdf2, _apdi2,
+                                    son_bans=_upd_bm.get("その他の優秀台ピックアップ.jpg"))
                         if _aup:
                             # スランプグラフ合成（その他を更新後）
                             _upd_api_sl = _get_pision_api_key()

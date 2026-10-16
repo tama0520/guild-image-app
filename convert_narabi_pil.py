@@ -383,6 +383,11 @@ def build_table_pil(group, diff_raw_s, hq=1.0):
     for ci, col in enumerate(cols):
         _draw_cell(draw, col_x(ci), row_y(0), cell_ow[ci], _row_h,
                    col, HEADER_BG, HEADER_FG, font, "center", inset=_ins)
+    # YG用：見出し行の下端（行の内側）に黒線（streamlit_app と同じ太さの比率）
+    if YG_THEME:
+        _yk = max(1, round(img_w * 7.0 / 1272))
+        draw.rectangle([(0, row_y(0) + _row_h - _yk), (img_w - 1, row_y(0) + _row_h - 1)],
+                       fill=(0, 0, 0))
 
     # データ行
     for ri, (_, row) in enumerate(group.iterrows()):
@@ -475,6 +480,10 @@ for run_idx, (run, title, _dup_set) in enumerate(_JOBS):
     tx = (w - text_w) // 2 - bbox[0]
     ty = (bar_h - text_h) // 2 - bbox[1]
     bar_draw.text((tx, ty), title_text, fill=(255, 255, 255, 255), font=bar_font)
+    # YG用：黒タイトルバーの下端（バーの内側）に赤線（streamlit_app と同じ太さの比率）
+    if YG_THEME:
+        _yl = max(1, round(w * 7.5 / 1272))
+        bar_draw.rectangle([(0, bar_h - _yl), (w - 1, bar_h - 1)], fill=(204, 0, 0, 255))
 
     # 合成：青バー → 赤ライン → テーブル（NO_BAR=True の記事用はテーブルのみ）
     _top_h  = 0 if NO_BAR else bar_h + line_h

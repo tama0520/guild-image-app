@@ -807,7 +807,13 @@ _YG_THEME_PAGES: frozenset[str] = frozenset({"other_slump"})
 C_YG_TITLE_BG_RGBA = (0, 0, 0, 255)        # タイトルバー：黒
 C_YG_HEADER_BG     = C_MACH_HEADER_BG      # #f3e6c8 表の見出し行（台番・機種名…）：薄い肌色
 C_YG_HEADER_FG     = C_MACH_HEADER_FG      # #4B0082 見出し文字：濃い紫
-C_YG_SL_CARD_BG    = (235, 0, 0)           # スランプカード内部：赤
+C_YG_SL_CARD_BG    = (254, 0, 0)           # スランプカード内部：赤（見本 111.jpg の画素に合わせた）
+C_YG_TITLE_LINE    = (204, 0, 0, 255)      # 黒タイトルバー直下の赤線（既存の赤ラインと同じ色）
+C_YG_HEADER_LINE   = (0, 0, 0)             # 表の見出し行の下の黒線
+# 線の太さは見本（幅1272pxで赤線約7.5px・黒線約7px）を画像幅に比例させる。
+# どちらもバー／見出し行の**内側の下端**に描くので画像サイズ・行高は変わらない。
+_YG_TITLE_LINE_R  = 7.5 / 1272
+_YG_HEADER_LINE_R = 7.0 / 1272
 C_YG_SL_CARD_INK   = (255, 255, 255)       # 枠・区切り・軸・補助線・目盛（元テンプレの白インクのまま）
 # 第2段階：グラフ線は白・右下は猫ではなく「YG」の透かし・縦軸スケールは ±5,000。
 C_YG_SL_LINE       = (255, 255, 255, 255)  # 折れ線：白
@@ -2319,6 +2325,11 @@ def draw_table_image(
         ty = y + (_header_h  - (tb[3] - tb[1])) // 2 - tb[1]
         draw.text((tx, ty), str(h), fill=header_fg, font=fn_header)
         x += col_w[ci]
+    # YG用：見出し行（台番・機種名…）の下端（行の内側）に黒線。行高・画像サイズは不変。
+    if _yg_theme():
+        _yk = max(1, round(total_w * _YG_HEADER_LINE_R))
+        draw.rectangle([(0, y + _header_h - _yk), (total_w - 1, y + _header_h - 1)],
+                       fill=C_YG_HEADER_LINE)
     y += _header_h
 
     # ── データ行 ─────────────────────────────────────────────────────
@@ -5829,6 +5840,11 @@ def _build_machine_img(
         tx = (w - (bb[2]-bb[0])) // 2 - bb[0]
         ty = (BAR_H - (bb[3]-bb[1])) // 2 - bb[1]
         bd.text((tx, ty), disp_title, fill=(255, 255, 255, 255), font=font)
+
+    # YG用：黒タイトルバーの下端（バーの内側）に赤線。バーの高さ・画像サイズは不変。
+    if _yg_theme():
+        _yl = max(1, round(w * _YG_TITLE_LINE_R))
+        bd.rectangle([(0, BAR_H - _yl), (w - 1, BAR_H - 1)], fill=C_YG_TITLE_LINE)
 
     # ── ピンクサマリーバー（全機種固定高さ）─────────────────────────
     if summary_stat:

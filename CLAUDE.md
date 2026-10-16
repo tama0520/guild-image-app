@@ -27509,3 +27509,90 @@ HEAD / origin/main：`f2ee0a7`。stash 5件・`M wrt_machines.json`・未追跡4
 5. 見出し文言・並び順・重複統合・企画変換・ON/OFF記憶を本仕様を理由に変えない
 6. `auto_page_inputs.json`・`wrt_machines.json` の既存差分、未追跡4件、stash 5件、アプリ自動commit履歴を保全する。
    `git add .` / `git add -A` / reset / restore / clean / stash操作 / rebase / merge / revert / force push は禁止
+
+## 【正式仕様】YG用画像の専用デザイン（2026-10-16・`38a6f3b`）
+
+**正式仕様。巻き戻し禁止。**対象は**YG用店舗（`store_settings/_yg_stores.json`）× スランプ付き結果ポスト（`page=other_slump`）で生成する画像だけ**。
+**8502で確認後に本体へ反映し、Streamlit Cloud 実機で確認済み（2026-10-16）。**既存節は削除・圧縮・統合・書き換えしない。
+
+### A. 正式commit
+
+| 項目 | 内容 |
+|---|---|
+| 正式commit | **`38a6f3b`**（`feat: YG用画像デザインを専用配色へ変更`） |
+| 変更ファイル | **`streamlit_app.py`（+140 / −6）と `convert_narabi_pil.py`（+8 / −3）の2つだけ** |
+
+**`38a6f3b` へ reset・revert しない**（正式仕様の根拠commitであって HEAD を戻す意味ではない）。
+
+### B. 正式デザイン（YG用だけ）
+
+| 要素 | 仕様 |
+|---|---|
+| タイトルバー | **黒**（`C_YG_TITLE_BG_RGBA = (0,0,0,255)`） |
+| 表の見出し行 | **肌色 `#f3e6c8`**（`C_YG_HEADER_BG = C_MACH_HEADER_BG`） |
+| 表の文字 | **濃い紫 `#4B0082`**（見出し `C_YG_HEADER_FG = C_MACH_HEADER_FG`、本文は既存の新テーマの濃い紫のまま） |
+| グラフ外背景 | **既存のレインボー（`bbb.jpg`）**（`_paste_slump_area_bg()` で `_find_slump_bg()` を使う） |
+| グラフ内部（カード地） | **赤**（`C_YG_SL_CARD_BG = (235,0,0)`） |
+| 枠・区切り・軸・補助線・目盛 | **白**（`C_YG_SL_CARD_INK`） |
+| カード上部の機種名・台番 | **白** |
+| カード内の差枚文字 | **黄色** |
+| グラフ線 | **白**（`C_YG_SL_LINE`） |
+| 右下 | **猫ではなく「YG」文字の透かし**（`_YG_SL_WM_TEXT = "YG"` / `_YG_SL_WM_K = 0.30`） |
+| 縦目盛・罫線 | **±5,000**（`_YG_SL_SCALE_MAX = 5000`。元テンプレの±3,000と同じ高さ（0ライン±141px）に1,000枚ごとの点線と `+5,000` / `-5,000` の目盛を描く） |
+
+**画像サイズ・レイアウト・数値・抽出内容・掲載台は従来どおり。**変えたのは色・線・透かし・目盛の表示だけ。
+
+### C. 判定（YG用以外へ流用しない）
+
+```python
+_YG_THEME_PAGES: frozenset[str] = frozenset({"other_slump"})
+
+def _yg_theme() -> bool:   # page × store の AND・保存フラグなし・Streamlit外は False
+    return (st.session_state.get("page") in _YG_THEME_PAGES
+            and _is_yg_store(st.session_state.get("selected_store")))
+```
+
+- **ページと店舗の両方**で判定する。「その他」配下（プレサス飯田橋 ほか）は同じ `other_slump` でも `_is_yg_store()` が偽なので対象外。
+- 既存の表テーマ（`_table_theme_new()`）・スランプテーマ（`_slump_theme_new()`）の上に、YG用のときだけ色を差し替える。
+
+### D. 実装
+
+**`streamlit_app.py`**
+- `_yg_slump_card_image()`：`base_3000_bk.png` を**メモリ上だけ**で赤地＋白インクへ再配色し、±3,000の補助線・目盛文字を地色で消して±5,000の点線・目盛を描き直し、右下へYG透かしを入れる（キャッシュ `_YG_SL_TMPL_CACHE`）。**元PNGは読み取るだけで変更しない。**
+- `draw_slump_graph()`：`_sl_yg` のとき上記カードを使い、線を白、`PX_1000` を ±5,000 換算へ（`3 * PX_1000 / 5`）。YG用は淡紫テーマ・記事用テーマより優先。
+- `draw_table_image()`：YG用は見出し行を肌色＋濃い紫。
+- `_build_machine_img()`：YG用はタイトルバーを黒。
+- `_paste_slump_area_bg()`：YG用は `#FFFFCB` ではなく既存レインボー背景。
+- `_patch_and_run_narabi(..., yg_theme=False)`：既定 False。`show_auto_page()` の⑧並び・列の呼び出しで `yg_theme=_yg_theme()` を渡し、`convert_narabi_pil.py` の `YG_THEME` を書き換える。
+
+**`convert_narabi_pil.py`**
+- `YG_THEME = False`（既定＝従来どおり）を追加。
+- True のとき⑧本番の並び・列画像のタイトルバーを黒、見出し行を肌色 `(243,230,200)`＋濃い紫 `(75,0,130)` にする。
+
+### E. Cloud確認（2026-10-16）
+
+**マルハン大山・10/15（Pision確定228台）**
+- プレビュー7枚（ハピジャグV／ゴッドイーター_高配分／戦国乙女5_高配分／アズールレーン_高配分／東京喰種_高配分／ジャグラーシリーズ優秀台／その他の優秀台ピックアップ）・例外0
+- 画素：タイトル (0,0,0)・見出し (244,229,200)・グラフ外は既存レインボー・赤カードの画素が28〜45%
+- 目視：濃い紫文字・白グラフ線・白い機種名と台番・黄色差枚・YG透かし・`+5,000` 目盛・レイアウト崩れなし
+- 数値整合（例：ハピジャグV 3/3台・総差枚 +3,300枚）
+
+**YG用以外（プレサス飯田橋）**：プレビュー9枚・例外0。タイトル #7000E0・見出し #290068・グラフ外 #FFFFCB・赤画素ほぼ0%で従来配色のまま。
+
+★Cloud の確認は構成・色・数値の確認であり、8502との画素単位の照合ではない（8502では「YG用以外は画素単位で従来と同一」を確認済み）。
+
+### F. 変更していないもの
+
+データ取得・差枚計算・抽出条件・保存処理・ファイル名・画像サイズ・レイアウト構造・並び/列の既存ロジック、
+素材ファイル（`base_3000_bk.png`・`bbb.jpg`・`assets/slump/neko_5000_1.bmp` 等）、他店舗・他ページ（エスパス各店舗・「その他」配下・記事用・ローテ）。
+
+### G. 禁止事項・保全
+
+1. **YG用テーマを YG用以外の店舗・ページへ流用しない**（`_YG_THEME_PAGES` / `_is_yg_store()` の AND を外さない）
+2. **`_yg_theme()` を保存フラグ方式・店舗名だけの判定にしない**
+3. **`YG_THEME` / `yg_theme` の既定 False を変えない**／⑦だけ・⑧だけ直さない
+4. **素材PNG・画像ファイルを書き換えない**（メモリ上の再配色だけ）
+5. **データ取得・差枚計算・抽出・保存・ファイル名・レイアウト・並び/列ロジックをデザイン変更のために改変しない**
+6. **YG用の色・透かし・±5,000目盛を他テーマの定数（`C_SL_PURPLE` / `C_SLUMP_AREA_BG` / `_SL_NEKO_*` 等）と統合しない**
+7. `auto_page_inputs.json`・`auto_page_persistent_inputs.json`・`wrt_machines.json` の既存差分、未追跡4件、stash 5件、アプリ自動commit履歴を保全する。
+   `git add .` / `git add -A` / reset / restore / clean / stash操作 / rebase / merge / revert / force push は禁止

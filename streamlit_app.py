@@ -3437,9 +3437,9 @@ _YG_DAY_KEYCAP: "dict[str, str]" = {
     str(_i): f"{_i}️⃣" for _i in range(10)}
 
 
-def _yg_day_prefix(day: datetime.date) -> str:
-    """「5️⃣の日✖」（日付の1の位）。"""
-    return f"{_YG_DAY_KEYCAP[str(day.day % 10)]}の日✖"
+def _yg_day_prefix(day: datetime.date, mark: bool = True) -> str:
+    """「5️⃣の日✖」（日付の1の位）。mark=False は末尾の「✖」なし（シート②の店舗用）。"""
+    return f"{_YG_DAY_KEYCAP[str(day.day % 10)]}の日" + ("✖" if mark else "")
 
 
 def _yg_kikaku_norm(raw: str) -> "tuple[str, list]":
@@ -3566,7 +3566,8 @@ def _yg_list_text(day: datetime.date, blocks: list, day_on: "dict[str, bool]") -
     _parts = []
     for _b in blocks:
         # 「○の日」はシート①・②の全店舗が対象（店舗単位で1つ・未指定はON）。企画はシート①由来だけ。
-        _pre = _yg_day_prefix(day) if day_on.get(_b["key"], True) else ""
+        # シート②だけの店舗（tab1=False）は「✖」なし。シート①に1度でも出た店舗は従来どおり「✖」付き。
+        _pre = _yg_day_prefix(day, mark=_b["tab1"]) if day_on.get(_b["key"], True) else ""
         _line = _pre + "&".join(_b["kikaku"])
         _parts.append(f"♦{_yg_list_display_store_name(_b['name'])}" + (f"\n{_line}" if _line else ""))
     return f"明日({day.month}/{day.day})のYG\n\n" + "\n\n".join(_parts)
@@ -3581,8 +3582,14 @@ def show_yg_list_page() -> None:
     st.markdown("## 【YG用】一覧")
     st.caption("スプレッドシート（閲覧のみ）から、選んだ日の「YG 一覧」に〇がある店舗を抽出します。")
     st.markdown("---")
-    _day = st.date_input("日付を選択", value=datetime.date.today(),
-                         format="YYYY/MM/DD", key="_yg_list_date")
+    # ページに入った時点では日本時間の「翌日」を初期表示する（翌日分の一覧を作るページのため）。
+    # キーが無いとき（初回・ページ再訪問時）だけ入れるので、手動で選んだ日付は戻さない。
+    # value= は渡さない（毎回の値が変わると Streamlit が別ウィジェット扱いして選択が戻るため）。
+    if "_yg_list_date" not in st.session_state:
+        st.session_state["_yg_list_date"] = (
+            datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).date()
+            + datetime.timedelta(days=1))
+    _day = st.date_input("日付を選択", format="YYYY/MM/DD", key="_yg_list_date")
     st.button("🔄 シートを再取得", key="_yg_list_refetch_btn", on_click=_yg_list_refetch)
     _failed = False
     _hits: list = []

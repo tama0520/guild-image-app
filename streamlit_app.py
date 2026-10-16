@@ -14513,6 +14513,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                 st.session_state[_tb_rt_items_key]      = items
                 st.session_state[_tb_rt_items_date_key] = _tb_date_str
                 st.session_state[_tb_src_key]           = "Pision"
+                # 取得後の再実行で②③などの入力欄の値が破棄されるため、同じExcel名でも次の描画で保存値を復元させる
+                st.session_state[f"_auto_tb_refetched_{store}"] = st.session_state[_tb_name_key]
                 st.session_state.pop(_tb_collecting_key, None)
 
             def _is_new_artid(poll_result: dict) -> bool:
@@ -14628,6 +14630,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                     st.session_state[_tb_name_key]  = _tb_fname
                     st.session_state[_tb_count_key] = len(_tb_df)
                     st.session_state[_tb_src_key]   = "Pision"
+                    # 取得後の再実行で②③などの入力欄の値が破棄されるため、同じExcel名でも次の描画で保存値を復元させる
+                    st.session_state[f"_auto_tb_refetched_{store}"] = st.session_state[_tb_name_key]
                 st.session_state[_tb_fetched_key] = _tb_date_str
                 st.rerun()
 
@@ -14676,6 +14680,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                     st.session_state[_tb_rt_items_key]      = _sg_items
                     st.session_state[_tb_rt_items_date_key] = _tb_date_str
                     st.session_state[_tb_src_key]           = "slotterguild.com"
+                    # 取得後の再実行で②③などの入力欄の値が破棄されるため、同じExcel名でも次の描画で保存値を復元させる
+                    st.session_state[f"_auto_tb_refetched_{store}"] = st.session_state[_tb_name_key]
                     st.rerun()
 
             if st.session_state.get(_tb_fetched_key) == _tb_date_str:
@@ -14710,14 +14716,20 @@ def show_auto_page(with_slump: bool = False) -> None:
         # UIにも旧日付の機種名が出たままになる（8/2・8/11・8/12 の汚染の原因）。
         _kojin_scope_ng = (store in _KOJIN_DATE_SCOPED_STORES
                            and st.session_state.get(_kojin_scope_key(store)) != uploaded.name)
-        if st.session_state.get("_auto_prev_excel") != uploaded.name or _kojin_scope_ng:
+        # ⓪で取得し直した直後は、同じExcel名でも保存値から復元する
+        # （取得ボタン後の再実行で入力欄の値が破棄され、空のまま保存されるのを防ぐ）
+        _tb_refetched = (st.session_state.pop(f"_auto_tb_refetched_{store}", None)
+                         == uploaded.name)
+        if (st.session_state.get("_auto_prev_excel") != uploaded.name or _kojin_scope_ng
+                or _tb_refetched):
             # 切り替え前の入力値を旧ファイル名で先に保存（再フェッチ時の値消え防止）
             _prev_excel = st.session_state.get("_auto_prev_excel")
             # 旧Excelは「切り替え前の店舗」のキーセットで保存する。
             # 現在の store を使うと、店舗をまたぐ切り替えで旧店舗固有キーが消える。
             # 初回表示など未保持のときは現在の店舗にフォールバック（従来動作）。
             _prev_store = st.session_state.get("_auto_prev_store", store)
-            if _prev_excel:
+            # 同じExcelを取得し直した場合は、値が破棄された状態を保存しない
+            if _prev_excel and not (_tb_refetched and _prev_excel == uploaded.name):
                 _cur_save = _load_auto_inputs_json()
                 _cur_save[_prev_excel] = _merge_auto_entry(_cur_save.get(_prev_excel), _prev_store,
                                                            _prev_excel)

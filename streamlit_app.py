@@ -9383,10 +9383,19 @@ def _merge_auto_entry(existing: "dict | None", store: str,
     return entry
 
 
-def _save_auto_inputs(store: str) -> None:
-    """自動処理ページの入力値を Excelファイル名をキーにして JSON 保存。"""
+def _save_auto_inputs(store: str, expected_excel: "str | None" = None) -> None:
+    """自動処理ページの入力値を Excelファイル名をキーにして JSON 保存。
+
+    expected_excel は on_change から渡す「その入力欄を描いたときのExcel名」。
+    現在のExcelと違うときは、日付を切り替えた直後の実行が入力欄を描き直す前に
+    中断され、ブラウザに残っていた前の日付の値（同じ widget key）が送り返された状態。
+    そのまま保存すると前の日付の値（例: ③列OFF・空欄）が今の日付へ書き込まれるため、
+    保存せず、今のExcelの保存値を入れ直す。None（毎回の保存・直接呼び出し）は従来どおり。"""
     excel_name = st.session_state.get("auto_current_excel")
     if not excel_name:
+        return
+    if expected_excel is not None and expected_excel != excel_name:
+        _restore_auto_inputs(excel_name, store)
         return
     data = _load_auto_inputs_json()
     data[excel_name] = _merge_auto_entry(data.get(excel_name), store, excel_name)
@@ -12501,15 +12510,16 @@ def _rm_legacy_col_image(output_dir: str, new_fn: str, log=None) -> list[str]:
     return _rm_stale_image(output_dir, _old, log=log)
 
 
-def _render_retsu_option(enabled_key: str, ranges_key: str, on_change, store: str) -> tuple:
+def _render_retsu_option(enabled_key: str, ranges_key: str, on_change, store: str,
+                         cb_args: "tuple | None" = None) -> tuple:
     """③並び画像セクションの「列画像を作成する」UI。(有効, 範囲リスト) を返す。
     並び画像のON/OFFとは独立で、並びOFF・列ONでも列画像だけ生成できる。"""
     _ok, _ranges = False, []
-    _en = st.checkbox("列画像を作成する", key=enabled_key, on_change=on_change, args=(store,))
+    _en = st.checkbox("列画像を作成する", key=enabled_key, on_change=on_change, args=(cb_args or (store,)))
     if _en:
         _txt = st.text_area(
             "台番範囲（列）　連番: '2001-2008'、スポット: '508+424'、複数: カンマ/スペース/改行区切り",
-            value="", key=ranges_key, height=100, on_change=on_change, args=(store,),
+            value="", key=ranges_key, height=100, on_change=on_change, args=(cb_args or (store,)),
         )
         if _txt.strip():
             try:
@@ -14743,6 +14753,8 @@ def show_auto_page(with_slump: bool = False) -> None:
             st.session_state["_auto_prev_store"] = store
         # 毎レンダーで自動保存（ボタン未押下でブラウザを閉じても値が残るようにする）
         _save_auto_inputs(store)
+    # 入力欄の on_change へ渡す「描画時のExcel名」（_save_auto_inputs の expected_excel）
+    _auto_xl = st.session_state.get("auto_current_excel")
 
     # ── Excel由来の機種名候補リストを抽出・キャッシュ ─────────────────
     _em_ss_key = f"_auto_excel_machines_{store}"
@@ -14897,7 +14909,7 @@ def show_auto_page(with_slump: bool = False) -> None:
     variety_ranges_text: str = ""
     variety_mode: str = "全台"
     kojin_enabled = st.checkbox("個別画像も生成する", key="kojin_enabled",
-                                on_change=_save_auto_inputs, args=(store,))
+                                on_change=_save_auto_inputs, args=(store, _auto_xl))
     if kojin_enabled:
         _kojin_candidates = _excel_candidates
         # 新宿歌舞伎町: マイジャグV/ファンキー2 は台番の階（2F=3桁/3F=4桁）別バリアントを予測変換に追加
@@ -14933,7 +14945,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _kz_key = f"kojin_z_{_i}_{store}"
                     render_machine_autocomplete_input(str(_i + 1), _kz_key, _kojin_candidates,
                                                       default=_kojin_default(_kojin_excel, store, _kz_key),
-                                                      on_change=_save_auto_inputs, on_change_args=(store,))
+                                                      on_change=_save_auto_inputs, on_change_args=(store, _auto_xl))
             kojin_zentai_machines = [st.session_state.get(f"kojin_z_{_i}_{store}", "") for _i in range(_kz_count)]
         with col_ky:
             st.markdown("**優秀台**")
@@ -14954,7 +14966,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _ky_key = f"kojin_y_{_i}_{store}"
                     render_machine_autocomplete_input(str(_i + 1), _ky_key, _kojin_candidates,
                                                       default=_kojin_default(_kojin_excel, store, _ky_key),
-                                                      on_change=_save_auto_inputs, on_change_args=(store,))
+                                                      on_change=_save_auto_inputs, on_change_args=(store, _auto_xl))
             if _ky_expandable and not _ky_expanded:
                 def _expand_ky(_k=_ky_expand_key):
                     st.session_state[_k] = True
@@ -14971,14 +14983,14 @@ def show_auto_page(with_slump: bool = False) -> None:
                     "台番範囲（例: 409-413）　ピンクバーあり",
                     key=f"kojin_narabi_range_{store}",
                     placeholder="例: 409-413",
-                    on_change=_save_auto_inputs, args=(store,),
+                    on_change=_save_auto_inputs, args=(store, _auto_xl),
                 )
             with _col_nt:
                 st.text_input(
                     "タイトル（省略時は台番範囲をそのまま使用）",
                     key=f"kojin_narabi_title_{store}",
                     placeholder="例: 4・5列目の優秀台",
-                    on_change=_save_auto_inputs, args=(store,),
+                    on_change=_save_auto_inputs, args=(store, _auto_xl),
                 )
             _col_nr2, _col_nt2 = st.columns([2, 3])
             with _col_nr2:
@@ -14986,14 +14998,14 @@ def show_auto_page(with_slump: bool = False) -> None:
                     "台番範囲（例: 409-413）　ピンクバーなし",
                     key=f"kojin_narabi2_range_{store}",
                     placeholder="例: 409-413",
-                    on_change=_save_auto_inputs, args=(store,),
+                    on_change=_save_auto_inputs, args=(store, _auto_xl),
                 )
             with _col_nt2:
                 st.text_input(
                     "タイトル（省略時は台番範囲をそのまま使用）",
                     key=f"kojin_narabi2_title_{store}",
                     placeholder="例: 4・5列目の優秀台",
-                    on_change=_save_auto_inputs, args=(store,),
+                    on_change=_save_auto_inputs, args=(store, _auto_xl),
                 )
         if _no_kojin_narabi:
             # 対象店舗のスランプ付き: 保存済みの値が残っていても台番範囲を生成しない
@@ -15017,14 +15029,14 @@ def show_auto_page(with_slump: bool = False) -> None:
                         "タイトル",
                         key=f"kojin_pick_title_{_pi}_{store}",
                         placeholder="例: マイジャグV",
-                        on_change=_save_auto_inputs, args=(store,),
+                        on_change=_save_auto_inputs, args=(store, _auto_xl),
                     )
                 with _col_pb:
                     st.text_area(
                         "台番テキスト（台番を含むテキストをそのまま貼り付け）",
                         key=f"kojin_pick_bans_{_pi}_{store}",
                         height=68,
-                        on_change=_save_auto_inputs, args=(store,),
+                        on_change=_save_auto_inputs, args=(store, _auto_xl),
                     )
         if not _is_kabupa_pg:  # その他の優秀台ピックアップ（①かぶぱは非表示）
             st.markdown("**その他の優秀台ピックアップ**")
@@ -15042,7 +15054,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     value=st.session_state.get(f"sonota_extra_title_{store}", "") or "その他の優秀台ピックアップ",
                     key=f"sonota_extra_title_{store}",
                     placeholder="例: その他の優秀台ピックアップ",
-                    on_change=_save_auto_inputs, args=(store,),
+                    on_change=_save_auto_inputs, args=(store, _auto_xl),
                 )
             with _col_seb:
                 st.text_area(
@@ -15050,7 +15062,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     value=st.session_state.get(f"sonota_extra_text_{store}", ""),
                     key=f"sonota_extra_text_{store}",
                     height=80,
-                    on_change=_save_auto_inputs, args=(store,),
+                    on_change=_save_auto_inputs, args=(store, _auto_xl),
                 )
             # キーは保存キー（_auto_input_keys）と同じ名前空間にする
             # （auto_slump2 は「新宿歌舞伎町(スランプ)」。他ページ・他店舗は store と同じ）。
@@ -15066,7 +15078,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 key=_se_key,
                 horizontal=True,
                 on_change=(_save_jug_auto_mem if _se_mem else _save_auto_inputs),
-                args=((store, _se_mem, _se_key, _save_auto_inputs, (store,)) if _se_mem else (store,)),
+                args=((store, _se_mem, _se_key, _save_auto_inputs, (store, _auto_xl)) if _se_mem else (store, _auto_xl)),
                 kwargs=({"opts": _SONOTA_AUTO_OPTS, "label": "その他の優秀台 抽出閾値"}
                         if _se_mem else None),
             )
@@ -15088,7 +15100,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 key=_jg_key,
                 horizontal=True,
                 on_change=(_save_jug_auto_mem if _jg_mem else _save_auto_inputs),
-                args=((store, _jg_mem, _jg_key, _save_auto_inputs, (store,)) if _jg_mem else (store,)),
+                args=((store, _jg_mem, _jg_key, _save_auto_inputs, (store, _auto_xl)) if _jg_mem else (store, _auto_xl)),
             )
         sonota_extra_title = st.session_state.get(f"sonota_extra_title_{store}", "")
         sonota_extra_text  = st.session_state.get(f"sonota_extra_text_{store}", "")
@@ -15106,14 +15118,14 @@ def show_auto_page(with_slump: bool = False) -> None:
     if _narabi_script_for(store):
         st.markdown(f"### {_sec_num()} 並び画像")
         narabi_enabled = st.checkbox("並び画像も生成する", key="narabi_enabled",
-                                     on_change=_save_auto_inputs, args=(store,))
+                                     on_change=_save_auto_inputs, args=(store, _auto_xl))
         if narabi_enabled:
             ranges_text = st.text_area(
                 "台番範囲　連番: '409-413'、スポット: '508+424'、複数: カンマ/スペース/改行区切り　Excelからのコピペ（台番・機種名・数値の表）もそのまま貼り付け可",
                 value="",
                 key="narabi_ranges_input",
                 height=120,
-                on_change=_save_auto_inputs, args=(store,),
+                on_change=_save_auto_inputs, args=(store, _auto_xl),
             )
             if ranges_text.strip():
                 try:
@@ -15170,27 +15182,28 @@ def show_auto_page(with_slump: bool = False) -> None:
 
         # ── 列画像（列仕掛け）: 並びとは独立にON/OFF ──────────────────
         retsu_ok, retsu_ranges = _render_retsu_option(
-            "retsu_enabled", "retsu_ranges_input", _save_auto_inputs, store)
+            "retsu_enabled", "retsu_ranges_input", _save_auto_inputs, store,
+            cb_args=(store, _auto_xl))
 
     # ── ④ 末尾画像オプション（末尾画像を持つ店舗）──────────────────────
     if "末尾画像" in _image_types_of(store):
         st.markdown(f"### {_sec_num()} 末尾画像")
         suebangai_enabled = st.checkbox("末尾画像も生成する", key="suebangai_enabled",
-                                        on_change=_save_auto_inputs, args=(store,))
+                                        on_change=_save_auto_inputs, args=(store, _auto_xl))
         if suebangai_enabled:
             _stc1, _stc2, _stc3 = st.columns(3)
             with _stc1:
                 _sue_ti1 = st.text_input("末尾①", value="", key="suebangai_tail_input_1",
                                           placeholder="例: 5",
-                                          on_change=_save_auto_inputs, args=(store,))
+                                          on_change=_save_auto_inputs, args=(store, _auto_xl))
             with _stc2:
                 _sue_ti2 = st.text_input("末尾②", value="", key="suebangai_tail_input_2",
                                           placeholder="例: 7",
-                                          on_change=_save_auto_inputs, args=(store,))
+                                          on_change=_save_auto_inputs, args=(store, _auto_xl))
             with _stc3:
                 _sue_ti3 = st.text_input("末尾③", value="", key="suebangai_tail_input_3",
                                           placeholder="ゾロ目",
-                                          on_change=_save_auto_inputs, args=(store,))
+                                          on_change=_save_auto_inputs, args=(store, _auto_xl))
             _sue_tails_ui = [t.strip() for t in [_sue_ti1, _sue_ti2, _sue_ti3] if t.strip()]
             if _sue_tails_ui:
                 _sue_mode_opts = (["全台", "+1,000枚以上の優秀台", "プラス台"]
@@ -15201,7 +15214,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 if st.session_state.get("suebangai_mode") not in _sue_mode_opts:
                     st.session_state.pop("suebangai_mode", None)
                 _sue_mode = st.radio("モード", _sue_mode_opts, key="suebangai_mode",
-                                     horizontal=True, on_change=_save_auto_inputs, args=(store,))
+                                     horizontal=True, on_change=_save_auto_inputs, args=(store, _auto_xl))
                 _sue_prev_key    = f"sue_preview_{store}"
                 _sue_prev_rt_key = f"sue_prev_tails_{store}"
                 _sue_cur_rt      = ",".join(_sue_tails_ui) + "|" + _sue_mode
@@ -15348,21 +15361,21 @@ def show_auto_page(with_slump: bool = False) -> None:
         # ジャグラー専用末尾画像
         st.markdown("##### ジャグラー末尾画像")
         jug_sue_enabled = st.checkbox("ジャグラー機種の末尾画像も生成する", key="jug_sue_enabled",
-                                       on_change=_save_auto_inputs, args=(store,))
+                                       on_change=_save_auto_inputs, args=(store, _auto_xl))
         if jug_sue_enabled:
             _jtc1, _jtc2, _jtc3 = st.columns(3)
             with _jtc1:
                 _jt1 = st.text_input("末尾①（ジャグラー）", value="", key="jug_sue_tail_input_1",
                                       placeholder="例: 7",
-                                      on_change=_save_auto_inputs, args=(store,))
+                                      on_change=_save_auto_inputs, args=(store, _auto_xl))
             with _jtc2:
                 _jt2 = st.text_input("末尾②（ジャグラー）", value="", key="jug_sue_tail_input_2",
                                       placeholder="例: 3",
-                                      on_change=_save_auto_inputs, args=(store,))
+                                      on_change=_save_auto_inputs, args=(store, _auto_xl))
             with _jtc3:
                 _jt3 = st.text_input("末尾③（ジャグラー）", value="", key="jug_sue_tail_input_3",
                                       placeholder="ゾロ目",
-                                      on_change=_save_auto_inputs, args=(store,))
+                                      on_change=_save_auto_inputs, args=(store, _auto_xl))
             _jug_tails_ui = [t.strip() for t in [_jt1, _jt2, _jt3] if t.strip()]
             if _jug_tails_ui:
                 _jug_sue_mode_opts = (["全台", "優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"]
@@ -15371,7 +15384,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 if st.session_state.get("jug_sue_mode") not in _jug_sue_mode_opts:
                     st.session_state.pop("jug_sue_mode", None)
                 _jug_sue_mode = st.radio("モード（ジャグラー）", _jug_sue_mode_opts, key="jug_sue_mode",
-                                         horizontal=True, on_change=_save_auto_inputs, args=(store,))
+                                         horizontal=True, on_change=_save_auto_inputs, args=(store, _auto_xl))
                 _jsue_prev_key    = f"jug_sue_preview_{store}"
                 _jsue_prev_rt_key = f"jug_sue_prev_tails_{store}"
                 _jsue_cur_rt      = ",".join(_jug_tails_ui) + "|" + _jug_sue_mode
@@ -15709,7 +15722,7 @@ def show_auto_page(with_slump: bool = False) -> None:
     if _variety_ui:
         st.markdown(f"### {_sec_num()} バラエティ画像")
         variety_enabled = st.checkbox("個別画像も生成する", key="variety_enabled",
-                                      on_change=_save_auto_inputs, args=(store,))
+                                      on_change=_save_auto_inputs, args=(store, _auto_xl))
         if variety_enabled:
             st.markdown("**バラエティの台番範囲**")
             _vr_key = f"variety_range_{store}"
@@ -15720,13 +15733,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                 value=st.session_state[_vr_key],
                 key=_vr_key,
                 placeholder="例: 1-50",
-                on_change=_save_auto_inputs, args=(store,),
+                on_change=_save_auto_inputs, args=(store, _auto_xl),
             )
             variety_mode = st.radio(
                 "モード", ["全台", "+1,000枚以上の優秀台", "プラス台"],
                 key="variety_mode",
                 horizontal=True,
-                on_change=_save_auto_inputs, args=(store,),
+                on_change=_save_auto_inputs, args=(store, _auto_xl),
             )
 
     # ── ⑥ 結果テキスト素材メモ（拡張機能店舗・①かぶぱは非表示）──────────

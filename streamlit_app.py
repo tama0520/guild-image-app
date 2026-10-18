@@ -9430,6 +9430,50 @@ def _jug_sonota_exc_series(store: str, with_slump: bool = False) -> set:
     return set(get_store_config(store).get("juggler_series", set()))
 
 
+# 📝のジャグラー統合が「この台数以下」なら統合画像を作らず、その他の優秀台へ回す
+# （run_step2_juggler の `len(combined) <= 5` → overflow と同じ閾値・cc8b51c）。
+_MANUAL_JUG_OVERFLOW_MAX = 5
+
+
+def _manual_jug_route(jg_df, jug_off: bool = False):
+    """📝のジャグラー抽出結果を (統合画像へ残す台, その他の優秀台へ回す台) に分ける。
+
+    - 5台以下 → 統合画像は作らず、全台をその他へ（通常経路の overflow と同じ）
+    - 統合画像がチェックOFF → 統合画像はOFFのまま、+1,000枚以上だけをその他へ
+      （通常経路の統合OFF時の戻し b9ccc4b と同じ）
+    新しい抽出・判定は作らない（抽出は _manual_juggler_auto_extract のまま）。"""
+    if jg_df is None or jg_df.empty:
+        return jg_df, (jg_df.iloc[0:0] if jg_df is not None else pd.DataFrame())
+    if len(jg_df) <= _MANUAL_JUG_OVERFLOW_MAX:
+        return jg_df.iloc[0:0], jg_df.copy()
+    if jug_off:
+        return jg_df, jg_df[jg_df["差枚"] >= 1000].copy()
+    return jg_df, jg_df.iloc[0:0]
+
+
+def _manual_jug_route_on(store: str, with_slump: bool) -> bool:
+    """📝でジャグラー → その他の振り分けを行うか。
+    秋葉原スランプ付き（ジャグラーを元からその他へ含める）と、新小岩スランプ付き
+    （⑤ジャグラー枠が正本でその他へ逆流させない・1301431）は従来どおり行わない。"""
+    if not _jug_sonota_exc_series(store, with_slump):
+        return False
+    if with_slump and store == "新小岩":
+        return False
+    return True
+
+
+def _manual_sonota_merge(se_df, add_df):
+    """その他の優秀台の対象台へ add_df を合流し、台番重複を除いて台番順に並べる。"""
+    if add_df is None or add_df.empty:
+        return se_df
+    if se_df is None or se_df.empty:
+        _r = add_df.copy()
+    else:
+        _r = pd.concat([se_df, add_df], ignore_index=True)
+    _r = _r.drop_duplicates(subset=["台番"])
+    return _r.iloc[_r["台番"].argsort()].reset_index(drop=True)
+
+
 def _manual_jug_title(kojin_machines, cfg: dict) -> str:
     """📝のジャグラー統合画像タイトル。②個別画像にジャグラーシリーズが1機種以上
     あれば「その他の…」にする（run_step2_juggler の has_other_jug_img と同じ考え方）。"""
@@ -16934,10 +16978,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _manual_ban_map[_mfn_ky] = [int(b) for b in _mgp["台番"].tolist()]
 
                             # ② その他の優秀台ピックアップ（溝の口新館専用）
+                            _se_pre_m = None   # 🎯で間引く前のその他の対象台（ジャグラー振り分けの合流用）
                             if sonota_extra_text.strip():
                                 _se_bans_m = set(expand_machine_numbers(sonota_extra_text))
                                 if _se_bans_m:
                                     _se_df_m = _df_m[_df_m["台番"].apply(lambda b: int(b) in _se_bans_m)].copy().reset_index(drop=True)
+                                    _se_pre_m = _se_df_m.copy()
                                     _se_tit_m = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
                                     if _manual_all_ky and not _se_df_m.empty:
                                         # 🎯掲載台を選ぶ（その他の優秀台）: 抽出後・画像生成前に間引く
@@ -16968,6 +17014,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _se_auto_m = _manual_sonota_auto_extract(
                                     _df_m, _diff_m, _SONOTA_AUTO_THR[sonota_extra_auto], _exc_mac_m, _exc_ban_m,
                                     exc_series=_jug_sonota_exc_series(store, with_slump))
+                                _se_pre_m = _se_auto_m.copy()
                                 _se_tit_m = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
                                 if _manual_all_ky and not _se_auto_m.empty:
                                     # 🎯掲載台を選ぶ（その他の優秀台）: 抽出後・画像生成前に間引く
@@ -17011,6 +17058,24 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _jg_exc_m |= _manual_unit_hold
                                 _jg_df_m = _manual_juggler_auto_extract(
                                     _df_m, _diff_m, jug_extra_auto, _jg_cfg_m, _jg_exc_m)
+                                if _manual_jug_route_on(store, with_slump):
+                                    # 5台以下 → その他へ／統合画像OFF → +1,000枚以上をその他へ（通常経路と同じ）
+                                    _jg_df_m, _jg_mv_m = _manual_jug_route(
+                                        _jg_df_m, not _pv_is_on(store, uploaded.name, "ジャグラーシリーズ優秀台.jpg"))
+                                    if _jg_mv_m is not None and not _jg_mv_m.empty:
+                                        _se_tit_mv = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
+                                        _se_fn_mv = f"{_make_safe_fn(_se_tit_mv)}.jpg"
+                                        _se_mv_df = _manual_sonota_merge(_se_pre_m, _jg_mv_m)
+                                        if _manual_all_ky:
+                                            _se_mv_df, _se_ball_mv = _unit_ex_kind_pick(
+                                                _unit_ex_state(store, _excel_stem), "sonota", _se_mv_df)
+                                            _manual_unit_src[_se_fn_mv] = {"kind": "sonota", "machine": None,
+                                                                           "bans": _se_ball_mv}
+                                        _manual_imgs[:] = [(_f, _i) for _f, _i in _manual_imgs if _f != _se_fn_mv]
+                                        _manual_ban_map.pop(_se_fn_mv, None)
+                                        if _se_mv_df is not None and not _se_mv_df.empty:
+                                            _manual_imgs.append((_se_fn_mv, _build_machine_img(_se_mv_df, _se_tit_mv, None)))
+                                            _manual_ban_map[_se_fn_mv] = [int(b) for b in _se_mv_df["台番"].tolist()]
                                 if _manual_all_ky and _jg_df_m is not None and not _jg_df_m.empty:
                                     # 🎯掲載台を選ぶ（ジャグラー統合）: 抽出後・画像生成前に間引く
                                     _jg_df_m, _jg_ball_m = _unit_ex_kind_pick(
@@ -17480,13 +17545,15 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _cat_prev.pop(_ci_c)
                                         return
                             # その他の優秀台（自動抽出のときだけ作り直す）
+                            _se_pre_u = None   # 🎯で間引く前のその他の対象台（ジャグラー振り分けの合流用）
+                            _se_tit_u = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
+                            _se_fn_u  = f"{_make_safe_fn(_se_tit_u)}.jpg"
                             if not sonota_extra_text.strip() and sonota_extra_auto in _SONOTA_AUTO_THR:
                                 _se_u = _manual_sonota_auto_extract(
                                     _dfu, _diu, _SONOTA_AUTO_THR[sonota_extra_auto],
                                     set(_kon_macs), _exc_base_u | _kon_bans,
                                     exc_series=_jug_sonota_exc_series(store, with_slump))
-                                _se_tit_u = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
-                                _se_fn_u  = f"{_make_safe_fn(_se_tit_u)}.jpg"
+                                _se_pre_u = _se_u.copy() if _se_u is not None else None
                                 if _cat_ux and _se_u is not None and not _se_u.empty:
                                     _se_u, _se_ball_u = _unit_ex_kind_pick(_cat_ux_state, "sonota", _se_u)
                                     _cat_ux_src[_se_fn_u] = {"kind": "sonota", "machine": None,
@@ -17515,6 +17582,22 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                                             _uv_h.get("machine"), int(b), _base_h)}
                                 _jg_u = _manual_juggler_auto_extract(
                                     _dfu, _diu, jug_extra_auto, _cfg_u, _jg_exc_u)
+                                if _manual_jug_route_on(store, with_slump):
+                                    # 5台以下 → その他へ／統合画像OFF → +1,000枚以上をその他へ（通常経路と同じ）
+                                    _jg_u, _jg_mv_u = _manual_jug_route(
+                                        _jg_u, not _pv_is_on(store, uploaded.name, "ジャグラーシリーズ優秀台.jpg"))
+                                    if _jg_mv_u is not None and not _jg_mv_u.empty:
+                                        if _se_pre_u is None and sonota_extra_text.strip():
+                                            _se_bans_tu = set(expand_machine_numbers(sonota_extra_text))
+                                            _se_pre_u = _dfu[_dfu["台番"].apply(
+                                                lambda b: int(b) in _se_bans_tu)].copy().reset_index(drop=True)
+                                        _se_mv_u = _manual_sonota_merge(_se_pre_u, _jg_mv_u)
+                                        if _cat_ux:
+                                            _se_mv_u, _se_ball_mv_u = _unit_ex_kind_pick(_cat_ux_state, "sonota", _se_mv_u)
+                                            _cat_ux_src[_se_fn_u] = {"kind": "sonota", "machine": None,
+                                                                     "bans": _se_ball_mv_u}
+                                        if _se_mv_u is not None and not _se_mv_u.empty:
+                                            _cat_put(_se_fn_u, _build_machine_img(_se_mv_u, _se_tit_u, None))
                                 if _cat_ux and _jg_u is not None and not _jg_u.empty:
                                     _jg_u, _jg_ball_u = _unit_ex_kind_pick(_cat_ux_state, "juggler", _jg_u)
                                     _cat_ux_src["ジャグラーシリーズ優秀台.jpg"] = {
@@ -18620,6 +18703,33 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _se_df_e = (pd.concat([_se_df_e, _se_add_e], ignore_index=True)
                                             if not _se_df_e.empty else _se_add_e.reset_index(drop=True))
                                 _se_merged_e = True
+                        # ジャグラー振り分け（⑦📝・🔄と同じ）: 5台以下 → その他へ／統合画像OFF → +1,000枚以上をその他へ。
+                        # 抽出・除外はこの後のジャグラー本処理と同じ（その他はジャグラー機種を含まないので順序に依存しない）。
+                        _jg_keep_e = None
+                        if jug_extra_auto != "なし" and _manual_jug_route_on(store, with_slump):
+                            _jg_cfg_pe = get_store_config(store)
+                            _, _jg_exc_pe = _manual_sonota_auto_bans(
+                                _df_exec_m, store, [], [],
+                                narabi_ranges if narabi_ok else [],
+                                "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi_range_{store}", ""),
+                                "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi2_range_{store}", ""),
+                                retsu_ranges=(retsu_ranges if retsu_ok else []),
+                            )
+                            _jg_exc_pe = set(_jg_exc_pe)
+                            for _fn_pe, _bl_pe in _m_exec_ban_map_e.items():
+                                if _pv_is_on(store, uploaded.name, _fn_pe):
+                                    _jg_exc_pe |= {int(b) for b in (_bl_pe or [])}
+                            if _manual_all_ky_e:
+                                _jg_exc_pe |= _manual_unit_hold_e
+                            _jg_keep_e, _jg_mv_e = _manual_jug_route(
+                                _manual_juggler_auto_extract(
+                                    _df_exec_m, _diff_exec_m, jug_extra_auto, _jg_cfg_pe, _jg_exc_pe),
+                                not _pv_is_on(store, uploaded.name, "ジャグラーシリーズ優秀台.jpg"))
+                            if _jg_mv_e is not None and not _jg_mv_e.empty:
+                                _se_df_e = _manual_sonota_merge(
+                                    _se_df_e if not _se_df_e.empty else None, _jg_mv_e)
+                                _se_merged_e = True
+                                _m_log(f"  ジャグラーシリーズ優秀台: {len(_jg_mv_e)}台をその他の優秀台へ回しました")
                         if _se_merged_e and not _se_df_e.empty:
                             # 合流したときだけ整列（合流が無いときは従来の並びをそのまま使う）
                             _se_df_e = _se_df_e.drop_duplicates(subset=["台番"])
@@ -18673,6 +18783,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _jg_exc_e |= _manual_unit_hold_e
                             _jg_df_e = _manual_juggler_auto_extract(
                                 _df_exec_m, _diff_exec_m, jug_extra_auto, _jg_cfg_e, _jg_exc_e)
+                            if _jg_keep_e is not None and (_jg_keep_e.empty or not _pv_is_on(
+                                    store, uploaded.name, "ジャグラーシリーズ優秀台.jpg")):
+                                # 5台以下でその他へ回した／統合画像OFF → 統合画像は保存しない
+                                _jg_df_e = pd.DataFrame()
+                                _kabupa_rm_stale("ジャグラーシリーズ優秀台.jpg")
                             if _manual_all_ky_e and _jg_df_e is not None and not _jg_df_e.empty:
                                 # 🎯掲載台を選ぶ（ジャグラー統合）: 📝プレビューと同じ除外を画像生成前に適用
                                 _jg_df_e, _ = _unit_ex_kind_pick(
@@ -18955,7 +19070,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                         # チェック外しから移した台が抜けて画像とテキストがズレるため。
                         # kojin_enabled=False では _se_df_e が未定義になり得るので locals() で取る。
                         _se_final_rt = locals().get("_se_df_e")
-                        if (_manual_son_upd_e and _se_final_rt is not None
+                        # ジャグラー5台以下／統合OFFでその他へ回した台がある場合も、
+                        # 画像と同じ最終DataFrameを正とする（再抽出すると移した台が抜ける）。
+                        _jg_mv_rt = locals().get("_jg_mv_e")
+                        _jg_moved_rt = _jg_mv_rt is not None and not _jg_mv_rt.empty
+                        if ((_manual_son_upd_e or _jg_moved_rt) and _se_final_rt is not None
                                 and not _se_final_rt.empty):
                             for _, _row_rt in _se_final_rt.iterrows():
                                 _m_excel.append({

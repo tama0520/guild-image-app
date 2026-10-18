@@ -16909,7 +16909,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 if _ky_add_m:
                                     _mgp, _mik_ky, _mball_ky, _mbase_ky = _unit_ex_pick_add(
                                         _unit_ex_state(store, _excel_stem), "kojin_yushu", _km,
-                                        _manual_kojin_add_cand(_mga, _mgp, _ky_cand_exc_m), _mgp)
+                                        _mga, _mgp)
                                     _manual_unit_src[_mfn_ky] = {"kind": "kojin_yushu",
                                                                  "machine": _mik_ky, "bans": _mball_ky,
                                                                  "base": _mbase_ky}
@@ -18553,7 +18553,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     # 候補＝その機種の当日全台・既定掲載＝抽出通過台（📝プレビューと同一）
                                     _mgp_e, _mik_ky_e, _mball_ky_e, _mbase_ky_e = _unit_ex_pick_add(
                                         _unit_ex_state(store, _excel_stem_run), "kojin_yushu", _km_e,
-                                        _manual_kojin_add_cand(_mga_e, _mgp_e, _ky_cand_exc_e), _mgp_e)
+                                        _mga_e, _mgp_e)
                                     _manual_unit_hold_e |= set(_mbase_ky_e)
                                 else:
                                     # 🎯掲載台を選ぶ（②個別・優秀台）: 📝プレビューと同じ安定キーで間引く

@@ -6797,11 +6797,12 @@ def run_step2_juggler(
             _bans_all_j = [int(b) for b in filtered["台番"].tolist()]
             _sel_j, _sel_dr_j = filtered, dr_f
             if high_add_on:
-                # 🎯で候補台を追加できる店舗。候補の対象範囲は「その機種のG数条件を満たす台」
-                # （＝高配分判定に使う mdf）。判定（_meets_*）は除外前の filtered で確定済みで、
+                # 🎯で候補台を追加できる店舗。候補の対象範囲は「その機種の当日の全台」
+                # （all_for_m_orig。G数条件で絞らない＝Step3 の grp と同じ）。
+                # 判定（_meets_*）は除外前の filtered で確定済みで、
                 # ここでは掲載する行を差し替えるだけなので抽出判定は変わらない。
                 _sel_j, _sel_dr_j, _bans_all_j = _unit_ex_add_pick(
-                    mdf, dr_m, filtered, exclude_units, machine)
+                    all_for_m_orig, _dr_all_orig, filtered, exclude_units, machine)
             _img_j, _img_dr_j = _unit_ex_apply(_sel_j, _sel_dr_j, _unit_ex_get(exclude_units, "high", machine))
             if _img_j.empty:
                 # 全台除外: 画像を作らず、機種全体の集計行だけ残す（その他の優秀台へは回さない）

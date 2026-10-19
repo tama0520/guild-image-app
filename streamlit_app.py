@@ -6230,6 +6230,9 @@ _ART_HIGH_BAR_FONT_R = 0.72              # フォントサイズ / バー高（a
 # ★`_art_high_title_bar()` 本体・既定テキスト・既定色は変更しない
 #   （渋谷新館⑥が text="オススメ機種の優秀台" で使用中）。
 _ART_HIGH_NO_BAR_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+# 記事用のジャグラー高配分画像を「優秀台が総台数の50%以上」のときだけ作る店舗。
+# 満たさない機種の優秀台は統合プール（その他のジャグラーの優秀台）へ回す。
+_ART_JUG_HALF_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 
 
 def _art_high_title_bar(table_img: "Image.Image", hq_scale: float = 1.0,
@@ -6706,6 +6709,7 @@ def run_step2_juggler(
     meta_only_out: "list[dict] | None" = None,
     jug_title_by_image: bool = False,
     high_add_on: bool = False,
+    jug_high_half: bool = False,
 ) -> tuple[list[str], pd.DataFrame | None, pd.Series | None, list[dict], list[dict]]:
     """Step 2: ジャグラーシリーズ優秀台フィルター。
     少数機種は統合画像へ。5台以下なら overflow として Step 3 へ渡す。
@@ -6781,6 +6785,11 @@ def run_step2_juggler(
         _meets_jug_meta = (_meets_small_jug or
                            (len(filtered) >= 2 and
                             (len(filtered) >= total_all / 2 or len(filtered) >= 10)))
+        if jug_high_half:
+            # 新宿歌舞伎町の記事用: 優秀台（filtered）が総台数の50%以上のときだけ高配分。
+            # 「10台以上」「少数機種ルール」は使わない。満たさない機種は下の else で
+            # 既存どおり統合プール（その他のジャグラーの優秀台）へ回る。
+            _meets_jug_meta = len(filtered) >= 2 and len(filtered) * 2 >= total_all
         if machine in meta_only_machines and _meets_jug_meta:
             # ⑤最優先で抑制した機種。**画像も high_ratio_list も統合プールも触らない**。
             if meta_only_out is not None:
@@ -6791,7 +6800,7 @@ def run_step2_juggler(
                     "total":        total_orig,
                     "all_avg_diff": int(round(_dr_all_orig.mean())),
                 })
-        if machine not in recommended_machines and (_meets_small_jug or (len(filtered) >= 2 and (len(filtered) >= total_all / 2 or len(filtered) >= 10))):
+        if machine not in recommended_machines and _meets_jug_meta:
             # ⑦掲載台の台番単位除外。画像カテゴリの判定（上の条件式）は除外前の台数で
             # 済ませてあるため、除外しても「高配分でなくなる」「その他へ回る」ことはない。
             _bans_all_j = [int(b) for b in filtered["台番"].tolist()]
@@ -8567,7 +8576,8 @@ def run_auto_pipeline(
                             zh_hq_scale=zh_hq_scale, retsu_bans=retsu_bans,
                             high_bar=(store not in _ART_HIGH_NO_BAR_STORES),
                             meta_only_machines=meta_only_machines,
-                            meta_only_out=_meta_only_list)
+                            meta_only_out=_meta_only_list,
+                            jug_high_half=(article_mode and store in _ART_JUG_HALF_STORES))
                         run_step3_other(
                             _meta_sub, _meta_dr, _meta_tmp, cfg, narabi_bans,
                             _mo2[1], _mo2[2], log, recommended_machines, suebangai_bans,
@@ -8613,7 +8623,7 @@ def run_auto_pipeline(
             log("② ジャグラーシリーズ優秀台")
             _jug_series = cfg["juggler_series"]
             _zen_dai_jug = {item["name"] for item in zen_dai_list if item["name"] in _jug_series}
-            f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df, jug_bans_all = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude, no_merge_image=jug_no_merge_image, rec_ban_level=rec_ban_level, exclude_units=exclude_units, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans, high_bar=(store not in _ART_HIGH_NO_BAR_STORES), meta_only_machines=meta_only_machines, meta_only_out=_meta_only_list, jug_title_by_image=_is_other_store(store), high_add_on=high_add_on)
+            f2, ov_df, ov_diff, jug_hr, jug_excellent, jug_pool_df, jug_bans_all = run_step2_juggler(df, diff_raw, output_dir, cfg, narabi_bans, log, recommended_machines, suebangai_bans | jug_sue_bans, zen_dai_juggler_machines=_zen_dai_jug, article_mode=article_mode, sonota_exclude=sonota_exclude, no_merge_image=jug_no_merge_image, rec_ban_level=rec_ban_level, exclude_units=exclude_units, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans, high_bar=(store not in _ART_HIGH_NO_BAR_STORES), meta_only_machines=meta_only_machines, meta_only_out=_meta_only_list, jug_title_by_image=_is_other_store(store), high_add_on=high_add_on, jug_high_half=(article_mode and store in _ART_JUG_HALF_STORES))
 
             log("③ その他の優秀台ピックアップ")
             f3, oth_hr, sonota_excellent, sonota_bans_all = run_step3_other(df, diff_raw, output_dir, cfg, narabi_bans, ov_df, ov_diff, log, recommended_machines, suebangai_bans, article_mode=article_mode, sonota_exclude=sonota_exclude, exclude_units=exclude_units, hq_scale=hq_scale, zh_hq_scale=zh_hq_scale, osusume_bans=_osusume_bans, retsu_bans=retsu_bans, high_bar=(store not in _ART_HIGH_NO_BAR_STORES), meta_only_machines=meta_only_machines, meta_only_out=_meta_only_list, high_add_on=high_add_on)

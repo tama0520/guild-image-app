@@ -7856,15 +7856,19 @@ def _jug_signed(n: int) -> str:
 
 
 def _jug_total_wp_text(df, store: str) -> str:
-    """記事用WordPress本文用：ジャグラー全体の総差枚・平均差枚だけの1文（台数は出さない）。"""
+    """記事用WordPress本文用：ジャグラー全体の総差枚・平均差枚と +1,000枚以上の台数。
+    台数は結果テキストと同じ _juggler_total_stat() の値をそのまま使う（0台なら台数文は出さない）。"""
     try:
         _jst = _juggler_total_stat(df, get_store_config(store)["juggler_series"])
     except Exception:
         return ""
     if _jst is None:
         return ""
-    return (f"本日のジャグラー全体の結果は総差枚{_jug_signed(_jst[0])}、"
+    _txt = (f"本日のジャグラー全体の結果は総差枚{_jug_signed(_jst[0])}、"
             f"平均差枚{_jug_signed(_jst[1])}！")
+    if _jst[2] > 0:
+        _txt += f"{_jst[2]}台が+1,000枚オーバー！"
+    return _txt
 
 
 def generate_report_text(

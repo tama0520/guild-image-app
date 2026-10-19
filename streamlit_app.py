@@ -23105,9 +23105,14 @@ def show_auto_article_page() -> None:
                             "kojin_zen": (list(_art_cmt_zen_manual) if _art_manual else
                                           ([m.strip() for m in kojin_zentai_machines if (m or "").strip()]
                                            if kojin_enabled else [])),
+                            # ★②個別「優秀台」の画像（_art_cmt_high_manual＝実際に描いた機種）も
+                            #   ニブイチ系として掲載されるので、🔍でも自動高配分へ足す。
+                            #   （②入力機種は自動高配分を作らないため重複しない）
                             "high_names": (list(_art_cmt_high_manual) if _art_manual else
-                                           [h["name"] for h in _art_pr.get("high_ratio_list", [])
-                                            if h.get("has_image")]),
+                                           list(dict.fromkeys(
+                                               [h["name"] for h in _art_pr.get("high_ratio_list", [])
+                                                if h.get("has_image")]
+                                               + list(_art_cmt_high_manual)))),
                             "nami": [{"machine": x.get("machine"), "count": x.get("count"),
                                       "avg_diff": x.get("avg_diff"),
                                       "plus": _art_nami_plus.get(

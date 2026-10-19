@@ -27,6 +27,78 @@
       "panel": false,
       "side": true,
       "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "楽園渋谷駅前": {
+      "display_name": "楽園渋谷駅前",
+      "pision_hall_id": "1217",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": false,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "楽園南越谷": {
+      "display_name": "楽園南越谷",
+      "pision_hall_id": "1206",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": false,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "楽園松戸": {
+      "display_name": "楽園松戸",
+      "pision_hall_id": "1207",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": false,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "楽園アメ横": {
+      "display_name": "楽園アメ横",
+      "pision_hall_id": "1224",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": false,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "楽園大山ハッピーロード": {
+      "display_name": "楽園大山ハッピーロード",
+      "pision_hall_id": "1202",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": false,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "楽園渋谷道玄坂": {
+      "display_name": "楽園渋谷道玄坂",
+      "pision_hall_id": "1201",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": false,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "ラ・カータ浦和": {
+      "display_name": "ラ・カータ浦和",
+      "pision_hall_id": "762",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": false,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "ラ・カータ大宮駅前": {
+      "display_name": "ラ・カータ大宮駅前",
+      "pision_hall_id": "763",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": false,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
     }
   }
 }

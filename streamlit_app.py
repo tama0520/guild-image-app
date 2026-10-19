@@ -7880,6 +7880,11 @@ def _jug_total_wp_text(df, store: str) -> str:
     return _txt
 
 
+# 結果ポスト用（show_auto_page）の結果テキストで「オススメポスター機種」を新形式にする店舗。
+# 記事用（show_auto_article_page）は poster_new を渡さないので従来形式のまま。
+_POSTER_NEW_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
+
+
 def generate_report_text(
     store_name: str,
     date,
@@ -7895,8 +7900,11 @@ def generate_report_text(
     variety_excellent: list[dict] | None = None,
     retsu_list: list[dict] | None = None,
     hide_summary_names: set | None = None,
+    poster_new: bool = False,
 ) -> str:
     """画像生成で使ったデータをそのまま文章化して返す。
+    poster_new: 渋谷新館の「オススメポスター機種」セクションを新形式にする（結果ポスト用だけが
+      True を渡す。既定 False＝従来形式なので記事用・他店舗は不変）。
     variety_excellent: ⑤バラエティ画像に実際に掲載された+1,000枚以上の台
       （_variety_excellent_items() の戻り値）。None / 空なら見出しごと出力しない。
     retsu_list: ③列画像（列仕掛け）。nami_list と同じ形の dict リスト
@@ -8206,6 +8214,42 @@ def generate_report_text(
                     if ck:
                         result.append(it.strip())
                 return result
+
+        if poster_new:
+            # 新形式（渋谷新館の結果ポスト用だけ）：東京喰種 → カバネリ → 北斗 → ジャグラー。
+            # 東京喰種・カバネリは北斗と同じ既存 extract_bans_1k（+1,000枚以上・差枚降順・
+            # 同差枚は台番昇順）で「【台番】+差枚」だけを並べる（行頭記号なし・0台なら見出しだけ）。
+            # 北斗・ジャグラーの中身は従来形式のまま。【3F週間オススメポスター】は出さない。
+            N = ["📈オススメポスター機種📈"]
+            for _pm in ("東京喰種", "カバネリ海門決戦"):
+                N.append(f"【{_pm}】")
+                for _ban, _dv in extract_bans_1k(_pm):
+                    N.append(f"【{_ban}番台】+{_dv:,}枚")
+                N.append("")
+            N.append("【北斗シリーズ】")
+            _hok_first_n = True
+            for _hm in ("スマスロ北斗の拳", "北斗転生2"):
+                _rows = extract_bans_1k(_hm)
+                if not _rows:
+                    continue
+                if not _hok_first_n:
+                    N.append("")
+                _hok_first_n = False
+                N.append(f"📍{_hm}")
+                for _ban, _dv in _rows:
+                    N.append(f"・【{_ban}番台】+{_dv:,}枚")
+            N.append("")
+            N.append("【ジャグラーシリーズ】")
+            for pin in _checked_pins(3):
+                N.append(f"📍{pin}")
+            for z in [x for x in zen_dai_list if x["name"] in jug_names]:
+                N.append(f"・{z['name']}({z['count']}/{z['total']}台)→平均{_fmt_diff(z.get('all_avg_diff', 0))}")
+            for h in [x for x in high_ratio_list if x["name"] in jug_names]:
+                N.append(f"・{h['name']}({h['count']}/{h['total']}台)→平均{_fmt_diff(h.get('all_avg_diff', 0))}")
+            for m in list(dict.fromkeys(x.get("machine", "") for x in nami_list if x.get("machine", "") in jug_names)):
+                N.append(f"・{m}")
+                N.extend(nami_detail_lines(m, "・"))
+            return "\n".join(N).rstrip("\n")
 
         L = ["📈オススメポスター機種の仕掛け📈"]
 
@@ -19216,6 +19260,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                     else 2000),
                                 retsu_list=(_build_retsu_report_items(_df_exec_m, retsu_ranges)
                                             if (retsu_ok and retsu_ranges) else None),
+                                poster_new=(store in _POSTER_NEW_STORES),
                             )
                         for _old_rt, _new_rt in STORE_RESULT_TRANSFORMS.get(store, []):
                             _m_report_text = _m_report_text.replace(_old_rt, _new_rt)
@@ -20998,6 +21043,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             if (retsu_ok and retsu_ranges and result.get("df") is not None)
                             else None),
                 hide_summary_names=_rec_hide_names or None,
+                poster_new=(store in _POSTER_NEW_STORES),
             )
             # オススメ機種ブロックの優秀台（+1000枚以上）を挿入（拡張機能店舗）
             if _rec_pickup_on(store) and recommended_blocks:

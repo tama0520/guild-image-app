@@ -10495,9 +10495,13 @@ def _cmt_machine_stat(df, diff_raw, name: str) -> "dict | None":
             "all_plus": all(x > 0 for x in _ds)}
 
 
+# 🔄その他を更新後、記事コメントの並び／列を「最終プレビューでONの画像」に追従させる店舗。
+_ART_CMT_NB_SYNC_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
 def _art_cmt_src_after_update(base_src, cur_src, on_off, zen_fn_map, hr_fn_map,
                               kojin_zen_in, kojin_yushu_in, df, diff_raw,
-                              son_bans=None) -> dict:
+                              son_bans=None, nb_fn_bans=None, col_fn_bans=None) -> dict:
     """「🔄 その他を更新」後に**実際に掲載する状態**で記事コメントの facts ソースを作り直す。
 
     base_src : プレビュー生成時の facts ソース（チェックOFFを反映する前の基準）
@@ -10506,6 +10510,7 @@ def _art_cmt_src_after_update(base_src, cur_src, on_off, zen_fn_map, hr_fn_map,
     zen_fn_map / hr_fn_map : 自動全台系／自動高配分の 画像名→機種名（⑦が保存済みのもの）
     kojin_zen_in / kojin_yushu_in : ②個別「全台」「優秀台」の入力機種名
     son_bans : 作り直した「その他の優秀台ピックアップ」の掲載台番（None＝作り直していない）
+    nb_fn_bans / col_fn_bans : 並び／列画像の 画像名→掲載台番（⑦が保存済み。None＝並び・列は触らない）
 
     ★掲載画像がすべてOFFの機種だけを全台系／高配分から外す（ONへ戻せば復活する）。
     ★コメント生成関数そのものは変えず、入力だけを差し替える。
@@ -10551,6 +10556,28 @@ def _art_cmt_src_after_update(base_src, cur_src, on_off, zen_fn_map, hr_fn_map,
                 _rows.append({"name": str(df.at[_i, "機種名"]), "ban": _bi,
                               "diff": int(diff_raw.loc[_i])})
         _new["sonota"] = _rows
+    # 並び／列：チェックOFFの画像と同じ掲載台番の並び・列をコメント元から外す。
+    # ★⑦が保存した 画像名→掲載台番 を使う（新しい集計はしない）。ONへ戻せば復活する。
+    def _key(_bs):
+        try:
+            return frozenset(int(_x) for _x in (_bs or []))
+        except (TypeError, ValueError):
+            return None
+    def _off_sets(_fmap):
+        _on_s, _off_s = set(), set()
+        for _fn, _on in (on_off or []):
+            _bs = (_fmap or {}).get(_fn)
+            _k = _key(_bs) if _bs else None
+            if _k:
+                (_on_s if _on else _off_s).add(_k)
+        return _off_s - _on_s
+    if nb_fn_bans is not None:
+        _nb_off = _off_sets(nb_fn_bans)
+        _new["nami"] = [_x for _x in (_b.get("nami") or [])
+                        if _key(_x.get("bans")) not in _nb_off]
+    if col_fn_bans is not None:
+        _col_off = _off_sets(col_fn_bans)
+        _new["retsu"] = [_x for _x in (_b.get("retsu") or []) if _key(_x) not in _col_off]
     return _new
 
 
@@ -23205,7 +23232,10 @@ def show_auto_article_page() -> None:
                             "nami": [{"machine": x.get("machine"), "count": x.get("count"),
                                       "avg_diff": x.get("avg_diff"),
                                       "plus": _art_nami_plus.get(
-                                          tuple(int(b) for b in (x.get("bans") or [])))}
+                                          tuple(int(b) for b in (x.get("bans") or []))),
+                                      # 🔄でOFFの並び画像を外すための照合用（コメント文には使わない）
+                                      **({"bans": [int(b) for b in (x.get("bans") or [])]}
+                                         if store in _ART_CMT_NB_SYNC_STORES else {})}
                                      for x in _art_pr.get("nami_list", [])],
                             "retsu": [list(_b or []) for _b in _art_col_map.values()],
                             "sonota": (list(_art_cmt_son_manual) if _art_manual else
@@ -23562,7 +23592,11 @@ def show_auto_article_page() -> None:
                                     (kojin_zentai_machines if kojin_enabled else []),
                                     (kojin_yushu_machines if kojin_enabled else []),
                                     _apdf2, _apdi2,
-                                    son_bans=_upd_bm.get("その他の優秀台ピックアップ.jpg"))
+                                    son_bans=_upd_bm.get("その他の優秀台ピックアップ.jpg"),
+                                    nb_fn_bans=(st.session_state.get(_art_aprev_narabi_key)
+                                                if store in _ART_CMT_NB_SYNC_STORES else None),
+                                    col_fn_bans=(st.session_state.get(_art_aprev_col_key)
+                                                 if store in _ART_CMT_NB_SYNC_STORES else None))
                         if _aup and store in _ART_SON_ON_EXC_STORES and _upd_bm:
                             _a_bm_cur = dict(st.session_state.get(f"art_preview_bm_{store}") or {})
                             _a_bm_cur.update(_upd_bm)

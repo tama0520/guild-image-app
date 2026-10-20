@@ -9212,6 +9212,10 @@ def _collect_kojin_pick(store: str, prefix: str = "") -> list[tuple[str, set[int
         if not bans:
             continue
         out.append((title or "個別機種の優秀台ピックアップ", bans))
+    # YG用の貼り付け欄（全台系／1/2機種）で解決した 1/2機種 を同じピックアップとして足す。
+    # 対象ページ・店舗だけ。②「個別画像も生成する」がONのときだけ有効（従来の②と同じ扱い）。
+    if prefix == "" and _yg_paste_on(store) and st.session_state.get("kojin_enabled", False):
+        out += [(t, set(b)) for t, b in (st.session_state.get(_yg_paste_ss_key(store)) or [])]
     return out
 
 def _kojin_pick_machines_from_df(picks: list[tuple[str, set[int]]], df) -> set[str]:
@@ -9241,6 +9245,122 @@ def _kojin_pick_suppressed_machines(uploaded, store: str, prefix: str = "") -> s
         except Exception:
             pass
     return _kojin_pick_machines_from_df(picks, _df0)
+
+
+# ── YG用：全台系／1/2機種の貼り付け欄（②個別画像の上）────────────────────
+# 貼った文章を解析し、「全台系」の機種は②全台へ、「1/2機種」の機種＋台番は
+# 個別機種の優秀台ピックアップ（貼った台番だけ・マイナス台も含む）へ流す。
+_YG_PASTE_STORES: "frozenset[str]" = frozenset({"大山オーシャン"})
+_YG_PASTE_PAGES:  "frozenset[str]" = frozenset({"other_slump"})
+
+
+def _yg_paste_on(store: str) -> bool:
+    try:
+        return (store in _YG_PASTE_STORES
+                and st.session_state.get("page") in _YG_PASTE_PAGES)
+    except Exception:
+        return False
+
+
+def _yg_paste_key(store: str) -> str:
+    return f"yg_paste_text_{store}"
+
+
+def _yg_paste_ss_key(store: str) -> str:
+    return f"_yg_paste_picks_{store}"
+
+
+def _yg_paste_parse(text: str):
+    """貼り付け文章 → (全台系の機種名リスト, [(機種名, [台番…])], 警告リスト)。"""
+    zen: list[str] = []
+    half: list[list] = []
+    warns: list[str] = []
+    sec = None
+    cur = None
+    for raw in str(text or "").splitlines():
+        ln = raw.strip()
+        if not ln:
+            continue
+        nk = re.sub(r"\s+", "", unicodedata.normalize("NFKC", ln))
+        if nk == "全台系":
+            sec, cur = "zen", None
+            continue
+        if nk in ("1/2機種", "1/2系", "1/2系機種", "1/2"):
+            sec, cur = "half", None
+            continue
+        if sec == "zen":
+            zen.append(ln)
+        elif sec == "half":
+            if re.search(r"\d", nk) and re.fullmatch(r"[\d・･,、/\.\s]+", nk):
+                if cur is None:
+                    warns.append(f"機種名の前に台番があるため無視: {ln}")
+                    continue
+                cur[1].extend(int(x) for x in re.findall(r"\d+", nk))
+            else:
+                cur = [ln, []]
+                half.append(cur)
+        else:
+            warns.append(f"見出し（全台系／1/2機種）の前の行を無視: {ln}")
+    return zen, [(n, b) for n, b in half], warns
+
+
+def _yg_paste_resolve_name(name: str, machines: list[str]) -> "str | None":
+    """入力名 → 当日データの機種名（完全一致 → 機種名変換 → 正規化一致 → 一意の部分一致）。"""
+    if name in machines:
+        return name
+    nm, nm_norm = load_name_map()
+    k = _normalize_key(name)
+    for cand in (nm.get(name), nm_norm.get(k)):
+        if cand and cand in machines:
+            return cand
+    by_norm = {_normalize_key(m): m for m in machines}
+    if k in by_norm:
+        return by_norm[k]
+    hit = [m for nk, m in by_norm.items() if k and (k in nk or nk in k)]
+    return hit[0] if len(hit) == 1 else None
+
+
+def _yg_paste_resolve(text: str, units):
+    """解析＋当日データで解決 → (全台系の機種名, [(機種名, set(台番))], 警告)。"""
+    zen_raw, half_raw, warns = _yg_paste_parse(text)
+    if units is None or getattr(units, "empty", True):
+        return [], [], warns + (["当日データが無いため解析できません"] if (zen_raw or half_raw) else [])
+    machines = sorted({str(m).strip() for m in units["機種名"].dropna() if str(m).strip()})
+    ban2m = {int(b): str(m).strip() for b, m in zip(units["台番"], units["機種名"])
+             if str(b).split(".")[0].lstrip("-").isdigit()}
+    zen: list[str] = []
+    for n in zen_raw:
+        m = _yg_paste_resolve_name(n, machines)
+        if m is None:
+            warns.append(f"全台系「{n}」: 当日データに該当機種なし（無視）")
+        elif m not in zen:
+            zen.append(m)
+    picks: dict[str, set] = {}
+    for n, bans in half_raw:
+        if not bans:
+            warns.append(f"1/2機種「{n}」: 台番が無いため無視")
+            continue
+        miss = [b for b in bans if b not in ban2m]
+        if miss:
+            warns.append(f"1/2機種「{n}」: 当日データに無い台番を無視 {miss}")
+        ok_b = [b for b in bans if b in ban2m]
+        if not ok_b:
+            continue
+        m = _yg_paste_resolve_name(n, machines)
+        if m is None:
+            ms = {ban2m[b] for b in ok_b}
+            if len(ms) != 1:
+                warns.append(f"1/2機種「{n}」: 機種名を特定できないため無視（台番の機種 {sorted(ms)}）")
+                continue
+            m = ms.pop()
+            warns.append(f"1/2機種「{n}」: 機種名を特定できないため台番の機種「{m}」として扱います")
+        other = [b for b in ok_b if ban2m[b] != m]
+        if other:
+            warns.append(f"1/2機種「{n}」→{m}: 別機種の台番を無視 {other}")
+        keep = {b for b in ok_b if ban2m[b] == m}
+        if keep:
+            picks.setdefault(m, set()).update(keep)
+    return zen, list(picks.items()), warns
 
 
 _SONOTA_AUTO_THR = {"+1,000枚以上": 1000, "+2,000枚以上": 2000, "+3,000枚以上": 3000}
@@ -9567,6 +9687,8 @@ def _auto_input_keys(store: str) -> list[str]:
     ]
     for i in range(_KOJIN_PICK_COUNT):
         keys += [f"kojin_pick_title_{i}_{store}", f"kojin_pick_bans_{i}_{store}"]
+    if store in _YG_PASTE_STORES:
+        keys += [_yg_paste_key(store)]   # YG用 貼り付け欄（Excel＝日付単位）
     return keys
 
 
@@ -15215,6 +15337,28 @@ def show_auto_page(with_slump: bool = False) -> None:
     sonota_extra_text: str = ""
     sonota_extra_auto: str = "なし"
     jug_extra_auto: str = "なし"
+    # YG用（大山オーシャン）: ②個別画像の上に「全台系／1/2機種」の貼り付け欄
+    _yg_paste_zen: list[str] = []
+    if _yg_paste_on(store):
+        st.markdown("**全台系／1/2機種 貼り付け欄**")
+        st.text_area(
+            "「全台系」「1/2機種」の見出しごとに機種名・台番（・区切り）を貼り付け",
+            key=_yg_paste_key(store), height=220,
+            on_change=_save_auto_inputs, args=(store, _auto_xl),
+        )
+        _yg_txt = str(st.session_state.get(_yg_paste_key(store), "") or "")
+        if _yg_txt.strip():
+            _yg_paste_zen, _yg_picks, _yg_warns = _yg_paste_resolve(
+                _yg_txt, st.session_state.get(f"_auto_view_units_{store}"))
+            st.session_state[_yg_paste_ss_key(store)] = _yg_picks
+            st.caption("解析結果：全台系 " + ("・".join(_yg_paste_zen) or "なし")
+                       + "／1/2機種 " + ("・".join(f"{m}({len(b)}台)" for m, b in _yg_picks) or "なし"))
+            for _w in _yg_warns:
+                st.warning(_w)
+            if not st.session_state.get("kojin_enabled", False):
+                st.info("下の「個別画像も生成する」をONにすると、この欄の内容が画像に反映されます。")
+        else:
+            st.session_state.pop(_yg_paste_ss_key(store), None)
     st.markdown(f"### {_sec_num()} 個別画像")
     variety_enabled: bool = False
     variety_ranges_text: str = ""
@@ -15416,9 +15560,17 @@ def show_auto_page(with_slump: bool = False) -> None:
         sonota_extra_title = st.session_state.get(f"sonota_extra_title_{store}", "")
         sonota_extra_text  = st.session_state.get(f"sonota_extra_text_{store}", "")
         sonota_extra_auto = st.session_state.get(f"sonota_extra_auto_{_kojin_ns(store)}", "なし")
+        # YG用 貼り付け欄を使うとき（大山オーシャンのみ）は、画面の設定にかかわらず
+        # 「その他の優秀台」の自動抽出を +1,000枚以上にする（保存値は変えない）。
+        if _yg_paste_on(store) and str(st.session_state.get(_yg_paste_key(store), "") or "").strip():
+            sonota_extra_auto = "+1,000枚以上"
         jug_extra_auto = st.session_state.get(f"jug_extra_auto_{_kojin_ns(store)}", "なし")
         if jug_extra_auto not in _JUG_AUTO_OPTS:
             jug_extra_auto = "なし"
+        # YG用 貼り付け欄の「全台系」を②全台へ足す（既存の②全台処理をそのまま使う）
+        for _yz in _yg_paste_zen:
+            if _yz not in [m.strip() for m in kojin_zentai_machines]:
+                kojin_zentai_machines = list(kojin_zentai_machines) + [_yz]
 
     # ── ③ 並び画像オプション（常に描画）──────────────────────────────
     narabi_ok     = False
@@ -17086,6 +17238,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         continue   # 全台除外 → 画像を作らない
                                 _manual_imgs.append((_mfn_ky, _build_machine_img(_mgp, _mtit, None)))
                                 _manual_ban_map[_mfn_ky] = [int(b) for b in _mgp["台番"].tolist()]
+
+                            # YG用 貼り付け欄の 1/2機種（⑧📝の個別ピックアップと同じ描画・同じ画像名）
+                            if _yg_paste_on(store):
+                                for _pk_tit_y, _pk_bans_y in (st.session_state.get(_yg_paste_ss_key(store)) or []):
+                                    _pk_df_y = _df_m[_df_m["台番"].apply(lambda b: int(b) in set(_pk_bans_y))].copy()
+                                    if _pk_df_y.empty:
+                                        continue
+                                    _pk_df_y = _pk_df_y.iloc[_pk_df_y["台番"].argsort()].reset_index(drop=True)
+                                    _pk_fn_y = f"{_make_safe_fn(_pk_tit_y)}.jpg"
+                                    _manual_imgs.append((_pk_fn_y, _build_machine_img(_pk_df_y, _pk_tit_y, None)))
+                                    _manual_ban_map[_pk_fn_y] = [int(b) for b in _pk_df_y["台番"].tolist()]
 
                             # ② その他の優秀台ピックアップ（溝の口新館専用）
                             _se_pre_m = None   # 🎯で間引く前のその他の対象台（ジャグラー振り分けの合流用）

@@ -2337,7 +2337,8 @@ def draw_table_image(
     # ── データ行 ─────────────────────────────────────────────────────
     # 通常文字色（台番・機種名・ゲーム数・BIG・REG・AT・合算確率 …）。
     # 差枚列の C_PLUS / C_MINUS / C_ZERO の色分けは**変更しない**。
-    _data_fg = C_NEW_DATA_FG if _table_theme_new() else C_ZERO
+    # YG用は白地セルの文字を従来の黒（C_ZERO）にする。差枚列は下の色分けのまま。
+    _data_fg = C_ZERO if _yg_theme() else (C_NEW_DATA_FG if _table_theme_new() else C_ZERO)
     for ri, row in enumerate(rows):
         bg = C_ROW_BG
         x  = 0

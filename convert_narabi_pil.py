@@ -290,7 +290,7 @@ BORDER_C   = (170, 170, 170)   # #AAAAAA
 # 見出しセル間の罫線。ART_HEADER のときだけ薄いグレー #DDDDDD へ。
 # **本文セルの罫線は BORDER_C のまま**（この定数は見出し行にしか使わない）。
 HEADER_LINE_C = (221, 221, 221) if ART_HEADER else BORDER_C
-DATA_FG    = ((75, 0, 130) if THEME_NEW else (0, 0, 0))   # 新#4B0082 / 旧 ZERO_C
+DATA_FG    = ((0, 0, 0) if YG_THEME else ((75, 0, 130) if THEME_NEW else (0, 0, 0)))   # YG=黒 / 新#4B0082 / 旧 ZERO_C
 PLUS_C     = (0,   0,   204)   # #0000CC
 MINUS_C    = (204, 0,   0  )   # #CC0000
 ZERO_C     = (0,   0,   0  )

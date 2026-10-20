@@ -6310,6 +6310,13 @@ def _build_article_machine_img(
         diff_cell_bg=False,
         scale=(150 / 96) * (hq_scale if hq_scale and hq_scale > 0 else 1.0),
     )
+    return _attach_crown_summary(table_img, machine_name, summary_stat, hq_scale)
+
+
+def _attach_crown_summary(table_img, machine_name: str, summary_stat: dict | None = None,
+                          hq_scale: float = 1.0) -> Image.Image:
+    """表画像の下へ王冠付き白サマリー（クラウン＋機種名＋勝率／総差枚／平均）を結合する。
+    記事用 _build_article_machine_img と YG用全台系画像で共用（描画は記事用の王冠版そのもの）。"""
     _hq = hq_scale if hq_scale and hq_scale > 0 else 1.0
     w = table_img.width
     ImageDraw.Draw(table_img).line(
@@ -6541,6 +6548,12 @@ def _unit_ex_add_pick(cand_df, cand_dr, base_df, exclude_units, machine: str):
             _bans_all)
 
 
+
+def _yg_zen_img(grp, title: str, stat: dict) -> Image.Image:
+    """YG用の全台系画像。黒タイトルバー＋表はそのまま、ピンクバーの代わりに
+    記事用の王冠付きサマリー（_attach_crown_summary）を付ける。"""
+    return _attach_crown_summary(_build_machine_img(grp, title, None), title, stat)
+
 def run_step1_main(
     df: pd.DataFrame,
     diff_raw: pd.Series,
@@ -6668,7 +6681,8 @@ def run_step1_main(
                                                  hq_scale=_zh1)
         else:
             _zh1 = 1.0
-            img = _build_machine_img(grp, title, _stat_from_diff(dr_m))
+            img = (_yg_zen_img(grp, title, _stat_from_diff(dr_m)) if _yg_theme()
+                   else _build_machine_img(grp, title, _stat_from_diff(dr_m)))
         out   = os.path.join(output_dir, f"{_make_safe_fn(machine)}.jpg")
         _save_jpeg(img, out, **({"target_kb": _ART_HQ_TARGET_KB}
                                 if article_mode and _zh1 > 1.0 else {}))
@@ -16461,7 +16475,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _prev_img_list.append(_fp_map[_fn])
                                 else:
                                     _km, _kgrp, _kdr = _data
-                                    _prev_img_list.append((f"{_km}.jpg", _build_machine_img(_kgrp, _km, _stat_from_diff(_kdr))))
+                                    _prev_img_list.append((f"{_km}.jpg", (_yg_zen_img if _yg_theme() else _build_machine_img)(_kgrp, _km, _stat_from_diff(_kdr))))
 
                             # ─ ② 高配分（平均差枚 大→小・個別優秀台を含む）─
                             def _hr_sort_key(x):
@@ -17175,7 +17189,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 if _mg.empty:
                                     continue
                                 _md = _diff_m.loc[_resolve_kojin_name(_df_m, _km)[1].index].reset_index(drop=True)
-                                _manual_imgs.append((f"{_make_safe_fn(_km)}.jpg", _build_machine_img(_mg, _km, _stat_from_diff(_md))))
+                                _manual_imgs.append((f"{_make_safe_fn(_km)}.jpg", (_yg_zen_img if _yg_theme() else _build_machine_img)(_mg, _km, _stat_from_diff(_md))))
                                 _manual_ban_map[f"{_make_safe_fn(_km)}.jpg"] = [int(b) for b in _mg["台番"].tolist()]
 
                             # ② 個別画像 - 優秀台
@@ -18833,7 +18847,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     continue
                             _mfn_e = _unique_fn_e(f"{_make_safe_fn(_km_e)}.jpg")
                             _mout = os.path.join(output_dir, _mfn_e)
-                            _save_jpeg(_build_machine_img(_mg_e, _km_e, _stat_from_diff(_md_e)), _mout)
+                            _save_jpeg((_yg_zen_img if _yg_theme() else _build_machine_img)(_mg_e, _km_e, _stat_from_diff(_md_e)), _mout)
                             _exec_order.append(_mfn_e)
                             _m_exec_ban_map_e[_mfn_e] = [int(b) for b in _mg_e["台番"].tolist()]
                             _m_log(f"  ✅ 全台「{_km_e}」({len(_mg_e)}台)")
@@ -20430,7 +20444,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _log(f"  個別(全台)「{_km}」: 該当台なし")
                             continue
                         _kdr = diff_k.loc[df_k[df_k["機種名"] == _km].index].reset_index(drop=True)
-                        _kimg = _build_machine_img(_kgrp, _km, _stat_from_diff(_kdr))
+                        _kimg = (_yg_zen_img if _yg_theme() else _build_machine_img)(_kgrp, _km, _stat_from_diff(_kdr))
                         _kout = os.path.join(output_dir, f"{_make_safe_fn(_km)}.jpg")
                         _save_jpeg(_kimg, _kout)
                         result["files"].append(_kout)

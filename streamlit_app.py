@@ -9213,8 +9213,8 @@ def _collect_kojin_pick(store: str, prefix: str = "") -> list[tuple[str, set[int
             continue
         out.append((title or "個別機種の優秀台ピックアップ", bans))
     # YG用の貼り付け欄（全台系／1/2機種）で解決した 1/2機種 を同じピックアップとして足す。
-    # 対象ページ・店舗だけ。②「個別画像も生成する」がONのときだけ有効（従来の②と同じ扱い）。
-    if prefix == "" and _yg_paste_on(store) and st.session_state.get("kojin_enabled", False):
+    # 対象ページ・店舗だけ。欄が空ならキー自体が無いので従来どおり（ON/OFFに依存しない）。
+    if prefix == "" and _yg_paste_on(store):
         out += [(t, set(b)) for t, b in (st.session_state.get(_yg_paste_ss_key(store)) or [])]
     return out
 
@@ -15356,7 +15356,7 @@ def show_auto_page(with_slump: bool = False) -> None:
             for _w in _yg_warns:
                 st.warning(_w)
             if not st.session_state.get("kojin_enabled", False):
-                st.info("下の「個別画像も生成する」をONにすると、この欄の内容が画像に反映されます。")
+                st.info("「個別画像も生成する」がOFFでも、この欄の内容は📝「記入部分のみプレビュー作成」に反映されます。")
         else:
             st.session_state.pop(_yg_paste_ss_key(store), None)
     st.markdown(f"### {_sec_num()} 個別画像")
@@ -15571,6 +15571,15 @@ def show_auto_page(with_slump: bool = False) -> None:
         for _yz in _yg_paste_zen:
             if _yz not in [m.strip() for m in kojin_zentai_machines]:
                 kojin_zentai_machines = list(kojin_zentai_machines) + [_yz]
+    # YG用 貼り付け欄：「個別画像も生成する」OFFでも欄に内容があれば📝経路へ反映する。
+    # 通常の②（全台・優秀台・個別ピックアップ）はOFFのまま使わない（貼り付け分だけ）。
+    _yg_paste_off = (_yg_paste_on(store) and not kojin_enabled
+                     and bool(str(st.session_state.get(_yg_paste_key(store), "") or "").strip()))
+    if _yg_paste_off:
+        sonota_extra_auto = "+1,000枚以上"
+    # 📝経路で使う②全台（ON＝従来の②全台、OFF＝貼り付けの全台系だけ、それ以外は空）
+    _kz_eff = (kojin_zentai_machines if kojin_enabled
+               else (list(_yg_paste_zen) if _yg_paste_off else []))
 
     # ── ③ 並び画像オプション（常に描画）──────────────────────────────
     narabi_ok     = False
@@ -17156,8 +17165,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _manual_unit_hold: set[int] = set()
 
                         # ② 個別画像 - 全台
-                        if kojin_enabled:
-                            for _km in kojin_zentai_machines:
+                        if kojin_enabled or _yg_paste_off:
+                            for _km in _kz_eff:
                                 _km = _km.strip()
                                 if not _km:
                                     continue
@@ -17272,7 +17281,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _manual_ban_map[f"{_make_safe_fn(_se_tit_m)}.jpg"] = [int(b) for b in _se_df_m["台番"].tolist()]
                             elif sonota_extra_auto in _SONOTA_AUTO_THR:
                                 _exc_mac_m, _exc_ban_m = _manual_sonota_auto_bans(
-                                    _df_m, store, kojin_zentai_machines, kojin_yushu_machines,
+                                    _df_m, store, (_kz_eff if _yg_paste_off else kojin_zentai_machines), kojin_yushu_machines,
                                     narabi_ranges if narabi_ok else [],
                                     "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi_range_{store}", ""),
                                     "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi2_range_{store}", ""),
@@ -17319,7 +17328,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 # 現在チェックONの②個別画像の実掲載台番・機種名（ban単位が正本）
                                 _kon_bans_m, _kon_macs_m = _manual_kojin_on(
                                     _df_m, _diff_m, store, uploaded.name, _manual_imgs,
-                                    kojin_zentai_machines if kojin_enabled else [],
+                                    _kz_eff,
                                     kojin_yushu_machines if kojin_enabled else [],
                                     _jg_cfg_m, force_1k=(with_slump and store == "秋葉原"))
                                 for _fn_jm, _bl_jm in _manual_ban_map.items():
@@ -17782,7 +17791,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             # 現在チェックONの②画像の実掲載台番・機種名（ban単位が正本）
                             _kon_bans, _kon_macs = _manual_kojin_on(
                                 _dfu, _diu, store, uploaded.name, _auto_previews,
-                                kojin_zentai_machines if kojin_enabled else [],
+                                _kz_eff,
                                 kojin_yushu_machines if kojin_enabled else [],
                                 _cfg_u, force_1k=(with_slump and store == "秋葉原"))
                             # 並び・列・末尾・ジャグラー末尾・②個別ピックの既存除外
@@ -18803,8 +18812,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _rm_stale_image(output_dir, base_fn, log=_m_log)
 
                     # ② 個別画像 - 全台
-                    if kojin_enabled:
-                        for _km_e in kojin_zentai_machines:
+                    if kojin_enabled or _yg_paste_off:
+                        for _km_e in _kz_eff:
                             _km_e = _km_e.strip()
                             if not _km_e:
                                 continue
@@ -18934,7 +18943,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _m_high.append({"name": _km_e, "count": int((_mda_all_e > 0).sum()), "total": len(_mga_all_e), "diffs": sorted([int(d) for d in _mda_e.tolist() if int(d) >= 1000], reverse=True), "all_avg_diff": int(round(_mda_all_e.mean())), "has_image": True})
 
                         # 個別機種の優秀台ピックアップ（貼った台番のみ・ピンクバーなし）
-                        for _pk_tit_e, _pk_bans_e in _collect_kojin_pick(store):
+                        for _pk_tit_e, _pk_bans_e in (_collect_kojin_pick(store) if kojin_enabled
+                                                      else (st.session_state.get(_yg_paste_ss_key(store)) or [])):
                             _pk_df_e = _df_exec_m[_df_exec_m["台番"].apply(lambda b: int(b) in _pk_bans_e)].copy()
                             if _pk_df_e.empty:
                                 continue
@@ -18957,7 +18967,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _se_df_e = _df_exec_m[_df_exec_m["台番"].apply(lambda b: int(b) in _se_bans_e)].copy().reset_index(drop=True)
                         elif sonota_extra_auto in _SONOTA_AUTO_THR:
                             _exc_mac_e, _exc_ban_e = _manual_sonota_auto_bans(
-                                _df_exec_m, store, kojin_zentai_machines, kojin_yushu_machines,
+                                _df_exec_m, store, (_kz_eff if _yg_paste_off else kojin_zentai_machines), kojin_yushu_machines,
                                 narabi_ranges if narabi_ok else [],
                                 "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi_range_{store}", ""),
                                 "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi2_range_{store}", ""),
@@ -19044,7 +19054,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _kon_bans_e, _kon_macs_e = _manual_kojin_on(
                                 _df_exec_m, _diff_exec_m, store, uploaded.name,
                                 [(_f, None) for _f in _m_exec_ban_map_e],
-                                kojin_zentai_machines if kojin_enabled else [],
+                                _kz_eff,
                                 kojin_yushu_machines if kojin_enabled else [],
                                 _jg_cfg_e, force_1k=(with_slump and store == "秋葉原"))
                             for _fn_je, _bl_je in _m_exec_ban_map_e.items():
@@ -19363,7 +19373,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _m_excel.append({"name": str(_row_rt["機種名"]), "diff": int(_diff_exec_m.loc[_idx_rt]), "ban": int(_row_rt["台番"])})
                         elif sonota_extra_auto in _SONOTA_AUTO_THR:
                             _exc_mac_rt, _exc_ban_rt = _manual_sonota_auto_bans(
-                                _df_exec_m, store, kojin_zentai_machines, kojin_yushu_machines,
+                                _df_exec_m, store, (_kz_eff if _yg_paste_off else kojin_zentai_machines), kojin_yushu_machines,
                                 narabi_ranges if narabi_ok else [],
                                 "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi_range_{store}", ""),
                                 "" if _no_kojin_narabi else st.session_state.get(f"kojin_narabi2_range_{store}", ""),

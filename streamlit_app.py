@@ -29761,58 +29761,8 @@ def _sg_get(query: str) -> "object":
     """slotterguild へ GET する。403 / 4xx / 5xx / タイムアウト / 接続失敗は
     すべて _SGError（ユーザー向け文面）にして送出する。例外を握り潰さない。"""
     import requests
-    # ▼▼ 一時診断（Cloud timeout の段階特定用・確認後に削除する）▼▼
-    import socket as _dg_socket, ssl as _dg_ssl, time as _dg_time
-    _dg_host = "slotterguild.com"
-    _dg_tag = f"[SG-DIAG] {query.split('?')[0]}"
-    _dg_ip = None
     try:
-        _t = _dg_time.time()
-        _dg_ip = _dg_socket.getaddrinfo(_dg_host, 443, proto=_dg_socket.IPPROTO_TCP)[0][4][0]
-        print(f"{_dg_tag} DNS ok {_dg_ip} {_dg_time.time()-_t:.3f}s", flush=True)
-    except Exception as _e:
-        print(f"{_dg_tag} DNS fail {type(_e).__name__}: {_e}", flush=True)
-    if _dg_ip:
-        _dg_s = None
-        try:
-            _t = _dg_time.time()
-            _dg_s = _dg_socket.create_connection((_dg_ip, 443), timeout=5)
-            print(f"{_dg_tag} TCP ok {_dg_time.time()-_t:.3f}s", flush=True)
-            try:
-                _t = _dg_time.time()
-                _dg_ss = _dg_ssl.create_default_context().wrap_socket(_dg_s, server_hostname=_dg_host)
-                print(f"{_dg_tag} SSL ok {_dg_ss.version()} {_dg_time.time()-_t:.3f}s", flush=True)
-                _dg_ss.close()
-                _dg_s = None
-            except Exception as _e:
-                print(f"{_dg_tag} SSL fail {type(_e).__name__}: {_e} {_dg_time.time()-_t:.3f}s", flush=True)
-        except Exception as _e:
-            print(f"{_dg_tag} TCP fail {type(_e).__name__}: {_e} {_dg_time.time()-_t:.3f}s", flush=True)
-        finally:
-            if _dg_s is not None:
-                try:
-                    _dg_s.close()
-                except Exception:
-                    pass
-    _dg_t = _dg_time.time()
-    try:
-        r = requests.get(f"{_SG_BASE_URL}/{query}", timeout=(5, 15))
-        print(f"{_dg_tag} HTTP {r.status_code} {_dg_time.time()-_dg_t:.3f}s "
-              f"len={len(r.content)} redirected={bool(r.history)}", flush=True)
-    except requests.exceptions.ConnectTimeout as _e:
-        print(f"{_dg_tag} HTTP ConnectTimeout {_dg_time.time()-_dg_t:.3f}s {_e}", flush=True)
-        raise _SGError(f"サイトへの接続がタイムアウトしました（{_SG_TIMEOUT}秒）。"
-                       "時間をおいて再試行するか、Pisionから取得してください。")
-    except requests.exceptions.ReadTimeout as _e:
-        print(f"{_dg_tag} HTTP ReadTimeout {_dg_time.time()-_dg_t:.3f}s {_e}", flush=True)
-        raise _SGError(f"サイトへの接続がタイムアウトしました（{_SG_TIMEOUT}秒）。"
-                       "時間をおいて再試行するか、Pisionから取得してください。")
-    except requests.exceptions.RequestException as _e:
-        print(f"{_dg_tag} HTTP {type(_e).__name__} {_dg_time.time()-_dg_t:.3f}s {_e}", flush=True)
-        raise _SGError(f"サイトへの接続に失敗しました: {_e}")
-    # ▲▲ 一時診断ここまで ▲▲
-    try:
-        pass
+        r = requests.get(f"{_SG_BASE_URL}/{query}", timeout=_SG_TIMEOUT)
     except requests.exceptions.Timeout:
         raise _SGError(f"サイトへの接続がタイムアウトしました（{_SG_TIMEOUT}秒）。"
                        "時間をおいて再試行するか、Pisionから取得してください。")

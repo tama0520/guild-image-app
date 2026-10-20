@@ -14328,6 +14328,28 @@ def _art_sue_settings() -> "tuple[list[str], str, list[str], str]":
 _ART_CK_NAME_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 
 
+# 記事用の🔄その他を更新／⑧で、チェックOFF画像の台を「その他の優秀台」へ戻すとき、
+# 最終プレビューで**まだONの画像に載っている台**を除外する店舗（重複掲載を防ぐ）。
+_ART_SON_ON_EXC_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
+def _art_on_img_bans(store: str, imgs: list, ban_map: dict,
+                     skip_fns: "tuple[str, ...]" = ("その他の優秀台ピックアップ.jpg",)) -> "set[int]":
+    """プレビューで現在ONの画像に掲載されている台番の集合（⑦の画像→台番対応を使う）。"""
+    bans: "set[int]" = set()
+    for _i, (_fn, _) in enumerate(imgs or []):
+        if _fn in skip_fns:
+            continue
+        if not st.session_state.get(_art_ck_key(store, imgs, _i), True):
+            continue
+        for _b in (ban_map or {}).get(_fn) or (ban_map or {}).get(_fn.replace("：", ":")) or []:
+            try:
+                bans.add(int(_b))
+            except (TypeError, ValueError):
+                pass
+    return bans
+
+
 def _art_ck_key(store: str, previews, idx: int) -> str:
     """記事用⑦の画像チェックのキー。対象外店舗は従来の位置キーのまま。
     対象店舗は画像名（同名が複数あるときは出現順の番号を付ける）から作る。"""
@@ -23107,6 +23129,13 @@ def show_auto_article_page() -> None:
                             pass  # スランプ取得失敗時は表のみプレビュー
 
                     st.session_state[_art_aprev_key]       = _art_pil
+                    # 🔄／⑧で「ONの画像に載っている台」をその他へ戻さないための対応表
+                    st.session_state[f"art_preview_bm_{store}"] = dict(locals().get("_pv_bm_sl") or {})
+                    # 📝の⑦で実際に載せたその他の台（🔄で戻す台の土台。📝以外は None＝従来どおり）
+                    st.session_state[f"art_preview_son_base_{store}"] = (
+                        (list(locals().get("_art_son_bans") or [])
+                         if locals().get("_art_son_added") else [])
+                        if _art_manual else None)
                     st.session_state[_art_aprev_df_key]    = _art_pr.get("df")
                     st.session_state[_art_aprev_di_key]    = _art_pr.get("diff_raw")
                     st.session_state[_art_aprev_ex_key]    = _art_pr.get("sonota_excellent_list", [])
@@ -23407,8 +23436,25 @@ def show_auto_article_page() -> None:
                         def _bans_from_df(df: "pd.DataFrame") -> list[int]:
                             return [int(str(b).split(".")[0]) for b in df["台番"].dropna()
                                     if str(b).split(".")[0].lstrip("-").isdigit()]
+                        if _audfs and store in _ART_SON_ON_EXC_STORES:
+                            _a_on_b = _art_on_img_bans(
+                                store, _art_auto_previews,
+                                st.session_state.get(f"art_preview_bm_{store}") or {})
+                            if _a_on_b:
+                                _au_keep = [~_d["台番"].apply(int).isin(_a_on_b) for _d in _audfs]
+                                _audis = [_di[_k.values].reset_index(drop=True) for _di, _k in zip(_audis, _au_keep)]
+                                _audfs = [_d[_k.values].reset_index(drop=True) for _d, _k in zip(_audfs, _au_keep)]
+                                _audis = [_di for _di, _d in zip(_audis, _audfs) if not _d.empty]
+                                _audfs = [_d for _d in _audfs if not _d.empty]
+                        # 📝は pipeline 版のその他が無いので、⑦📝で実際に載せたその他の台を土台にする
+                        _a_son_base = (st.session_state.get(f"art_preview_son_base_{store}")
+                                       if (store in _ART_SON_ON_EXC_STORES
+                                           and st.session_state.get(f"_art_prev_manual_{store}", False)
+                                           and art_sonota_extra_title.strip() in ("", "その他の優秀台ピックアップ"))
+                                       else None)
                         if _audfs:
-                            _aexb = {it["ban"] for it in _apex}
+                            _aexb = ({it["ban"] for it in _apex} if _a_son_base is None
+                                     else {int(b) for b in _a_son_base})
                             if _aexb:
                                 _aexr = _apdf2[_apdf2["台番"].apply(lambda b: int(b) in _aexb)].copy().reset_index(drop=True)
                                 _aexd = _apdi2.loc[_apdf2[_apdf2["台番"].apply(lambda b: int(b) in _aexb)].index].reset_index(drop=True)
@@ -23420,6 +23466,8 @@ def show_auto_article_page() -> None:
                                 _asc = _asc[~_asc["台番"].apply(int).isin(_a_sue_bans_upd)].copy()
                             if _a_son_ex_upd:     # 🎯でOFFにした台は復活させない
                                 _asc = _asc[~_asc["台番"].apply(int).isin(_a_son_ex_upd)].copy()
+                            if store in _ART_SON_ON_EXC_STORES:
+                                _asc = _asc.drop_duplicates(subset=["台番"])
                             _asc = _asc.iloc[_asc["台番"].argsort()].reset_index(drop=True)
                             if not _asc.empty:
                                 _asi = _build_machine_img(
@@ -23449,7 +23497,8 @@ def show_auto_article_page() -> None:
                             _ajc = _ajc.iloc[_ajc["台番"].argsort()].reset_index(drop=True)
                             if len(_ajc) <= 5:
                                 # 5台以下 → overflowと同じ扱い: その他の優秀台ピックアップへ
-                                _aov_exb = {it["ban"] for it in _apex}
+                                _aov_exb = ({it["ban"] for it in _apex} if _a_son_base is None
+                                            else {int(b) for b in _a_son_base})
                                 _aov_rows = _apdf2[_apdf2["台番"].apply(lambda b: int(b) in _aov_exb)].copy().reset_index(drop=True) if _aov_exb else pd.DataFrame()
                                 _aov_dfs = ([_aov_rows] if not _aov_rows.empty else []) + _ajdfs
                                 _aov_son = pd.concat(_aov_dfs, ignore_index=True)
@@ -23514,6 +23563,10 @@ def show_auto_article_page() -> None:
                                     (kojin_yushu_machines if kojin_enabled else []),
                                     _apdf2, _apdi2,
                                     son_bans=_upd_bm.get("その他の優秀台ピックアップ.jpg"))
+                        if _aup and store in _ART_SON_ON_EXC_STORES and _upd_bm:
+                            _a_bm_cur = dict(st.session_state.get(f"art_preview_bm_{store}") or {})
+                            _a_bm_cur.update(_upd_bm)
+                            st.session_state[f"art_preview_bm_{store}"] = _a_bm_cur
                         if _aup:
                             # スランプグラフ合成（その他を更新後）
                             _upd_api_sl = _get_pision_api_key()
@@ -24638,9 +24691,25 @@ def show_auto_article_page() -> None:
                                         )
                                         if _arky in _arjss and _arhjex: _arjdfs.append(_aryg)
                                         else: _arxdfs.append(_aryg); _arxdis.append(_arygd)
+                if _arxdfs and store in _ART_SON_ON_EXC_STORES:
+                    _ar_on_b = _art_on_img_bans(
+                        store, _art_aprev_imgs,
+                        st.session_state.get(f"art_preview_bm_{store}") or {})
+                    if _ar_on_b:
+                        _ar_keep = [~_d["台番"].apply(int).isin(_ar_on_b) for _d in _arxdfs]
+                        _arxdis = [_di[_k.values].reset_index(drop=True) for _di, _k in zip(_arxdis, _ar_keep)]
+                        _arxdfs = [_d[_k.values].reset_index(drop=True) for _d, _k in zip(_arxdfs, _ar_keep)]
+                        _arxdis = [_di for _di, _d in zip(_arxdis, _arxdfs) if not _d.empty]
+                        _arxdfs = [_d for _d in _arxdfs if not _d.empty]
                 if _arxdfs and _ardf is not None and _ardr is not None:
                     _arsonp = os.path.join(output_dir, "その他の優秀台ピックアップ.jpg")
                     _arexb  = {it["ban"] for it in result.get("sonota_excellent_list", [])}
+                    # 📝の⑧は pipeline 版のその他が無い（manual_mode）。⑦→🔄と同じく
+                    # 📝で抽出したその他の台を土台にする（戻した台だけで上書きしない）。
+                    _ar_man_base = (store in _ART_SON_ON_EXC_STORES and _art_exec_manual
+                                    and _man_son_fn_e in ("", "その他の優秀台ピックアップ.jpg"))
+                    if _ar_man_base:
+                        _arexb = set(_man_son_bans_e)
                     if _arexb:
                         _arexr = _ardf[_ardf["台番"].apply(lambda b: int(b) in _arexb)].copy().reset_index(drop=True)
                         _arexd = _ardr.loc[_ardf[_ardf["台番"].apply(lambda b: int(b) in _arexb)].index].reset_index(drop=True)
@@ -24648,10 +24717,17 @@ def show_auto_article_page() -> None:
                     else:
                         _aralld = _arxdfs; _aralldi = _arxdis
                     _arsc = pd.concat(_aralld, ignore_index=True)
+                    if store in _ART_SON_ON_EXC_STORES:
+                        _arsc = _arsc.drop_duplicates(subset=["台番"])
                     _arsc = _arsc.iloc[_arsc["台番"].argsort()].reset_index(drop=True)
                     _save_jpeg(_build_machine_img(_arsc, "その他の優秀台ピックアップ", None,
                                                   no_bar=_art_sonota_no_bar(store)),
                                _arsonp, target_kb=800)
+                    if _ar_man_base:
+                        # スランプ合成の台番も作り直した表と同じにする
+                        _man_son_fn_e = "その他の優秀台ピックアップ.jpg"
+                        _man_son_bans_e = [int(b) for b in _arsc["台番"].dropna()
+                                           if str(b).split(".")[0].lstrip("-").isdigit()]
                     _log(f"  ✅ その他の優秀台ピックアップ再生成: {len(_arsc)}台")
                 if _arjdfs and _ardf is not None:
                     _arjp    = os.path.join(output_dir, "ジャグラーシリーズ優秀台.jpg")

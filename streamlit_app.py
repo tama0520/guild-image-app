@@ -817,7 +817,7 @@ _YG_HEADER_LINE_R = 7.0 / 1272
 C_YG_SL_CARD_INK   = (255, 255, 255)       # 枠・区切り・軸・補助線・目盛（元テンプレの白インクのまま）
 # 第2段階：グラフ線は白・右下は猫ではなく「YG」の透かし・縦軸スケールは ±5,000。
 C_YG_SL_LINE       = (255, 255, 255, 255)  # 折れ線：白
-_YG_SL_SCALE_MAX   = 5000                  # 上端 +5,000 / 下端 -5,000（元テンプレの ±3,000 と同じ高さに収める）
+_YG_SL_SCALE_MAX   = 3000                  # 上端 +3,000 / 下端 -3,000（エスパスと同じ。元テンプレの目盛をそのまま使う）
 _YG_SL_WM_TEXT     = "YG"                  # 右下の透かし文字
 _YG_SL_WM_K        = 0.30                  # 透かしの濃さ（赤地を暗くする割合）
 
@@ -1336,44 +1336,46 @@ def _yg_slump_card_image(template_path) -> "Image.Image":
     src = Image.open(str(template_path)).convert("RGB")
     w, h = src.size
     sp = src.load()
-    # ── 縦軸スケールを ±3,000 → ±5,000 へ（**元PNGは読み取るだけ。コピー上で描き直す**）──
-    # 元テンプレの補助線（±1,000/±2,000/±3,000 の点線）と目盛文字（+3.000/-3.000）を
-    # 地色で消し、同じ高さ（0ライン±141px）の中へ 1,000 枚ごとの点線と ±5,000 の目盛を描く。
-    # 外枠・区切り・縦軸・0ラインは元のまま。
-    _Y0, _PX_OLD = 290, 47
-    _span = 3 * _PX_OLD                                   # 0ライン→上下端（141px）
-    _dark = (_SL_DARK_V, 6, 6)
-    _pat = [sp[_x, _Y0 - _span] for _x in range(w)]       # 元の点線パターン（1行分）
-    _gx0, _gx1 = _SL_AXIS_X[1] + 1, w - _SL_FRAME_PAD - 7 # 点線の描画範囲（元と同じ 26〜371）
-    for _k in (1, 2, 3):
-        for _sg in (-1, 1):
-            for _dy in (-2, -1, 0, 1, 2):                 # 縁の薄い残りも消す
-                _yy = _Y0 + _sg * _k * _PX_OLD + _dy
-                for _x in range(_gx0, w - _SL_FRAME_PAD - 1):
+    # ★±3,000（エスパスと同じ）のときは元テンプレの補助線・目盛文字をそのまま使い、描き直さない。
+    if _YG_SL_SCALE_MAX != 3000:
+        # ── 縦軸スケールを ±3,000 → ±5,000 へ（**元PNGは読み取るだけ。コピー上で描き直す**）──
+        # 元テンプレの補助線（±1,000/±2,000/±3,000 の点線）と目盛文字（+3.000/-3.000）を
+        # 地色で消し、同じ高さ（0ライン±141px）の中へ 1,000 枚ごとの点線と ±5,000 の目盛を描く。
+        # 外枠・区切り・縦軸・0ラインは元のまま。
+        _Y0, _PX_OLD = 290, 47
+        _span = 3 * _PX_OLD                                   # 0ライン→上下端（141px）
+        _dark = (_SL_DARK_V, 6, 6)
+        _pat = [sp[_x, _Y0 - _span] for _x in range(w)]       # 元の点線パターン（1行分）
+        _gx0, _gx1 = _SL_AXIS_X[1] + 1, w - _SL_FRAME_PAD - 7 # 点線の描画範囲（元と同じ 26〜371）
+        for _k in (1, 2, 3):
+            for _sg in (-1, 1):
+                for _dy in (-2, -1, 0, 1, 2):                 # 縁の薄い残りも消す
+                    _yy = _Y0 + _sg * _k * _PX_OLD + _dy
+                    for _x in range(_gx0, w - _SL_FRAME_PAD - 1):
+                        sp[_x, _yy] = _dark
+        for _y0l, _y1l in ((128, 145), (435, 452)):           # 目盛文字の領域
+            for _yy in range(_y0l, _y1l + 1):
+                for _x in range(_SL_FRAME_PAD + 4, 80):          # 縦軸はこの行範囲に無い（148〜432）
                     sp[_x, _yy] = _dark
-    for _y0l, _y1l in ((128, 145), (435, 452)):           # 目盛文字の領域
-        for _yy in range(_y0l, _y1l + 1):
-            for _x in range(_SL_FRAME_PAD + 4, 80):          # 縦軸はこの行範囲に無い（148〜432）
-                sp[_x, _yy] = _dark
-    _n = _YG_SL_SCALE_MAX // 1000
-    for _k in range(1, _n + 1):
-        _off = round(_k * _span / _n)
-        for _sg in (-1, 1):
-            for _dy in (-1, 0, 1):
-                _yy = _Y0 + _sg * _off + _dy
-                for _x in range(_gx0, _gx1 + 1):
-                    sp[_x, _yy] = _pat[_x]
-    _lbl = ImageDraw.Draw(src)
-    try:   # 小さい文字でもカンマが読める Noto Sans JP（同梱）
-        _lf = ImageFont.truetype(os.path.join(_FONTS_DIR, "NotoSansJP-Regular.ttf"), 12)
-    except Exception:
-        _lf = load_font(11)
-    for _txt, _yy in ((f"+{_YG_SL_SCALE_MAX:,}", _Y0 - _span),
-                      (f"-{_YG_SL_SCALE_MAX:,}", _Y0 + _span)):
-        _bb = _lf.getbbox(_txt)
-        _ty = _yy - 9 - _bb[3] if _yy < _Y0 else _yy + 7 - _bb[1]
-        for _ox in (0, 1):                                 # 1pxずらし重ねで太らせる
-            _lbl.text((28 + _ox - _bb[0], _ty), _txt, fill=(255, 255, 255), font=_lf)
+        _n = _YG_SL_SCALE_MAX // 1000
+        for _k in range(1, _n + 1):
+            _off = round(_k * _span / _n)
+            for _sg in (-1, 1):
+                for _dy in (-1, 0, 1):
+                    _yy = _Y0 + _sg * _off + _dy
+                    for _x in range(_gx0, _gx1 + 1):
+                        sp[_x, _yy] = _pat[_x]
+        _lbl = ImageDraw.Draw(src)
+        try:   # 小さい文字でもカンマが読める Noto Sans JP（同梱）
+            _lf = ImageFont.truetype(os.path.join(_FONTS_DIR, "NotoSansJP-Regular.ttf"), 12)
+        except Exception:
+            _lf = load_font(11)
+        for _txt, _yy in ((f"+{_YG_SL_SCALE_MAX:,}", _Y0 - _span),
+                          (f"-{_YG_SL_SCALE_MAX:,}", _Y0 + _span)):
+            _bb = _lf.getbbox(_txt)
+            _ty = _yy - 9 - _bb[3] if _yy < _Y0 else _yy + 7 - _bb[1]
+            for _ox in (0, 1):                                 # 1pxずらし重ねで太らせる
+                _lbl.text((28 + _ox - _bb[0], _ty), _txt, fill=(255, 255, 255), font=_lf)
     sp = src.load()
     # ── 右下の透かし：猫ではなく「YG」（猫と同じ右下寄り・赤地を少し暗くする）──
     _bgmap = [[C_YG_SL_CARD_BG] * w for _ in range(h)]
@@ -30779,8 +30781,10 @@ def draw_slump_graph(
                         else (C_ART_SL_CARD_EDGE if _sl_art else (0, 0, 0)))
             _mn_fill = (C_SL_TEXT if _sl_new
                         else (C_ART_SL_CARD_TEXT if _sl_art else (255, 255, 0)))
-            for _ox, _oy in ((-_ow,-_ow),(_ow,-_ow),(-_ow,_ow),(_ow,_ow),
-                             (0,-_ow),(0,_ow),(-_ow,0),(_ow,0)):
+            # YG用は機種名の黒縁を付けない（黄文字だけ。差枚数は従来どおり）
+            for _ox, _oy in (() if _sl_yg else
+                             ((-_ow,-_ow),(_ow,-_ow),(-_ow,_ow),(_ow,_ow),
+                              (0,-_ow),(0,_ow),(-_ow,0),(_ow,0))):
                 draw.text((_mn_x + _ox, _mn_y + _oy), machine_name, fill=_mn_edge, font=_mn_font)
             draw.text((_mn_x, _mn_y), machine_name, fill=_mn_fill, font=_mn_font)
 

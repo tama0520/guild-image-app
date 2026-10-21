@@ -7978,6 +7978,24 @@ def _poster_weekly_items(store: str, recommended_blocks, df, diff_raw) -> "list 
     return _items
 
 
+# 「📈オススメポスター機種📈」で固定掲載する機種（結果ポスト用・poster_new）。
+_POSTER_FIXED_MACHINES: "tuple[str, ...]" = ("東京喰種", "カバネリ海門決戦")
+
+
+def _poster_hidden_rec_blocks(store: str, recommended_blocks) -> list:
+    """渋谷新館 結果ポスト用：📈欄に出すため🍯⑤セクションから外す⑤ブロック
+    （週間オススメ機種ブロック＋機種が _POSTER_FIXED_MACHINES だけのブロック）。対象外は空。"""
+    if store not in _POSTER_NEW_STORES:
+        return []
+    _out = [b for b in (recommended_blocks or [])
+            if (_ms := {m.strip() for m in b.get("machines", []) if m.strip()})
+            and _ms <= set(_POSTER_FIXED_MACHINES)]
+    _pw = _poster_weekly_block(store, recommended_blocks)
+    if _pw is not None and not any(b is _pw for b in _out):
+        _out.append(_pw)
+    return _out
+
+
 def generate_report_text(
     store_name: str,
     date,
@@ -8319,7 +8337,7 @@ def generate_report_text(
             # 同差枚は台番昇順）で「【台番】+差枚」だけを並べる（行頭記号なし・0台なら見出しだけ）。
             # 北斗・ジャグラーの中身は従来形式のまま。【3F週間オススメポスター】は出さない。
             N = ["📈オススメポスター機種📈"]
-            for _pm in ("東京喰種", "カバネリ海門決戦"):
+            for _pm in _POSTER_FIXED_MACHINES:
                 N.append(f"【{_pm}】")
                 for _ban, _dv in extract_bans_1k(_pm):
                     N.append(f"【{_ban}番台】+{_dv:,}枚")
@@ -21457,8 +21475,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                 poster_weekly=_poster_weekly_items(
                     store, recommended_blocks, result.get("df"), result.get("diff_raw")),
             )
-            # 「📈週間オススメ機種📈」に出したブロックは下の⑤セクションへ重複させない
-            _pw_blk = _poster_weekly_block(store, recommended_blocks)
+            # 「📈オススメポスター機種📈」「📈週間オススメ機種📈」に出したブロックは下の⑤セクションへ重複させない
+            _pw_hide = _poster_hidden_rec_blocks(store, recommended_blocks)
             # オススメ機種ブロックの優秀台（+1000枚以上）を挿入（拡張機能店舗）
             if _rec_pickup_on(store) and recommended_blocks:
                 _rec_df       = result.get("df")
@@ -21466,7 +21484,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                 if _rec_df is not None and _rec_diff_raw is not None:
                     _rec_text = generate_recommended_result_text(
                         # ブロック番号（block_summaries・絵文字）をずらさないよう空ブロックへ置換
-                        [({**b, "title": ""} if b is _pw_blk else b) for b in recommended_blocks],
+                        [({**b, "title": ""} if any(b is _h for _h in _pw_hide) else b)
+                         for b in recommended_blocks],
                         _rec_df, _rec_diff_raw,
                         exclude_machines=_memo_machines,
                         store_name=store,

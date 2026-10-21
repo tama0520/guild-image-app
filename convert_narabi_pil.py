@@ -513,7 +513,7 @@ for run_idx, (run, title, _dup_set) in enumerate(_JOBS):
     table_only_h = canvas.height - _top_h   # ピンクバー高さの算出はテーブル部分のみ基準（従来と同値）
     row_h_sum    = int(max(30, table_only_h // (len(group) + 2)) * 1.2)
 
-    SUMMARY_BG = "#FF6FA5" if THEME_NEW else "#FFB6C1"
+    SUMMARY_BG = "#FFCDCE" if YG_THEME else ("#FF6FA5" if THEME_NEW else "#FFB6C1")
     pink_rgba  = tuple(int(SUMMARY_BG.lstrip("#")[i:i+2], 16) for i in (0, 2, 4)) + (255,)
     bar_pink   = Image.new("RGBA", (w, row_h_sum), pink_rgba)
     draw_pink  = ImageDraw.Draw(bar_pink)

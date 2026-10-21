@@ -807,7 +807,8 @@ _YG_THEME_PAGES: frozenset[str] = frozenset({"other_slump"})
 C_YG_TITLE_BG_RGBA = (0, 0, 0, 255)        # タイトルバー：黒
 C_YG_HEADER_BG     = C_MACH_HEADER_BG      # #f3e6c8 表の見出し行（台番・機種名…）：薄い肌色
 C_YG_HEADER_FG     = C_MACH_HEADER_FG      # #4B0082 見出し文字：濃い紫
-C_YG_SL_CARD_BG    = (254, 0, 0)           # スランプカード内部：赤（見本 111.jpg の画素に合わせた）
+C_YG_SUMMARY_BG_RGBA = (255, 205, 206, 255)   # #FFCDCE YG用のピンクサマリーバー背景（YG画像だけ）
+C_YG_SL_CARD_BG    = (254, 0, 0)         # スランプカード内部：赤（見本 111.jpg の画素に合わせた）
 C_YG_TITLE_LINE    = (204, 0, 0, 255)      # 黒タイトルバー直下の赤線（既存の赤ラインと同じ色）
 C_YG_HEADER_LINE   = (0, 0, 0)             # 表の見出し行の下の黒線
 # 線の太さは見本（幅1272pxで赤線約7.5px・黒線約7px）を画像幅に比例させる。
@@ -2402,7 +2403,8 @@ def draw_table_image(
 
         draw.rectangle(
             [(0, y), (total_w - 1, y + pink_h - 1)],
-            fill=C_SUMMARY_BG_RGBA[:3], outline=C_BORDER,
+            fill=(C_YG_SUMMARY_BG_RGBA if _yg_theme() else C_SUMMARY_BG_RGBA)[:3],
+            outline=C_BORDER,
         )
         bb1  = draw.textbbox((0, 0), part1, font=fn_summary)
         th_s = bb1[3] - bb1[1]
@@ -5877,7 +5879,8 @@ def _build_machine_img(
         else:
             part2 = f"（{s['win_count']}/{s['total_count']}台）"
 
-        _pink_rgba = (C_NEW_SUMMARY_BG_RGBA if _table_theme_new()
+        _pink_rgba = (C_YG_SUMMARY_BG_RGBA if _yg_theme()
+                      else C_NEW_SUMMARY_BG_RGBA if _table_theme_new()
                       else (255, 182, 193, 255))
         pink = Image.new("RGBA", (w, pink_h), _pink_rgba)
         pd_  = ImageDraw.Draw(pink)

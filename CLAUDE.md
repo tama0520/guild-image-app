@@ -28716,3 +28716,55 @@ OFF時に除外が空になり他店舗の挙動が変わるため、本体反�
 4. 「おすすめ」のCSV取得・シートの読み方・色判定・作業判定を本仕様を理由に変えない
 5. `wrt_machines.json` の既存差分、未追跡4件、stash 5件、アプリ自動commit履歴を保全する。
    `git add .` / `git add -A` / reset / restore / clean / stash操作 / rebase / merge / revert / force push は禁止
+
+## 【正式仕様】YG用画像のピンクサマリーバーを淡いピンク #FFCDCE に変更（2026-10-21・`122d39b`）
+
+**正式仕様。巻き戻し禁止。**対象は**YG用画像（`_yg_theme()` / `YG_THEME` が真）の表下部ピンクサマリーバーの背景色だけ**。
+**Streamlit Cloud 実機で確認済み（ユーザー確認・問題なし）。**既存節は削除・圧縮・統合・書き換えしない。
+「YG用画像の専用デザイン（`38a6f3b`）」節には当時サマリーバー色の記載がなく、YGでも新テーマの `#FF6FA5` が使われていた。本節が後発仕様としてYGのバー色を定める。
+
+| 項目 | 内容 |
+|---|---|
+| 正式commit | **`122d39b`**（`fix: YG画像のピンクサマリーバーを淡いピンク(#FFCDCE)に変更`・`streamlit_app.py` / `convert_narabi_pil.py`） |
+| 新規定数 | **`C_YG_SUMMARY_BG_RGBA = (255, 205, 206, 255)`**（YG専用） |
+| 新規・削除関数 | 0 |
+
+**`122d39b` へ reset・revert しない**（正式仕様の根拠commitであって HEAD を戻す意味ではない）。
+
+### A. 正式仕様
+
+- 表下部のサマリーバー（総差枚／平均／勝率）の背景色を **`#FFCDCE`（RGB `(255, 205, 206)`）**。修正前は `#FF6FA5`。
+- 適用先：**通常画像・⑦プレビュー（`_build_machine_img()`）／`draw_table_image()` のサマリー行／⑧本番の並び・列（`convert_narabi_pil.py`）**。
+- YG判定は既存の **`_yg_theme()`**（アプリ内）と **`YG_THEME`**（並び・列の別プロセス）をそのまま使う。
+- **共通色定数（`C_SUMMARY_BG_RGBA` / `C_NEW_SUMMARY_BG_RGBA`）は変更しない。**
+- **王冠付き全台系サマリー（`_attach_crown_summary()`）は対象外**（ピンクバーではない）。
+- バー以外（文字・文字色・フォント・サイズ・位置・高さ・罫線・背景・レイアウト）は変更なし。
+
+### B. 実装（色の選択だけ）
+
+```python
+# _build_machine_img()
+_pink_rgba = (C_YG_SUMMARY_BG_RGBA if _yg_theme()
+              else C_NEW_SUMMARY_BG_RGBA if _table_theme_new()
+              else (255, 182, 193, 255))
+# draw_table_image() のサマリー行
+fill=(C_YG_SUMMARY_BG_RGBA if _yg_theme() else C_SUMMARY_BG_RGBA)[:3]
+# convert_narabi_pil.py
+SUMMARY_BG = "#FFCDCE" if YG_THEME else ("#FF6FA5" if THEME_NEW else "#FFB6C1")
+```
+
+### C. 確認
+
+- **YG（マルハン大山・大山オーシャン）**：通常画像（等倍・2倍）、青バーなし画像、⑧並び画像のすべてで、
+  **変化はサマリーバーの範囲だけ・色は (255,205,206)**。画像サイズ・文字・表は不変。
+- **非YG（プレサス飯田橋 / 新小岩 / 稲毛 / 新宿歌舞伎町）**：同じ6種類の画像が**修正前後で画素単位一致**。
+- **Cloud確認：問題なし。**
+
+### D. 禁止事項・保全
+
+1. 共通色定数（`C_SUMMARY_BG_RGBA` / `C_NEW_SUMMARY_BG_RGBA`）を変えてYGの色を出さない
+2. `#FFCDCE` を非YG画像へ広げない／YG判定を店舗名の直書きにしない
+3. ⑦だけ・⑧だけ直さない（アプリ内と `convert_narabi_pil.py` は同じ色を保つ）
+4. 王冠付きサマリー・バー以外の要素を本仕様を理由に変えない
+5. `wrt_machines.json` の既存差分、未追跡4件、stash 5件、アプリ自動commit履歴を保全する。
+   `git add .` / `git add -A` / reset / restore / clean / stash操作 / rebase / merge / revert / force push は禁止

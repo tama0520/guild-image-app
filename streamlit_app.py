@@ -9439,12 +9439,13 @@ def _yg_paste_report_body(store: str, df) -> "str | None":
         if g.empty:
             continue
         avg = float(g["_df"].mean())
-        blocks.append((avg, [f"📍{m}({len(g_all)}台)"]
+        blocks.append((len(g_all), avg, [f"📍{m}({len(g_all)}台)"]
                        + [_ln(b, v) for b, v in zip(g["_ban"], g["_df"])]))
-    blocks.sort(key=lambda x: -x[0])   # 安定ソート＝同値は貼り付け順
+    # 並び：当日の総設置台数が多い順 → 同台数は指定台番の平均差枚が高い順 → 同値は貼り付け順（安定ソート）
+    blocks.sort(key=lambda x: (-x[0], -x[1]))
     if blocks:
         out.append("✅ニブイチ以上の高ベース候補")
-        out.append("\n\n".join("\n".join(b) for _a, b in blocks))
+        out.append("\n\n".join("\n".join(b) for _n, _a, b in blocks))
         out.append("")
     out += ["その他、単品優秀台も👍", "詳細は画像👇"]
     return "\n".join(out)

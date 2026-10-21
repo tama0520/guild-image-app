@@ -9526,6 +9526,18 @@ def _manual_sonota_auto_bans(df, store, kojin_zentai_machines, kojin_yushu_machi
                     _exc_ban.add(_b)
     return _exc_mac, _exc_ban
 
+
+# 📝記入部分のみの「その他の優秀台」自動抽出で⑤オススメ機種を機種単位で除外するページ×店舗
+# （2026-10-21）。🔍・⑧の通常経路が sonota_exclude（⑤機種）で除外しているのと同じ扱いにする。
+_MANUAL_SONOTA_REC_EXC_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
+
+
+def _manual_sonota_rec_machines(store: str, with_slump: bool, recommended_blocks) -> set:
+    """📝の「その他の優秀台」自動抽出から外す⑤オススメ機種名（対象外の店舗・ページは空集合）。"""
+    if with_slump or store not in _MANUAL_SONOTA_REC_EXC_STORES:
+        return set()
+    return {m.strip() for _b in (recommended_blocks or []) for m in _b["machines"] if m.strip()}
+
 def _manual_kojin_add_cand(cand_df, base_df, exc_bans):
     """📝の②個別優秀台🎯で**追加できる候補台**（⑦📝・⑧📝で共用）。
     候補＝その機種の当日全台。ただし並び・列・末尾・ジャグラー末尾・個別ピック・
@@ -17412,7 +17424,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     except Exception:
                                         pass
                                 _se_auto_m = _manual_sonota_auto_extract(
-                                    _df_m, _diff_m, _SONOTA_AUTO_THR[sonota_extra_auto], _exc_mac_m, _exc_ban_m,
+                                    _df_m, _diff_m, _SONOTA_AUTO_THR[sonota_extra_auto],
+                                    set(_exc_mac_m) | _manual_sonota_rec_machines(store, with_slump, recommended_blocks),
+                                    _exc_ban_m,
                                     exc_series=_jug_sonota_exc_series(store, with_slump))
                                 _se_pre_m = _se_auto_m.copy()
                                 _se_tit_m = sonota_extra_title.strip() or "その他の優秀台ピックアップ"
@@ -17951,7 +17965,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                             if not sonota_extra_text.strip() and sonota_extra_auto in _SONOTA_AUTO_THR:
                                 _se_u = _manual_sonota_auto_extract(
                                     _dfu, _diu, _SONOTA_AUTO_THR[sonota_extra_auto],
-                                    set(_kon_macs), _exc_base_u | _kon_bans,
+                                    set(_kon_macs) | _manual_sonota_rec_machines(store, with_slump, recommended_blocks),
+                                    _exc_base_u | _kon_bans,
                                     exc_series=_jug_sonota_exc_series(store, with_slump))
                                 _se_pre_u = _se_u.copy() if _se_u is not None else None
                                 if _cat_ux and _se_u is not None and not _se_u.empty:
@@ -19092,7 +19107,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 retsu_ranges=(retsu_ranges if retsu_ok else []),
                             )
                             _se_df_e = _manual_sonota_auto_extract(
-                                _df_exec_m, _diff_exec_m, _SONOTA_AUTO_THR[sonota_extra_auto], _exc_mac_e, _exc_ban_e,
+                                _df_exec_m, _diff_exec_m, _SONOTA_AUTO_THR[sonota_extra_auto],
+                                set(_exc_mac_e) | _manual_sonota_rec_machines(store, with_slump, recommended_blocks),
+                                _exc_ban_e,
                                 exc_series=_jug_sonota_exc_series(store, with_slump))
                             _se_src_log_e = f"（自動抽出 {sonota_extra_auto}）"
                         # チェック外しした②個別優秀台の +1,000枚以上台を合流（🔄プレビューと同じ内容にする）
@@ -19498,7 +19515,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 retsu_ranges=(retsu_ranges if retsu_ok else []),
                             )
                             _se_auto_rt = _manual_sonota_auto_extract(
-                                _df_exec_m, _diff_exec_m, _SONOTA_AUTO_THR[sonota_extra_auto], _exc_mac_rt, _exc_ban_rt,
+                                _df_exec_m, _diff_exec_m, _SONOTA_AUTO_THR[sonota_extra_auto],
+                                set(_exc_mac_rt) | _manual_sonota_rec_machines(store, with_slump, recommended_blocks),
+                                _exc_ban_rt,
                                 exc_series=_jug_sonota_exc_series(store, with_slump))
                             for _, _row_rt in _se_auto_rt.iterrows():
                                 _m_excel.append({"name": str(_row_rt["機種名"]), "diff": int(_row_rt["差枚"]), "ban": int(_row_rt["台番"])})

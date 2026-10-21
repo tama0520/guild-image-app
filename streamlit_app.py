@@ -8165,7 +8165,9 @@ def generate_report_text(
         _item_emoji = STORE_REC_CONFIG.get(store_name, {}).get("item_emoji", "🚩").replace("🚩", "・")
         # 降格した(1/2台)機種は除外対象から外し、その+2,000枚以上の台をその他の優秀台に含める
         high_ratio_names = ({item["name"] for item in high_ratio_list} - _demoted_names) | (_demoted_names & _zen_dai_names)
-        _poster_ex = get_store_config(store_name).get("poster_extra_exclude", set())
+        # poster_new（渋谷新館の結果ポスト用）は【北斗シリーズ】を出さないので、北斗転生2も
+        # その他の優秀台の通常条件で扱う。記事用（旧形式の北斗欄あり）は従来どおり除外する。
+        _poster_ex = set() if poster_new else get_store_config(store_name).get("poster_extra_exclude", set())
         _ex_src = list(excellent_list)
         if _demoted_names and df is not None and diff_raw is not None:
             _seen = {(x["name"], x.get("ban")) for x in _ex_src}
@@ -8331,19 +8333,8 @@ def generate_report_text(
                     N.append("")
                 if not poster_weekly:
                     N.append("")
-            N.append("【北斗シリーズ】")
-            _hok_first_n = True
-            for _hm in ("スマスロ北斗の拳", "北斗転生2"):
-                _rows = extract_bans_1k(_hm)
-                if not _rows:
-                    continue
-                if not _hok_first_n:
-                    N.append("")
-                _hok_first_n = False
-                N.append(f"📍{_hm}")
-                for _ban, _dv in _rows:
-                    N.append(f"・【{_ban}番台】+{_dv:,}枚")
-            N.append("")
+            # 【北斗シリーズ】は出さない（2026-10-21）。北斗の台は👑その他の優秀台の既存条件で扱う
+            # （excellent_section() は poster_new 時に poster_extra_exclude を使わない）。
             N.append("【ジャグラーシリーズ】")
             for pin in _checked_pins(3):
                 N.append(f"📍{pin}")

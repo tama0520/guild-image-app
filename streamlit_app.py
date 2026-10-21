@@ -7947,6 +7947,37 @@ def _jug_total_wp_text(df, store: str) -> str:
 _POSTER_NEW_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
 
 
+def _poster_weekly_block(store: str, recommended_blocks) -> "dict | None":
+    """渋谷新館 結果ポスト用：⑤のうちタイトルに「週間オススメ機種」を含む最初のブロック（無ければ None）。"""
+    if store not in _POSTER_NEW_STORES:
+        return None
+    return next((b for b in (recommended_blocks or [])
+                 if "週間オススメ機種" in (b.get("title") or "")), None)
+
+
+def _poster_weekly_items(store: str, recommended_blocks, df, diff_raw) -> "list | None":
+    """「📈週間オススメ機種📈」に出す [(機種名, [(台番, 差枚), …]), …]。
+    機種名・順番は⑤ブロックの入力どおり、台は⑤画像と同じ「差枚 >= ブロックの抽出条件」（台番昇順）。
+    同じ台は1回だけ。対象外の店舗・ブロック無しは None。"""
+    _blk = _poster_weekly_block(store, recommended_blocks)
+    if _blk is None or df is None or diff_raw is None:
+        return None
+    _thr = min(_blk.get("thresholds") or [1])
+    _items: list = []
+    _seen: set[int] = set()
+    for _m in dict.fromkeys(m.strip() for m in _blk.get("machines", []) if m.strip()):
+        _sub = df[df["機種名"] == _m]
+        if _sub.empty:
+            continue
+        _dr = diff_raw.loc[_sub.index]
+        _rows = sorted((int(_sub.loc[i, "台番"]), int(_dr.loc[i])) for i in _sub.index if _dr.loc[i] >= _thr)
+        _rows = [r for r in _rows if r[0] not in _seen]
+        _seen |= {r[0] for r in _rows}
+        if _rows:
+            _items.append((_m, _rows))
+    return _items
+
+
 def generate_report_text(
     store_name: str,
     date,
@@ -7963,8 +7994,11 @@ def generate_report_text(
     retsu_list: list[dict] | None = None,
     hide_summary_names: set | None = None,
     poster_new: bool = False,
+    poster_weekly: "list | None" = None,
 ) -> str:
     """画像生成で使ったデータをそのまま文章化して返す。
+    poster_weekly: poster_new 時、カバネリの直後に出す「📈週間オススメ機種📈」の中身
+      （_poster_weekly_items() の戻り値）。None なら出さない。
     poster_new: 渋谷新館の「オススメポスター機種」セクションを新形式にする（結果ポスト用だけが
       True を渡す。既定 False＝従来形式なので記事用・他店舗は不変）。
     variety_excellent: ⑤バラエティ画像に実際に掲載された+1,000枚以上の台
@@ -8288,6 +8322,15 @@ def generate_report_text(
                 for _ban, _dv in extract_bans_1k(_pm):
                     N.append(f"【{_ban}番台】+{_dv:,}枚")
                 N.append("")
+            if poster_weekly is not None:
+                N += ["📈週間オススメ機種📈", "📌2F週間オススメ機種", "📌3F週間オススメ機種"]
+                for _wm, _wrows in poster_weekly:
+                    N.append(f"・{_wm}")
+                    for _ban, _dv in _wrows:
+                        N.append(f"【{_ban}番台】+{_dv:,}枚")
+                    N.append("")
+                if not poster_weekly:
+                    N.append("")
             N.append("【北斗シリーズ】")
             _hok_first_n = True
             for _hm in ("スマスロ北斗の拳", "北斗転生2"):
@@ -9537,6 +9580,10 @@ def _manual_sonota_rec_machines(store: str, with_slump: bool, recommended_blocks
     if with_slump or store not in _MANUAL_SONOTA_REC_EXC_STORES:
         return set()
     return {m.strip() for _b in (recommended_blocks or []) for m in _b["machines"] if m.strip()}
+
+
+# ⑧📝の連番付与で、前回⑧の連番違いの同名画像を消すページ×店舗（結果ポスト用・スランプなし）（2026-10-21）。
+_MANUAL_EXEC_STALE_SEQ_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
 
 def _manual_kojin_add_cand(cand_df, base_df, exc_bans):
     """📝の②個別優秀台🎯で**追加できる候補台**（⑦📝・⑧📝で共用）。
@@ -19469,6 +19516,15 @@ def show_auto_page(with_slump: bool = False) -> None:
                     for _bfn_e in _exec_order:
                         _src_e = os.path.join(output_dir, _bfn_e)
                         if os.path.exists(_src_e):
+                            if store in _MANUAL_EXEC_STALE_SEQ_STORES and not with_slump:
+                                # 前回⑧の連番違いの同名画像（例: 03_X.jpg）を消す。残すと連番がずれた回に
+                                # 新旧2枚が並ぶ（今回作り直した画像だけが対象）。
+                                for _ef_e in os.listdir(output_dir):
+                                    if re.fullmatch(r"\d{2}_" + re.escape(_bfn_e), _ef_e):
+                                        try:
+                                            os.remove(os.path.join(output_dir, _ef_e))
+                                        except Exception:
+                                            pass
                             os.replace(_src_e, os.path.join(output_dir, f"{_seq_e:02d}_{_bfn_e}"))
                             _seq_e += 1
 
@@ -19622,6 +19678,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 retsu_list=(_build_retsu_report_items(_df_exec_m, retsu_ranges)
                                             if (retsu_ok and retsu_ranges) else None),
                                 poster_new=(store in _POSTER_NEW_STORES),
+                                poster_weekly=_poster_weekly_items(
+                                    store, recommended_blocks, _df_exec_m, _diff_exec_m),
                             )
                         for _old_rt, _new_rt in STORE_RESULT_TRANSFORMS.get(store, []):
                             _m_report_text = _m_report_text.replace(_old_rt, _new_rt)
@@ -21405,14 +21463,20 @@ def show_auto_page(with_slump: bool = False) -> None:
                             else None),
                 hide_summary_names=_rec_hide_names or None,
                 poster_new=(store in _POSTER_NEW_STORES),
+                poster_weekly=_poster_weekly_items(
+                    store, recommended_blocks, result.get("df"), result.get("diff_raw")),
             )
+            # 「📈週間オススメ機種📈」に出したブロックは下の⑤セクションへ重複させない
+            _pw_blk = _poster_weekly_block(store, recommended_blocks)
             # オススメ機種ブロックの優秀台（+1000枚以上）を挿入（拡張機能店舗）
             if _rec_pickup_on(store) and recommended_blocks:
                 _rec_df       = result.get("df")
                 _rec_diff_raw = result.get("diff_raw")
                 if _rec_df is not None and _rec_diff_raw is not None:
                     _rec_text = generate_recommended_result_text(
-                        recommended_blocks, _rec_df, _rec_diff_raw,
+                        # ブロック番号（block_summaries・絵文字）をずらさないよう空ブロックへ置換
+                        [({**b, "title": ""} if b is _pw_blk else b) for b in recommended_blocks],
+                        _rec_df, _rec_diff_raw,
                         exclude_machines=_memo_machines,
                         store_name=store,
                         block_summaries=_rec_blk_sums or None,

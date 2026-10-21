@@ -819,6 +819,7 @@ C_YG_SL_CARD_INK   = (255, 255, 255)       # 枠・区切り・軸・補助線�
 # 第2段階：グラフ線は白・右下は猫ではなく「YG」の透かし・縦軸スケールは ±5,000。
 C_YG_SL_LINE       = (255, 255, 255, 255)  # 折れ線：白
 C_YG_SL_GRID       = (0, 0, 0)             # カードの線（外枠・区切り線・縦軸・横罫線7本）：黒。目盛文字は白のまま
+_YG_SL_FRAME_KEEP  = 4                     # 外枠（元10px）のうち黒として残す外側px（内側は赤地）
 _YG_SL_SCALE_MAX   = 3000                  # 上端 +3,000 / 下端 -3,000（エスパスと同じ。元テンプレの目盛をそのまま使う）
 _YG_SL_WM_TEXT     = "YG"                  # 右下の透かし文字
 _YG_SL_WM_K        = 0.30                  # 透かしの濃さ（赤地を暗くする割合）
@@ -1401,14 +1402,36 @@ def _yg_slump_card_image(template_path) -> "Image.Image":
     # 目盛文字（+3.000 / -3.000）の領域だけ白のまま、それ以外の線はすべて黒にする
     # （位置・本数・太さは元テンプレのまま）。機種名・台番は draw_slump_graph() が後から白で描く。
     _lbl_x0, _lbl_x1 = _SL_FRAME_PAD + 4, 79
+    # 外枠（10px）だけ細くする：外側 _YG_SL_FRAME_KEEP px を黒のまま残し、内側はカードの赤地にする。
+    # 区切り線（_SL_SEP1/_SL_SEP2）の行と、縦軸・横罫線は対象外（太さ・位置そのまま）。
+    _fk = _YG_SL_FRAME_KEEP
+    _sep_rows = set(range(_SL_SEP1[0], _SL_SEP1[1] + 1)) | set(range(_SL_SEP2[0], _SL_SEP2[1] + 1))
+    _corner_rows = {_SL_HDR1[0], _SL_HDR1[0] + 1, _SL_HDR1[1] - 1, _SL_HDR1[1],
+                    _SL_HDR2[0], _SL_HDR2[0] + 1, _SL_HDR2[1] - 1, _SL_HDR2[1],
+                    _SL_SEP2[1] + 1, _SL_SEP2[1] + 2,
+                    h - _SL_FRAME_PAD - 2, h - _SL_FRAME_PAD - 1}   # 箱の角の丸み（x 10〜11 / 376〜377）
+    # 機種名欄の下の線（_SL_SEP1・6px）を台番欄の下の線（_SL_SEP2・4px）と同じ太さにする。
+    # 上下を均等に赤地へ（中央の4pxを黒のまま残す）。外枠の外側4pxは黒のまま。
+    _s1_trim = (_SL_SEP1[1] - _SL_SEP1[0]) - (_SL_SEP2[1] - _SL_SEP2[0])
+    _s1_top = _s1_trim // 2
+    _sep1_trim_rows = (set(range(_SL_SEP1[0], _SL_SEP1[0] + _s1_top))
+                       | set(range(_SL_SEP1[1] - (_s1_trim - _s1_top) + 1, _SL_SEP1[1] + 1)))
     for y in range(h):
         _row_lbl = (128 <= y <= 145) or (435 <= y <= 452)
+        _row_edge = (_fk <= y < _SL_FRAME_PAD) or (h - _SL_FRAME_PAD <= y < h - _fk)
         for x in range(w):
             t = (max(sp[x, y]) - _SL_DARK_V) / _den
             t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
             _fg = (C_YG_SL_CARD_INK if (_row_lbl and _lbl_x0 <= x <= _lbl_x1)
                    else C_YG_SL_GRID)
             _bg = _bgmap[y][x]
+            if y not in _sep_rows and _fk <= x < w - _fk and _fk <= y < h - _fk and (
+                    _row_edge
+                    or _fk <= x < _SL_FRAME_PAD or w - _SL_FRAME_PAD <= x < w - _fk
+                    or (y in _corner_rows and (x < _SL_FRAME_PAD + 2 or x >= w - _SL_FRAME_PAD - 2))):
+                _fg = _bg   # 外枠の内側部分：赤地（線を描かない）
+            elif y in _sep1_trim_rows and _fk <= x < w - _fk:
+                _fg = _bg   # 機種名欄の下の線の上下：赤地（台番欄の下の線と同じ太さにする）
             dp[x, y] = (round(_bg[0] + (_fg[0] - _bg[0]) * t),
                         round(_bg[1] + (_fg[1] - _bg[1]) * t),
                         round(_bg[2] + (_fg[2] - _bg[2]) * t), 255)

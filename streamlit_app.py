@@ -818,7 +818,7 @@ _YG_HEADER_LINE_R = 7.0 / 1272
 C_YG_SL_CARD_INK   = (255, 255, 255)       # 枠・区切り・軸・補助線・目盛（元テンプレの白インクのまま）
 # 第2段階：グラフ線は白・右下は猫ではなく「YG」の透かし・縦軸スケールは ±5,000。
 C_YG_SL_LINE       = (255, 255, 255, 255)  # 折れ線：白
-C_YG_SL_GRID       = (0, 0, 0)             # グラフ内の横罫線（±1,000〜±3,000の補助線と0ライン）：黒
+C_YG_SL_GRID       = (0, 0, 0)             # カードの線（外枠・区切り線・縦軸・横罫線7本）：黒。目盛文字は白のまま
 _YG_SL_SCALE_MAX   = 3000                  # 上端 +3,000 / 下端 -3,000（エスパスと同じ。元テンプレの目盛をそのまま使う）
 _YG_SL_WM_TEXT     = "YG"                  # 右下の透かし文字
 _YG_SL_WM_K        = 0.30                  # 透かしの濃さ（赤地を暗くする割合）
@@ -1397,21 +1397,17 @@ def _yg_slump_card_image(template_path) -> "Image.Image":
     dst = Image.new("RGBA", (w, h))
     dp = dst.load()
     _den = float(_SL_LIGHT_V - _SL_DARK_V)
-    # グラフ内の横罫線（補助線 ±1,000〜±3,000 と 0ライン）の y 帯。
-    # `_slump_template_image()` と同じ Y_ZERO / PX_1000 から導出（位置・本数・太さは元テンプレのまま）。
-    _hl_rows: set = set()
-    for _k in (0, 1, 2, 3):
-        for _sgn in (-1, 1):
-            _c = 290 + _sgn * _k * 47
-            _hl_rows |= {_c - 1, _c, _c + 1}
-    _hl_x0, _hl_x1 = _SL_AXIS_X[1] + 1, w - _SL_FRAME_PAD - 2   # 縦軸と外枠は含めない
+    # テンプレの白インクは「外枠・区切り線・縦軸・横罫線7本・目盛文字」だけ。
+    # 目盛文字（+3.000 / -3.000）の領域だけ白のまま、それ以外の線はすべて黒にする
+    # （位置・本数・太さは元テンプレのまま）。機種名・台番は draw_slump_graph() が後から白で描く。
+    _lbl_x0, _lbl_x1 = _SL_FRAME_PAD + 4, 79
     for y in range(h):
-        _row_hl = y in _hl_rows
+        _row_lbl = (128 <= y <= 145) or (435 <= y <= 452)
         for x in range(w):
             t = (max(sp[x, y]) - _SL_DARK_V) / _den
             t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
-            _fg = (C_YG_SL_GRID if (_row_hl and _hl_x0 <= x <= _hl_x1)
-                   else C_YG_SL_CARD_INK)
+            _fg = (C_YG_SL_CARD_INK if (_row_lbl and _lbl_x0 <= x <= _lbl_x1)
+                   else C_YG_SL_GRID)
             _bg = _bgmap[y][x]
             dp[x, y] = (round(_bg[0] + (_fg[0] - _bg[0]) * t),
                         round(_bg[1] + (_fg[1] - _bg[1]) * t),

@@ -3838,6 +3838,9 @@ _WP_DAY_COL0 = 3                      # C列＝1日
 _WP_FIRST_ROW = 3                     # エスパス13店舗の範囲（95行目以降は対象外）
 _WP_LAST_ROW = 94
 _WP_TIMEOUT = 20
+# 予定表XLSX取得の待ち時間（接続, 応答待ち）。応答待ちはGoogle側でブック全体をXLSXにする時間。
+_WP_TIMEOUT_CR = (10, 45)
+_WP_FETCH_TRIES = 2      # 1回目＋自動の取り直し1回（無限リトライしない）
 # 担当者の色（RGB 6桁・大文字）。表示順もこの順。
 _WP_PERSON_COLORS: "dict[str, str]" = {
     "FF00FF": "伊藤", "000000": "飯尾", "FF9900": "宇井",
@@ -3897,14 +3900,23 @@ def _wp_today(now: "datetime.datetime | None" = None) -> "datetime.date":
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _wp_fetch_xlsx() -> bytes:
-    """予定表を XLSX で取得する（成功時だけ5分キャッシュ・失敗は例外でキャッシュしない）。"""
+    """予定表を XLSX で取得する（成功時だけ5分キャッシュ・失敗は例外でキャッシュしない）。
+    接続10秒／応答待ち45秒。通信エラーは1回だけ取り直し、2回目も失敗したらエラーにする。"""
     import requests
-    try:
-        _r = requests.get(_WP_XLSX_URL, timeout=_WP_TIMEOUT, allow_redirects=True)
-    except requests.exceptions.Timeout:
-        raise _WPError(f"予定表の取得がタイムアウトしました（{_WP_TIMEOUT}秒）。")
-    except Exception as e:
-        raise _WPError(f"予定表に接続できませんでした: {type(e).__name__}")
+    _r = None
+    _err = ""
+    for _try in range(_WP_FETCH_TRIES):
+        try:
+            _r = requests.get(_WP_XLSX_URL, timeout=_WP_TIMEOUT_CR, allow_redirects=True)
+            break
+        except requests.exceptions.ConnectTimeout:
+            _err = "予定表への接続がタイムアウトしました。"
+        except requests.exceptions.ReadTimeout:
+            _err = "予定表の作成・取得に時間がかかっています。再度お試しください。"
+        except Exception as e:
+            _err = f"予定表に接続できませんでした: {type(e).__name__}"
+    if _r is None:
+        raise _WPError(_err)
     if _r.status_code != 200:
         raise _WPError(f"予定表を取得できませんでした（HTTP {_r.status_code}）。"
                        "共有設定（リンクを知っている全員が閲覧可）を確認してください。")

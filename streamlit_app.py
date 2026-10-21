@@ -8413,6 +8413,10 @@ def generate_report_text(
     # 既存店舗は _other_display_name() が None を返し、従来経路のまま。
     store_display = (_other_display_name(store_name)
                      or _STORE_DISPLAY_NAMES.get(store_name, f"エスパス{store_name}"))
+    # YG用 大山オーシャン：貼り付け欄に文字があるときだけ新フォーマット（冒頭2行は従来のまま）。
+    _yg_body = _yg_paste_report_body(store_name, df)
+    if _yg_body is not None:
+        return "\n".join([header, store_display, "", "", "", "", "", _yg_body])
     if store_name in _HONEY_POST_RESULT_STORES:
         # 固定構成：見出し → 🍯機種名×画像を作った機種数 → 📍×3
         #          → 画像を作った機種の結果 → 💬 → 空行2 → 🔍。
@@ -9378,7 +9382,60 @@ def _yg_paste_resolve(text: str, units):
     return zen, list(picks.items()), warns
 
 
-_SONOTA_AUTO_THR = {"+1,000枚以上": 1000, "+2,000枚以上": 2000, "+3,000枚以上": 3000}
+def _yg_paste_report_body(store: str, df) -> "str | None":
+    """大山オーシャン（YG貼り付け欄）の結果テキスト本文（全台系候補／ニブイチ以上の高ベース候補）。
+    貼り付け欄の解析（_yg_paste_resolve）をそのまま再利用し、差枚は渡された df の
+    補正後差枚を使う（再補正しない）。対象外・欄が空・データなしは None（従来形式）。"""
+    if not _yg_paste_on(store) or df is None or getattr(df, "empty", True):
+        return None
+    _txt = str(st.session_state.get(_yg_paste_key(store), "") or "")
+    if not _txt.strip():
+        return None
+    zen, picks, _w = _yg_paste_resolve(_txt, df)
+    _d = df[["台番", "機種名", "差枚"]].copy()
+    _d["_ban"] = pd.to_numeric(_d["台番"], errors="coerce")
+    _d["_mn"] = _d["機種名"].astype(str).str.strip()
+    _d = _d.dropna(subset=["_ban"])
+    _d["_ban"] = _d["_ban"].astype(int)
+    _d["_df"] = pd.to_numeric(_d["差枚"], errors="coerce").fillna(0).astype(int)
+
+    def _ln(b: int, v: int) -> str:
+        # マイナスだけ😇。0枚は fmt_diff の「±0枚」。
+        return f"{b})" + ("😇" if v < 0 else fmt_diff(v))
+
+    out = ["⭐️もちろん単品優秀台も全体から⭐️", "――――――――――――――――――――"]
+    if zen:
+        out.append("✅全台系候補")
+        for i, m in enumerate(zen):
+            g = _d[_d["_mn"] == m].sort_values("_ban")
+            if g.empty:
+                continue
+            s = _stat_from_diff(g["_df"])
+            if i:
+                out.append("")
+            out.append(f"📍{m}")
+            out.append(f"➡{s['total_count']}台中{s['win_count']}台がプラス📈平均{fmt_diff(s['avg_diff'])}")
+            out += [_ln(b, v) for b, v in zip(g["_ban"], g["_df"])]
+        out.append("")
+    blocks = []
+    for m, bans in picks:
+        g_all = _d[_d["_mn"] == m]
+        g = g_all[g_all["_ban"].isin(set(bans))].sort_values("_ban")
+        if g.empty:
+            continue
+        avg = float(g["_df"].mean())
+        blocks.append((avg, [f"📍{m}({len(g_all)}台)"]
+                       + [_ln(b, v) for b, v in zip(g["_ban"], g["_df"])]))
+    blocks.sort(key=lambda x: -x[0])   # 安定ソート＝同値は貼り付け順
+    if blocks:
+        out.append("✅ニブイチ以上の高ベース候補")
+        out.append("\n\n".join("\n".join(b) for _a, b in blocks))
+        out.append("")
+    out += ["その他、単品優秀台も👍", "詳細は画像👇"]
+    return "\n".join(out)
+
+
+_SONOTA_AUTO_THR ={"+1,000枚以上": 1000, "+2,000枚以上": 2000, "+3,000枚以上": 3000}
 
 def _manual_sonota_auto_bans(df, store, kojin_zentai_machines, kojin_yushu_machines,
                              narabi_ranges, kojin_narabi_range_txt, kojin_narabi2_range_txt,

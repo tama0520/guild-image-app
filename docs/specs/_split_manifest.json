@@ -1,0 +1,2684 @@
+{
+ "source": {
+  "path": "CLAUDE.md",
+  "commit": "bfb9ad5e0ed1f6a0864b6b51f3bebedaa37ecf6d",
+  "blob": "fde5030d7da27a2c539443a6813d11fa97c1ea41",
+  "sha256": "24806a57df33605335000c7b6019de25d0382dbd2e28be4b557598758a6c8f1d",
+  "bytes": 1807819,
+  "lines": 28826,
+  "ends_with_newline": false,
+  "headings_total": 265
+ },
+ "keep": {
+  "start": 1,
+  "end": 191,
+  "sha256": "bf6dd5aadacb8576bcf2e7793746f3b0d5b9bbaf34222964faa1484e7574f0d4",
+  "edits": [
+   {
+    "line": 14,
+    "old": "- `CLAUDE.md`",
+    "new": "- `CLAUDE.md` および `docs/specs/` 配下の対象仕様書"
+   },
+   {
+    "line": 25,
+    "old": "1. `CLAUDE.md`",
+    "new": "1. `CLAUDE.md` および `docs/specs/` 配下の対象仕様書（対象機能に対応するもの）"
+   }
+  ],
+  "marker": "<!-- CLAUDE-SPLIT-KEEP-END -->"
+ },
+ "docs_dir": "docs/specs",
+ "files": [
+  {
+   "file": "cloud_infra.md",
+   "title": "Cloud・GitHub同期・運用",
+   "desc": "Cloud↔GitHub同期・store_settings運用・機種画像/機種名変換の同期・packages.txt・未知pageの無限rerun",
+   "sections": [
+    "S00353",
+    "S00864",
+    "S04049",
+    "S04126",
+    "S13451",
+    "S25957"
+   ]
+  },
+  {
+   "file": "top_ui_tools.md",
+   "title": "トップ画面・ツールページ",
+   "desc": "ページ遷移・トップ／スマホメニュー・おすすめ・本日の仕事・機能選択ボタン・サイドバー・機種名変換",
+   "sections": [
+    "S00338",
+    "S01506",
+    "S22153",
+    "S24811",
+    "S24949",
+    "S25268",
+    "S25452",
+    "S25476",
+    "S25552",
+    "S25605",
+    "S25668",
+    "S25733",
+    "S25783",
+    "S25828",
+    "S25884",
+    "S26309",
+    "S26395",
+    "S26482",
+    "S28654"
+   ]
+  },
+  {
+   "file": "input_persistence.md",
+   "title": "入力値の保存・復元",
+   "desc": "auto_page_inputs.json・②個別画像の日付単位保存・⑤オススメの永続化・初期値の受け渡し・同日再取得",
+   "sections": [
+    "S00420",
+    "S00690",
+    "S00725",
+    "S00761",
+    "S00806",
+    "S00929",
+    "S01016",
+    "S01239",
+    "S01276",
+    "S01336",
+    "S01369",
+    "S01397",
+    "S01441",
+    "S25199",
+    "S27306"
+   ]
+  },
+  {
+   "file": "result_extraction.md",
+   "title": "結果ポスト系：抽出・📝・🎯・再振り分け",
+   "desc": "判定条件・旧スクリプト・②全台除外・📝記入部分のみ・🎯掲載台を選ぶ・その他／ジャグラーの再振り分け・_dedup_previews",
+   "sections": [
+    "S00192",
+    "S00327",
+    "S00391",
+    "S00474",
+    "S00543",
+    "S00617",
+    "S01048",
+    "S04785",
+    "S05016",
+    "S05265",
+    "S06026",
+    "S22249",
+    "S22374",
+    "S22597",
+    "S22675",
+    "S24267",
+    "S24456",
+    "S24741",
+    "S26148",
+    "S27759",
+    "S27834",
+    "S27894"
+   ]
+  },
+  {
+   "file": "narabi_retsu.md",
+   "title": "③並び・列仕掛け",
+   "desc": "列画像・列仕掛けの表記と除外・並び記入枠・⑧列画像の補正後差枚",
+   "sections": [
+    "S03266",
+    "S03536",
+    "S03817",
+    "S04398",
+    "S04646",
+    "S27388"
+   ]
+  },
+  {
+   "file": "result_images.md",
+   "title": "結果ポスト系：画像デザイン",
+   "desc": "表画像デザイン・スランプグラフ・液晶はめ込み／停止・#FFFFCB背景・side画像・青タイトルバー・パネル対象・手入力画像のスランプ",
+   "sections": [
+    "S01032",
+    "S05521",
+    "S13896",
+    "S14150",
+    "S15143",
+    "S15719",
+    "S17630",
+    "S23596",
+    "S24007"
+   ]
+  },
+  {
+   "file": "result_text.md",
+   "title": "結果テキスト",
+   "desc": "結果テキストの記号・表記・新小岩⑤・新大久保はにぃポスト・渋谷新館オススメポスター",
+   "sections": [
+    "S13698",
+    "S14682",
+    "S20174",
+    "S21906",
+    "S22496",
+    "S25031",
+    "S25121",
+    "S28155"
+   ]
+  },
+  {
+   "file": "result_post_stores.md",
+   "title": "結果ポスト系：店舗別",
+   "desc": "新宿歌舞伎町3系統・新小岩⑤ジャグラー・稲毛/新小岩/3店舗のslotterguild取得・gap猫撤去・マイジャグVI・ジャグラー閾値記憶",
+   "sections": [
+    "S05737",
+    "S14387",
+    "S18625",
+    "S18904",
+    "S19079",
+    "S21835",
+    "S24100",
+    "S24182",
+    "S24356",
+    "S25360",
+    "S26047",
+    "S26220"
+   ]
+  },
+  {
+   "file": "rote.md",
+   "title": "ローテ用",
+   "desc": "ローテ画像・ランキング・週間／月間オススメ表・ローテ結果テキスト・渋谷新館／新宿歌舞伎町ローテ",
+   "sections": [
+    "S01079",
+    "S01189",
+    "S02632",
+    "S11114",
+    "S11254",
+    "S11373",
+    "S11566",
+    "S15419",
+    "S15973",
+    "S16260",
+    "S16523",
+    "S16785",
+    "S17008",
+    "S17258",
+    "S17837",
+    "S18054",
+    "S18248",
+    "S18474",
+    "S23861",
+    "S26587"
+   ]
+  },
+  {
+   "file": "article_common.md",
+   "title": "記事用：共通",
+   "desc": "記事用の共通処理・HQ化・⑧再実行・日付切替保存（B2）・2F/3F・高配分と末尾の重複・記事コメント同期",
+   "sections": [
+    "S06271",
+    "S07106",
+    "S07342",
+    "S08410",
+    "S09207",
+    "S23458",
+    "S24624",
+    "S27227"
+   ]
+  },
+  {
+   "file": "article_takadanobaba.md",
+   "title": "記事用：高田馬場",
+   "desc": "高田馬場の記事用ページとWordPress下書き連携",
+   "sections": [
+    "S00227",
+    "S01510",
+    "S01884",
+    "S02003",
+    "S02177",
+    "S02316",
+    "S02462"
+   ]
+  },
+  {
+   "file": "article_shibuya_page.md",
+   "title": "記事用：渋谷新館（ページ・画像）",
+   "desc": "渋谷新館の記事用ページ・⑤オススメ・⑥ランキング／全台データ・パネル・液晶",
+   "sections": [
+    "S02762",
+    "S03017",
+    "S06574",
+    "S06933",
+    "S09739",
+    "S09883",
+    "S10249",
+    "S10400",
+    "S10669",
+    "S10809",
+    "S11648",
+    "S11886",
+    "S12046",
+    "S13318"
+   ]
+  },
+  {
+   "file": "article_shibuya_wp_comment.md",
+   "title": "記事用：渋谷新館（WordPress・記事コメント）",
+   "desc": "渋谷新館のWordPress下書き・本文構成・ななこ/ギルドX・投稿者・記事コメント",
+   "sections": [
+    "S07552",
+    "S07779",
+    "S08012",
+    "S08219",
+    "S08555",
+    "S08752",
+    "S08943",
+    "S09486",
+    "S10057",
+    "S12288",
+    "S12525",
+    "S12795",
+    "S13077",
+    "S13540"
+   ]
+  },
+  {
+   "file": "article_kabukicho.md",
+   "title": "記事用：新宿歌舞伎町",
+   "desc": "新宿歌舞伎町の記事用ページ・画像・WordPress・記事コメント・ポスター",
+   "sections": [
+    "S19414",
+    "S19752",
+    "S20005",
+    "S20352",
+    "S20625",
+    "S20836",
+    "S21138",
+    "S21281",
+    "S21394",
+    "S22634",
+    "S22727",
+    "S22760",
+    "S22793",
+    "S22847",
+    "S22944",
+    "S23081",
+    "S23147",
+    "S23216",
+    "S23304",
+    "S23379",
+    "S23677",
+    "S23749",
+    "S24545",
+    "S24664",
+    "S27664",
+    "S27942",
+    "S28011",
+    "S28048",
+    "S28209",
+    "S28267"
+   ]
+  },
+  {
+   "file": "other_yg.md",
+   "title": "「その他」配下・YG用",
+   "desc": "その他配下（プレサス飯田橋・BEAM新井薬師・ラ・カータ鶴ヶ島）・YG用店舗・YG一覧・YG画像デザイン",
+   "sections": [
+    "S21581",
+    "S21739",
+    "S22010",
+    "S23524",
+    "S26657",
+    "S26758",
+    "S26816",
+    "S26926",
+    "S26981",
+    "S27061",
+    "S27118",
+    "S27181",
+    "S27455",
+    "S27513",
+    "S27600",
+    "S28101",
+    "S28318",
+    "S28354",
+    "S28422",
+    "S28474",
+    "S28529",
+    "S28566",
+    "S28720",
+    "S28772"
+   ]
+  }
+ ],
+ "sections": [
+  {
+   "id": "S00192",
+   "start": 192,
+   "end": 226,
+   "file": "result_extraction.md",
+   "heading": "## 判定条件（2026-07-16 現在）",
+   "sha256": "e57b0a98d085fa8973693269ed06ce6b685caee3ae8f4e38e0e8b305eafe47a5",
+   "bytes": 2761,
+   "children": []
+  },
+  {
+   "id": "S00227",
+   "start": 227,
+   "end": 326,
+   "file": "article_takadanobaba.md",
+   "heading": "## 高田馬場 記事用ページの正式仕様（2026-08-04 確定）",
+   "sha256": "cd53dcf0272a1b751737fcd4f9d99196cad1a8b51aa687e44fbcfdca1b139c9d",
+   "bytes": 7086,
+   "children": []
+  },
+  {
+   "id": "S00327",
+   "start": 327,
+   "end": 337,
+   "file": "result_extraction.md",
+   "heading": "## 旧スクリプト群",
+   "sha256": "56836b68e9005b1a0bd472d03d7300c43e641278cbdd3175229e1c6f887e6ff3",
+   "bytes": 910,
+   "children": []
+  },
+  {
+   "id": "S00338",
+   "start": 338,
+   "end": 352,
+   "file": "top_ui_tools.md",
+   "heading": "## Streamlit ページ遷移",
+   "sha256": "6122306afcab8ab3e517f7a5c92934509114c988cb4c77fdf9f6e8f8c1920159",
+   "bytes": 1486,
+   "children": []
+  },
+  {
+   "id": "S00353",
+   "start": 353,
+   "end": 390,
+   "file": "cloud_infra.md",
+   "heading": "## Cloud ↔ GitHub 同期の正式仕様（2026-08-05 確定・`f3ff59c`）",
+   "sha256": "483c1d8f6a195fe897a5de35897546dc9abe6a1a0ada2244771ee6e33de8854b",
+   "bytes": 2508,
+   "children": []
+  },
+  {
+   "id": "S00391",
+   "start": 391,
+   "end": 419,
+   "file": "result_extraction.md",
+   "heading": "## ②個別画像「全台」は自動全台系（Step1）から除外する（2026-08-05 確定・`7b433da`）",
+   "sha256": "7d1b2f650b65919a69051deba8fe74f760602980f8b835b92cdd0c07d8980612",
+   "bytes": 2675,
+   "children": []
+  },
+  {
+   "id": "S00420",
+   "start": 420,
+   "end": 473,
+   "file": "input_persistence.md",
+   "heading": "## スランプ付き②個別画像の「ページを広げる」と台番範囲廃止（2026-08-06 確定・`dc9f726` → `6efdd2c`）",
+   "sha256": "c6877d69c9f049c1cd8e127e145e61e9a159a23d7c8508ee986cc03694e13049",
+   "bytes": 4874,
+   "children": []
+  },
+  {
+   "id": "S00474",
+   "start": 474,
+   "end": 542,
+   "file": "result_extraction.md",
+   "heading": "## with_slump店舗へ拡大：📝②個別優秀台OFFの再振り分けと⑦フルモードの結果テキスト整合（2026-08-07 確定・`ce2fafc`）",
+   "sha256": "54f9f0093e5947f3d578b304b293f7632376f3e48c3d3bbaa68b42970c97e473",
+   "bytes": 5144,
+   "children": []
+  },
+  {
+   "id": "S00543",
+   "start": 543,
+   "end": 616,
+   "file": "result_extraction.md",
+   "heading": "## 秋葉原📝：②個別優秀台のチェックOFFをプレビュー・⑧本番・その他画像・結果テキストで一致させる（2026-08-07 確定・`fd42ccf`）",
+   "sha256": "4d2f6784ba6ae0ebfc5c5d046ee3f979e2ca6584d97cdbd9cae900f15ecebf5a",
+   "bytes": 5209,
+   "children": []
+  },
+  {
+   "id": "S00617",
+   "start": 617,
+   "end": 689,
+   "file": "result_extraction.md",
+   "heading": "## 秋葉原スランプ付き：📝経路の②個別優秀台🎯・force_1k統一・`_manual_regen`（2026-08-07 確定・`9faaee3`）",
+   "sha256": "84d20089fa7b19fe1d9eab69d0b1f5b0813a486c662d74d7e807bd19fb897fe9",
+   "bytes": 4953,
+   "children": []
+  },
+  {
+   "id": "S00690",
+   "start": 690,
+   "end": 724,
+   "file": "input_persistence.md",
+   "heading": "## 秋葉原②個別「優秀台」の永続化範囲は UI 1〜8枠目だけ（2026-08-07 確定・`611a452`）",
+   "sha256": "f83846609b05094106496495fc5bdacf89d8bafc11660c51ef5c1268b33da57e",
+   "bytes": 2952,
+   "children": []
+  },
+  {
+   "id": "S00725",
+   "start": 725,
+   "end": 760,
+   "file": "input_persistence.md",
+   "heading": "## 秋葉原スランプ付き②個別「その他の優秀台ピックアップ」タイトルの既定表示（2026-08-07 確定・`78240d3`）",
+   "sha256": "0ff3fb15c70e03f8e6b61800f15d73f8a02f26c52d2a991aa23f78ecdb98d4c1",
+   "bytes": 3071,
+   "children": []
+  },
+  {
+   "id": "S00761",
+   "start": 761,
+   "end": 805,
+   "file": "input_persistence.md",
+   "heading": "## ⑤オススメ機種ピックアップの永続化（2026-08-10 確定・`55e7752`）",
+   "sha256": "be1f0fe8931d83b3e5e4c34da7e0ef99cb04053c72f740944f36728ead799535",
+   "bytes": 2784,
+   "children": []
+  },
+  {
+   "id": "S00806",
+   "start": 806,
+   "end": 863,
+   "file": "input_persistence.md",
+   "heading": "## ⑤機種名の初期値は value= でフロントへ渡す（2026-08-10 確定・`39f1f1e`）",
+   "sha256": "0853585702e24749f99fa9ba4b71ba9ce04734d30302b675663a847f89fbbb6a",
+   "bytes": 3682,
+   "children": []
+  },
+  {
+   "id": "S00864",
+   "start": 864,
+   "end": 928,
+   "file": "cloud_infra.md",
+   "heading": "## store_settings の正データ源と Cloud 運用ルール（2026-08-10 確定・調査のみ／コード変更なし）",
+   "sha256": "8ef9b02b7f65d7d4f72f332e319136dddbe3e54f4651c325163c4a6eb5dd46b4",
+   "bytes": 4847,
+   "children": []
+  },
+  {
+   "id": "S00929",
+   "start": 929,
+   "end": 1015,
+   "file": "input_persistence.md",
+   "heading": "## ②個別画像の初期値受け渡しと保存タイミング（2026-08-10 確定・`0e7dc4c`）",
+   "sha256": "0b34bc656a19b1c2065195538d00db7ff389c92f49a8d8d36b723fa61198d08b",
+   "bytes": 5893,
+   "children": []
+  },
+  {
+   "id": "S01016",
+   "start": 1016,
+   "end": 1031,
+   "file": "input_persistence.md",
+   "heading": "## 自動処理ページの入力値保存（auto_page_inputs.json）",
+   "sha256": "d4e1af88666305a3ee80eb0a8da64fc2fca365e41e3acfe902a3c0774dcc8670",
+   "bytes": 2091,
+   "children": []
+  },
+  {
+   "id": "S01032",
+   "start": 1032,
+   "end": 1047,
+   "file": "result_images.md",
+   "heading": "## スランプ空きコマの液晶はめ込み — 選択キー",
+   "sha256": "6e8b2d54c644d7a92f1050e020c9cf5d730b4b9f00bd0c10a8c479ea621de250",
+   "bytes": 1962,
+   "children": []
+  },
+  {
+   "id": "S01048",
+   "start": 1048,
+   "end": 1078,
+   "file": "result_extraction.md",
+   "heading": "## ⑦プレビューの同名画像正規化（_dedup_previews）",
+   "sha256": "fd934200eb15d0952457ffe19f1574b7b3b69ea3d6b1ee04ec736dcf6e441a2c",
+   "bytes": 2471,
+   "children": []
+  },
+  {
+   "id": "S01079",
+   "start": 1079,
+   "end": 1188,
+   "file": "rote.md",
+   "heading": "## 新宿歌舞伎町ローテ：①〜⑥各1機種＝1枚（2026-08-12 確定・`c59dd90`）",
+   "sha256": "86aaedd5e6e7a9c95f81d67d6e8398486e122afd6ebcd220ce0a4fb9141de91d",
+   "bytes": 7534,
+   "children": []
+  },
+  {
+   "id": "S01189",
+   "start": 1189,
+   "end": 1238,
+   "file": "rote.md",
+   "heading": "## 新宿歌舞伎町ローテ：①〜⑥の機種名入力UI（2026-08-12 確定・`17efb21`）",
+   "sha256": "a2703c887c0a944ca073a540b97d20445e1d8a83f83875382d4674ddd0f05c2c",
+   "bytes": 2941,
+   "children": []
+  },
+  {
+   "id": "S01239",
+   "start": 1239,
+   "end": 1275,
+   "file": "input_persistence.md",
+   "heading": "## 新小岩②個別画像は日付（Excel）単位で保存する（2026-08-13 確定・`cf1e27a` / `ed62a6b`）",
+   "sha256": "d4f45641848660562bf4fa605082de25fe0afb357f2462848675244e6ae1b315",
+   "bytes": 3069,
+   "children": []
+  },
+  {
+   "id": "S01276",
+   "start": 1276,
+   "end": 1335,
+   "file": "input_persistence.md",
+   "heading": "## 新小岩②の日付切替安全化（2026-08-13 確定・`53990e5` / `e64bfac` / `f238897`）",
+   "sha256": "a104502bbbdc355a6fb4552b9ef1cb26459f005865b908c689daf9dbea98ce62",
+   "bytes": 3936,
+   "children": []
+  },
+  {
+   "id": "S01336",
+   "start": 1336,
+   "end": 1368,
+   "file": "input_persistence.md",
+   "heading": "## 上野新館②個別画像の日付単位保存（2026-08-13 確定・`2ffac04`）",
+   "sha256": "96cd50ba03cf9372180ad2de64947bee1cee42e63c9ac7d7f082835ba1a20d76",
+   "bytes": 2904,
+   "children": []
+  },
+  {
+   "id": "S01369",
+   "start": 1369,
+   "end": 1396,
+   "file": "input_persistence.md",
+   "heading": "## 上野本館②個別画像の日付単位保存（2026-08-13 確定・`b96012a`）",
+   "sha256": "448166302b2f2de93887ba6c2f2a864016c442026a54355a4346cb810707e91f",
+   "bytes": 2518,
+   "children": []
+  },
+  {
+   "id": "S01397",
+   "start": 1397,
+   "end": 1440,
+   "file": "input_persistence.md",
+   "heading": "## 稲毛②個別画像の日付単位保存（2026-08-18 確定・`4431fad` / `41c4222`）",
+   "sha256": "6b034cdad523c0db570f05bc5af8e66f57c765268b971f69b0ea7d9ed9ef143b",
+   "bytes": 4113,
+   "children": []
+  },
+  {
+   "id": "S01441",
+   "start": 1441,
+   "end": 1505,
+   "file": "input_persistence.md",
+   "heading": "## 残り6店舗②個別画像の日付単位保存（2026-08-18 確定・`3dfa9f0`）",
+   "sha256": "794729348b2322a66e5161ce0a3d3d25a675735337cd8174ddab13377f3b1021",
+   "bytes": 5564,
+   "children": []
+  },
+  {
+   "id": "S01506",
+   "start": 1506,
+   "end": 1509,
+   "file": "top_ui_tools.md",
+   "heading": "## 機種名変換",
+   "sha256": "5ff184bcf20fb321e9ca4e3ae0cf21db4cabede1f271b246e3b52fde59c551ec",
+   "bytes": 319,
+   "children": []
+  },
+  {
+   "id": "S01510",
+   "start": 1510,
+   "end": 1883,
+   "file": "article_takadanobaba.md",
+   "heading": "## 高田馬場 記事用WordPress下書き連携（2026-08-21 確定・`17b17be`）",
+   "sha256": "29001a7c75898b1c92cab1ab166a103aae0ad7180019b7486b78d3371ccc2948",
+   "bytes": 23616,
+   "children": []
+  },
+  {
+   "id": "S01884",
+   "start": 1884,
+   "end": 2002,
+   "file": "article_takadanobaba.md",
+   "heading": "## 高田馬場 記事用WordPress：機種H3の表記と全台系／高配分の並び順（2026-08-24 確定・`ed79440` / `9c83eef`）",
+   "sha256": "0f61285979230cbf2796dd951a7ec92506f41a275ddc864a854c8a94ce9b8af6",
+   "bytes": 7817,
+   "children": []
+  },
+  {
+   "id": "S02003",
+   "start": 2003,
+   "end": 2176,
+   "file": "article_takadanobaba.md",
+   "heading": "## 高田馬場 記事用WordPress：並びH3表記（2026-08-24 確定・`deb3e97`）",
+   "sha256": "9bb2c9ab90f06bcbfdf1357fda3082f5ec18d787565145db9f94c036bfa24fab",
+   "bytes": 8241,
+   "children": []
+  },
+  {
+   "id": "S02177",
+   "start": 2177,
+   "end": 2315,
+   "file": "article_takadanobaba.md",
+   "heading": "## 高田馬場 記事用：末尾モードの表示名・全台/優秀台ボタン廃止・バラエティの青バー（2026-08-25 確定・`6fdf731`）",
+   "sha256": "ab83eaee98eae20f7eb42e66258ff16cd49c1d1d867b5573d9f045760a469f8a",
+   "bytes": 10856,
+   "children": []
+  },
+  {
+   "id": "S02316",
+   "start": 2316,
+   "end": 2461,
+   "file": "article_takadanobaba.md",
+   "heading": "## 高田馬場 記事用：高配分画像の「優秀台ピックアップ」細タイトルバー（2026-08-25 確定・`d5ba1bb`）",
+   "sha256": "b0a11e8eba5b49bbe4c88399b2d7a7adfc301207f854735597ac4daddc1ebf16",
+   "bytes": 9674,
+   "children": []
+  },
+  {
+   "id": "S02462",
+   "start": 2462,
+   "end": 2631,
+   "file": "article_takadanobaba.md",
+   "heading": "## 高田馬場 記事用WordPress：末尾・バラエティ追加と本文順（2026-08-25 確定・`bf2c005`）",
+   "sha256": "9792798f082b50fabebd06863dec19daa2a3a8bd9158e98aadb3deb6bda42703",
+   "bytes": 12162,
+   "children": []
+  },
+  {
+   "id": "S02632",
+   "start": 2632,
+   "end": 2761,
+   "file": "rote.md",
+   "heading": "## 渋谷新館 ローテ用：月間オススメ表①の空欄日保持（2026-08-26 確定・`f23e0e4`）",
+   "sha256": "0bd3425075f9c756018bb7ba789ad49d4c78556bcacd2f545028753b23d39e2d",
+   "bytes": 7100,
+   "children": []
+  },
+  {
+   "id": "S02762",
+   "start": 2762,
+   "end": 3016,
+   "file": "article_shibuya_page.md",
+   "heading": "## 渋谷新館 記事用ページ（2026-08-28 確定・`73db0ba` / `0478dd5` / `a9d236a` / `d121e54`）",
+   "sha256": "c3277c30a6fb479a82d385b7095f790eb2ef75cc745194c6693bc9c93c72e224",
+   "bytes": 15525,
+   "children": []
+  },
+  {
+   "id": "S03017",
+   "start": 3017,
+   "end": 3265,
+   "file": "article_shibuya_page.md",
+   "heading": "## 渋谷新館 記事用ページ：⑤重複除外と⑥差枚数ランキング（2026-08-31 確定・`551c9d5` / `d477a91` / `1bd0e3b` / `39b652d`）",
+   "sha256": "4210648f48707278b02b71574e6f23893c3acf7368c0fb3f6c06ed07bd9bf279",
+   "bytes": 13392,
+   "children": [
+    {
+     "line": 3035,
+     "heading": "## Step 1：⑤オススメ機種と「その他の優秀台」の台番重複除外（`551c9d5`）"
+    },
+    {
+     "line": 3078,
+     "heading": "## Step 2：⑤オススメ機種と「ジャグラーシリーズ優秀台」の台番重複除外（`d477a91`）"
+    },
+    {
+     "line": 3131,
+     "heading": "## Step 3-1：⑥ 差枚数ランキング画像（`1bd0e3b` / `39b652d`）"
+    },
+    {
+     "line": 3235,
+     "heading": "## 非回帰で必ず守るもの（渋谷新館 記事用を今後変更するとき）"
+    },
+    {
+     "line": 3251,
+     "heading": "## 次回の再開地点"
+    }
+   ]
+  },
+  {
+   "id": "S03266",
+   "start": 3266,
+   "end": 3535,
+   "file": "narabi_retsu.md",
+   "heading": "## 全店舗共通：③ 列画像（列仕掛け）（2026-09-01 確定・`1410753`）",
+   "sha256": "bdb51f72f9b1249e81e9b280e455fb0920b5cf18fc75f36d9b0aa17299cf5ddd",
+   "bytes": 15568,
+   "children": []
+  },
+  {
+   "id": "S03536",
+   "start": 3536,
+   "end": 3816,
+   "file": "narabi_retsu.md",
+   "heading": "## 全店舗共通：③ 列仕掛け タイトル余白・結果テキスト（2026-09-01 確定・`9ec653e`）",
+   "sha256": "f4b1635a012536a372d4d25f902826662e4c75ecff3010f1b9ffb0d54c5b86aa",
+   "bytes": 14859,
+   "children": [
+    {
+     "line": 3560,
+     "heading": "## A. 列画像タイトルの余白（修正1）"
+    },
+    {
+     "line": 3616,
+     "heading": "## B. 結果テキストの `👑列仕掛け`（修正2）"
+    },
+    {
+     "line": 3736,
+     "heading": "## C. 実機確認結果（2026-09-01・ローカル・正式HEAD `9ec653e`）"
+    },
+    {
+     "line": 3795,
+     "heading": "## D. 今後の非回帰確認項目（列仕掛けを触るとき）"
+    }
+   ]
+  },
+  {
+   "id": "S03817",
+   "start": 3817,
+   "end": 4048,
+   "file": "narabi_retsu.md",
+   "heading": "## 全店舗共通：③ 列仕掛け 括弧半角化（2026-09-01 確定・`42ea146`）",
+   "sha256": "9b18abe3bcf3abd25982e52a052bfff01e2751ae7dbc44e88eb071a9e5f3b109",
+   "bytes": 12442,
+   "children": []
+  },
+  {
+   "id": "S04049",
+   "start": 4049,
+   "end": 4125,
+   "file": "cloud_infra.md",
+   "heading": "## 機種画像紐づけ：Cloud反映時の注意（2026-09-01 確定・調査のみ／コード変更なし）",
+   "sha256": "a5ff1aeda4863ffdf05c04955347f4afca4f9685bf8b63769d078cb37a0ca0c0",
+   "bytes": 4892,
+   "children": []
+  },
+  {
+   "id": "S04126",
+   "start": 4126,
+   "end": 4397,
+   "file": "cloud_infra.md",
+   "heading": "## 機種名変換：保存時GitHub自動同期（2026-09-01 確定・`fae637e` / `bde3afb`）",
+   "sha256": "c7700e6a1a376407e0a0f0c82cff74adddd78aa344c3bba8e1970b4aa86f2db4",
+   "bytes": 11168,
+   "children": []
+  },
+  {
+   "id": "S04398",
+   "start": 4398,
+   "end": 4645,
+   "file": "narabi_retsu.md",
+   "heading": "## 全店舗共通：③ 列仕掛け台を優秀台の重複掲載から除外（2026-09-02 確定・`5ef8bde`）",
+   "sha256": "3d62bef9b922d837dd816dd47972f09cb8c5addc2019ad276852b523b50fedf3",
+   "bytes": 13907,
+   "children": []
+  },
+  {
+   "id": "S04646",
+   "start": 4646,
+   "end": 4784,
+   "file": "narabi_retsu.md",
+   "heading": "## 全店舗共通：③並び画像の記入枠直下プレビュー廃止（2026-09-02 確定・`bbf9aec`）",
+   "sha256": "c6903d2ba1e4f77c240ca4be3950dbf02571d7618e84803c901dde4dc44fcc95",
+   "bytes": 7441,
+   "children": []
+  },
+  {
+   "id": "S04785",
+   "start": 4785,
+   "end": 5015,
+   "file": "result_extraction.md",
+   "heading": "## 📝記入部分のみモード：その他の優秀台とジャグラーシリーズ優秀台の分離（2026-09-02 確定・`0f0697f`）",
+   "sha256": "09531013f34e1f97adb60f53f14e2e49e0cb947c33a9c674020e7d8506741a94",
+   "bytes": 15154,
+   "children": []
+  },
+  {
+   "id": "S05016",
+   "start": 5016,
+   "end": 5264,
+   "file": "result_extraction.md",
+   "heading": "## プレビュー掲載チェック後の再配分・結果テキスト同期（2026-09-02 確定・`f719581` / `20c4ac3`）",
+   "sha256": "0f1bfb3a7d7caea635caf55b0a7c8b4d6772353803489e8728e4ea3206672309",
+   "bytes": 13733,
+   "children": []
+  },
+  {
+   "id": "S05265",
+   "start": 5265,
+   "end": 5520,
+   "file": "result_extraction.md",
+   "heading": "## 📝⑧：②チェックOFFの生成前スキップと結果テキスト同期（2026-09-02 確定・`2860b2f`）",
+   "sha256": "829a1979c5afef664dc46c2e17b766523194fb728ca73a9e82335bff29be2d53",
+   "bytes": 11208,
+   "children": []
+  },
+  {
+   "id": "S05521",
+   "start": 5521,
+   "end": 5736,
+   "file": "result_images.md",
+   "heading": "## 青タイトルバー：長いタイトルのみ自動縮小（2026-09-02 確定・`2959b99`）",
+   "sha256": "fcc446eae71792ec13fc3cfab712f114eff43dbf1338331cd13b21b025397b96",
+   "bytes": 9013,
+   "children": []
+  },
+  {
+   "id": "S05737",
+   "start": 5737,
+   "end": 6025,
+   "file": "result_post_stores.md",
+   "heading": "## 新小岩スランプ付き：⑤ジャグラー枠を正本とし通常統合画像を抑止（2026-09-02 確定・`1301431`）",
+   "sha256": "7a0fad1b346429320ba24d3754e30eb1c8b19078aa9f0fc2be9de02e6c37eb55",
+   "bytes": 12625,
+   "children": []
+  },
+  {
+   "id": "S06026",
+   "start": 6026,
+   "end": 6270,
+   "file": "result_extraction.md",
+   "heading": "## ⑦プレビューのON/OFFは非widgetのOFF集合を正本にする（2026-09-02 確定・`00a472a`）",
+   "sha256": "dc2baec2dd7c600def6038b02b8e8104b1c00eabdbfe1100344a7f60bd955030",
+   "bytes": 12501,
+   "children": []
+  },
+  {
+   "id": "S06271",
+   "start": 6271,
+   "end": 6573,
+   "file": "article_common.md",
+   "heading": "## 記事用：パネル非対象店舗の⑦・🔄でもスランプを正常合成する（2026-09-03 確定・`bd9fa40`）",
+   "sha256": "38a15c6c50fec71c495db3c235f88a0e999241f09fdbe9aa2c4698c4afadb455",
+   "bytes": 14869,
+   "children": []
+  },
+  {
+   "id": "S06574",
+   "start": 6574,
+   "end": 6932,
+   "file": "article_shibuya_page.md",
+   "heading": "## 渋谷新館記事用：パネル・液晶はめ込み・液晶選択UIを正式追加（2026-09-03 確定・`148d672`）",
+   "sha256": "20168d37751f40edfa422be46d203791cf8e6c3382cc6871adb0090c15be42ac",
+   "bytes": 18796,
+   "children": []
+  },
+  {
+   "id": "S06933",
+   "start": 6933,
+   "end": 7105,
+   "file": "article_shibuya_page.md",
+   "heading": "## 渋谷新館 記事用：実行見出しを「⑦ 実行」・HQ 2倍を正式採用（2026-09-04）",
+   "sha256": "e4f886f441c1a06f5ddd908e198f0e29ae2fa2d22b91c818ca169b67c5fd807f",
+   "bytes": 10760,
+   "children": []
+  },
+  {
+   "id": "S07106",
+   "start": 7106,
+   "end": 7341,
+   "file": "article_common.md",
+   "heading": "## 記事用：全台系・高配分のHQ化と渋谷新館 島図のJPEG品質（2026-09-04）",
+   "sha256": "13b41aec5f55c4d9a4a63330db7bb0d04d44978f9e2ef5a3a769f28a0de78c4a",
+   "bytes": 14508,
+   "children": [
+    {
+     "line": 7122,
+     "heading": "## A. 記事用「全台系・高配分」を掲載台数に関係なくネイティブ2.0x"
+    },
+    {
+     "line": 7267,
+     "heading": "## B. 渋谷新館 島図の JPEG 品質（解像度は上げない）"
+    }
+   ]
+  },
+  {
+   "id": "S07342",
+   "start": 7342,
+   "end": 7551,
+   "file": "article_common.md",
+   "heading": "## 記事用：並び・列画像のHQ化（2026-09-04）",
+   "sha256": "9c4f5b2c67fd20ddd1e7a07578a2666ae33083e23ffa3e0cfb5d8d95e60484c6",
+   "bytes": 11848,
+   "children": []
+  },
+  {
+   "id": "S07552",
+   "start": 7552,
+   "end": 7778,
+   "file": "article_shibuya_wp_comment.md",
+   "heading": "## 渋谷新館 記事用：WordPress下書き作成に対応（2026-09-04）",
+   "sha256": "f2475c5088d96df64645eaa65b0a5426b211284ae70f95c2a6873b7af238861f",
+   "bytes": 12742,
+   "children": []
+  },
+  {
+   "id": "S07779",
+   "start": 7779,
+   "end": 8011,
+   "file": "article_shibuya_wp_comment.md",
+   "heading": "## 渋谷新館 WordPress：本文構成の見直しとランキング/島図の画質・1枚絵化（2026-09-04）",
+   "sha256": "d1de92d7c3e9c185c7996a26cac2a980fb43b69ea0bf02840a4cf86b003d0020",
+   "bytes": 12118,
+   "children": []
+  },
+  {
+   "id": "S08012",
+   "start": 8012,
+   "end": 8218,
+   "file": "article_shibuya_wp_comment.md",
+   "heading": "## 渋谷新館 WordPress：記事冒頭の「ななこポスト」セクション（2026-09-04）",
+   "sha256": "e817546487dd8670f44831ff4d52ded288d4eb54f555d60ff489b3753a15a19d",
+   "bytes": 11164,
+   "children": []
+  },
+  {
+   "id": "S08219",
+   "start": 8219,
+   "end": 8409,
+   "file": "article_shibuya_wp_comment.md",
+   "heading": "## 渋谷新館 ななこポスト：X埋め込みホストとヒント表示の修正（2026-09-04・実WordPress検証で確定）",
+   "sha256": "7f9e279ed049772fdf445e392af910db05ead758981c6fbc3d932ba945983625",
+   "bytes": 10552,
+   "children": [
+    {
+     "line": 8239,
+     "heading": "## A. X埋め込みが「プロフィール表示」になっていた件"
+    },
+    {
+     "line": 8306,
+     "heading": "## B. ヒント表示（全文を赤＋太字・段落間の空きをなくす）"
+    },
+    {
+     "line": 8356,
+     "heading": "## C. 変更範囲と非回帰"
+    },
+    {
+     "line": 8382,
+     "heading": "## D. 今回のWordPress通信"
+    },
+    {
+     "line": 8391,
+     "heading": "## E. 今後の禁止事項"
+    }
+   ]
+  },
+  {
+   "id": "S08410",
+   "start": 8410,
+   "end": 8554,
+   "file": "article_common.md",
+   "heading": "## ⑧再実行時の FileExistsError（WinError 183）を修正（2026-09-04）",
+   "sha256": "2b377ba9905ea29254f9a428690515ba557a8c4183c9f788be3db0eeab91f8e4",
+   "bytes": 7897,
+   "children": []
+  },
+  {
+   "id": "S08555",
+   "start": 8555,
+   "end": 8751,
+   "file": "article_shibuya_wp_comment.md",
+   "heading": "## 渋谷新館 記事用①冒頭：ギルドポスト Xリンク（2026-09-04）",
+   "sha256": "1c68f24910b40008989203fff35f0a1ad44d96f24b33db82fc0ac65f23fc5b02",
+   "bytes": 11133,
+   "children": []
+  },
+  {
+   "id": "S08752",
+   "start": 8752,
+   "end": 8942,
+   "file": "article_shibuya_wp_comment.md",
+   "heading": "## 渋谷新館 WordPress：記事用画像をすべて1枚絵で送る（2026-09-04）",
+   "sha256": "992aa202f6d1ce200a1bbaa7bf8b9f639a274218f061e0285760ea2de11f54af",
+   "bytes": 10187,
+   "children": []
+  },
+  {
+   "id": "S08943",
+   "start": 8943,
+   "end": 9206,
+   "file": "article_shibuya_wp_comment.md",
+   "heading": "## 渋谷新館 記事用：WordPress投稿者の選択（2026-09-04）",
+   "sha256": "966e0027a43139de7940beb5c5067bce40a5dff18478b6f7788f19d1bcec5c2b",
+   "bytes": 14257,
+   "children": []
+  },
+  {
+   "id": "S09207",
+   "start": 9207,
+   "end": 9485,
+   "file": "article_common.md",
+   "heading": "## 記事用：日付切替時の保存値上書きと表示defaultの自動保存を修正（2026-09-03 確定・`62168f1` / `7d6cdfa`）",
+   "sha256": "6aa2a5fd1619cb4da631fcb7755347a3259809b2d7a37fe45f10686e9c9253b4",
+   "bytes": 11373,
+   "children": [
+    {
+     "line": 9375,
+     "heading": "## 表示default の自動保存副作用（`7d6cdfa`）"
+    }
+   ]
+  },
+  {
+   "id": "S09486",
+   "start": 9486,
+   "end": 9738,
+   "file": "article_shibuya_wp_comment.md",
+   "heading": "## 渋谷新館 WordPress：実環境確認（2026-09-05・draft 62014）",
+   "sha256": "5fad71e64f871f61d68f8db406f1829e445e498c69a21a63e8efd69e64ae7501",
+   "bytes": 11397,
+   "children": []
+  },
+  {
+   "id": "S09739",
+   "start": 9739,
+   "end": 9882,
+   "file": "article_shibuya_page.md",
+   "heading": "## 渋谷新館 記事用：ポスター削除UIのコンパクト化・ななこヒント10件・②タイトル（2026-09-05）",
+   "sha256": "e6525d9bdb816953dfe77d6e85303e8296d276f2721a7c12e00cab2ec1aebeb7",
+   "bytes": 9646,
+   "children": []
+  },
+  {
+   "id": "S09883",
+   "start": 9883,
+   "end": 10056,
+   "file": "article_shibuya_page.md",
+   "heading": "## 渋谷新館 記事用：列仕掛けのパネル欠落修正とジャグラー統合の最大2パネル（2026-09-05）",
+   "sha256": "87b714c6c1350f9f2bd8980c2ba32949664bf7313d881aff64acf60e33bce61f",
+   "bytes": 10915,
+   "children": []
+  },
+  {
+   "id": "S10057",
+   "start": 10057,
+   "end": 10248,
+   "file": "article_shibuya_wp_comment.md",
+   "heading": "## 渋谷新館 WordPress：記事本文の画像表示幅を統一（2026-09-05・A-2a）",
+   "sha256": "5fe1a4ae7aac5bb0a2ccdd444d5bbe9f9d6ef7f0a7f096f421a0c2093fe4dee1",
+   "bytes": 11633,
+   "children": []
+  },
+  {
+   "id": "S10249",
+   "start": 10249,
+   "end": 10399,
+   "file": "article_shibuya_page.md",
+   "heading": "## 渋谷新館 記事用⑤：ブロック5・6だけ機種名枠を9個へ拡張（2026-09-07）",
+   "sha256": "0149124bc7d7cf9cb67829b46c888a6ea9ad71bf3ce582c9890340323f5e7ea7",
+   "bytes": 9727,
+   "children": []
+  },
+  {
+   "id": "S10400",
+   "start": 10400,
+   "end": 10668,
+   "file": "article_shibuya_page.md",
+   "heading": "## 渋谷新館 記事用⑤：オススメ優秀台を1ブロック＝1画像へ（2026-09-07）",
+   "sha256": "a9585bf9ff969a6a7351ec6ce36617140959915ef6c4674e81e3e5a233fcb45a",
+   "bytes": 16055,
+   "children": []
+  },
+  {
+   "id": "S10669",
+   "start": 10669,
+   "end": 10808,
+   "file": "article_shibuya_page.md",
+   "heading": "## 渋谷新館 記事用⑤：最終1機種ブロックのパネルを全幅にする（2026-09-07）",
+   "sha256": "b9b1e76b7bdbcda9bbbd199b00f31b44ad4468ef0007fd443cd4d95a8826145b",
+   "bytes": 9383,
+   "children": []
+  },
+  {
+   "id": "S10809",
+   "start": 10809,
+   "end": 11113,
+   "file": "article_shibuya_page.md",
+   "heading": "## 渋谷新館 記事用⑤：店舗単位永続化・抽出条件・ジャグラー統合画像のWP plan（2026-09-07）",
+   "sha256": "ff1c0adda1517479d1cd606aefd3f85e544c586462e2ea6694daaa28f5970760",
+   "bytes": 18247,
+   "children": [
+    {
+     "line": 10829,
+     "heading": "## A. ⑤設定の店舗単位永続化"
+    },
+    {
+     "line": 10931,
+     "heading": "## B. ⑤の抽出条件（ブロック単位）"
+    },
+    {
+     "line": 10987,
+     "heading": "## C. 画像仕様（既存正式仕様をすべて維持）"
+    },
+    {
+     "line": 11002,
+     "heading": "## D. ジャグラー統合画像の WordPress plan"
+    },
+    {
+     "line": 11033,
+     "heading": "## E. 純粋テスト結果（105 PASS / 0 FAIL）"
+    },
+    {
+     "line": 11068,
+     "heading": "## F. 今後の禁止事項"
+    }
+   ]
+  },
+  {
+   "id": "S11114",
+   "start": 11114,
+   "end": 11253,
+   "file": "rote.md",
+   "heading": "## 渋谷新館 ローテ用：週間オススメ表と月間オススメ表①②③（2026-09-07）",
+   "sha256": "550bb94efc4d03e4ada39f9dfb60a3e3139e97dfaa0345a2afd5c2e6a0d707ff",
+   "bytes": 9426,
+   "children": []
+  },
+  {
+   "id": "S11254",
+   "start": 11254,
+   "end": 11372,
+   "file": "rote.md",
+   "heading": "## 渋谷新館 ローテ用：週間UIの整理と月間オススメ表③の有効日判定（2026-09-07）",
+   "sha256": "7cf9c09207f989d5bc8c3459787d1df2f81201f5a8f73516c5f3b3004a6940c3",
+   "bytes": 8230,
+   "children": []
+  },
+  {
+   "id": "S11373",
+   "start": 11373,
+   "end": 11565,
+   "file": "rote.md",
+   "heading": "## 渋谷新館 ローテ用：生成物の再編・北斗統合・カバネリ・月間ジャグラー（2026-09-07）",
+   "sha256": "2380c6394fc0b6e318af85d6cda50d027a9e0637a8d2b78a5912f382bede65aa",
+   "bytes": 12764,
+   "children": []
+  },
+  {
+   "id": "S11566",
+   "start": 11566,
+   "end": 11647,
+   "file": "rote.md",
+   "heading": "## 渋谷新館 ローテ用：週間ローテ画像の機種別分割・月間ジャグラー分数拡張（2026-09-07・`475a6c2`）",
+   "sha256": "73cc4bf2db5e7515ae8531859f93ae1df3366070d9ca6c5e85596c7c120401eb",
+   "bytes": 5217,
+   "children": []
+  },
+  {
+   "id": "S11648",
+   "start": 11648,
+   "end": 11885,
+   "file": "article_shibuya_page.md",
+   "heading": "## 渋谷新館 記事用：⑥「全台データ」画像（2026-09-08）",
+   "sha256": "d95243849a92cf318681682655093079986652fcb50801ae6721bb2f63ba5566",
+   "bytes": 12838,
+   "children": []
+  },
+  {
+   "id": "S11886",
+   "start": 11886,
+   "end": 12045,
+   "file": "article_shibuya_page.md",
+   "heading": "## 渋谷新館 記事用：⑥「全台データ」画像の数値は結果テキストと共通処理（2026-09-08 追記）",
+   "sha256": "524e37679e2c5bac094a0a44ca77a8c35a14ef2aec000bdc12196bafdc186a46",
+   "bytes": 10145,
+   "children": []
+  },
+  {
+   "id": "S12046",
+   "start": 12046,
+   "end": 12287,
+   "file": "article_shibuya_page.md",
+   "heading": "## 渋谷新館 記事用：⑤パネル上位2枚・⑤液晶・WordPress構成の見直し（2026-09-08）",
+   "sha256": "d498cc83ba7a788c988e47eb52012e1d670a22a8b626746de08c64a859e8ba58",
+   "bytes": 16608,
+   "children": []
+  },
+  {
+   "id": "S12288",
+   "start": 12288,
+   "end": 12524,
+   "file": "article_shibuya_wp_comment.md",
+   "heading": "## 渋谷新館 記事コメント自動生成 第1段階：候補生成・選択UI・日付別保存（2026-09-08・`31b9014`）",
+   "sha256": "8e1f1893570c55ed44dbee798626f4ebbae717a60d385527b4de9075d4d1ecc1",
+   "bytes": 14712,
+   "children": []
+  },
+  {
+   "id": "S12525",
+   "start": 12525,
+   "end": 12794,
+   "file": "article_shibuya_wp_comment.md",
+   "heading": "## 渋谷新館 記事コメント：D⑤オススメ機種も実データから3候補生成へ（2026-09-08・`b427efe` / `52be5eb`）",
+   "sha256": "84a7e209f0b812aa6c4ac589d1c5032a3144f6573c030f2b5509a3ac22688c03",
+   "bytes": 18880,
+   "children": []
+  },
+  {
+   "id": "S12795",
+   "start": 12795,
+   "end": 13076,
+   "file": "article_shibuya_wp_comment.md",
+   "heading": "## 渋谷新館 記事コメント 第2段階：人間が確定した最終文だけをWordPress本文へ挿入（2026-09-08・`2e3a694`）",
+   "sha256": "d3b1ede7bc0dce39e8798c07790ea79f9f50646970349d173635efbab5d819f8",
+   "bytes": 19422,
+   "children": []
+  },
+  {
+   "id": "S13077",
+   "start": 13077,
+   "end": 13317,
+   "file": "article_shibuya_wp_comment.md",
+   "heading": "## 【正式仕様】渋谷新館 記事コメント：第1段階＋第2段階＋実WordPress検証完了（2026-09-09）",
+   "sha256": "cbcf1913cb4543929ba618254c9759a0732fd2732742d60ad4b03b351bb7a9d9",
+   "bytes": 12511,
+   "children": []
+  },
+  {
+   "id": "S13318",
+   "start": 13318,
+   "end": 13450,
+   "file": "article_shibuya_page.md",
+   "heading": "## 渋谷新館 記事用：⑥「全台データ」画像を見本デザインへ変更＋HQ化（2026-09-09・`205ce21`）",
+   "sha256": "8a0c8146ea025cde4b7fd179b892c6dfecb7d9448c144b0dbf4b164e0f30f802",
+   "bytes": 8364,
+   "children": []
+  },
+  {
+   "id": "S13451",
+   "start": 13451,
+   "end": 13539,
+   "file": "cloud_infra.md",
+   "heading": "## Streamlit Cloud 起動障害：`packages.txt` 削除で復旧（2026-09-09・`625d29b`）",
+   "sha256": "b66566e3990b7fd1d526005e9fc20533279da1144267661d40b1616fa1973234",
+   "bytes": 6497,
+   "children": []
+  },
+  {
+   "id": "S13540",
+   "start": 13540,
+   "end": 13697,
+   "file": "article_shibuya_wp_comment.md",
+   "heading": "## 渋谷新館 WordPress：全台データ33%幅・左詰め＋まとめコメントFを島図の前へ（2026-09-09・`0583161` / `38a1b61`）",
+   "sha256": "ec4ce9d6a0949a36f5a59e44d3d80fa78e6d6b89d6f479580e4e47c3b06d0c26",
+   "bytes": 8960,
+   "children": []
+  },
+  {
+   "id": "S13698",
+   "start": 13698,
+   "end": 13895,
+   "file": "result_text.md",
+   "heading": "## 新小岩スランプ付き：結果テキストの⑤4カテゴリ優先表示（2026-09-09・`252a39b`）",
+   "sha256": "50937d09551a1b55ce995fb4b920918c304fb29f775ab60edf36431510938654",
+   "bytes": 11260,
+   "children": []
+  },
+  {
+   "id": "S13896",
+   "start": 13896,
+   "end": 14149,
+   "file": "result_images.md",
+   "heading": "## 【正式仕様】非記事用・全店舗の表画像デザイン（2026-09-10・`a05cb00`）",
+   "sha256": "1059b94221a4d1babe65fc6a4af28bad4f0f8e4588beaea5cb15be39c43de2b2",
+   "bytes": 15481,
+   "children": []
+  },
+  {
+   "id": "S14150",
+   "start": 14150,
+   "end": 14386,
+   "file": "result_images.md",
+   "heading": "## 【正式仕様】スランプグラフ新デザイン（2026-09-10・`0e49bd9` / `5711df4`）",
+   "sha256": "9ffd4400cd8ed07002c76d64f2ce77055b85886de54d614d909cff180f4be571",
+   "bytes": 12152,
+   "children": []
+  },
+  {
+   "id": "S14387",
+   "start": 14387,
+   "end": 14681,
+   "file": "result_post_stores.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町・3系統分離（2026-09-10・`0e79a80` / `394f309`）",
+   "sha256": "338db5a4e3211f9b1ece3e79d8ccebcfe2dc6eb96d238bde93fd3a9d5f4ccd76",
+   "bytes": 16201,
+   "children": []
+  },
+  {
+   "id": "S14682",
+   "start": 14682,
+   "end": 15142,
+   "file": "result_text.md",
+   "heading": "## 【正式仕様】結果テキストの記号・表記（2026-09-11・`1146b10` / `1c036e7` / `20bb9ea` / `9f274e8`）",
+   "sha256": "d7ddd1ff0a092aaf2416240727b6b82cddc88313f74e9e6d45a8d5bf07bb52c8",
+   "bytes": 26434,
+   "children": [
+    {
+     "line": 14704,
+     "heading": "## A. 全結果テキスト共通の箇条書き記号は「・」"
+    },
+    {
+     "line": 14737,
+     "heading": "## B. 差枚一覧の文頭 `🌋` / `💎` は出さない"
+    },
+    {
+     "line": 14768,
+     "heading": "## C. 並び／列：`🍡` 削除・`(N台並び)` → `(N台)`"
+    },
+    {
+     "line": 14795,
+     "heading": "## D. その他の優秀台／末尾／バラエティの個別台は「・」"
+    },
+    {
+     "line": 14818,
+     "heading": "## E. 【新小岩だけの例外】⑤カテゴリ内の全台系／高配分サマリーは `🏅`"
+    },
+    {
+     "line": 14933,
+     "heading": "## F. 【渋谷新館】結果ポスト用「📈オススメポスター機種の仕掛け📈」（`1146b10`）"
+    },
+    {
+     "line": 15029,
+     "heading": "## G. 対象となる結果テキスト生成経路（調査済み）"
+    },
+    {
+     "line": 15057,
+     "heading": "## H. 今回いっさい変更していないもの"
+    },
+    {
+     "line": 15073,
+     "heading": "## I. テスト・回帰確認結果（2026-09-11）"
+    },
+    {
+     "line": 15101,
+     "heading": "## J. Cloud 承認"
+    },
+    {
+     "line": 15108,
+     "heading": "## K. 今後の禁止事項"
+    }
+   ]
+  },
+  {
+   "id": "S15143",
+   "start": 15143,
+   "end": 15418,
+   "file": "result_images.md",
+   "heading": "## 【正式仕様】スランプ付き結果ポストの液晶挿入停止（2026-09-11・`ebe881e` / `6fd3991`）",
+   "sha256": "4f9ebda36975f28a31fe573b7f72970328a157e9553bb918045e311555fc9ca9",
+   "bytes": 16608,
+   "children": []
+  },
+  {
+   "id": "S15419",
+   "start": 15419,
+   "end": 15718,
+   "file": "rote.md",
+   "heading": "## 【正式仕様】ローテ画像の外背景・差枚凡例削除（2026-09-11・`6b87aa4`）",
+   "sha256": "99bd5f349643fc6651d6921d8ba3ce4076f4c732e00248ffd829cebe4c366bc6",
+   "bytes": 15153,
+   "children": []
+  },
+  {
+   "id": "S15719",
+   "start": 15719,
+   "end": 15972,
+   "file": "result_images.md",
+   "heading": "## 【正式仕様】スランプ付き結果・グラフエリア背景 #FFFFCB（2026-09-11・`3432a97`）",
+   "sha256": "36f3149a267fefca26547c31a5b14df9363a5c9711077535e91b51254f0b00aa",
+   "bytes": 12625,
+   "children": []
+  },
+  {
+   "id": "S15973",
+   "start": 15973,
+   "end": 16259,
+   "file": "rote.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町ローテ・ランキング画像生成停止（2026-09-11・`7a47c12`）",
+   "sha256": "91b67ba94eeead2d4e95184264ce3c5d2513670fa959b43f827db8ce16414d7a",
+   "bytes": 13004,
+   "children": []
+  },
+  {
+   "id": "S16260",
+   "start": 16260,
+   "end": 16522,
+   "file": "rote.md",
+   "heading": "## 2026-09-11 ローテ画像 紫系配色 全8店舗正式採用",
+   "sha256": "15ff5415cf2f89af1b82ad01fcc99d012ba839f61f24f8219a4958a71e755abd",
+   "bytes": 14204,
+   "children": []
+  },
+  {
+   "id": "S16523",
+   "start": 16523,
+   "end": 16784,
+   "file": "rote.md",
+   "heading": "## 2026-09-11 上野本館・渋谷新館 ローテ表画像 紫系配色正式採用",
+   "sha256": "89681902a5aa7519f2cbb16cdec1904283827c5cdf4fe16c2741943172f8089a",
+   "bytes": 14750,
+   "children": []
+  },
+  {
+   "id": "S16785",
+   "start": 16785,
+   "end": 17007,
+   "file": "rote.md",
+   "heading": "## 2026-09-11 新宿歌舞伎町 ローテ機種別データ絞り込み正式修正",
+   "sha256": "3bbc4f175b79cc3f0ac520237b3cf830bd0b77ea9bbaf39d92ac69c23fd74d8f",
+   "bytes": 12818,
+   "children": []
+  },
+  {
+   "id": "S17008",
+   "start": 17008,
+   "end": 17257,
+   "file": "rote.md",
+   "heading": "## 2026-09-11 新宿歌舞伎町 ローテ結果テキスト新デザイン正式採用",
+   "sha256": "21a8acd10946e438f67fc56ae96694d2b13e537ce573e46ef3733fc8872de998",
+   "bytes": 11714,
+   "children": []
+  },
+  {
+   "id": "S17258",
+   "start": 17258,
+   "end": 17629,
+   "file": "rote.md",
+   "heading": "## 2026-09-11 全店舗ローテ結果テキスト新デザイン＋渋谷新館見出し正式採用",
+   "sha256": "b74438e8af0890d5dd324af1d9477f0e8fe77169ae2e88bae8d06cbedbab45c8",
+   "bytes": 15633,
+   "children": []
+  },
+  {
+   "id": "S17630",
+   "start": 17630,
+   "end": 17836,
+   "file": "result_images.md",
+   "heading": "## 2026-09-12 スランプ付き結果 side画像 24px余白削除正式採用",
+   "sha256": "803566745e68665aac09e19964b70f96d0b95b098388ceb31bbd5ca6633060d0",
+   "bytes": 10948,
+   "children": []
+  },
+  {
+   "id": "S17837",
+   "start": 17837,
+   "end": 18053,
+   "file": "rote.md",
+   "heading": "## 【正式仕様】渋谷新館ローテ 出力ファイル名・並び順（2026-09-14・`7e30920`）",
+   "sha256": "6f1626962f677f0d3e8bad6dc75a5f7fdb3aa7c979b4062db0828b997d4fcc05",
+   "bytes": 12269,
+   "children": []
+  },
+  {
+   "id": "S18054",
+   "start": 18054,
+   "end": 18247,
+   "file": "rote.md",
+   "heading": "## 【正式仕様】渋谷新館ローテ 月間オススメ表③のデータ欠落防止（2026-09-14・`9e137d5`）",
+   "sha256": "fd46dcedde1873e79d0b16ea0925e4b11aaad4fb8bee6948847639a2645fec9b",
+   "bytes": 11122,
+   "children": []
+  },
+  {
+   "id": "S18248",
+   "start": 18248,
+   "end": 18473,
+   "file": "rote.md",
+   "heading": "## 【正式仕様】ローテ月間表の日付切替によるチェック消失防止（2026-09-14・`0de5080`）",
+   "sha256": "71bc40c3e1533f5ff48782f2a647039c800ee06d0dd75404c1ef287f5b0180f2",
+   "bytes": 12216,
+   "children": []
+  },
+  {
+   "id": "S18474",
+   "start": 18474,
+   "end": 18624,
+   "file": "rote.md",
+   "heading": "## 【正式仕様】新大久保ローテ 結果テキストの機種名囲み（2026-09-14・`bbd869a`）",
+   "sha256": "9f9c03d77ca4d727a5e9f213689fd723dbca2991e089124826fa6caee103f9fa",
+   "bytes": 7532,
+   "children": []
+  },
+  {
+   "id": "S18625",
+   "start": 18625,
+   "end": 18903,
+   "file": "result_post_stores.md",
+   "heading": "## 【正式仕様】稲毛 スランプ付き結果ポスト：Pision / slotterguild 2系統データ取得（2026-09-15・`a51e362`）",
+   "sha256": "934e7dcf0e9b337563396b9276dbd2b82bf6e60273bfafea44d3cf689ccd15da",
+   "bytes": 15318,
+   "children": []
+  },
+  {
+   "id": "S18904",
+   "start": 18904,
+   "end": 19078,
+   "file": "result_post_stores.md",
+   "heading": "## 【正式仕様】稲毛 スランプ付き結果ポスト：空き枠のgap猫撤去・空白維持（2026-09-15・`51008ee`）",
+   "sha256": "cb2b282bd9a4fe09c98537fa43f72d5f2a792d3a70f9ae7970cf75206ccb12c2",
+   "bytes": 10652,
+   "children": []
+  },
+  {
+   "id": "S19079",
+   "start": 19079,
+   "end": 19413,
+   "file": "result_post_stores.md",
+   "heading": "## 【正式仕様】新小岩 スランプ付き結果ポスト：slotterguild 確定データ取得対応（2026-09-15・`a1d47e9`）",
+   "sha256": "cb7068e9d63828e32ec912e4e2bef45f8ce8813b2903da0e1287ab3a12e16c06",
+   "bytes": 16881,
+   "children": []
+  },
+  {
+   "id": "S19414",
+   "start": 19414,
+   "end": 19751,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：並び・列のban_map再計算とWordPress狭幅画像の分割（2026-09-16・`77e140d`）",
+   "sha256": "4330548a3746bd5133835f2f1ef7f64f80824f279a17e5ed535fb9abf605c63a",
+   "bytes": 19954,
+   "children": [
+    {
+     "line": 19444,
+     "heading": "## 不具合1：⑧本番の並び・列画像にパネル・スランプが付かない"
+    },
+    {
+     "line": 19552,
+     "heading": "## 不具合2：WordPress上のマイジャグV画像だけ粗い"
+    },
+    {
+     "line": 19662,
+     "heading": "## O. 検証結果"
+    }
+   ]
+  },
+  {
+   "id": "S19752",
+   "start": 19752,
+   "end": 20004,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用の書体を Noto Sans JP Black へ統一（2026-09-16・`31f7346`）",
+   "sha256": "089ba83065a7f2be83e921bf74d9bce70ef6eebb8dcab6c27001d00f900f802c",
+   "bytes": 14638,
+   "children": []
+  },
+  {
+   "id": "S20005",
+   "start": 20005,
+   "end": 20173,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：スランプ外側背景を薄紫 #D8C6E3 へ統一（2026-09-16・`61851ca`）",
+   "sha256": "a3480706425a8103c7e6ce8a10e6550bc17e56697d15219449e5922dc1dc2e8f",
+   "bytes": 10528,
+   "children": []
+  },
+  {
+   "id": "S20174",
+   "start": 20174,
+   "end": 20351,
+   "file": "result_text.md",
+   "heading": "## 【正式仕様】新小岩 結果ポスト用テキスト：⑤オススメ機種の機種名先頭を「・」へ統一（2026-09-16・`4b72428`）",
+   "sha256": "e38aad37fc1a7d3e908247cabaa85da15a5898790eaf32f972df8ac6476de7a0",
+   "bytes": 10008,
+   "children": []
+  },
+  {
+   "id": "S20352",
+   "start": 20352,
+   "end": 20624,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：白地スランプカード・右下青差枚・細い最外周罫線・表見出し黒地・カード内機種名なし（2026-09-17・`c1c3bdd` / `56844fe` / `cc695d4`）",
+   "sha256": "df2cafdc064a55a40b617e33b150be7baae0ac91733fb30f366400052859990d",
+   "bytes": 19258,
+   "children": []
+  },
+  {
+   "id": "S20625",
+   "start": 20625,
+   "end": 20835,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：⑤「10日間オススメポスター」最優先・その他との重複排除・結果テキストの同一見出し統合（2026-09-17・`51dde3a` / `b5d0f73` / `eacc532`）",
+   "sha256": "9d214ec625544c2c775457e91d0242d83b023f992b9a9bbbce568ef7504b9594",
+   "bytes": 13435,
+   "children": []
+  },
+  {
+   "id": "S20836",
+   "start": 20836,
+   "end": 21137,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：①冒頭のギルドポストXリンク削除・ピンクバー内文字の中央寄せ（2026-09-18・`9f0f363`）",
+   "sha256": "b579aedf5bca0ab92fc1f7554a621e4a01bf1aea6dd4d95971f8a6a96acbfaf5",
+   "bytes": 15870,
+   "children": [
+    {
+     "line": 20873,
+     "heading": "## 1. ①冒頭のギルドポストXリンク削除"
+    },
+    {
+     "line": 20957,
+     "heading": "## 2. 表画像 最下段ピンクバー内文字の中央寄せ"
+    },
+    {
+     "line": 21011,
+     "heading": "## 3. ⑦プレビューと⑧本番の一致"
+    },
+    {
+     "line": 21057,
+     "heading": "## 4. 維持する既存仕様（今回いっさい変更していない）"
+    },
+    {
+     "line": 21082,
+     "heading": "## 5. 検証結果"
+    },
+    {
+     "line": 21112,
+     "heading": "## 6. 今後の禁止事項"
+    }
+   ]
+  },
+  {
+   "id": "S21138",
+   "start": 21138,
+   "end": 21280,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：①ポスターをWordPressメディア22択から選ぶ（2026-09-18・`92ac8af` / `ee39cd7`）",
+   "sha256": "a766b93c5c6f2178ac57b1f7be060853b2f380b397ff0e40f1fdf67445bf37dd",
+   "bytes": 8287,
+   "children": []
+  },
+  {
+   "id": "S21281",
+   "start": 21281,
+   "end": 21393,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：①「かぶぱポスト」見出しのXプロフィール案内リンク（2026-09-18・`b6e403c`）",
+   "sha256": "d192ed3eb0377b50c13e9aadeafa5e058a3caf821f75d21313b18c559f23ef26",
+   "bytes": 6550,
+   "children": []
+  },
+  {
+   "id": "S21394",
+   "start": 21394,
+   "end": 21580,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：📝⑧の一致・スランプ横4列・WordPress表記・⑤H3平均（2026-09-18）",
+   "sha256": "66f6bf5cdd91ef6467a6b9d5495f10aea3abffbc16128f7a0d9213ae3426270b",
+   "bytes": 12303,
+   "children": []
+  },
+  {
+   "id": "S21581",
+   "start": 21581,
+   "end": 21738,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】「その他」配下のスランプ付き結果（2026-09-19・`53a4890` / `1b80b4b` / `f436054`）",
+   "sha256": "3dd42524b7d7adb81c9635e1277c4a32d57ea1523b7c4393fe68bfa43d96f3e1",
+   "bytes": 11109,
+   "children": []
+  },
+  {
+   "id": "S21739",
+   "start": 21739,
+   "end": 21834,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】「その他」配下：③並び・列画像と⑤オススメ機種ピックアップ（2026-09-19・`6feaa25`）",
+   "sha256": "050d85ad6fa3b30be733c86b97528f178738105e39ce3c10b4423e887dfab7f3",
+   "bytes": 5132,
+   "children": []
+  },
+  {
+   "id": "S21835",
+   "start": 21835,
+   "end": 21905,
+   "file": "result_post_stores.md",
+   "heading": "## 【正式仕様】新小岩 スランプ付き結果ポスト：🔄その他を更新での⑤オススメ画像のスランプ合成（2026-09-20・`c62846d`）",
+   "sha256": "73839a8ece3a3ad4f91a65b6a08d1c2a299ac28ed9839b1133e94648e8ab223f",
+   "bytes": 4757,
+   "children": []
+  },
+  {
+   "id": "S21906",
+   "start": 21906,
+   "end": 22009,
+   "file": "result_text.md",
+   "heading": "## 【正式仕様】既存エスパス店舗の結果テキスト表記統一（2026-09-21・`07ac10b` / `be24e7e`）",
+   "sha256": "7b7a944dc90c671ba70cf1d0467bc4046c2b4399a3c035f97a76bf19be7c7fdf",
+   "bytes": 5550,
+   "children": []
+  },
+  {
+   "id": "S22010",
+   "start": 22010,
+   "end": 22152,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】「その他」配下のスランプ付き結果：取得元拡張・表示・パネル・結果テキスト（2026-09-21・`81d58e4` / `87ecc62` / `cfebeec` / `98b00b3`）",
+   "sha256": "99efd12a6dfb1d32ea4f4d32b60bd5bd38b93b58a0f932ea28c58bfc979605ca",
+   "bytes": 9173,
+   "children": []
+  },
+  {
+   "id": "S22153",
+   "start": 22153,
+   "end": 22248,
+   "file": "top_ui_tools.md",
+   "heading": "## 【正式仕様】機種名変換のPisionチェックへ「その他」配下店舗を追加（2026-09-21・`f856b72`）",
+   "sha256": "163731972026d7896fa7d25bd338aaee49c82b57c310e141a47c2b9d8ad19fd1",
+   "bytes": 5592,
+   "children": []
+  },
+  {
+   "id": "S22249",
+   "start": 22249,
+   "end": 22373,
+   "file": "result_extraction.md",
+   "heading": "## 【正式仕様】高田馬場 結果ポスト用：🎯掲載台を選ぶで未掲載台を追加できる（2026-09-22・`a62a69a` / `424613a`）",
+   "sha256": "b3c412a4b8450ab1e5169438013e475a6c79840642d3c0673c701a9278d6cccc",
+   "bytes": 8639,
+   "children": []
+  },
+  {
+   "id": "S22374",
+   "start": 22374,
+   "end": 22495,
+   "file": "result_extraction.md",
+   "heading": "## 【正式仕様】🎯掲載台を選ぶ：未掲載台の追加を全店舗の結果ポスト用・スランプ付き結果へ展開（2026-09-22・`1ca142e`）",
+   "sha256": "92abc221250e7641e065330b61a36def673e739332640c44cc3a58f4abb42640",
+   "bytes": 8134,
+   "children": []
+  },
+  {
+   "id": "S22496",
+   "start": 22496,
+   "end": 22596,
+   "file": "result_text.md",
+   "heading": "## 【正式仕様】結果テキスト：列仕掛けと末尾の行頭記号を「・」へ統一（2026-09-22・`b007ef3`）",
+   "sha256": "dcca5fb00a424fa029e72148b01570d59d7cbd33838b95ba7d9039ab8c9998f1",
+   "bytes": 6002,
+   "children": []
+  },
+  {
+   "id": "S22597",
+   "start": 22597,
+   "end": 22633,
+   "file": "result_extraction.md",
+   "heading": "## 【正式仕様】高田馬場 結果ポスト用：🎯台番追加＋チェックOFFを🔄その他を更新1回で完結（2026-09-24・`1a2e98f`）",
+   "sha256": "82f0a399b650a4c860226869683a0324b4fcfb1c06e398be6b85965674ce5585",
+   "bytes": 2991,
+   "children": []
+  },
+  {
+   "id": "S22634",
+   "start": 22634,
+   "end": 22674,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用①：22択ポスターをアプリ内素材から読む（2026-09-24・`35f16dd`）",
+   "sha256": "883823d9e7c92eaaeb1727bf32c6ced8fe595d024dfdb4fe50dbe96eb3e99586",
+   "bytes": 3281,
+   "children": []
+  },
+  {
+   "id": "S22675",
+   "start": 22675,
+   "end": 22726,
+   "file": "result_extraction.md",
+   "heading": "## 【正式仕様】🎯追加＋画像OFFの🔄1回完結（全対象ページ）・新宿歌舞伎町記事用の未掲載台追加と安定キー・ポスター同期リトライ（2026-09-24）",
+   "sha256": "02d3e6adbe5175524e04e085f48ff8b66d940fc6d53ce38e1c11ae5d9173010f",
+   "bytes": 5671,
+   "children": []
+  },
+  {
+   "id": "S22727",
+   "start": 22727,
+   "end": 22759,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：自動全台系画像のサマリーを並び画像と同じピンクバーに（2026-09-24・`3aabf82`）",
+   "sha256": "0236c50c05c221bb7a24e64f3fb144edd257524a67e20765da2f8eb0a6f44387",
+   "bytes": 3044,
+   "children": []
+  },
+  {
+   "id": "S22760",
+   "start": 22760,
+   "end": 22792,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：自動全台系ピンクバーの台数表記を「総台数台中プラス台数台+」に（2026-09-24・`3221897`）",
+   "sha256": "63c96f7466ba5bde675cab3fb7d4af7a627c31ae3c6967d271c228dd5e31f02f",
+   "bytes": 2883,
+   "children": []
+  },
+  {
+   "id": "S22793",
+   "start": 22793,
+   "end": 22846,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：「全台データ」画像の赤見出し・薄紫項目セル／白数値セル・罫線（2026-09-24・`361b912` / `18a9420` / `b7dbba7`）",
+   "sha256": "2e7307a1c77d8cdf6da75f7818557036a4d836b5fba1c58276103377cf64bf96",
+   "bytes": 4748,
+   "children": []
+  },
+  {
+   "id": "S22847",
+   "start": 22847,
+   "end": 22943,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：かぶぱ文章欄のCloud永続保存・本文H2・②予測候補の当日機種絞り込み・②個別「全台」のピンクバー化（2026-09-24・`657ba98` / `722dbc3` / `f50af5f`）",
+   "sha256": "e499e5e3c5dc4be6e8fb6c418a1592b4c6ae092aa244388f7fdd3467f9df778a",
+   "bytes": 10382,
+   "children": []
+  },
+  {
+   "id": "S22944",
+   "start": 22944,
+   "end": 23080,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用WordPress：本文順・全台データ3分岐・かぶぱ7項目・H2/H3・ランキング停止・アイキャッチ（2026-09-25・`0b774f8` / `af9a7f2` / `3519480` / `66ba162` / `154dbd3` / `a2bd02c`）",
+   "sha256": "e9c9591e3a1e7ed4c929373108d851cde416efc3db774f3243e50f399c38b284",
+   "bytes": 12529,
+   "children": []
+  },
+  {
+   "id": "S23081",
+   "start": 23081,
+   "end": 23146,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：末尾画像のサマリーを③並びと同じピンクバーに（2026-09-25・`9fa7eee`）",
+   "sha256": "3fa3c02cf16e3bba924a03a0dae6672da4d50c6655d2ff92a4dbfdadd7495f11",
+   "bytes": 5361,
+   "children": []
+  },
+  {
+   "id": "S23147",
+   "start": 23147,
+   "end": 23215,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用📝：末尾画像の掲載台を「その他の優秀台」から除外（2026-09-29・`6acfc8f` / `287883a`）",
+   "sha256": "f7ad41e51c0db4402d271e551b7565431a6c5d56db8fea400fa032636d017987",
+   "bytes": 5257,
+   "children": []
+  },
+  {
+   "id": "S23216",
+   "start": 23216,
+   "end": 23303,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用WordPress：長尺画像を分割せず原寸1枚で掲載（2026-09-29・`716d377`）",
+   "sha256": "89b09d775e658456a24c6176adc16f7eb7728403acca1040a39273f0bea800ca",
+   "bytes": 7877,
+   "children": []
+  },
+  {
+   "id": "S23304",
+   "start": 23304,
+   "end": 23378,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：②個別機種の優秀台ピックアップを「4分割パネル → 表 → スランプ」に（2026-09-29・`131cb0c` / `5f1cb2b` / `39007e8`）",
+   "sha256": "1ca50dfa74b3168cecd096d0bf8806b949738fc9d048ce6afbdf5cc42c7d5f23",
+   "bytes": 5539,
+   "children": []
+  },
+  {
+   "id": "S23379",
+   "start": 23379,
+   "end": 23457,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：表罫線を描画倍率に連動させ本文幅でも消えないようにする（2026-09-29・`c031ac5`）",
+   "sha256": "dfa89ef67092081bcca45ad267b71e440f9cfdee182142a9b795b3beffea945a",
+   "bytes": 6250,
+   "children": []
+  },
+  {
+   "id": "S23458",
+   "start": 23458,
+   "end": 23523,
+   "file": "article_common.md",
+   "heading": "## 【正式仕様】記事用⑦：②個別「全台」の階別機種（・2F／・3F）にもパネル・スランプを付ける（2026-09-30・`7fa8d3c`）",
+   "sha256": "fc85b17b842bf600e8b321e4aa399404f335fda80adc8a67bb58727d5190f40c",
+   "bytes": 5114,
+   "children": []
+  },
+  {
+   "id": "S23524",
+   "start": 23524,
+   "end": 23595,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】「その他」→ プレサス飯田橋 スランプ付き結果ポスト：パネルなし・手入力画像2系統のスランプ（2026-09-30・`3ed4bf9` / `78a2a77` / `ad75102`）",
+   "sha256": "0f7d9d48bf8aa41f8eb7da70fe9895c55ed6f893b9dec00cf36d30e9d480a5d3",
+   "bytes": 7058,
+   "children": []
+  },
+  {
+   "id": "S23596",
+   "start": 23596,
+   "end": 23676,
+   "file": "result_images.md",
+   "heading": "## 【正式仕様】手入力画像2種類のスランプ付与を全店舗のスランプ付き結果ページへ展開（2026-09-30・`00eecce`）",
+   "sha256": "a80f25b6d4638b999ff5e0a4bb94a5a1ae27e34a208ba7c3a708c6c31608c503",
+   "bytes": 7567,
+   "children": []
+  },
+  {
+   "id": "S23677",
+   "start": 23677,
+   "end": 23748,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用📝：ジャグラーシリーズ優秀台のパネル・スランプ付与と②全台系掲載台の除外（2026-10-01・`cec23c7`）",
+   "sha256": "30cbf23ba58675f85b5bcbba96407d293fa568af1f908e04f1609b3fec47bd3b",
+   "bytes": 6300,
+   "children": []
+  },
+  {
+   "id": "S23749",
+   "start": 23749,
+   "end": 23860,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用WordPress：「その他のジャグラーの優秀台」ブロック追加と③の列→並び掲載順（2026-10-01・`414e627` / `80eae5c`）",
+   "sha256": "2213b22f3e7b96875712a62bb05bb219b0eb9219b0d07fe0f3c92c0d8b067fe5",
+   "bytes": 9304,
+   "children": [
+    {
+     "line": 23766,
+     "heading": "## 1. ジャグラーシリーズ優秀台の WordPress 掲載（`414e627`）"
+    },
+    {
+     "line": 23810,
+     "heading": "## 2. ③画像の WordPress 掲載順（`80eae5c`）"
+    }
+   ]
+  },
+  {
+   "id": "S23861",
+   "start": 23861,
+   "end": 24006,
+   "file": "rote.md",
+   "heading": "## 【正式仕様】渋谷新館 ローテ用：月間・週間オススメ結果テキストの統合と「機種別データ」への月間機種表示（2026-10-01・`0574704` / `789bd15` / `de43031` / `aeca61b`）",
+   "sha256": "317aafca82555ba5bcf1a7d8835ba7905e7be12a4034e44e0009c38a7e35bdaf",
+   "bytes": 9385,
+   "children": []
+  },
+  {
+   "id": "S24007",
+   "start": 24007,
+   "end": 24099,
+   "file": "result_images.md",
+   "heading": "## 【正式仕様】スランプ付き結果ポストの機種パネルは「その他」→ BEAM新井薬師／ラ・カータ鶴ヶ島だけ（2026-10-01・`7308977`）",
+   "sha256": "aba66a72b6f41b587c4b2156c022da3bb645499ec93ed0c03997aa42a3309e97",
+   "bytes": 7719,
+   "children": []
+  },
+  {
+   "id": "S24100",
+   "start": 24100,
+   "end": 24181,
+   "file": "result_post_stores.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 📈スランプ付き結果ポスト：🔄その他を更新でのジャグラー優秀台の再振り分け（2026-10-01・`a5a799d`）",
+   "sha256": "4431ddf5bbcc19621017fd83be9db915d9591cd47f28be324a00c0419898d49c",
+   "bytes": 6836,
+   "children": []
+  },
+  {
+   "id": "S24182",
+   "start": 24182,
+   "end": 24266,
+   "file": "result_post_stores.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 📈スランプ付き結果ポスト：統合ジャグラー画像OFF時のその他の優秀台への戻し（2026-10-01・`fc74518`）",
+   "sha256": "c3e28a68d1c69576ff743023dd4de528b9949cec5cb5633135b526539c6a0642",
+   "bytes": 7265,
+   "children": []
+  },
+  {
+   "id": "S24267",
+   "start": 24267,
+   "end": 24355,
+   "file": "result_extraction.md",
+   "heading": "## 【正式仕様】統合ジャグラー画像OFF時の「その他の優秀台」への戻し：通常・スランプ付き結果ポスト全体（2026-10-01・`fc74518` / `148cc95` / `b9ccc4b`）",
+   "sha256": "55e5aff09ea17324f66a019848026c3a102e698c6ceba5ecdf97c5b5bc482be6",
+   "bytes": 7939,
+   "children": []
+  },
+  {
+   "id": "S24356",
+   "start": 24356,
+   "end": 24455,
+   "file": "result_post_stores.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町：ジャグラー／その他優秀台の自動抽出閾値をページ別に記憶・復元（2026-10-01・`87b7cc0` / `24417c8` / `a8bb82f`）",
+   "sha256": "e0a60b2f1fcca89c688460eecf7113c4ec3e5ef4a80b30f3cfcfa7bd6d89e742",
+   "bytes": 9165,
+   "children": []
+  },
+  {
+   "id": "S24456",
+   "start": 24456,
+   "end": 24544,
+   "file": "result_extraction.md",
+   "heading": "## 【正式仕様】結果系4ページの📝記入部分のみプレビュー：「🎯 掲載台を選ぶ」で掲載台を増減できる（2026-10-02・`14f81e4` / `bb67021`）",
+   "sha256": "b0f7530402242180b6b92e561e54d06c52cc272f2934937e5b716df66f725dc6",
+   "bytes": 7859,
+   "children": []
+  },
+  {
+   "id": "S24545",
+   "start": 24545,
+   "end": 24623,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：🔄で作り直す「その他のジャグラーの優秀台」を青バーなし・4分割パネルにする（2026-10-05・`729d306`）",
+   "sha256": "8e26ff3600ed16c0df3f8540f6961d6637bb8f771f912d06b334fa5280feac7f",
+   "bytes": 7406,
+   "children": []
+  },
+  {
+   "id": "S24624",
+   "start": 24624,
+   "end": 24663,
+   "file": "article_common.md",
+   "heading": "## 【正式仕様】記事用：高配分画像と末尾画像の重複は許す（末尾の台は高配分から除外しない）（2026-10-05・調査のみ／コード変更なし）",
+   "sha256": "3453c28805f6fa09a89636d08bda10f3685c7be9b35416846cc1909012f4fe1b",
+   "bytes": 3915,
+   "children": []
+  },
+  {
+   "id": "S24664",
+   "start": 24664,
+   "end": 24740,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：📝記事コメントを候補の複数チェック方式へ（全台系・ニブイチ系・末尾・オススメ機種）（2026-10-05・`80925a7` / `2ba0d2a` / `529d9ed` / `06360c3`）",
+   "sha256": "ead91800fc5200697e1b419f0caea34a020798d138496a4393b692cd37708630",
+   "bytes": 7333,
+   "children": []
+  },
+  {
+   "id": "S24741",
+   "start": 24741,
+   "end": 24810,
+   "file": "result_extraction.md",
+   "heading": "## 【正式仕様】確率条件機種で+1,000枚台がすべて2,000G未満でも「その他の優秀台」へ入れる（2026-10-06・`3ceb793`）",
+   "sha256": "d71bcba4bfbae647cc49c72937ac38326d22674caae259f06ff66c14e98a8345",
+   "bytes": 6158,
+   "children": []
+  },
+  {
+   "id": "S24811",
+   "start": 24811,
+   "end": 24948,
+   "file": "top_ui_tools.md",
+   "heading": "## 【正式仕様】おすすめページ：日付別のエスパス／取材・来店店舗抽出と並び順（2026-10-06・`5d82312` / `940cdbd` / `c2d6f80`）",
+   "sha256": "28f5b38c1056d88fb9ab064880e3e2f4e23a5120e4ed7d1f5f48b2b2dc562341",
+   "bytes": 12135,
+   "children": []
+  },
+  {
+   "id": "S24949",
+   "start": 24949,
+   "end": 25030,
+   "file": "top_ui_tools.md",
+   "heading": "## 【正式仕様】スマホ用トップメニュー：店舗順とおすすめボタンの薄紫表示（2026-10-06・`c542617` / `ab20498`）",
+   "sha256": "e44900c4258c1acae93d9cfbade0d0182168f87e4e4ca49103f254903888785d",
+   "bytes": 6678,
+   "children": []
+  },
+  {
+   "id": "S25031",
+   "start": 25031,
+   "end": 25120,
+   "file": "result_text.md",
+   "heading": "## 【正式仕様】新大久保 結果ポスト用：はにぃポスト結果テキストの固定構成（2026-10-06・`6d251e2`）",
+   "sha256": "b1fd468edd4f53bc523e1c09650f0d6ee7ef7c2a2ecb705303cfc46adaa3a57f",
+   "bytes": 6494,
+   "children": []
+  },
+  {
+   "id": "S25121",
+   "start": 25121,
+   "end": 25198,
+   "file": "result_text.md",
+   "heading": "## 【正式仕様】新大久保 はにぃポスト結果テキスト：画像タイトルと機種名表記の一致（2026-10-06・`673f040`）",
+   "sha256": "3eacffe7618cda1d5ffddef91827238bfd5ce0bd46b3afe1a7627ef82a19c4e7",
+   "bytes": 7415,
+   "children": []
+  },
+  {
+   "id": "S25199",
+   "start": 25199,
+   "end": 25267,
+   "file": "input_persistence.md",
+   "heading": "## 【正式仕様】BEAM新井薬師 その他スランプ付き結果ポスト：②個別画像を日付単位で保存・復元（2026-10-07・9ee1c4d）",
+   "sha256": "e63b415a0aa01e2d89942c22b9107f7c5099dc19e3d1dcb3e61715d532a964ab",
+   "bytes": 6531,
+   "children": []
+  },
+  {
+   "id": "S25268",
+   "start": 25268,
+   "end": 25359,
+   "file": "top_ui_tools.md",
+   "heading": "## 【正式仕様】トップ「📋 本日の仕事」：Cloudとローカル8501の完了状態共有（1キー単位のGitHub同期）・スマホ開閉表示（2026-10-07・`477350d`）",
+   "sha256": "8581200363843f3a1207f3637d4460d9d35d4dd07fad55a804897a8eff072149",
+   "bytes": 7981,
+   "children": []
+  },
+  {
+   "id": "S25360",
+   "start": 25360,
+   "end": 25451,
+   "file": "result_post_stores.md",
+   "heading": "## 【正式仕様】マイジャグVIをジャグラーシリーズとして扱う（2026-10-08・`8d97023` / `ec6a3cf`）",
+   "sha256": "32d81b7e7635affa4cf03fcdbcb13d1e5d51d0a25018514601b06fa14ae065a1",
+   "bytes": 6869,
+   "children": []
+  },
+  {
+   "id": "S25452",
+   "start": 25452,
+   "end": 25475,
+   "file": "top_ui_tools.md",
+   "heading": "## 【正式仕様】おすすめページ：「BIGディッパー新橋２号店」を「BIGディッパー新橋2号」と表示（2026-10-08・`8daf261`）",
+   "sha256": "d1b61328bb4140a5e04065516ed60c757eb102390210eb8123de3da3e2dc628e",
+   "bytes": 2164,
+   "children": []
+  },
+  {
+   "id": "S25476",
+   "start": 25476,
+   "end": 25551,
+   "file": "top_ui_tools.md",
+   "heading": "## 【正式仕様】トップ「📋 本日の仕事」：③の追加とプレサス飯田橋・BEAM新井薬師の追加（2026-10-08・`e1c3e09`）",
+   "sha256": "7f61721cac25b1c4d73e1f31ff9d02e24f617136bc004c9b0ac8e753499b0bfe",
+   "bytes": 5082,
+   "children": []
+  },
+  {
+   "id": "S25552",
+   "start": 25552,
+   "end": 25604,
+   "file": "top_ui_tools.md",
+   "heading": "## 【正式仕様】スマホ（640px以下）トップ画面の余白調整（2026-10-08・`c127e97`）",
+   "sha256": "5a24535838fed236acea1067f0a59b7123f3849f54afce4d80611af4fdc6d472",
+   "bytes": 4445,
+   "children": []
+  },
+  {
+   "id": "S25605",
+   "start": 25605,
+   "end": 25667,
+   "file": "top_ui_tools.md",
+   "heading": "## 【正式仕様】トップ「📋 本日の仕事」：担当者ごとの作業一覧を店舗ごとにまとめて表示（2026-10-08・`d53319a`）",
+   "sha256": "e268a0a5ec99fac11a95d0dbe5d2795a62916a1ed15ece5bff917a566c2abbfb",
+   "bytes": 4792,
+   "children": []
+  },
+  {
+   "id": "S25668",
+   "start": 25668,
+   "end": 25732,
+   "file": "top_ui_tools.md",
+   "heading": "## 【正式仕様】トップ「📋 本日の仕事」：“今日”の切替時刻を日本時間7:00にする（2026-10-09・`df31afb`）",
+   "sha256": "963e3f5a5b78e1f94d1975dbcd648ff40ba68c00d81e109078bf1fc871962fdf",
+   "bytes": 4582,
+   "children": []
+  },
+  {
+   "id": "S25733",
+   "start": 25733,
+   "end": 25782,
+   "file": "top_ui_tools.md",
+   "heading": "## 【正式仕様】上野本館・上野新館：機能選択画面の「⚡ 結果ポスト用」ボタンを非表示（2026-10-09・`aaeb4ef`）",
+   "sha256": "b1b36df10100b5a1cc421311df9c97af117865a0383499c871070b1b1fcb64f1",
+   "bytes": 4088,
+   "children": []
+  },
+  {
+   "id": "S25783",
+   "start": 25783,
+   "end": 25827,
+   "file": "top_ui_tools.md",
+   "heading": "## 【正式仕様】上野本館：機能選択画面の「スランプ付き結果ポスト」「ローテ用」をPCで横2列表示（2026-10-09・`19ff380`）",
+   "sha256": "83ec5b1c87fe657d851b89464d3d01e5e78e39ffabbc1ae58a8ed7836a40cd3f",
+   "bytes": 3613,
+   "children": []
+  },
+  {
+   "id": "S25828",
+   "start": 25828,
+   "end": 25883,
+   "file": "top_ui_tools.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町：機能選択画面のボタン順を変更（2026-10-09・`c2cfac9`）",
+   "sha256": "8c59b1ce9010f6fa2eb062a73e5c3d16bc977fc44b260904c1cca311584e2049",
+   "bytes": 3825,
+   "children": []
+  },
+  {
+   "id": "S25884",
+   "start": 25884,
+   "end": 25956,
+   "file": "top_ui_tools.md",
+   "heading": "## 【正式仕様】店舗別の機能ボタン表示とラベル調整（渋谷新館・新小岩・新宿歌舞伎町・上野本館・上野新館・稲毛）（2026-10-09・`dd457df`）",
+   "sha256": "ea982ea1107cb75ca830796b09639c8d858b571e075ee24431e658b26cd5edf5",
+   "bytes": 6209,
+   "children": []
+  },
+  {
+   "id": "S25957",
+   "start": 25957,
+   "end": 26046,
+   "file": "cloud_infra.md",
+   "heading": "## 【正式仕様】不正・未知の `page=` によるCloud無限rerunの防止（2026-10-12・`5c429cc`）",
+   "sha256": "47a80c64684fbc67f7db56343153d50106de9e5ef29a0a421a66b5547fb363c0",
+   "bytes": 6434,
+   "children": []
+  },
+  {
+   "id": "S26047",
+   "start": 26047,
+   "end": 26147,
+   "file": "result_post_stores.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町・上野本館・秋葉原 スランプ付き結果ポスト：「🌐 サイトから取得」を追加（2026-10-13・`04a8daa`）",
+   "sha256": "6f1b8fcf1bb782abbefccb5ccb028bb6d09709bd7865c61b90db464ba75180d5",
+   "bytes": 8506,
+   "children": []
+  },
+  {
+   "id": "S26148",
+   "start": 26148,
+   "end": 26219,
+   "file": "result_extraction.md",
+   "heading": "## 【正式仕様】⑤オススメ機種ピックアップ：同名ファイル上書きの防止（2026-10-13・`b69820c`）",
+   "sha256": "53f88f0676a24596d396a253b4db986076dc1126ae79073adcd04c2cc6d4f70c",
+   "bytes": 5188,
+   "children": []
+  },
+  {
+   "id": "S26220",
+   "start": 26220,
+   "end": 26308,
+   "file": "result_post_stores.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 スランプ付き結果ポスト用：初期チェック状態をCloudとローカルで一致（2026-10-13・`3e8a051`）",
+   "sha256": "1a55d9070330aae7df6f2c08faeb1680138f6f57feaa9823bacc74d2070d13db",
+   "bytes": 5671,
+   "children": []
+  },
+  {
+   "id": "S26309",
+   "start": 26309,
+   "end": 26394,
+   "file": "top_ui_tools.md",
+   "heading": "## 【正式仕様】各店舗の機能選択画面：下段の個別生成ボタン群を非表示（2026-10-14・`44dbe11`）",
+   "sha256": "027f6d59b6b3e92b8745f835eec124588f78d97385ee03e6694ac1b1ee6ddb33",
+   "bytes": 6273,
+   "children": []
+  },
+  {
+   "id": "S26395",
+   "start": 26395,
+   "end": 26481,
+   "file": "top_ui_tools.md",
+   "heading": "## 【正式仕様】トップ画面の左サイドバー「📍 店舗選択」を非表示（2026-10-14・`a1d5595`）",
+   "sha256": "3bf67b0141be6cca255a538cdfc7c8cee7609a95db00beea6ecb5ea3a3d2996f",
+   "bytes": 6040,
+   "children": []
+  },
+  {
+   "id": "S26482",
+   "start": 26482,
+   "end": 26586,
+   "file": "top_ui_tools.md",
+   "heading": "## 【正式仕様】単独機能ページ（スランプグラフ生成・機種名変換・機種画像紐づけ）の左サイドバー現在地表示を非表示（2026-10-14・`921646e`）",
+   "sha256": "3e98cf8cdf69f08a650b43a07e3f8d953529171fe194419efff65869daa2220d",
+   "bytes": 7258,
+   "children": []
+  },
+  {
+   "id": "S26587",
+   "start": 26587,
+   "end": 26656,
+   "file": "rote.md",
+   "heading": "## 【正式仕様】渋谷新館 ローテ用：月間オススメ表③のジャグラー候補へマイジャグVIを追加（2026-10-14・`63137ff`）",
+   "sha256": "dcda0c93429800f3a83156b1231eac79c3b3380013e1078a8e5795d88559f5fc",
+   "bytes": 5869,
+   "children": []
+  },
+  {
+   "id": "S26657",
+   "start": 26657,
+   "end": 26757,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】YG用グループの追加とマルハン大山（2026-10-15・`9f5608b`）",
+   "sha256": "dc4bc1f36f8f360a6f9012ee237d90add1c21a6be693703a1dfb46831f2327c0",
+   "bytes": 8686,
+   "children": []
+  },
+  {
+   "id": "S26758",
+   "start": 26758,
+   "end": 26815,
+   "file": "other_yg.md",
+   "heading": "## 【正式記録】マルハン大山の機種名変換31件登録完了（2026-10-15・`77c426f`）",
+   "sha256": "7a8709ca41e692528316c41c0b0cf4d689fda90ea9d484a410b29430750505df",
+   "bytes": 5544,
+   "children": []
+  },
+  {
+   "id": "S26816",
+   "start": 26816,
+   "end": 26925,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】YG用へ大山オーシャン・阿佐ヶ谷オーシャンを追加（2026-10-15・`81288c3`）",
+   "sha256": "f3336f74d893b5395ee4be323d867a239a85d5859ad1bd67887fee9e42840e8a",
+   "bytes": 7134,
+   "children": []
+  },
+  {
+   "id": "S26926",
+   "start": 26926,
+   "end": 26980,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】トップ画面：YG用ボタンを「おすすめ」の後ろへ移動（2026-10-15・`de1a847`）",
+   "sha256": "319dd18a02f1f37e37b92b92a7cd64356f5429e8f9cb954f10e730d81adbcf8a",
+   "bytes": 3944,
+   "children": []
+  },
+  {
+   "id": "S26981",
+   "start": 26981,
+   "end": 27060,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】YG用「一覧」：指定日のYG対象店舗テキスト生成（2026-10-15・`d14e783`）",
+   "sha256": "3dc33caae671ce680ad6a2b265b2b70427c730b83c2ae2f01211163e72af0392",
+   "bytes": 5438,
+   "children": []
+  },
+  {
+   "id": "S27061",
+   "start": 27061,
+   "end": 27117,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】YG用「一覧」：「○の日」を全店舗対象・日付別にセッション内保持（2026-10-15・`0f39ddf`）",
+   "sha256": "98b311b7177d85cca7f9d735c4282622c7e361a9f64df4c176d870335367bb77",
+   "bytes": 4095,
+   "children": []
+  },
+  {
+   "id": "S27118",
+   "start": 27118,
+   "end": 27180,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】YG用「一覧」：企画絵文字15種類の追加（2026-10-15・`2cbeeee`）",
+   "sha256": "b32c72e3961444bacdb103a46e02d31aa67280967d86a724faa9ef8b377e895c",
+   "bytes": 4495,
+   "children": []
+  },
+  {
+   "id": "S27181",
+   "start": 27181,
+   "end": 27226,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】YG用ページの「一覧」ボタンを薄いピンクにする（2026-10-15・`349eebc` / `0faf8e3`）",
+   "sha256": "e3874ece7aeaac6410b03cfde1d58418f64c6681b344b66779aa3ad600c0fccb",
+   "bytes": 2974,
+   "children": []
+  },
+  {
+   "id": "S27227",
+   "start": 27227,
+   "end": 27305,
+   "file": "article_common.md",
+   "heading": "## 【正式仕様】記事用：「🔄 その他を更新」後に記事コメントを掲載状態へ同期（2026-10-16・`f2ee0a7`）",
+   "sha256": "885b5fe5923b794187ce9a92699628d66a01bd72dae7e39ed6e19203515d3811",
+   "bytes": 7120,
+   "children": []
+  },
+  {
+   "id": "S27306",
+   "start": 27306,
+   "end": 27387,
+   "file": "input_persistence.md",
+   "heading": "## 【正式仕様】通常ページの自動入力：同日再取得の復元と日付切替時の古い入力保存防止（2026-10-16・`059ac8b` / `352ead2`）",
+   "sha256": "4f51bf0456e6fdc090c23c94af4ed7d44d36001006aa0f28f5a04bdd78028067",
+   "bytes": 7617,
+   "children": []
+  },
+  {
+   "id": "S27388",
+   "start": 27388,
+   "end": 27454,
+   "file": "narabi_retsu.md",
+   "heading": "## 【正式仕様】⑧本番の列画像を⑦プレビュー・結果テキストと同じ補正後差枚に統一（2026-10-16・`5d42966`）",
+   "sha256": "d722f56333eb5b0dc1c74eb0d4bb58bb2eeb7ae77cdea552c4714f16d7905f12",
+   "bytes": 5135,
+   "children": []
+  },
+  {
+   "id": "S27455",
+   "start": 27455,
+   "end": 27512,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】YG用「一覧」：初期日付をJSTの翌日に・シート②だけの店舗は「○の日」に✖を付けない（2026-10-16・`cf9b9f2`）",
+   "sha256": "6dd3e771d65f259fe3c4dec5f8e0709494fc37e12d8abee9bccea2265b8b768c",
+   "bytes": 4655,
+   "children": []
+  },
+  {
+   "id": "S27513",
+   "start": 27513,
+   "end": 27599,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】YG用画像の専用デザイン（2026-10-16・`38a6f3b`）",
+   "sha256": "cdeac0242bb1b431b3799db877faca4f4ced844a520455c11b84592df34fb499",
+   "bytes": 6618,
+   "children": []
+  },
+  {
+   "id": "S27600",
+   "start": 27600,
+   "end": 27663,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】YG用画像の区切り線と赤色の調整（2026-10-16・`01426ba`）",
+   "sha256": "1692ec51b91e9c7d6b880e4577b31ae3465d93caa8b5c4f8e27a2834d2adba0a",
+   "bytes": 4872,
+   "children": []
+  },
+  {
+   "id": "S27664",
+   "start": 27664,
+   "end": 27758,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：ジャグラー統合画像を最大4パネルへ戻す（2026-10-18・`afb3988`）",
+   "sha256": "0522226382bbaec74a464c2af4d92fb4c4114a7dfe3e23f481e1b288fd0891d8",
+   "bytes": 6556,
+   "children": []
+  },
+  {
+   "id": "S27759",
+   "start": 27759,
+   "end": 27833,
+   "file": "result_extraction.md",
+   "heading": "## 【正式仕様】📝記入部分のみ：②優秀台の掲載候補を「当日の全台」に統一（2026-10-18・`144d5db`）",
+   "sha256": "8c15ac1f9f4c33c01410e51f0e8922c51ff2a9662ef99ccde92730f91b5e8ae2",
+   "bytes": 4824,
+   "children": []
+  },
+  {
+   "id": "S27834",
+   "start": 27834,
+   "end": 27893,
+   "file": "result_extraction.md",
+   "heading": "## 【正式仕様】📝記入部分のみ：ジャグラー統合対象5台以下はその他の優秀台へ振り分け（2026-10-18・`0822e20`）",
+   "sha256": "1cf8c4bc6f341b0a4a80981ea503c09f4c3049f4a8b75aad232eae000ebc6d8b",
+   "bytes": 5039,
+   "children": []
+  },
+  {
+   "id": "S27894",
+   "start": 27894,
+   "end": 27941,
+   "file": "result_extraction.md",
+   "heading": "## 【正式仕様】ジャグラー高配分画像の🎯掲載候補を「当日の全台」に統一（2026-10-19・`46bf3ce`）",
+   "sha256": "0c7fa8b977e82249fe15d57cb38485cd6f44a1485dfc7de5200eb6ce5b18586d",
+   "bytes": 3605,
+   "children": []
+  },
+  {
+   "id": "S27942",
+   "start": 27942,
+   "end": 28010,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：記事コメント「ニブイチ系」に②個別「優秀台」の機種を含める（2026-10-19・`ca5970e`）",
+   "sha256": "c1c59131afcc811b27bd8e1bf879f0c7c01c88a5cb62283488bc0502d9be07d4",
+   "bytes": 5740,
+   "children": []
+  },
+  {
+   "id": "S28011",
+   "start": 28011,
+   "end": 28047,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用WordPress：「その他のジャグラーの優秀台」の文章へ+1,000枚超台数を追加（2026-10-19・`986b56c`）",
+   "sha256": "beff830654f38372b5b28f931988349e1b77f01f0906c9d8aabdd5f7150b4a08",
+   "bytes": 2488,
+   "children": []
+  },
+  {
+   "id": "S28048",
+   "start": 28048,
+   "end": 28100,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：ジャグラー高配分画像は優秀台が総台数の50%以上のときだけ（2026-10-19・`ae00fd7`）",
+   "sha256": "062f18bd468a562cc19603c232038512957f1c070d248889a1bb9ddd433693a8",
+   "bytes": 4440,
+   "children": []
+  },
+  {
+   "id": "S28101",
+   "start": 28101,
+   "end": 28154,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】YG用へ楽園6店舗・ラ・カータ2店舗を追加（2026-10-19・`02743a3`）",
+   "sha256": "a85abf3b5282d2ccb9b8bcbc7bf98b2dbfaa8dcef97fe293b867bef08a72670f",
+   "bytes": 4283,
+   "children": []
+  },
+  {
+   "id": "S28155",
+   "start": 28155,
+   "end": 28208,
+   "file": "result_text.md",
+   "heading": "## 【正式仕様】渋谷新館 結果ポスト用：「📈オススメポスター機種📈」の構成変更（2026-10-19・`bbfb808`）",
+   "sha256": "b7c12ddc369f5a44e8a7937497186dcc9efafc2b93ef9738ad94f24312278deb",
+   "bytes": 3876,
+   "children": []
+  },
+  {
+   "id": "S28209",
+   "start": 28209,
+   "end": 28266,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：🔄その他を更新／⑧でON画像の掲載台を「その他の優秀台」へ重複させない（2026-10-20・`e9dc51e`）",
+   "sha256": "85080bea95dfca2b2bee4870a75c1fafce8f1e92bd112bd91d80e0628da15406",
+   "bytes": 4490,
+   "children": []
+  },
+  {
+   "id": "S28267",
+   "start": 28267,
+   "end": 28317,
+   "file": "article_kabukicho.md",
+   "heading": "## 【正式仕様】新宿歌舞伎町 記事用：🔄その他を更新後、記事コメントの並び／列を最終ON画像に追従（2026-10-20・`2a65f16`）",
+   "sha256": "6c4aa1f7ec503f67d4299c225014f968761b0492e85335d0a179fb2f64ce098b",
+   "bytes": 3939,
+   "children": []
+  },
+  {
+   "id": "S28318",
+   "start": 28318,
+   "end": 28353,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】YG用スランプ画像：目盛を±3,000に戻し、黄色の機種名の黒縁を削除（2026-10-20・`2f8e9ca`）",
+   "sha256": "d031ed73b8e71bc6a6c14d124465ee8df13b412585605360e4a983b7877e6611",
+   "bytes": 3215,
+   "children": []
+  },
+  {
+   "id": "S28354",
+   "start": 28354,
+   "end": 28421,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】YG用 大山オーシャン：②個別画像の上に「全台系／1/2機種」貼り付け欄（2026-10-20・`1128545`）",
+   "sha256": "51de70fbf83accd2a429d1e6667dedab15a0f5ff409b44f7b08464a41e91785b",
+   "bytes": 6295,
+   "children": []
+  },
+  {
+   "id": "S28422",
+   "start": 28422,
+   "end": 28473,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】YG用 大山オーシャン：貼り付け欄は「個別画像も生成する」OFFでも反映（2026-10-20・`1867e86`）",
+   "sha256": "1f8b3d2dbfdfd2695296139883a7cf7872402d015ea131a9e88749d66cffd642",
+   "bytes": 4240,
+   "children": []
+  },
+  {
+   "id": "S28474",
+   "start": 28474,
+   "end": 28528,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】YG用の全台系画像を王冠版サマリーにする（2026-10-20・`b2e69fe`）",
+   "sha256": "2048196fed26d8a0d2866e9a90586499d2890113ca3b59845f06de2684dd8ef1",
+   "bytes": 4326,
+   "children": []
+  },
+  {
+   "id": "S28529",
+   "start": 28529,
+   "end": 28565,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】YG画像の表文字色を黒に統一（2026-10-20・`c90c371`）",
+   "sha256": "862ba69e03747747a4f29b5728875a5e484713d6680f509f80d94553448221cc",
+   "bytes": 2077,
+   "children": []
+  },
+  {
+   "id": "S28566",
+   "start": 28566,
+   "end": 28653,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】YG用 大山オーシャン：結果テキストの新フォーマット（2026-10-21・`1ad77c1`）",
+   "sha256": "845ea3a3525337c4304ccc08fa60251a7c52b46125e5a14a01f30befd8f81fb5",
+   "bytes": 5346,
+   "children": []
+  },
+  {
+   "id": "S28654",
+   "start": 28654,
+   "end": 28719,
+   "file": "top_ui_tools.md",
+   "heading": "## 【正式仕様】トップ「📋 本日の仕事」：予定表Excel取得の待ち時間分離と1回だけの再試行（2026-10-21・`e95c297`）",
+   "sha256": "0ff091eeaed86459f613a8a1b1de6b16c6430c73adcfd15585764c42cb635836",
+   "bytes": 4610,
+   "children": []
+  },
+  {
+   "id": "S28720",
+   "start": 28720,
+   "end": 28771,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】YG用画像のピンクサマリーバーを淡いピンク #FFCDCE に変更（2026-10-21・`122d39b`）",
+   "sha256": "9dcea038639642daac0ada75a8e3c0e4e2b36a5c9f05df0f076fbdf456847083",
+   "bytes": 3511,
+   "children": []
+  },
+  {
+   "id": "S28772",
+   "start": 28772,
+   "end": 28826,
+   "file": "other_yg.md",
+   "heading": "## 【正式仕様】YG用スランプカード：線を黒に・外枠を細く・機種名下の線を台番下と同じ太さに（2026-10-21・`27b45d7` / `88b8a11` / `b5070a8`）",
+   "sha256": "9066575fb947e428fe3ab45fb95e56274dc64a63994469bbe681190957f5d979",
+   "bytes": 4657,
+   "children": []
+  }
+ ]
+}

@@ -3603,9 +3603,31 @@ _YG_DAY_KEYCAP: "dict[str, str]" = {
     str(_i): f"{_i}️⃣" for _i in range(10)}
 
 
+# 日付ワードの先頭記号（店舗行・欄外候補とも）。
+_YG_DAY_MARK = "💫"
+
+
+def _yg_day_words(day: datetime.date) -> "tuple[str, list]":
+    """(店舗行に使う日付ワード, 欄外に出す候補[…])。記号💫は付けない。
+    店舗行は 月ゾロ（M/M）＞ ゾロ目（11日・22日）＞ ○の日（日付の1の位）の順で1つ。
+    欄外は採用しなかった特殊日 → ○の日 → 土曜日/日曜日 → 週末 の順（店舗行と重複させない）。"""
+    _cands = []
+    if day.month == day.day:
+        _cands.append("月ゾロ")
+    if day.day in (11, 22):
+        _cands.append("ゾロ目")
+    _cands.append(f"{_YG_DAY_KEYCAP[str(day.day % 10)]}の日")
+    _extra = _cands[1:]
+    if day.weekday() == 5:
+        _extra += ["土曜日", "週末"]
+    elif day.weekday() == 6:
+        _extra += ["日曜日", "週末"]
+    return _cands[0], _extra
+
+
 def _yg_day_prefix(day: datetime.date, mark: bool = True) -> str:
-    """「5️⃣の日✖」（日付の1の位）。mark=False は末尾の「✖」なし（シート②の店舗用）。"""
-    return f"{_YG_DAY_KEYCAP[str(day.day % 10)]}の日" + ("✖" if mark else "")
+    """「💫5️⃣の日✖」「💫ゾロ目✖」など店舗行の日付ワード。mark=False は末尾の「✖」なし（シート②の店舗用）。"""
+    return _YG_DAY_MARK + _yg_day_words(day)[0] + ("✖" if mark else "")
 
 
 def _yg_kikaku_norm(raw: str) -> "tuple[str, list]":
@@ -3728,7 +3750,8 @@ def _yg_list_display_store_name(name: str) -> str:
 
 
 def _yg_list_text(day: datetime.date, blocks: list, day_on: "dict[str, bool]") -> str:
-    """完成テキスト。冒頭「明日(M/D)のYG」＋空行、店舗ブロックは空行区切り。"""
+    """完成テキスト。冒頭「明日(M/D)のYG」＋空行、店舗ブロックは空行区切り。
+    店舗行で使わなかった日付候補（_yg_day_words の欄外）があれば、冒頭の直下へ1行ずつ出す。"""
     _parts = []
     for _b in blocks:
         # 「○の日」はシート①・②の全店舗が対象（店舗単位で1つ・未指定はON）。企画はシート①由来だけ。
@@ -3736,7 +3759,9 @@ def _yg_list_text(day: datetime.date, blocks: list, day_on: "dict[str, bool]") -
         _pre = _yg_day_prefix(day, mark=_b["tab1"]) if day_on.get(_b["key"], True) else ""
         _line = _pre + "&".join(_b["kikaku"])
         _parts.append(f"♦{_yg_list_display_store_name(_b['name'])}" + (f"\n{_line}" if _line else ""))
-    return f"明日({day.month}/{day.day})のYG\n\n" + "\n\n".join(_parts)
+    _extra = "\n".join(_YG_DAY_MARK + _w for _w in _yg_day_words(day)[1])
+    return (f"明日({day.month}/{day.day})のYG\n\n" + (f"{_extra}\n\n\n" if _extra else "")
+            + "\n\n".join(_parts))
 
 
 def _yg_list_refetch() -> None:

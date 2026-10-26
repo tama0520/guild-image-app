@@ -1940,3 +1940,59 @@ YG用ページ・YG用店舗ボタン（選択中表示なし）／`other_slump`
 3. YG用ページ・他ページの店舗選択へ本仕様（選択中表示など）を広げない
 4. 選択中表示のために新しい永続保存を作らない
 5. `wrt_machines.json` の既存差分、未追跡4件、stash 5件を保全する
+
+---
+
+## 【正式仕様】「その他」にマルハン大山を追加（YG用との二重所属）（2026-10-26・`2211d4f`）
+
+**正式仕様。巻き戻し禁止。**マルハン大山を **YG用と「その他」の両方** に表示する。設定本体は `_yg_stores.json` の1か所のまま。
+
+★**既存禁止事項の上書き（マルハン大山だけの例外）**：次の各節にある「YG用店舗を `_other_stores.json` へ書かない／「その他」一覧へ混ぜない」は、
+**マルハン大山に限り本節が後発仕様として上書きする**（ユーザー確定・2026-10-26）。
+- `9f5608b` 節 K-1／`81288c3` 節 G・J-4／`02743a3` 節 C-3
+- **マルハン大山以外のYG用店舗（大山オーシャン・阿佐ヶ谷オーシャン・楽園6店舗・ラ・カータ2店舗）は従来どおり禁止のまま。**
+
+### A. 正式commit
+
+| commit | 内容 |
+|---|---|
+| **`2211d4f`** | `feat: 「その他」にマルハン大山を追加（YG用との二重所属）`（`streamlit_app.py` +42/−11 ／ `store_settings/_other_stores.json` +1行） |
+
+### B. 設定（参照行だけ）
+
+- `store_settings/_other_stores.json` の `stores` 末尾に **参照行だけ**を追加：`"マルハン大山": {"_from_group": "yg"}`
+- hall_id・display_name 等は **コピーしない**（設定本体は `_yg_stores.json` の1か所）。
+
+### C. 実装
+
+1. `_load_other_stores()`：YG店舗のループで、その他側が `{"_from_group":"yg"}` の参照行なら
+   `{**YG設定, "_group":"yg", "_also_other":True}` に置き換える。**参照先のない参照行は捨てる。**
+   参照行以外の「同名ならその他優先」は従来どおり。
+2. `_other_group_stores(group)`：`_group==group` に加え、`group==""` のときは `_also_other` の店舗も含める。
+3. 新規 `_other_slump_from_other(store)`：`_is_yg_store(store)` かつ `session_state.selected_src=="other"`。
+4. `_navigate(page, store, itype, src=None)`：`page=="other_slump"` のとき `selected_src = src or ""`、src があれば URL に `src=…`。
+5. `_sync_from_query_params()`：`qp_page=="other_slump"` のとき `selected_src = qp.get("src","")`（再読み込みでも入口を維持）。
+6. `show_other_store_page()`：店舗ボタンと「📊 スランプ付き結果」は `_navigate("other_slump", store=…, src=("other" if _is_yg_store(…) else None))`。
+7. サイドバー現在地（`other_slump`）：YG店舗かつ `_other_slump_from_other` でなければ「📍 YG用」、それ以外は「📍 その他」。
+8. `show_auto_page` の「← 戻る」：`_other_slump_from_other` → `other`／YG店舗 → `yg`／その他店舗 → `image_type`（従来）。
+
+**画像デザイン（`_yg_theme`）は変更しない＝入口に関係なくYG仕様。**
+
+### D. 確認
+
+- 8502：「その他」4店舗（プレサス飯田橋／BEAM新井薬師／ラ・カータ鶴ヶ島／マルハン大山）・PC4列1段・セレクトボックス4/4件。
+  その他→マルハン大山：URL `src=other`・「📍 その他」・再読み込みでも維持・10/25取得228台・プレビュー8枚・例外0・← 戻る→「その他」（マルハン大山がprimary）。
+  YG用→マルハン大山：YG一覧11店舗のまま・URL src なし・「📍 YG用」・← 戻る→YG用。
+  両入口のプレビュー8枚は画像ハッシュ完全一致（YGデザイン）。全店舗×判定5種（設定・YG判定・その他判定・hall_id・表示名）で修正前と差分なし。
+  BEAM新井薬師：URL src なし・「📍 その他」・← 戻る→機能選択画面（従来どおり）。
+- 8501（本体反映後）：「その他」4ボタン・4/4件／その他→マルハン大山で `src=other`・「📍 その他」・再読み込みで維持・← 戻る→「その他」（マルハン大山がprimary）／
+  YG用一覧11店舗・YG用→マルハン大山で src なし・「📍 YG用」・← 戻る→YG用／BEAM新井薬師は src なし・← 戻る→`image_type`。コンソールエラー0。
+- Cloud：`store_settings` は自動同期なし。push後に Reboot で反映（未確認）。
+
+### E. 禁止事項・保全
+
+1. マルハン大山の設定（hall_id 等）を `_other_stores.json` へコピーしない（参照行だけ）
+2. 本節を理由に他のYG用店舗を「その他」へ混ぜない（追加する場合はユーザー確認のうえ参照行で行う）
+3. 入口でYGデザインを切り替えない（`_yg_theme` は不変）
+4. YG用一覧の店舗・表示順を変えない
+5. `wrt_machines.json` の既存差分、未追跡4件、stash 5件を保全する

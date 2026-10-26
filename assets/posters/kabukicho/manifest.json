@@ -15,10 +15,10 @@
   },
   "6日": {
     "file": "day06.jpg",
-    "media_id": 26,
-    "source_name": "6日.jpg",
-    "sha256": "16d43a9562d8a6cfa7b855f30e8e125f850efac6039f4d59475360184d451a28",
-    "synced_at": "2026-09-24"
+    "media_id": 2389,
+    "source_name": "6日2.jpg",
+    "sha256": "470342a9864a619bdf7bd28e4ebe4a289e67967d948e44c147ee1979b433174a",
+    "synced_at": "2026-10-26"
   },
   "12日": {
     "file": "day12.jpg",
@@ -29,10 +29,10 @@
   },
   "21日": {
     "file": "day21.jpg",
-    "media_id": 31,
-    "source_name": "21日.jpg",
-    "sha256": "d60ec128f43b44750fac5046429378d034e1bf787045b816374047dde40ea690",
-    "synced_at": "2026-09-24"
+    "media_id": 2390,
+    "source_name": "21日2.jpg",
+    "sha256": "cad1564d2e0ba296e02af8b69497212295ada21cbfc836125d70c95839c36c37",
+    "synced_at": "2026-10-26"
   },
   "23日": {
     "file": "day23.jpg",
@@ -64,24 +64,24 @@
   },
   "5のつく日": {
     "file": "tsuku5.jpg",
-    "media_id": 24,
-    "source_name": "5のつく日.jpg",
-    "sha256": "a838a37c35acfff068ccb9c58399a28c5762f13892e4bbef86cecdc4090ae1c0",
-    "synced_at": "2026-09-24"
+    "media_id": 2391,
+    "source_name": "5のつく日2.jpg",
+    "sha256": "de9ff7d2e2be18b504544bd26be6e689a2e6bd85282d192854043e6ce497395f",
+    "synced_at": "2026-10-26"
   },
   "6のつく日": {
     "file": "tsuku6.jpg",
-    "media_id": 25,
-    "source_name": "6のつく日.jpg",
-    "sha256": "97a8240ce29a749dbf569bbd5c20d1dadc4c0b1fbcf33edfff690c95dd3dd4e5",
-    "synced_at": "2026-09-24"
+    "media_id": 2392,
+    "source_name": "6のつく日2.jpg",
+    "sha256": "3fd35b4573fda7648c7ca6b9bf4acc64b1c54e20aed16bf4c2e4feee07fa10d4",
+    "synced_at": "2026-10-26"
   },
   "7のつく日": {
     "file": "tsuku7.jpg",
-    "media_id": 127,
-    "source_name": "7のつく日2.jpg",
-    "sha256": "3d6f89fc0d0e7643bca4f5901eac08a6bc1fefe3776a4195138835756290f0c4",
-    "synced_at": "2026-09-24"
+    "media_id": 2393,
+    "source_name": "7のつく日3.jpg",
+    "sha256": "c31310e5a7b8d540c9e4e0737b08ff2ac052d1e5834379a58df4d3d846b6fc83",
+    "synced_at": "2026-10-26"
   },
   "8のつく日": {
     "file": "tsuku8.jpg",

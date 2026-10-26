@@ -4644,6 +4644,17 @@ def show_other_store_page() -> None:
         st.warning("`store_settings/_other_stores.json` に店舗が登録されていません。")
     else:
         _names = list(_others.keys())
+        # 店舗ボタン（YG用と同じ4列・押すとその店舗のスランプ付き結果へ）。
+        # 最後に開いた店舗（selected_store）だけ primary で選択中が分かるようにする。
+        _cur = st.session_state.get("selected_store", "")
+        _cols = st.columns(4)
+        for _i, _nm in enumerate(_names):
+            with _cols[_i % len(_cols)]:
+                if st.button(_other_display_name(_nm) or _nm, key=f"other_store_{_nm}",
+                             type=("primary" if _nm == _cur else "secondary"),
+                             use_container_width=True):
+                    _navigate("other_slump", store=_nm)
+        st.markdown("---")
         _q = st.text_input("店舗を検索", key="other_store_query",
                            placeholder="店舗名の一部を入力（例: 飯田橋）")
         _qn = _normalize_key(_q) if _q else ""

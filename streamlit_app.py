@@ -12128,6 +12128,12 @@ _ART_POSTER_LIBRARY: "tuple[tuple[str, int], ...]" = (
 #   「6日はID26。ID44は使わない」は既存の正式仕様なので、最新解決の候補からも外す。
 #   6日を差し替えるときは `6日2.jpg` のように **末尾連番**で追加する。
 _ART_POSTER_EXCLUDE_IDS: "frozenset[int]" = frozenset({29, 44})
+# チェック欄の**表示名だけ**を変える項目（内部ラベル → 表示名）。
+# ★保存値・manifest・素材ファイル・WordPress解決は内部ラベル（「○のつく日」）のまま。
+_ART_POSTER_DISPLAY: "dict[str, str]" = {
+    "4のつく日": "4の日", "5のつく日": "5の日", "6のつく日": "6の日",
+    "7のつく日": "7の日", "8のつく日": "8の日", "0のつく日": "0の日",
+}
 _ART_POSTER_PICK_TIMEOUT = 20
 # 接続確立（TCP）の待ち時間と、ConnectTimeout のときだけ行う再試行の回数・待ち。
 # 読み取りは従来どおり _ART_POSTER_PICK_TIMEOUT。最悪でも 3回×8秒＋1＋2秒で打ち切る。
@@ -12300,10 +12306,66 @@ def _art_poster_media_index(store: str) -> "tuple[tuple[int, str, str, str], ...
     return tuple(_rows)
 
 
+@st.cache_data(show_spinner=False, ttl=3600, max_entries=64)
+def _art_poster_media_search(store: str, label: str) -> "tuple[tuple[int, str, str, str], ...]":
+    """ラベルで `GET /wp/v2/media?search=` した結果を (id, date, title, filename) で返す。
+
+    全件一覧（_art_poster_media_index）は100件×10ページで打ち切るため、メディアが
+    1000件を超えると新しく追加した画像が入らない。ラベル単位の検索なら件数に依存しない。
+    ★search は部分一致なので、絞り込みは呼び出し側の `_art_poster_name_matches()` で行う。
+    ★GETだけ。失敗は `_ArtPosterFetchError`（例外はキャッシュされない）。
+    """
+    import wp_client as _wpc_s
+    try:
+        site, auth = _wpc_s._conf(store)     # 値は表示しない
+    except Exception as _e:
+        raise _ArtPosterFetchError(f"secrets: 送信先の取得に失敗 exc={type(_e).__name__}")
+    if not site:
+        _cs = _art_poster_conf_state(store)
+        _mk = ", ".join(_cs.get("missing_used") or []) or "不明"
+        raise _ArtPosterFetchError(f"secrets: 送信先が未設定（未設定キー: {_mk}）")
+    _rows: list = []
+    for _pg in range(1, 11):                 # 100件×10ページで打ち切り（無限ループ防止）
+        try:
+            r = _art_poster_get(
+                f"{site}/wp-json/wp/v2/media",
+                params={"search": str(label), "per_page": 100, "page": _pg,
+                        "orderby": "id", "order": "asc",
+                        "_fields": "id,date_gmt,date,title,source_url"},
+                auth=auth)
+        except Exception as _e:
+            raise _ArtPosterFetchError(f"rest: 通信エラー exc={type(_e).__name__}")
+        if r.status_code == 400 and _pg > 1:  # ページ超過は正常終了扱い
+            break
+        if r.status_code != 200:
+            raise _ArtPosterFetchError(
+                f"rest: HTTP {r.status_code}{_art_poster_err_brief(r)}")
+        try:
+            _j = r.json() or []
+        except Exception as _e:
+            raise _ArtPosterFetchError(f"rest: 応答を解釈できません exc={type(_e).__name__}")
+        for _m in _j:
+            try:
+                _id = int(_m.get("id") or 0)
+            except Exception:
+                continue
+            if not _id:
+                continue
+            _ttl = str(((_m.get("title") or {}) or {}).get("rendered") or "")
+            _fn = str(_m.get("source_url") or "").split("?")[0].rsplit("/", 1)[-1]
+            _fn = os.path.splitext(_fn)[0]
+            _dt = str(_m.get("date_gmt") or _m.get("date") or "")
+            _rows.append((_id, _dt, _ttl, _fn))
+        if len(_j) < 100:
+            break
+    return tuple(_rows)
+
+
 def _art_poster_resolve(store: str, label: str) -> "tuple[int, str]":
     """選択ラベルに対応する **最新メディアID** と安全なエラー文を返す。
 
     ★固定IDを直接使わず、毎回ライブラリから解決する（差し替えにコード変更が不要）。
+      候補はラベルでの `search` 取得（_art_poster_media_search）から作る（全件一覧は使わない）。
       一致条件は `_art_poster_name_matches()`＝**基本名 ＋ 任意の末尾連番だけ**。
       ファイル名・メディアタイトルのどちらかが一致すれば候補。
     ★候補が複数なら **最も新しいもの**（アップロード日時 → 同値なら大きいID）。
@@ -12314,7 +12376,7 @@ def _art_poster_resolve(store: str, label: str) -> "tuple[int, str]":
     if not _fixed:
         return 0, ""
     try:
-        _rows = _art_poster_media_index(store)
+        _rows = _art_poster_media_search(store, str(label))
     except _ArtPosterFetchError as _e:
         return _fixed, _e.reason
     except Exception as _e:
@@ -12333,6 +12395,7 @@ def _art_poster_pick_reload(store: str, label: str) -> None:
     _mid, _ = _art_poster_resolve(store, label)
     try:
         _art_poster_media_index.clear(store)
+        _art_poster_media_search.clear(store, str(label))
     except Exception:
         pass
     if _mid:
@@ -22198,7 +22261,8 @@ def show_auto_article_page() -> None:
                 # ★アプリ内のローカル素材を読む（WordPressへはGETしない）。
                 _pk_got, _pk_err = _art_poster_local(store, _pk_cur)
                 if _pk_got:
-                    st.image(_pk_got["data"], width=320, caption=_pk_cur)
+                    st.image(_pk_got["data"], width=320,
+                             caption=_ART_POSTER_DISPLAY.get(_pk_cur, _pk_cur))
                 else:
                     # ★チェック状態は消さない。別画像へのフォールバックもしない。
                     st.error(f"❌ プレビュー不可：{_pk_err}（選択は保持しています）。")
@@ -22207,7 +22271,7 @@ def show_auto_article_page() -> None:
             for _pi2, (_plab, _pmid) in enumerate(_ART_POSTER_LIBRARY):
                 with _pk_sub[_pi2 % 2]:
                     st.checkbox(
-                        _plab, key=_pk_wkeys[_pi2],
+                        _ART_POSTER_DISPLAY.get(_plab, _plab), key=_pk_wkeys[_pi2],
                         value=(_pk_cur == _plab),
                         disabled=(_pk_lock or uploaded is None),
                         on_change=_on_art_poster_pick,

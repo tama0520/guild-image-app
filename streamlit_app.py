@@ -23503,7 +23503,7 @@ def show_auto_article_page() -> None:
                                                 is_multi=_is_multi_pv2 or _osu_multi_pv2,
                                                 # 列仕掛けも並びと同じパネル選定ルールへ
                                                 narabi_like=_art_is_narabi_fn(_bare_pv2),
-                                                max_panels=_art_panel_max(store, _bare_pv2))
+                                                max_panels=_art_panel_max(store, _bare_pv2, _bans_pv2, _pv_ban2mac))
                                         # 高解像度対象（その他／ジャグラー統合）はスランプも2倍で描画
                                         _hq_pv2 = _art_hq_scale_for(
                                             re.sub(r"^\d{2}_", "", _fn_pv2),
@@ -24083,7 +24083,7 @@ def show_auto_article_page() -> None:
                                                         # 列仕掛けも並びと同じパネル選定ルールへ
                                                         narabi_like=_art_is_narabi_fn(_bare_u),
                                                         max_panels=(4 if (_aj_regen_new and _bare_u == _ART_JUG_FN)
-                                                                    else _art_panel_max(store, _bare_u)))
+                                                                    else _art_panel_max(store, _bare_u, _bans_u, _upd_b2mac)))
                                                 # 高解像度対象（その他／ジャグラー統合）はスランプも2倍で描画
                                                 _hq_u = _art_hq_scale_for(
                                                     re.sub(r"^\d{2}_", "", _fn_u),
@@ -25405,7 +25405,7 @@ def show_auto_article_page() -> None:
                                         # 列仕掛けも並びと同じパネル選定ルールへ
                                         narabi_like=_art_is_narabi_fn(_bare_sl),
                                         max_panels=(4 if (_arj_regen_bans_e and _bare_sl == _ART_JUG_FN)
-                                                    else _art_panel_max(store, _bare_sl)))
+                                                    else _art_panel_max(store, _bare_sl, _bans_sl, _art_ban2mac_sl)))
                                     if _mn_sl is not None and not _pok_sl:
                                         _art_missing_panels.add(_mn_sl)
                                 # 高解像度対象（その他／ジャグラー統合）はスランプも2倍で描画
@@ -30620,6 +30620,10 @@ _ART_JUG_PANEL2_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
 # ★表・スランプ・掲載台・抽出条件は減らさない（減るのは上部のパネル枚数だけ）。
 _ART_OSU_PANEL2_STORES: "frozenset[str]" = frozenset({"渋谷新館", "新宿歌舞伎町"})
 
+# 記事用の末尾画像で、パネル登録のある機種がちょうど3機種のときだけ上位2枚にする店舗（2026-10-26）。
+# 2×2グリッドは2枚ずつ折り返すため、3枚だと右下が空欄になる。1〜2機種・4機種以上は従来どおり。
+_ART_SUE_PANEL3TO2_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
 
 # 記事用で、⑦後に個別ジャグラー画像をチェックOFFして 🔄その他を更新／⑧が
 # **作り直す**「ジャグラーシリーズ優秀台.jpg」を、初回の自動抽出と同じ
@@ -30641,16 +30645,21 @@ def _art_jug_regen_img(store: str, df: "pd.DataFrame") -> "Image.Image":
         df, hq_scale=_art_hq_scale_for(_ART_JUG_FN, store, len(df)))
 
 
-def _art_panel_max(store: str, bare_fn: str) -> int:
+def _art_panel_max(store: str, bare_fn: str, bans: "list | None" = None,
+                   ban2mac: "dict | None" = None) -> int:
     """記事用の 2×2 パネルグリッドへ渡す上限枚数。
 
     対象店舗の「ジャグラーシリーズ優秀台.jpg」だけ 2（横並び2枚）。
     対象店舗の⑤「オススメ優秀台_ブロックN.jpg」も 2（3機種以上でも上位2枚）。
+    対象店舗の末尾画像は、パネル登録のある機種がちょうど3機種のときだけ 2（上位2枚）。
     それ以外は従来どおり 4（2×2）。**この判定を他画像・他店舗へ広げない。**
     """
     if store in _ART_JUG_PANEL2_STORES and bare_fn == "ジャグラーシリーズ優秀台.jpg":
         return 2
     if store in _ART_OSU_PANEL2_STORES and _art_is_osusume_fn(bare_fn):
+        return 2
+    if (store in _ART_SUE_PANEL3TO2_STORES and "末尾" in bare_fn and bans is not None
+            and len(_other_panel_macs(bans, ban2mac or {})) == 3):
         return 2
     return 4
 

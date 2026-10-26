@@ -527,18 +527,36 @@ def _load_other_stores() -> dict:
     """「その他」＋「YG用」の店舗設定（読み取り専用・失敗時は空 dict）。
 
     YG用の店舗には `_group: "yg"` を付けて合流させる（同名は「その他」側を優先）。
-    一覧表示を分けたいときは _other_group_stores() を使う。"""
+    ただし「その他」側が参照行 `{"_from_group": "yg"}` だけのときは、YGの設定をそのまま使い
+    `_also_other` を付ける（YG用と「その他」の両方に出す・設定本体は _yg_stores.json の1か所）。
+    参照先が無い参照行は捨てる。一覧表示を分けたいときは _other_group_stores() を使う。"""
     _stores = dict(_read_store_json(_OTHER_STORES_PATH))
     for _nm, _cfg in _read_store_json(_YG_STORES_PATH).items():
-        if _nm not in _stores and isinstance(_cfg, dict):
+        if not isinstance(_cfg, dict):
+            continue
+        if _nm not in _stores:
             _stores[_nm] = {**_cfg, "_group": _YG_GROUP}
-    return _stores
+        elif (_stores[_nm] or {}).get("_from_group") == _YG_GROUP:
+            _stores[_nm] = {**_cfg, "_group": _YG_GROUP, "_also_other": True}
+    return {_k: _v for _k, _v in _stores.items()
+            if not ((_v or {}).get("_from_group") and "_group" not in (_v or {}))}
 
 
 def _other_group_stores(group: str = "") -> dict:
-    """一覧表示用：group="" は「その他」、group="yg" は「YG用」の店舗だけを返す。"""
+    """一覧表示用：group="" は「その他」、group="yg" は「YG用」の店舗だけを返す。
+    `_also_other` のYG店舗は「その他」にも含める。"""
     return {_k: _v for _k, _v in _load_other_stores().items()
-            if (_v or {}).get("_group", "") == group}
+            if (_v or {}).get("_group", "") == group
+            or (group == "" and (_v or {}).get("_also_other"))}
+
+
+def _other_slump_from_other(store: str) -> bool:
+    """YG店舗のスランプ付き結果を「その他」から開いたか（URL の src=other）。
+    現在地表示と「← 戻る」の行き先だけに使う（画像デザインは入口に関係なくYG仕様）。"""
+    try:
+        return _is_yg_store(store) and st.session_state.get("selected_src") == "other"
+    except Exception:
+        return False
 
 
 def _is_yg_store(store: str) -> bool:
@@ -2985,13 +3003,17 @@ IMAGE_HANDLERS: dict[str, callable] = {
 # ■ ⑧Streamlit ページ
 # =============================================================================
 
-def _navigate(page: str, store: str | None = None, itype: str | None = None) -> None:
-    """ページ遷移: session_state と URL query_params を同時に更新してブラウザ履歴に積む"""
+def _navigate(page: str, store: str | None = None, itype: str | None = None,
+              src: str | None = None) -> None:
+    """ページ遷移: session_state と URL query_params を同時に更新してブラウザ履歴に積む
+    src（other_slump だけ）：YG店舗を「その他」から開いたとき "other"。URL の src に載せる。"""
     st.session_state.page = page
     if store is not None:
         st.session_state.selected_store = store
     if itype is not None:
         st.session_state.selected_image_type = itype
+    if page == "other_slump":
+        st.session_state.selected_src = src or ""
 
     params: dict[str, str] = {"page": page}
     s = st.session_state.get("selected_store", "")
@@ -3001,6 +3023,8 @@ def _navigate(page: str, store: str | None = None, itype: str | None = None) -> 
         params["store"] = s
     if page == "work" and t:
         params["type"] = t
+    if page == "other_slump" and src:
+        params["src"] = src
     st.query_params.from_dict(params)
     st.rerun()
 
@@ -3017,6 +3041,8 @@ def _sync_from_query_params() -> None:
         qp_type = qp.get("type", "")
         if qp_type:
             st.session_state.selected_image_type = qp_type
+        if qp_page == "other_slump":
+            st.session_state.selected_src = qp.get("src", "")
 
 def img_to_bytes(img: Image.Image) -> bytes:
     """PIL Image を PNG バイト列に変換する（ダウンロード用）"""
@@ -4653,7 +4679,8 @@ def show_other_store_page() -> None:
                 if st.button(_other_display_name(_nm) or _nm, key=f"other_store_{_nm}",
                              type=("primary" if _nm == _cur else "secondary"),
                              use_container_width=True):
-                    _navigate("other_slump", store=_nm)
+                    _navigate("other_slump", store=_nm,
+                              src=("other" if _is_yg_store(_nm) else None))
         st.markdown("---")
         _q = st.text_input("店舗を検索", key="other_store_query",
                            placeholder="店舗名の一部を入力（例: 飯田橋）")
@@ -4671,7 +4698,8 @@ def show_other_store_page() -> None:
         st.markdown("")
         if st.button("📊 スランプ付き結果", key="other_slump_btn",
                      type="primary", use_container_width=True):
-            _navigate("other_slump", store=_sel)
+            _navigate("other_slump", store=_sel,
+                      src=("other" if _is_yg_store(_sel) else None))
 
     st.markdown("---")
     if st.button("← 店舗選択に戻る", key="back_to_store_from_other"):
@@ -21639,7 +21667,9 @@ def show_auto_page(with_slump: bool = False) -> None:
     # ── 戻るボタン（常に末尾に1つだけ描画）──────────────────────────
     st.markdown("---")
     if st.button("← 戻る", key="auto_back"):
-        if _is_yg_store(store):
+        if _other_slump_from_other(store):
+            _navigate("other")   # YG店舗を「その他」から開いたときは「その他」へ戻る
+        elif _is_yg_store(store):
             _navigate("yg")
         else:
             _navigate("image_type")
@@ -32613,7 +32643,8 @@ def main() -> None:
         elif page == "osusume_top":
             st.markdown("📍 **おすすめ**")
         elif page == "other_slump":
-            st.markdown("📍 **YG用**" if _is_yg_store(st.session_state.selected_store)
+            st.markdown("📍 **YG用**" if (_is_yg_store(st.session_state.selected_store)
+                                          and not _other_slump_from_other(st.session_state.selected_store))
                         else "📍 **その他**")
             st.markdown(f"　→ **{st.session_state.selected_store}**")
             st.markdown("　→ **📊 スランプ付き結果**")

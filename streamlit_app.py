@@ -551,10 +551,11 @@ def _other_group_stores(group: str = "") -> dict:
 
 
 def _other_slump_from_other(store: str) -> bool:
-    """YG店舗のスランプ付き結果を「その他」から開いたか（URL の src=other）。
-    現在地表示と「← 戻る」の行き先だけに使う（画像デザインは入口に関係なくYG仕様）。"""
+    """「その他」にも所属するYG店舗（_also_other）のスランプ付き結果を「その他」から開いたか（URL の src=other）。
+    現在地表示・「← 戻る」の行き先・画像デザイン（_yg_theme）の切り替えに使う。"""
     try:
-        return _is_yg_store(store) and st.session_state.get("selected_src") == "other"
+        return (_is_yg_store(store) and bool(_other_store_cfg(store).get("_also_other"))
+                and st.session_state.get("selected_src") == "other")
     except Exception:
         return False
 
@@ -846,10 +847,12 @@ _YG_SL_WM_K        = 0.30                  # 透かしの濃さ（赤地を暗�
 
 def _yg_theme() -> bool:
     """YG用画像のデザインで描くか（page × store の AND・保存フラグなし）。
+    YG店舗でも「その他」から開いたとき（src=other）は False＝「その他」の通常デザイン。
     Streamlit 外（純粋テスト・subprocess）では False。"""
     try:
+        _st = st.session_state.get("selected_store")
         return (st.session_state.get("page") in _YG_THEME_PAGES
-                and _is_yg_store(st.session_state.get("selected_store")))
+                and _is_yg_store(_st) and not _other_slump_from_other(_st))
     except Exception:
         return False
 

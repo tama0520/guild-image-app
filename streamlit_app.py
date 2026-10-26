@@ -30425,7 +30425,8 @@ def _build_variety_panel_grid(
 
     max_panels は採用するパネルの上限枚数。**既定4は変更しない**（従来動作）。
     2 を渡すと1行2列の横並びになる（_rows の計算はそのまま・新レイアウトは作らない）。
-    選定順位・パネル取得・未登録機種の繰り上げ・並び順は max_panels によらず不変。"""
+    選定順位・パネル取得・未登録機種の繰り上げ・並び順は max_panels によらず不変。
+    採用がちょうど3枚になったときは上位2枚だけにする（2列で折り返すと右下が空欄になるため・2026-10-26）。"""
     # 機種ごとに最高差枚とその台番、および最小台番を集計
     best: dict[str, tuple[int, int]] = {}
     min_ban: dict[str, int] = {}
@@ -30458,6 +30459,8 @@ def _build_variety_panel_grid(
             break
     if not _chosen:
         return None
+    if len(_chosen) == 3:
+        _chosen = _chosen[:2]   # 差枚順に選んだ先頭2枚（3枚だと右下が空欄になる）
     # 台番昇順に並べ替え（上2下2）。同値は機種名で安定ソート
     _chosen.sort(key=lambda x: (x[0], x[1]))
     _chosen = [(_r, _p) for _r, _m, _p in _chosen]

@@ -228,6 +228,24 @@ _ROTE_WEEKLY_NEW_THEME_STORES: "frozenset[str]" = frozenset({
 # 渋谷新館の月間①(t2)・月間②(t4)は表画像を使わないため。widget は expander 内で常に描画する。
 _WEEKLY_ACC_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
 _WEEKLY_ACC_TABLES: "frozenset[int]" = frozenset({2, 4})
+# 上野本館と同じ「📅 月間オススメ表①（t2）」を使う店舗。
+# 開始日のある店舗は、基準日（Excel日付／今日）が開始日より前なら①を表示・生成しない。
+# monthly_start が未保存なら開始日を初日として扱う（初日固定→7日スライドは上野本館と同じ計算）。
+_MONTHLY_T2_STORES: "frozenset[str]" = frozenset({"上野本館", "新大久保"})
+_MONTHLY_T2_FIRST_DAY: "dict[str, datetime.date]" = {"新大久保": datetime.date(2026, 10, 27)}
+# ①の機種名を2欄にする店舗と、未保存時の初期値（machine_name / machine_name2）・タイトル初期値
+_MONTHLY_T2_TWO_MACHINES: "dict[str, tuple[str, str]]" = {"新大久保": ("ネオアイム", "ゴージャグ3")}
+_MONTHLY_T2_DEFAULT_TITLE: "dict[str, str]" = {"新大久保": "毎日オススメ ネオアイム・ゴージャグ3"}
+
+
+def _monthly_t2_visible(store: str, ref) -> bool:
+    _fd = _MONTHLY_T2_FIRST_DAY.get(store)
+    return _fd is None or (ref is not None and ref >= _fd)
+
+
+def _monthly_t2_ms_fallback(store: str) -> "str | None":
+    _fd = _MONTHLY_T2_FIRST_DAY.get(store)
+    return _fd.isoformat() if _fd else None
 
 
 def _rote_weekly_new_theme(store: str) -> bool:
@@ -26919,6 +26937,7 @@ def _save_weekly_items(
     blank_days: list[bool] | None = None,
     blank_date_checks: dict | None = None,
     monthly_start_date: str | None = None,
+    machine_name2: str | None = None,
 ) -> None:
     _data: dict = {}
     if os.path.exists(_WEEKLY_SAVE_FILE):
@@ -26944,6 +26963,8 @@ def _save_weekly_items(
         _cur["start_date"] = start_date
     if machine_name is not None:
         _cur["machine_name"] = machine_name
+    if machine_name2 is not None:
+        _cur["machine_name2"] = machine_name2
     if date_checks is not None:
         _cur["date_checks"] = date_checks
     if cell_machines is not None:
@@ -27205,8 +27226,11 @@ def _draw_weekly_table_image(
     title: str = "週間オススメ",
     cell_machines=None,
     theme_new: bool = False,
+    title_fit: bool = False,
 ) -> "Image.Image":
-    """週間オススメ表をPIL画像で生成する。"""
+    """週間オススメ表をPIL画像で生成する。
+    title_fit=True のときだけ、タイトルが表幅を超える場合に文字を縮小し、
+    それでも収まらなければ項目列を広げる（既定 False＝従来と同一）。"""
     # cell_machinesモードはHTML+CSS+Playwright実装に委譲
     if cell_machines is not None:
         return _weekly_table_html_image(items, date_labels, cell_machines, title,
@@ -27307,6 +27331,12 @@ def _draw_weekly_table_image(
         _row_heights = [ROW_H * max(1, len(it.split('\n'))) for _, it in active]
         _row_nmach   = [max(1, len(it.split('\n'))) for _, it in active]
 
+    _ttl_sz = TITLE_SZ
+    if title_fit and title:
+        while _ttl_sz > FONT_SZ and int(_measure(title, _ttl_sz) * 1.1) + PAD * 2 > ITEM_W + DAY_W * n_days:
+            _ttl_sz -= 1
+        ITEM_W = max(ITEM_W, int(_measure(title, _ttl_sz) * 1.1) + PAD * 2 - DAY_W * n_days)
+
     W = ITEM_W + DAY_W * n_days
     H = TITLE_H + HDR_H + sum(_row_heights)
     img = Image.new("RGB", (W, H), C_WH)
@@ -27350,7 +27380,7 @@ def _draw_weekly_table_image(
         tx      = x + (w - total_w) // 2
         _draw_mixed(text, tx, y, h, sz, fg, sym_stroke=sym_stroke)
 
-    _cell(0, 0, W, TITLE_H, C_TTL_BG, title, C_WH, size=TITLE_SZ)
+    _cell(0, 0, W, TITLE_H, C_TTL_BG, title, C_WH, size=_ttl_sz)
     cy = TITLE_H
     _cell(0, cy, ITEM_W, HDR_H, C_DHDR_BG, "", C_DHDR_FG)
     for j, dl in enumerate(date_labels):
@@ -27452,8 +27482,34 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
         # _weekly_init_machine_ も更新（ナビゲーション離脱→復帰時にwidgetキーが消え古い値に戻るのを防ぐ）
         st.session_state[f"_weekly_init_machine_{store}_t{_tn}"] = st.session_state.get(_mname_key, "")
 
-    st.text_input("機種名", value=st.session_state[_mname_key], key=_mname_key,
-                  on_change=_on_machine_change)
+    if _tn == 2 and store in _MONTHLY_T2_TWO_MACHINES:
+        # ①の機種名を2欄（machine_name / machine_name2）。保存・復元は1欄目と同じ方式
+        _mname2_key = f"weekly_machine2_{store}_t{_tn}"
+        if _mname2_key not in st.session_state:
+            st.session_state[_mname2_key] = st.session_state.get(f"_weekly_init_machine2_{store}_t{_tn}", "")
+
+        def _on_machine2_change():
+            _save_weekly_items(
+                store,
+                [st.session_state.get(f"weekly_item_{store}_t{_tn}_{_j}", "") for _j in range(_WEEKLY_N_ITEMS)],
+                title=st.session_state.get(f"weekly_title_{store}_t{_tn}", _default_title),
+                machine_name=st.session_state.get(_mname_key, ""),
+                machine_name2=st.session_state.get(_mname2_key, ""),
+                table_num=_tn,
+            )
+            st.session_state[f"_weekly_init_machine_{store}_t{_tn}"] = st.session_state.get(_mname_key, "")
+            st.session_state[f"_weekly_init_machine2_{store}_t{_tn}"] = st.session_state.get(_mname2_key, "")
+
+        _mc1, _mc2 = st.columns(2)
+        with _mc1:
+            st.text_input("機種名1", value=st.session_state[_mname_key], key=_mname_key,
+                          on_change=_on_machine2_change)
+        with _mc2:
+            st.text_input("機種名2", value=st.session_state[_mname2_key], key=_mname2_key,
+                          on_change=_on_machine2_change)
+    else:
+        st.text_input("機種名", value=st.session_state[_mname_key], key=_mname_key,
+                      on_change=_on_machine_change)
 
     # 渋谷新館の月間オススメ表①②（t2/t4）は表画像を使わないため、②〜⑤をアコーディオン内へ移す。
     # expander は閉じていても中の widget を描画するので、入力値・保存・復元は従来どおり。
@@ -27509,14 +27565,15 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
         # ── ③/④ 開始日
         _dow_names = ["月", "火", "水", "木", "金", "土", "日"]
         # 上野本館の月間オススメ表はExcel未アップロード時もdate_checks（日付キー）で読む
-        _use_excel_date = _tn in (2, 3, 4, 5) and (excel_date is not None or store == "上野本館")
+        _use_excel_date = _tn in (2, 3, 4, 5) and (excel_date is not None or store in _MONTHLY_T2_STORES)
 
         if _use_excel_date:
             st.markdown("**④ 表示期間**")
-            if store == "上野本館":
+            if store in _MONTHLY_T2_STORES:
                 _ref = excel_date if excel_date is not None else _dt.date.today()
                 # monthly_start（リセット日）が6日以内なら初日固定増列、7日超でスライド
-                _ms_raw = _weekly_table_data(store, _tn).get("monthly_start")
+                _ms_raw = (_weekly_table_data(store, _tn).get("monthly_start")
+                           or _monthly_t2_ms_fallback(store))
                 _ms_dt = None
                 if _ms_raw:
                     try:
@@ -27540,7 +27597,7 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
                 f"{_end.month}/{_end.day}({_dow_names[_end.weekday()]})"
                 + _cap_suffix
             )
-            if store == "上野本館":
+            if store in _MONTHLY_T2_STORES:
                 def _do_monthly_reset(_tn=_tn):
                     _today = _dt.date.today()
                     _mit = [st.session_state.get(f"weekly_item_{store}_t{_tn}_{_mi}", "") for _mi in range(_WEEKLY_N_ITEMS)]
@@ -27994,7 +28051,8 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
                     _out_checks = [[False] for _ in _checks]
                 _wimg = _rote_margin(store, _draw_weekly_table_image(
                     _items, _out_labels, _out_checks, title=_title or "週間オススメ",
-                    theme_new=_rote_weekly_new_theme(store)))
+                    theme_new=_rote_weekly_new_theme(store),
+                    title_fit=store in _MONTHLY_T2_TWO_MACHINES))
                 _buf  = _io.BytesIO()
                 _wimg.save(_buf, format="PNG", dpi=(300, 300))
                 _buf.seek(0)
@@ -28025,10 +28083,15 @@ def show_rote_page() -> None:
         st.session_state[_rote_loaded_key] = True
 
     # 週間オススメ表の項目復元（渋谷新館・上野本館・非ウィジェットキーパターン）
-    _wt_tn_list = (1, 2, 3, 4) if store == "渋谷新館" else ((2, 4, 5) if store == "上野本館" else ())
+    _wt_tn_list = (1, 2, 3, 4) if store == "渋谷新館" else ((2, 4, 5) if store == "上野本館" else
+                                                          ((2,) if store in _MONTHLY_T2_STORES else ()))
     if _wt_tn_list:
         _wt_loaded_key = f"weekly_items_loaded_{store}"
-        if not st.session_state.get(_wt_loaded_key):
+        # 開始日前で①を描画しなかったrun・ページ離脱の後は widget キーが消える。
+        # 2欄店舗はそのとき JSON から読み直す（ロード時の古い初期値で上書きしない）
+        _wt_reload = (store in _MONTHLY_T2_TWO_MACHINES
+                      and f"weekly_item_{store}_t2_0" not in st.session_state)
+        if not st.session_state.get(_wt_loaded_key) or _wt_reload:
             for _tn in _wt_tn_list:
                 for _i, _v in enumerate(_load_weekly_items(store, _tn)):
                     st.session_state[f"_weekly_init_{store}_t{_tn}_{_i}"] = _v
@@ -28041,6 +28104,14 @@ def show_rote_page() -> None:
                         )
                 st.session_state[f"_weekly_init_start_{store}_t{_tn}"] = _load_weekly_start_date(store, _tn)
                 st.session_state[f"_weekly_init_machine_{store}_t{_tn}"] = _load_weekly_machine(store, _tn)
+                if _tn == 2 and store in _MONTHLY_T2_TWO_MACHINES:
+                    # 未保存のときだけ初期値（保存済みの値・空欄は上書きしない）
+                    _t2d = _weekly_table_data(store, 2)
+                    _t2dm = _MONTHLY_T2_TWO_MACHINES[store]
+                    st.session_state[f"_weekly_init_machine_{store}_t2"] = _t2d.get("machine_name", _t2dm[0])
+                    st.session_state[f"_weekly_init_machine2_{store}_t2"] = _t2d.get("machine_name2", _t2dm[1])
+                    if "title" not in _t2d and store in _MONTHLY_T2_DEFAULT_TITLE:
+                        st.session_state[f"_weekly_init_title_{store}_t2"] = _MONTHLY_T2_DEFAULT_TITLE[store]
                 _saved_blanks = _load_weekly_blank_days(store, _tn)
                 for _cj in range(7):
                     st.session_state[f"_weekly_init_blank_{store}_t{_tn}_{_cj}"] = (
@@ -28537,6 +28608,9 @@ def show_rote_page() -> None:
                 show_weekly_table_section(store, table_num=4, excel_date=_rd_early)
             with st.expander("📅 月間オススメ表③", expanded=False):
                 show_weekly_table_section(store, table_num=5, excel_date=_rd_early)
+    elif store in _MONTHLY_T2_TWO_MACHINES and _monthly_t2_visible(
+            store, _rd_early if _rd_early is not None else datetime.date.today()):
+        show_weekly_table_section(store, table_num=2, excel_date=_rd_early)
 
     if _rote_single:
         pass                      # machine_inputs3〜6 は上で確定済み
@@ -28750,9 +28824,11 @@ def show_rote_page() -> None:
                     _crank.save(os.path.join(_rote_out_dir, _rfn), format="PNG", dpi=(300, 300))
 
             # ── 週間/月間オススメ表の保存（渋谷新館・上野本館）──────────────
-            if store in ("渋谷新館", "上野本館"):
+            _t2_extra = (store in _MONTHLY_T2_TWO_MACHINES and _monthly_t2_visible(
+                store, _rd if _rd is not None else datetime.date.today()))
+            if store in ("渋谷新館", "上野本館") or _t2_extra:
                 # 渋谷新館は旧週間詳細表（t1）画像を生成しない（UI廃止済み）
-                _wt_save_list = (2, 3, 4) if store == "渋谷新館" else (2, 4, 5)
+                _wt_save_list = (2, 3, 4) if store == "渋谷新館" else ((2, 4, 5) if store == "上野本館" else (2,))
                 _wt_off = _ROTE_TBL_IMG_OFF.get(store, frozenset())
                 if _wt_off:
                     # 表画像を作らない月間表（渋谷新館の月間①・②）は最初から生成・保存しない。
@@ -28786,7 +28862,7 @@ def show_rote_page() -> None:
                     if _wtn in _wt_off:
                         continue   # 表画像を作らない（入力UI・保存値はそのまま）
                     # 月間オススメ表②（t4）・③（t5）は機種名・項目がすべて空ならスキップ
-                    if _wtn in (4, 5):
+                    if _wtn in (4, 5) or _t2_extra:
                         _tN_mac = st.session_state.get(f"weekly_machine_{store}_t{_wtn}", "").strip()
                         _tN_its = [st.session_state.get(f"weekly_item_{store}_t{_wtn}_{_wi}", "").strip() for _wi in range(_WEEKLY_N_ITEMS)]
                         if not _tN_mac and not any(_tN_its):
@@ -28797,7 +28873,8 @@ def show_rote_page() -> None:
                     # Excel日付が最終日、過去7日間（上野本館・渋谷新館共通）
                     if _wtn in (2, 3, 4, 5):
                         _rd_ref = _rd if _rd is not None else datetime.date.today()
-                        _ms_gen_raw = _weekly_table_data(store, _wtn).get("monthly_start")
+                        _ms_gen_raw = (_weekly_table_data(store, _wtn).get("monthly_start")
+                                       or _monthly_t2_ms_fallback(store))
                         _ms_gen_dt = None
                         if _ms_gen_raw:
                             try:
@@ -28863,7 +28940,7 @@ def show_rote_page() -> None:
                                 # （上野本館は常に日付キーモードのため従来と完全に同一）。
                                 _wt_blank_dc  = _load_weekly_blank_date_checks(store, _wtn)
                                 _wt_blank_pos = (_load_weekly_blank_days(store, _wtn)
-                                                 if (_rd is None and store != "上野本館") else [])
+                                                 if (_rd is None and store not in _MONTHLY_T2_STORES) else [])
                                 _wt_blank = [
                                     _wt_blank_dc.get(
                                         (_wt_start + datetime.timedelta(days=_wj)).isoformat(),
@@ -28878,7 +28955,7 @@ def show_rote_page() -> None:
                                 for _wi in range(_WEEKLY_N_ITEMS)
                             ]
                             # 上野本館の月間表は全列を常に表示（日付が増えていく仕様）
-                            _uo_monthly_no_trim = (store == "上野本館" and _wtn in (2, 4, 5))
+                            _uo_monthly_no_trim = (store in _MONTHLY_T2_STORES and _wtn in (2, 4, 5))
                             if not _uo_monthly_no_trim:
                                 _wt_last_col = -1
                                 for _wj in range(_wt_n_cols):
@@ -28896,6 +28973,7 @@ def show_rote_page() -> None:
                                 _wt_items, _wt_dlabels, _wt_checks,
                                 title=_wt_title or _wt_default_title,
                                 theme_new=_rote_weekly_new_theme(store),
+                                title_fit=_t2_extra,
                             ))
                         if _wtn == 1:
                             _wt1_mac = st.session_state.get(f"weekly_machine_{store}_t1", "").strip()
@@ -28909,6 +28987,11 @@ def show_rote_page() -> None:
                         elif _wtn == 5:
                             _wt5_mac = st.session_state.get(f"weekly_machine_{store}_t5", "").strip()
                             _fname = f"{_wt5_mac}表.png" if _wt5_mac else "月間オススメ表③.png"
+                        elif _t2_extra:
+                            _wt2_macs = [st.session_state.get(f"weekly_machine{_sfx}_{store}_t2", "").strip()
+                                         for _sfx in ("", "2")]
+                            _wt2_macs = [_m for _m in _wt2_macs if _m]
+                            _fname = f"{'・'.join(_wt2_macs)}表.png" if _wt2_macs else "月間オススメ表①.png"
                         elif store == "上野本館":
                             _wt2_mac = st.session_state.get(f"weekly_machine_{store}_t2", "").strip()
                             _fname = f"{_wt2_mac}表.png" if _wt2_mac else "月間オススメ表①.png"

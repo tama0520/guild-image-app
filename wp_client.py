@@ -1288,6 +1288,11 @@ def plan_blocks(payload: dict) -> list[dict]:
     if sue_files:
         plan.append({"type": "h2", "text": H2_SUEBANGAI})
         for fn in sue_files:
+            # payload["sue_h3"] の店舗（新宿歌舞伎町の記事用）だけ、各画像の直前へH3。
+            # 文言は⑧が保存したファイル名から拡張子を除いたもの（＝画像タイトル）。
+            # キーを渡さない店舗は従来どおり H2 → 画像 のまま（1ブロックも増えない）。
+            if payload.get("sue_h3"):
+                plan.append({"type": "h3", "text": os.path.splitext(fn)[0]})
             plan.append({"type": "image", "file": fn, "label": f"末尾 {fn}"})
         # 末尾コメントは **末尾画像の後に1回だけ**。payload["comments"] に
         # "suebangai" を渡した店舗だけ入る（他店舗は1ブロックも変わらない）。

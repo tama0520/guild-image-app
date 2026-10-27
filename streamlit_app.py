@@ -6149,6 +6149,9 @@ _ART_WP_JUG_TAIL_STORES = frozenset({"新宿歌舞伎町"})
 # 記事用WordPress本文の③で 列画像 → 並び画像 の順にする店舗（payload["retsu_first"]）。
 # ⑦プレビューは元から 列 → 並び。既定（キーなし）は従来どおり 並び → 列。
 _ART_WP_RETSU_FIRST_STORES = frozenset({"新宿歌舞伎町"})
+# 記事用WordPress本文の④末尾で、各末尾画像の直前へH3（画像のファイル名から拡張子を除いたもの）を
+# 入れる店舗（payload["sue_h3"]）。既定（キーなし）は従来どおり H2 → 画像 だけ。
+_ART_WP_SUE_H3_STORES = frozenset({"新宿歌舞伎町"})
 
 # WordPress冒頭へ「ななこポスト」セクションを入れる店舗。
 # **高田馬場は対象外**（既存のWordPress本文をバイト単位で維持するため）。
@@ -25816,6 +25819,8 @@ def show_auto_article_page() -> None:
                     # wp_client._existing_files() が最終判定する（H2ごと省略される）。
                     _art_wp_pl["suebangai"] = [
                         _fn for _fn, _bns in _art_sue_ban_e.items() if _bns]
+                    if store in _ART_WP_SUE_H3_STORES:
+                        _art_wp_pl["sue_h3"] = True
                     _art_wp_pl["variety"] = (
                         [_art_var_fn_e] if _art_var_fn_e else [])
                     # ── 渋谷新館の記事用にだけ存在するセクション（2026-09-04 追加）──

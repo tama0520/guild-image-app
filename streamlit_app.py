@@ -214,7 +214,7 @@ C_ROTE_NEW_BAN_BG = "#C7B4DD"   # RGB(199, 180, 221)
 
 
 # 2026-09-11: ローテ用の週間／月間オススメ表（{機種名}表.png）を紫系配色にする店舗。
-# 対象は「表.png」を生成する上野本館・渋谷新館だけ。差枚ローテ画像の
+# 対象は「表.png」を生成する上野本館・渋谷新館・新大久保（月間①のみ）だけ。差枚ローテ画像の
 # _ROTE_NEW_THEME_STORES（全8店舗）とは意味が違うので流用しない
 # （流用すると表を作らない店舗まで表テーマONになる）。追加はこの集合の編集のみ。
 # 変えるのは色だけで、画像サイズ・列幅・行高・セル位置・罫線・余白・タイトル位置・
@@ -222,6 +222,7 @@ C_ROTE_NEW_BAN_BG = "#C7B4DD"   # RGB(199, 180, 221)
 _ROTE_WEEKLY_NEW_THEME_STORES: "frozenset[str]" = frozenset({
     "上野本館",
     "渋谷新館",
+    "新大久保",
 })
 
 # ローテ用の月間オススメ表で、①機種名だけを常時表示し②〜⑤をアコーディオンへ入れる店舗・表。
@@ -26531,6 +26532,36 @@ def _generate_rote_result_text(
     return "\n".join(lines).rstrip()
 
 
+def _monthly_t2_result_text(
+    df: pd.DataFrame, machines: list[str], date_obj, store_full: str,
+) -> str:
+    """新大久保ローテ：月間オススメ表①の機種ごとに +1,000枚以上の台を出す結果テキスト。
+    機種の抽出は generate_rote_image() と同じ _rote_match_sub()、並びは上野本館の
+    月間表結果と同じ差枚降順→台番昇順。台番行は「・【○番台】+差枚枚」。"""
+    dow = ["月", "火", "水", "木", "金", "土", "日"][date_obj.weekday()]
+    lines = [f"{date_obj.month}/{date_obj.day}({dow})📝結果📝", store_full, "",
+             "🏆毎日オススメポスター🏆"]
+    for kw in machines:
+        kw = (kw or "").strip()
+        if not kw:
+            continue
+        lines += ["", f"【{kw}】"]
+        if "機種名" not in df.columns:
+            continue
+        sub = _rote_match_sub(df, "機種名", kw)
+        if sub.empty:
+            continue
+        sub["差枚"] = pd.to_numeric(sub["差枚"], errors="coerce").fillna(0).astype(int)
+        sub["台番"] = pd.to_numeric(sub["台番"], errors="coerce").fillna(0).astype(int)
+        sub = sub[sub["差枚"] >= 1000].sort_values(["差枚", "台番"], ascending=[False, True])
+        if sub.empty:
+            continue
+        lines.append("💎1,000枚超")
+        for _, row in sub.iterrows():
+            lines.append(f"・【{int(row['台番'])}番台】+{int(row['差枚']):,}枚")
+    return "\n".join(lines).rstrip()
+
+
 # 渋谷新館ローテ 週間オススメ統合結果テキストの系列見出し
 # （既存の「🤡ジャグラーシリーズ🤡」と同じ固定文言。機種名からは導出できないため定数）
 _SHIBUYA_WEEKLY_SERIES = "北斗シリーズ"
@@ -29155,6 +29186,30 @@ def show_rote_page() -> None:
                     with open(_txt_path, "w", encoding="utf-8") as _f:
                         _f.write(_rote_result)
 
+            # ── 新大久保：月間オススメ表①の機種ごとのローテ画像と毎日オススメ結果テキスト ──
+            # 画像は上野本館ローテ①と同じ generate_rote_image()（1機種ずつ・紫系）。
+            _t2_rote_imgs: list = []
+            _t2_result = ""
+            if _t2_extra and _rd is not None:
+                _t2_macs: list[str] = []
+                for _sfx in ("", "2"):
+                    _t2m = st.session_state.get(f"weekly_machine{_sfx}_{store}_t2", "").strip()
+                    if _t2m and _t2m not in _t2_macs:
+                        _t2_macs.append(_t2m)
+                for _t2m in _t2_macs:
+                    if "機種名" not in df.columns or _rote_match_sub(df, "機種名", _t2m).empty:
+                        continue
+                    _t2im = _rote_margin(store, generate_rote_image(
+                        df, [_t2m], date_label=_rote_date_label, store=store,
+                        with_legend=not _rote_plain(store)))
+                    _t2im.save(os.path.join(_rote_out_dir, f"{_t2m}ローテ.png"), format="PNG", dpi=(300, 300))
+                    _t2_rote_imgs.append((_t2m, _t2im))
+                if _t2_macs:
+                    _t2_result = _monthly_t2_result_text(df, _t2_macs, _rd, _rote_store_full)
+                    with open(os.path.join(_rote_out_dir, f"{'・'.join(_t2_macs)}結果.txt"),
+                              "w", encoding="utf-8") as _f:
+                        _f.write(_t2_result)
+
             # ── 横並びプレビュー ─────────────────────────────────────
             if _rote_single:
                 # ①② / ③④ / ⑤⑥ の2列×最大3段。生成されたカテゴリのみ表示
@@ -29220,6 +29275,12 @@ def show_rote_page() -> None:
                         mime="image/png",
                         key="rote_dl_btn3",
                     )
+            if _t2_rote_imgs:
+                _t2_cols = st.columns(2)
+                for _t2i, (_t2m, _t2im) in enumerate(_t2_rote_imgs):
+                    with _t2_cols[_t2i % 2]:
+                        st.markdown(f"#### {_t2m}")
+                        st.image(_t2im, use_container_width=True)
 
             # ── 結果テキスト表示 ──────────────────────────────────────
             if _rote_result:
@@ -29239,6 +29300,9 @@ def show_rote_page() -> None:
                 else:
                     st.markdown("### 結果テキスト")
                     st.text_area("", value=_rote_result, height=400, key="rote_result_area")
+            if _t2_result:
+                st.markdown("### 毎日オススメ結果")
+                st.text_area("", value=_t2_result, height=300, key="rote_result_area_t2")
 
             # ── ZIP データをセッションに保存（ボタン直下スロットへ後で表示）──
             if _IS_CLOUD and _rote_out_dir and os.path.isdir(_rote_out_dir):

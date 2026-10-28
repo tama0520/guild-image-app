@@ -1694,10 +1694,21 @@
           false,
           false,
           false
+        ],
+        "2026-10-28": [
+          false,
+          false,
+          false,
+          false,
+          true,
+          false,
+          false,
+          false
         ]
       },
       "blank_date_checks": {
-        "2026-10-27": false
+        "2026-10-27": false,
+        "2026-10-28": false
       }
     }
   }

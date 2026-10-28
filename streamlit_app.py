@@ -14738,6 +14738,44 @@ def _ban_list_omit_msg(img) -> str:
     return f"台番一覧：75セルを超えたため末尾を省略（{_n}行）" if _n else ""
 
 
+# 台番一覧の店舗では作らなくなった高配分・並びの個別画像（過去の⑧等の残り）の判定。
+# 命名規則は自動高配分 `{機種名}_高配分.jpg`、並び `{機種名}(N台並び).jpg`（同名重複時は
+# `（開始～終了）` 付き）で、どちらも連番 `NN_` と横版 `_side` があり得る。
+# 末尾・⑤・全台系・②個別（優秀台）・列 `(列仕掛け)`・その他・ジャグラー統合・台番一覧には一致しない。
+_BAN_LIST_OLD_HIGH_RE = re.compile(r"_高配分(_side)?\.jpg$")
+_BAN_LIST_OLD_NAMI_RE = re.compile(r"\(\d+台並び\)(（\d+～\d+）)?(_side)?\.jpg$")
+
+
+def _ban_list_out_dir(excel_name: str) -> "str | None":
+    """⑧と同じ出力フォルダ（ローカルのみ・Cloud は⑧が毎回一時フォルダなので None）。"""
+    if _IS_CLOUD or not excel_name:
+        return None
+    return os.path.join(_DESKTOP, os.path.splitext(excel_name)[0].replace("_20S", ""))
+
+
+def _ban_list_purge_old_images(store: str, output_dir: "str | None", log=None) -> list[str]:
+    """台番一覧の店舗だけ：出力フォルダに残る旧仕様の高配分・並びの個別画像を消す。
+    判定は上の命名規則に完全一致するものだけ（部分一致で広く消さない）。"""
+    if store not in _BAN_LIST_IMG_STORES or not output_dir or not os.path.isdir(output_dir):
+        return []
+    _removed: list[str] = []
+    for _f in sorted(os.listdir(output_dir)):
+        _bare = re.sub(r"^\d{2}_", "", _f)
+        if not (_BAN_LIST_OLD_HIGH_RE.search(_bare) or _BAN_LIST_OLD_NAMI_RE.search(_bare)):
+            continue
+        _fp = os.path.join(output_dir, _f)
+        if not os.path.isfile(_fp):
+            continue
+        try:
+            os.remove(_fp)
+            _removed.append(_f)
+            if log:
+                log(f"  🗑️ 旧画像を削除（台番一覧へ集約）: {_f}")
+        except OSError:
+            pass
+    return _removed
+
+
 def _ban_list_image_manual(store: str, df, excel_name: str, ban_map: dict,
                            kinds: dict) -> "Image.Image | None":
     """台番一覧（📝記入部分のみプレビューと📝の⑧で共通）。
@@ -17818,6 +17856,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                        for _it in _prev_result.get("high_ratio_list", [])}
                         _bl_drop_pv |= set(locals().get("_narabi_ban_map") or {})
                         _prev_img_list = [(_f, _i) for _f, _i in _prev_img_list if _f not in _bl_drop_pv]
+                        _ban_list_purge_old_images(store, _ban_list_out_dir(uploaded.name))
                     st.session_state[_aprev_key]    = _dedup_previews(_prev_img_list)
                     # 台番一覧（モグ玄・新大久保のみ）：⑧と同じ関数・同じ入力で作る
                     if store in _BAN_LIST_IMG_STORES:
@@ -18274,6 +18313,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         if store in _BAN_LIST_IMG_STORES:
                             _manual_imgs = [(_f, _i) for _f, _i in _manual_imgs
                                             if _bl_kind_m.get(_f) not in ("high", "nami")]
+                            _ban_list_purge_old_images(store, _ban_list_out_dir(uploaded.name))
                             _bl_m_img = _ban_list_image_manual(store, _df_m, uploaded.name,
                                                                _manual_ban_map, _bl_kind_m)
                         if _manual_imgs or _bl_m_img is not None:
@@ -20139,6 +20179,7 @@ def show_auto_page(with_slump: bool = False) -> None:
 
                     # 台番一覧（モグ玄・新大久保のみ）：📝プレビューと同じ関数・同じ入力で1枚保存（PNG）
                     if store in _BAN_LIST_IMG_STORES:
+                        _ban_list_purge_old_images(store, output_dir, log=_m_log)
                         _rm_stale_image(output_dir, _BAN_LIST_FN, log=_m_log)
                         _bl_ex_m = _ban_list_image_manual(store, _df_exec_m, uploaded.name,
                                                           _m_exec_ban_map_e, _bl_kind_e)
@@ -21528,17 +21569,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _log(f"  ✅ {_BAN_LIST_FN}")
                     if _ban_list_omit_msg(_bl_ex):
                         _log(f"  ⚠️ {_ban_list_omit_msg(_bl_ex)}")
-                # 高配分の個別画像は保存しない（台番一覧へ載せる・前回分も残さない）
-                for _it_h in result.get("high_ratio_list", []):
-                    _rm_stale_image(output_dir, f"{_make_safe_fn(_it_h['name'])}_高配分.jpg", log=_log)
-                # 並びの個別画像は作っていない。前回の⑧で作った分も残さない（重複名は台番範囲付き）
-                for _it_n in result.get("nami_list", []):
-                    _nb_n = sorted(int(_b) for _b in (_it_n.get("bans") or []))
-                    _nt_n = _make_safe_fn(_it_n.get("title", ""))
-                    if _nt_n:
-                        _rm_stale_image(output_dir, f"{_nt_n}.jpg", log=_log)
-                        if _nb_n:
-                            _rm_stale_image(output_dir, f"{_nt_n}（{_nb_n[0]}～{_nb_n[-1]}）.jpg", log=_log)
+                # 高配分・並びの個別画像は保存しない（台番一覧へ載せる）。今回パイプラインが
+                # 作った高配分画像と、過去の⑧等で作られた旧画像（連番あり／なし）を命名規則で消す
+                _ban_list_purge_old_images(store, output_dir, log=_log)
 
             # ── 全台系→高配分→並び→ジャグラー優秀台→その他 の順にリネーム ──
             if result["ok"]:

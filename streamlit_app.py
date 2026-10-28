@@ -14412,6 +14412,292 @@ def _pv_set_on(store: str, excel_name: str, fname: str) -> None:
         st.session_state[_pv_off_key(store, excel_name)] = _off
 
 
+# ── 台番一覧画像（結果ポスト用・モグ玄・新大久保だけ） ────────────────────
+# 全台系／高配分／並び／末尾／⑤オススメ／その他の優秀台の掲載台を、左右2列の1枚へまとめる。
+# 表の中身は run_auto_pipeline() の戻り値と、画像生成時に確定した末尾・⑤の掲載台番だけで作り、
+# 一覧用に別集計しない。🔍プレビューと⑧実行は同じ _ban_list_image() を同じ入力で呼ぶ。
+_BAN_LIST_IMG_STORES: "frozenset[str]" = frozenset({"モグ玄・新大久保"})
+_BAN_LIST_FN = "台番一覧.png"
+# タイトルバーは HG創英角ポップ体（HGRPP1.TTC・ローカルWindows）。HGRPP1 が無い環境（Cloud）では
+# 画像生成を止めず、リポジトリ同梱で記事用にCloud実績のある NotoSansJP-Black で描く。
+# HGRPP1 はリポジトリへ同梱しない（Office付属フォントのため）。
+_BAN_LIST_TITLE_FONTS: "tuple[str, ...]" = (
+    os.path.join(BASE_DIR, "fonts", "HGRPP1.TTC"),
+    os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts", "HGRPP1.TTC"),
+)
+_BAN_LIST_BODY_FONT = os.path.join(BASE_DIR, "fonts", "NotoSansJP-Black.otf")
+_BAN_LIST_TITLE_BG = "#1D3461"
+_BAN_LIST_ROW_BG: "tuple[str, str]" = ("#dae8f5", "#c0d8ee")
+_BAN_LIST_MINUS_BG = "#f2bfbf"
+_BAN_LIST_MINUS_FG = "#d04040"
+_BAN_LIST_TEXT = "#111111"
+_BAN_LIST_LINE = "#122040"
+_BAN_LIST_FRAME = "#000000"
+_BAN_LIST_TITLE_H, _BAN_LIST_TITLE_FS = 64, 36
+_BAN_LIST_ROW_H, _BAN_LIST_FS = 36, 21
+_BAN_LIST_PAD, _BAN_LIST_GAP = 10, 26
+_BAN_LIST_LW, _BAN_LIST_FRAME_W = 2, 3
+# ブロック種別ごとの見出し・見出し色・区切り線（machine＝機種が変わる所／group＝並びの塊ごと）。
+# title=None の種別は末尾画像名・⑤の入力タイトルを見出しに使う。色を変えるときはここだけ直す。
+_BAN_LIST_KINDS: "dict[str, dict]" = {
+    "zen":    {"title": "優秀機種",         "color": "#d04040", "sep": "machine"},
+    "high":   {"title": "高配分",           "color": "#4a7abf", "sep": "machine"},
+    "nami":   {"title": "並び",             "color": "#4a7abf", "sep": "group"},
+    "sue":    {"title": None,               "color": "#4a7abf", "sep": None},
+    "rec":    {"title": None,               "color": "#4a7abf", "sep": None},
+    "single": {"title": "単品ピックアップ", "color": "#4a7abf", "sep": None},
+}
+
+
+def _ban_list_title_font_path() -> str:
+    """HGRPP1 があればそれ、無ければ本文と同じ NotoSansJP-Black。"""
+    return next((_p for _p in _BAN_LIST_TITLE_FONTS if os.path.exists(_p)), _BAN_LIST_BODY_FONT)
+
+
+def _ban_list_blocks(result: dict, sue_ban_map: "dict | None" = None,
+                     rec_ban_map: "dict | None" = None,
+                     recommended_blocks: "list | None" = None) -> list[dict]:
+    """表示する台があるブロックだけを返す。各ブロックは
+    {kind, title, color, sep, atoms}。atoms は分割で割らない行のかたまり
+    （並びは1つの並びで1かたまり、それ以外は1台ずつ）。各ブロック内は台番昇順。"""
+    df = result.get("df")
+    if df is None or "台番" not in df.columns:
+        return []
+    _rows: dict[int, dict] = {}
+    for _, _r in df.iterrows():
+        try:
+            _b = int(_r["台番"])
+        except (TypeError, ValueError):
+            continue
+        if _b in _rows:
+            continue
+        _g = _r.get("ゲーム数")
+        _d = _r.get("差枚")
+        _rows[_b] = {"ban": _b, "name": str(_r.get("機種名", "")),
+                     "games": None if pd.isna(_g) else int(_g),
+                     "diff": 0 if pd.isna(_d) else int(_d)}
+
+    def _rows_of(bans) -> list[dict]:
+        return [_rows[_b] for _b in sorted({int(_x) for _x in bans}) if _b in _rows]
+
+    blocks: list[dict] = []
+
+    def _add(kind: str, title: "str | None", atoms: list) -> None:
+        atoms = [_a for _a in atoms if _a]
+        if not atoms:
+            return
+        _k = _BAN_LIST_KINDS[kind]
+        blocks.append({"kind": kind, "title": title or _k["title"], "color": _k["color"],
+                       "sep": _k["sep"], "atoms": atoms})
+
+    _zen = [_b for _it in result.get("zen_dai_list", []) for _b in _it.get("bans", [])]
+    _add("zen", None, [[_r] for _r in _rows_of(_zen)])
+    _high = [_b for _it in result.get("high_ratio_list", []) if _it.get("has_image")
+             for _b in _it.get("bans", [])]
+    _add("high", None, [[_r] for _r in _rows_of(_high)])
+    _nami = [_rows_of(_it.get("bans", [])) for _it in result.get("nami_list", [])]
+    _add("nami", None, sorted((_g for _g in _nami if _g), key=lambda _g: _g[0]["ban"]))
+    for _fn, _bans in (sue_ban_map or {}).items():
+        _add("sue", os.path.splitext(_fn)[0], [[_r] for _r in _rows_of(_bans or [])])
+    if rec_ban_map and recommended_blocks:
+        _rec: dict[str, list[int]] = {}
+        for (_bi, _thr), _fn in _rec_block_fn_map(recommended_blocks).items():
+            if _fn in rec_ban_map:
+                _t = recommended_blocks[_bi]["title"].strip() or "オススメ機種"
+                _rec.setdefault(_t, []).extend(rec_ban_map[_fn])
+        for _t, _bans in _rec.items():
+            _add("rec", _t, [[_r] for _r in _rows_of(_bans)])
+    _single = [_e["ban"] for _e in result.get("sonota_excellent_list", []) if "ban" in _e]
+    _add("single", None, [[_r] for _r in _rows_of(_single)])
+    return blocks
+
+
+def _ban_list_split(blocks: list[dict]) -> "tuple[int, list, list]":
+    """左右2列の分割。atoms を順に並べ、先頭 n かたまりを左列にする。
+    条件：左の実データ行数 ≥ 右／見出しを含む行数も左 ≥ 右（空欄は右下だけ）。
+    そのうえで実データ行数の差が最小、同じなら行数差が最小、さらに同じなら小さい n。
+    右列の先頭ブロックには見出しを付け直す。戻り値 (n, 左の行リスト, 右の行リスト)。"""
+    flat = [(_bi, _a) for _bi, _b in enumerate(blocks) for _a in _b["atoms"]]
+
+    def _lay(part) -> list:
+        out, prev, idx = [], None, {}
+        for _bi, _a in part:
+            if _bi != prev:
+                out.append(("hdr", _bi))
+                prev = _bi
+            for _r in _a:
+                out.append(("row", _bi, _r, idx.get(_bi, 0)))
+                idx[_bi] = idx.get(_bi, 0) + 1
+        return out
+
+    best = None
+    for n in range(1, len(flat) + 1):
+        dl = sum(len(_a) for _, _a in flat[:n])
+        dr = sum(len(_a) for _, _a in flat[n:])
+        if dl < dr:
+            continue
+        hl = len({_bi for _bi, _ in flat[:n]})
+        hr = len({_bi for _bi, _ in flat[n:]})
+        tl, tr = dl + hl, dr + hr
+        if tl < tr:
+            continue
+        key = (dl - dr, tl - tr, n)
+        if best is None or key < best[0]:
+            best = (key, n)
+    n = best[1] if best else len(flat)
+    left, right = _lay(flat[:n]), _lay(flat[n:])
+    # 右列は左列から続くブロックの行番号（交互色）を引き継ぐ
+    _cont = {}
+    for _it in left:
+        if _it[0] == "row":
+            _cont[_it[1]] = _it[3] + 1
+    right = [(_it[0], _it[1], _it[2], _it[3] + _cont.get(_it[1], 0)) if _it[0] == "row" else _it
+             for _it in right]
+    return n, left, right
+
+
+def draw_ban_list_image(title: str, blocks: list[dict]) -> "Image.Image | None":
+    """台番一覧を左右2列で描く。高さは実際に描いた最下端で切り取り、最後に外周の黒枠を引く。
+    罫線は1座標1本（同じ位置へ重ねない）。中央の仕切りは1本だけ。"""
+    if not blocks:
+        return None
+    _tf = _ban_list_title_font_path()
+    f_body = ImageFont.truetype(_BAN_LIST_BODY_FONT, _BAN_LIST_FS)
+    _n, left, right = _ban_list_split(blocks)
+
+    def _tw(s: str) -> int:
+        return int(math.ceil(f_body.getlength(s))) if s else 0
+
+    def _cells(r: dict) -> "tuple[str, str, str, str]":
+        _g = fmt_games(round_games(r["games"])) if r["games"] is not None else ""
+        return r["name"], str(r["ban"]), _g, fmt_diff(r["diff"])
+
+    _all = [_cells(_r) for _b in blocks for _a in _b["atoms"] for _r in _a]
+    ban_w = max([_tw(_c[1]) for _c in _all] + [_tw("台番")])
+    games_w = max([_tw(_c[2]) for _c in _all] + [_tw("回転")])
+    diff_w = max([_tw(_c[3]) for _c in _all] + [_tw("差枚")])
+    name_w = max([_tw(_c[0]) for _c in _all]
+                 + [_tw(_b["title"]) - ban_w - _BAN_LIST_GAP for _b in blocks])
+    G, P, LW, FW, RH = _BAN_LIST_GAP, _BAN_LIST_PAD, _BAN_LIST_LW, _BAN_LIST_FRAME_W, _BAN_LIST_ROW_H
+    col_w = P + name_w + G + ban_w + G + games_w + G + diff_w + P
+    W = FW + col_w + LW + col_w + FW
+    _tmax = max(len(left), len(right))
+    H_canvas = _BAN_LIST_TITLE_H + _tmax * RH + 200
+    img = Image.new("RGB", (W, H_canvas), "white")
+    dr = ImageDraw.Draw(img)
+    dr.rectangle([0, 0, W - 1, _BAN_LIST_TITLE_H - 1], fill=_BAN_LIST_TITLE_BG)
+    # タイトルは枠の内側に収まる大きさまで縮める（フォントが替わっても切れないように）
+    _fs = _BAN_LIST_TITLE_FS
+    while True:
+        f_title = ImageFont.truetype(_tf, _fs, index=0)
+        _tb = dr.textbbox((0, 0), title, font=f_title)
+        if (_tb[2] - _tb[0]) <= W - 2 * (FW + _BAN_LIST_PAD) or _fs <= 12:
+            break
+        _fs -= 1
+    dr.text(((W - (_tb[2] - _tb[0])) // 2 - _tb[0],
+             (_BAN_LIST_TITLE_H - (_tb[3] - _tb[1])) // 2 - _tb[1]),
+            title, font=f_title, fill="white")
+
+    _asc = f_body.getbbox("回転台番0123456789")
+
+    def _text(x: int, y: int, s: str, fill, right_x: "int | None" = None) -> None:
+        if right_x is not None:
+            x = right_x - _tw(s)
+        dr.text((x, y + (RH - (_asc[3] - _asc[1])) // 2 - _asc[1]), s, font=f_body, fill=fill)
+
+    _hlines: set = set()
+    bottom = _BAN_LIST_TITLE_H
+
+    def _col(items: list, x0: int, pad_to: int) -> int:
+        nonlocal bottom
+        x_ban_r = x0 + P + name_w + G + ban_w
+        x_games_r = x_ban_r + G + games_w
+        x_diff_r = x_games_r + G + diff_w
+        y = _BAN_LIST_TITLE_H
+        prev_bi, prev_row = None, None
+        for _i, _it in enumerate(items):
+            _b = blocks[_it[1]]
+            if _it[0] == "hdr":
+                dr.rectangle([x0, y, x0 + col_w - 1, y + RH - 1], fill=_b["color"])
+                _text(x0 + P, y, _b["title"], "white")
+                _text(0, y, "回転", "white", right_x=x_games_r)
+                _text(0, y, "差枚", "white", right_x=x_diff_r)
+                if _i > 0:
+                    _hlines.add((y, x0, x0 + col_w - 1))
+                prev_row = None
+            else:
+                _r, _ri = _it[2], _it[3]
+                dr.rectangle([x0, y, x0 + col_w - 1, y + RH - 1], fill=_BAN_LIST_ROW_BG[_ri % 2])
+                _c = _cells(_r)
+                _minus = _r["diff"] < 0
+                if _minus:
+                    dr.rectangle([x_games_r + G // 2, y, x0 + col_w - 1, y + RH - 1], fill=_BAN_LIST_MINUS_BG)
+                _text(x0 + P, y, _c[0], _BAN_LIST_TEXT)
+                _text(0, y, _c[1], _BAN_LIST_TEXT, right_x=x_ban_r)
+                _text(0, y, _c[2], _BAN_LIST_TEXT, right_x=x_games_r)
+                _text(0, y, _c[3], _BAN_LIST_MINUS_FG if _minus else _BAN_LIST_TEXT, right_x=x_diff_r)
+                _sep = _b["sep"]
+                if prev_row is not None and _sep is not None and _it[1] == prev_bi:
+                    _new = (_r["name"] != prev_row[0]["name"]) if _sep == "machine" else (_it[4] != prev_row[1])
+                    if _new:
+                        _hlines.add((y, x0, x0 + col_w - 1))
+                prev_row = (_r, _it[4])
+            prev_bi = _it[1]
+            y += RH
+            bottom = max(bottom, y)
+        # 空欄（右下）：直前ブロックの交互色を続けて塗る。見出しや区切り線は付けない
+        _last = next((_it for _it in reversed(items) if _it[0] == "row"), None)
+        _ri = (_last[3] + 1) if _last else 0
+        while y < pad_to:
+            dr.rectangle([x0, y, x0 + col_w - 1, y + RH - 1], fill=_BAN_LIST_ROW_BG[_ri % 2])
+            _ri += 1
+            y += RH
+            bottom = max(bottom, y)
+        return y
+
+    # 並びの塊番号（区切り線用）を行へ付ける
+    def _with_group(items: list) -> list:
+        out, gid = [], {}
+        for _it in items:
+            if _it[0] == "row":
+                _bi, _r = _it[1], _it[2]
+                _g = next((_k for _k, _a in enumerate(blocks[_bi]["atoms"]) if any(_x is _r for _x in _a)), 0)
+                out.append((*_it, _g))
+            else:
+                out.append(_it)
+        return out
+
+    left, right = _with_group(left), _with_group(right)
+    _end = _BAN_LIST_TITLE_H + _tmax * RH
+    xl = FW
+    xr = FW + col_w + LW
+    _col(left, xl, _end)
+    _col(right, xr, _end)
+    for _y, _x0, _x1 in sorted(_hlines):
+        dr.rectangle([_x0, _y, _x1, _y + LW - 1], fill=_BAN_LIST_LINE)
+    # 中央の仕切りは1本だけ（タイトルバーへは伸ばさない）
+    dr.rectangle([FW + col_w, _BAN_LIST_TITLE_H, FW + col_w + LW - 1, bottom - 1], fill=_BAN_LIST_LINE)
+    img = img.crop((0, 0, W, bottom + FW))
+    dr = ImageDraw.Draw(img)
+    H = img.height
+    for _box in ((0, 0, W - 1, FW - 1), (0, H - FW, W - 1, H - 1),
+                 (0, 0, FW - 1, H - 1), (W - FW, 0, W - 1, H - 1)):
+        dr.rectangle(_box, fill=_BAN_LIST_FRAME)
+    return img
+
+
+def _ban_list_image(store: str, result: dict, sue_ban_map: "dict | None" = None,
+                    rec_ban_map: "dict | None" = None,
+                    recommended_blocks: "list | None" = None) -> "Image.Image | None":
+    """台番一覧（🔍と⑧で共通）。対象外の店舗・表示する台がない ときは None。"""
+    if store not in _BAN_LIST_IMG_STORES or not result or not result.get("ok"):
+        return None
+    _blocks = _ban_list_blocks(result, sue_ban_map, rec_ban_map, recommended_blocks)
+    _d = result.get("date")
+    _title = (f"{_d.month}/{_d.day}　" if _d is not None else "") + f"エスパス{_data_store(store)}・台番一覧"
+    return draw_ban_list_image(_title, _blocks)
+
+
 def _dedup_previews(items: list) -> list:
     """⑦プレビューの同一ファイル名要素を1件へ正規化する。
 
@@ -16678,6 +16964,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 st.session_state.pop(f"sue_ck_{store}_{_ci}", None)
                 st.session_state.pop(f"jug_sue_ck_{store}_{_ci}", None)
             st.session_state.pop(f"_kabupa_prev_text_{store}", None)
+            st.session_state.pop(f"ban_list_img_{store}", None)
             st.session_state[_aprev_fname] = uploaded.name
 
         _auto_previews = st.session_state.get(_aprev_key)
@@ -17458,6 +17745,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 pass  # pision取得失敗時は表のみ画像のままプレビュー表示
 
                     st.session_state[_aprev_key]    = _dedup_previews(_prev_img_list)
+                    # 台番一覧（モグ玄・新大久保のみ）：⑧と同じ関数・同じ入力で作る
+                    if store in _BAN_LIST_IMG_STORES:
+                        st.session_state[f"ban_list_img_{store}"] = (
+                            _ban_list_image(store, _prev_result, _sue_ban_all_pv,
+                                            _rec_ban_map, recommended_blocks)
+                            if _prev_result.get("ok") else None)
                     st.session_state[_aprev_df_key] = _prev_result.get("df")
                     st.session_state[_aprev_di_key] = _prev_result.get("diff_raw")
                     st.session_state[_aprev_ex_key] = _prev_result.get("sonota_excellent_list", [])
@@ -17520,6 +17813,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         st.session_state[f"_unit_resort_{store}"] = _excel_stem
                 st.rerun()
             if _manual_prev_btn or _manual_regen:
+                st.session_state.pop(f"ban_list_img_{store}", None)
                 _save_auto_inputs(store)
                 with st.spinner("記入部分のみプレビュー生成中…"):
                     try:
@@ -18094,6 +18388,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                         "🔄 その他を更新",
                         _ov.get("base"),
                     )
+            # 台番一覧（モグ玄・新大久保のみ）：既存プレビュー画像の後ろに表示（チェック対象外）
+            if store in _BAN_LIST_IMG_STORES:
+                _bl_pv = st.session_state.get(f"ban_list_img_{store}")
+                if _bl_pv is not None:
+                    st.image(_bl_pv, caption=_BAN_LIST_FN, use_container_width=True,
+                             output_format="PNG")
             # 新宿歌舞伎町（かぶぱポストの結果）：画像の下に結果テキストをコピー可能な形で表示
             _kabupa_prev_text = st.session_state.get(f"_kabupa_prev_text_{store}")
             if _is_kabupa_pg and _kabupa_prev_text:
@@ -21085,6 +21385,17 @@ def show_auto_page(with_slump: bool = False) -> None:
                 for _fn_d in _stale_fns_run:
                     _rm_stale_image(output_dir, _fn_d, log=_log)
 
+            # 台番一覧（モグ玄・新大久保のみ）：⑦と同じ関数・同じ入力で1枚保存（PNG）。
+            # 前回の 台番一覧.png / NN_台番一覧.png を先に消す（残すと下の連番の付け直しで
+            # NN_ を外した前回分が今回の保存を上書きする）
+            if store in _BAN_LIST_IMG_STORES and result["ok"]:
+                _rm_stale_image(output_dir, _BAN_LIST_FN, log=_log)
+                _bl_ex = _ban_list_image(store, result, _sue_ban_run, _exec_rec_ban_map,
+                                         recommended_blocks)
+                if _bl_ex is not None:
+                    _bl_ex.save(os.path.join(output_dir, _BAN_LIST_FN), format="PNG")
+                    _log(f"  ✅ {_BAN_LIST_FN}")
+
             # ── 全台系→高配分→並び→ジャグラー優秀台→その他 の順にリネーム ──
             if result["ok"]:
                 def _hr_avg_k(x):
@@ -21163,6 +21474,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                 # ⑤のファイル名は _rec_block_fn_map()（同名ブロックは (2)(3)… 付き）
                 for _rec_ord_fn in _rec_block_fn_map(recommended_blocks).values():
                     _order.append(_rec_ord_fn)
+                # 台番一覧（モグ玄・新大久保のみ・最後の連番）
+                if store in _BAN_LIST_IMG_STORES:
+                    _order.append(_BAN_LIST_FN)
                 # 再実行時に前回の連番プレフィックスが残っていると衝突するため、先に剥がしておく
                 for _ef in os.listdir(output_dir):
                     _pm = re.match(r"^\d{2}_(.+)$", _ef)

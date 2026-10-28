@@ -104,17 +104,30 @@ STORES: dict[str, list[str]] = {
     "溝の口新館":   _IMAGE_TYPES,
     "稲毛":         _IMAGE_TYPES,
     "秋葉原":       _IMAGE_TYPES,
+    # 別入口（トップでは4列ではなく「YG用」の直後に出す。下の _STORE_DATA_ALIAS 参照）
+    "モグ玄・新大久保": _IMAGE_TYPES,
 }
+
+# 既存店舗と同じ Pision データ・同じ機能を使う別入口の店舗 {入口の店舗名: データ元の店舗名}。
+# 入力の保存・画面・出力フォルダは入口の店舗名で分け、Pisionのホール判定と
+# 結果テキストの店名表記だけデータ元の店舗名を使う。トップの4列・スマホの店舗順には入れない。
+_STORE_DATA_ALIAS: "dict[str, str]" = {"モグ玄・新大久保": "新大久保"}
+
+
+def _data_store(store: str) -> str:
+    """Pision取得・店名表記に使うデータ元の店舗名（別入口でなければそのまま）。"""
+    return _STORE_DATA_ALIAS.get(store, store)
 
 # オススメ機種ピックアップ・素材メモ・詳細結果テキスト機能を持つ店舗
 # 新店舗に同機能を追加するにはここに店舗名を追記するだけでよい
-EXTENDED_FEATURE_STORES: frozenset[str] = frozenset({"新宿歌舞伎町", "西武新宿", "新大久保", "高田馬場", "上野本館", "上野新館", "渋谷新館", "赤坂見附", "新小岩", "溝の口本館", "溝の口新館", "稲毛"})
+EXTENDED_FEATURE_STORES: frozenset[str] = frozenset({"新宿歌舞伎町", "西武新宿", "新大久保", "高田馬場", "上野本館", "上野新館", "渋谷新館", "赤坂見附", "新小岩", "溝の口本館", "溝の口新館", "稲毛", "モグ玄・新大久保"})
 
 # 店舗ごとの結果テキスト絵文字設定 {store: (e1, e2)}
 # e1=冒頭アイコン, e2=セクション見出しアイコン
 # 未登録店舗は ("💫", "👑") がデフォルトで使われる
 STORE_EMOJI_CONFIG: dict[str, tuple[str, str]] = {
     "新大久保":   ("🐝", "🍯"),
+    "モグ玄・新大久保": ("🐝", "🍯"),
     "新小岩":     ("✨", "🍀"),
     "溝の口新館": ("📢", "🎁"),
     "西武新宿":   ("✨", "👑"),
@@ -139,6 +152,7 @@ ROTE_EMOJI_CONFIG: dict[str, tuple[str, str]] = {
     "西武新宿":   ("👑", "💥"),
     "上野本館":   ("🗼", "👑"),
     "新大久保":   ("🍯", "🐝"),
+    "モグ玄・新大久保": ("🍯", "🐝"),
     "溝の口新館": ("🌠", "🚨"),
 }
 
@@ -146,6 +160,7 @@ ROTE_EMOJI_CONFIG: dict[str, tuple[str, str]] = {
 # 未登録店舗は "💫" がデフォルト
 ROTE_BAN_EMOJI_CONFIG: dict[str, str] = {
     "新大久保": "✨",
+    "モグ玄・新大久保": "✨",
 }
 
 # ローテ結果テキストで機種名を「【機種名】」で囲む店舗。
@@ -154,6 +169,7 @@ ROTE_BAN_EMOJI_CONFIG: dict[str, str] = {
 _ROTE_BRACKET_NAME_STORES: "frozenset[str]" = frozenset({
     "新宿歌舞伎町",
     "新大久保",
+    "モグ玄・新大久保",
 })
 
 # ローテ画像・台番列の背景色 {store: hex}
@@ -163,6 +179,7 @@ ROTE_BAN_COLOR_CONFIG: dict[str, str] = {
     "上野本館":     "#EA5A96",
     "渋谷新館":     "#F7EBCB",
     "新大久保":     "#AED6F1",
+    "モグ玄・新大久保": "#AED6F1",
     "新宿歌舞伎町": "#FFF2CD",
 }
 
@@ -198,6 +215,7 @@ _ROTE_NEW_THEME_STORES: "frozenset[str]" = frozenset({
     "西武新宿",
     "渋谷新館",
     "新大久保",
+    "モグ玄・新大久保",
 })
 
 
@@ -223,6 +241,7 @@ _ROTE_WEEKLY_NEW_THEME_STORES: "frozenset[str]" = frozenset({
     "上野本館",
     "渋谷新館",
     "新大久保",
+    "モグ玄・新大久保",
 })
 
 # ローテ用の月間オススメ表で、①機種名だけを常時表示し②〜⑤をアコーディオンへ入れる店舗・表。
@@ -232,11 +251,14 @@ _WEEKLY_ACC_TABLES: "frozenset[int]" = frozenset({2, 4})
 # 上野本館と同じ「📅 月間オススメ表①（t2）」を使う店舗。
 # 開始日のある店舗は、基準日（Excel日付／今日）が開始日より前なら①を表示・生成しない。
 # monthly_start が未保存なら開始日を初日として扱う（初日固定→7日スライドは上野本館と同じ計算）。
-_MONTHLY_T2_STORES: "frozenset[str]" = frozenset({"上野本館", "新大久保"})
-_MONTHLY_T2_FIRST_DAY: "dict[str, datetime.date]" = {"新大久保": datetime.date(2026, 10, 27)}
+_MONTHLY_T2_STORES: "frozenset[str]" = frozenset({"上野本館", "新大久保", "モグ玄・新大久保"})
+_MONTHLY_T2_FIRST_DAY: "dict[str, datetime.date]" = {"新大久保": datetime.date(2026, 10, 27),
+                                                     "モグ玄・新大久保": datetime.date(2026, 10, 27)}
 # ①の機種名を2欄にする店舗と、未保存時の初期値（machine_name / machine_name2）・タイトル初期値
-_MONTHLY_T2_TWO_MACHINES: "dict[str, tuple[str, str]]" = {"新大久保": ("ネオアイム", "ゴージャグ3")}
-_MONTHLY_T2_DEFAULT_TITLE: "dict[str, str]" = {"新大久保": "毎日オススメ ネオアイム・ゴージャグ3"}
+_MONTHLY_T2_TWO_MACHINES: "dict[str, tuple[str, str]]" = {"新大久保": ("ネオアイム", "ゴージャグ3"),
+                                                          "モグ玄・新大久保": ("ネオアイム", "ゴージャグ3")}
+_MONTHLY_T2_DEFAULT_TITLE: "dict[str, str]" = {"新大久保": "毎日オススメ ネオアイム・ゴージャグ3",
+                                               "モグ玄・新大久保": "毎日オススメ ネオアイム・ゴージャグ3"}
 
 
 def _monthly_t2_visible(store: str, ref) -> bool:
@@ -743,6 +765,7 @@ STORE_NARABI_SCRIPT: dict[str, str] = {
     "溝の口新館":   _NARABI_GENERIC,
     "稲毛":   _NARABI_GENERIC,
     "秋葉原": _NARABI_GENERIC,
+    "モグ玄・新大久保": _NARABI_GENERIC,
 }
 
 # 列ごとの最低表示幅（px）― 旧スクリプトの CSS 幅と同値。scale=150/96 で乗算して実使用
@@ -2261,6 +2284,7 @@ _ROTE_PLAIN_STORES: "frozenset[str]" = frozenset({
     "渋谷新館",
     "西武新宿",
     "新大久保",
+    "モグ玄・新大久保",
     "溝の口本館",
     "溝の口新館",
 })
@@ -4626,7 +4650,7 @@ def show_store_page() -> None:
         except Exception as e:   # 本日の仕事の不具合で店舗ボタン等を止めない
             st.error(f"❌ 本日の仕事を表示できませんでした: {type(e).__name__}")
     st.markdown("---")
-    store_list = list(STORES.keys())
+    store_list = [_s for _s in STORES if _s not in _STORE_DATA_ALIAS]
     _has_other = bool(_other_group_stores(""))
     _has_yg = bool(_other_group_stores(_YG_GROUP))
 
@@ -4659,6 +4683,12 @@ def show_store_page() -> None:
                 if st.button("YG用", key="store_yg", use_container_width=True):
                     _store_menu_go("yg")
 
+        # 「YG用」の直後に別入口の店舗（モグ玄・新大久保）。
+        for _ai, _al in enumerate(_STORE_DATA_ALIAS, start=_yg_idx + (1 if _has_yg else 0)):
+            with cols[_ai % len(cols)]:
+                if st.button(_al, key=f"store_{_al}", use_container_width=True):
+                    _store_menu_go(_al)
+
     # ── スマホ幅：おすすめ → 指定順の店舗 → その他 を1列で ──
     with st.container(key="store_menu_sp"):
         # CSS はこの（PC幅では非表示の）コンテナ内に置き、PC幅のレイアウトに余白を増やさない。
@@ -4668,6 +4698,7 @@ def show_store_page() -> None:
             _store_menu_go("osusume_top")
         _sp_stores = [_s for _s in _SP_STORE_ORDER if _s in STORES]
         _sp_stores += [_s for _s in store_list if _s not in _sp_stores]   # 想定外の店舗は末尾へ
+        _sp_stores = [_s for _s in _sp_stores if _s not in _STORE_DATA_ALIAS]
         for store in _sp_stores:
             if st.button(store, key=f"sp_store_{store}", use_container_width=True):
                 _store_menu_go(store)
@@ -4677,6 +4708,9 @@ def show_store_page() -> None:
         if _has_yg:
             if st.button("YG用", key="sp_store_yg", use_container_width=True):
                 _store_menu_go("yg")
+        for _al in _STORE_DATA_ALIAS:
+            if st.button(_al, key=f"sp_store_{_al}", use_container_width=True):
+                _store_menu_go(_al)
 
 
 def show_other_store_page() -> None:
@@ -5020,7 +5054,7 @@ def show_image_type_page() -> None:
                     use_container_width=True,
                 ):
                     _navigate("auto_slump")
-        elif store in ("溝の口本館", "溝の口新館", "西武新宿", "渋谷新館", "新大久保"):
+        elif store in ("溝の口本館", "溝の口新館", "西武新宿", "渋谷新館", "新大久保", "モグ玄・新大久保"):
             # ローテあり：2列横並び
             st.markdown(
                 """<style>
@@ -7603,7 +7637,7 @@ def format_result_memo_sections(
 
 # 結果ポスト用の結果テキストを「はにぃポスト結果考察」の固定構成で出す店舗。
 # 見出し・🍯機種名（画像を作った機種数）・📍×3・画像を作った機種の結果・💬・🔍 だけを出力する。
-_HONEY_POST_RESULT_STORES: "frozenset[str]" = frozenset({"新大久保"})
+_HONEY_POST_RESULT_STORES: "frozenset[str]" = frozenset({"新大久保", "モグ玄・新大久保"})
 
 
 def _img_title_name(machine: str) -> str:
@@ -8595,6 +8629,7 @@ def generate_report_text(
     e1, e2 = STORE_EMOJI_CONFIG.get(store_name, ("💫", "👑"))
     _STORE_DISPLAY_NAMES: dict[str, str] = {
         "西武新宿": "エスパス 西武 新宿",
+        "モグ玄・新大久保": "エスパス新大久保",
     }
     # 「その他」配下（エスパス以外）は設定の display_name をそのまま使う。
     # 既存店舗は _other_display_name() が None を返し、従来経路のまま。
@@ -9328,6 +9363,7 @@ _KOJIN_DATE_SCOPED_STORES: frozenset[str] = frozenset({
     "渋谷新館",
     "西武新宿",
     "新大久保",
+    "モグ玄・新大久保",
     "溝の口本館",
     "溝の口新館",
     "赤坂見附",
@@ -15392,7 +15428,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         if _tb_hall_id is None:
                             for h in _tb_halls:
                                 _hn = h.get("name") or h.get("displayName") or ""
-                                if store in _hn and "エスパス" in _hn:
+                                if _data_store(store) in _hn and "エスパス" in _hn:
                                     _tb_hall_id = str(h.get("id") or h.get("hallId") or "")
                                     break
                         if _tb_hall_id is not None:
@@ -15659,7 +15695,7 @@ def show_auto_page(with_slump: bool = False) -> None:
             _m = re.match(r"(\d{4})(\d{2})(\d{2})", os.path.basename(uploaded.name))
             # 「その他」配下（エスパス以外）は設定の display_name をそのまま使う。
             # 既存エスパス店舗は _other_display_name() が None を返し従来どおり。
-            _store_disp = _other_display_name(store) or f"エスパス{store}"
+            _store_disp = _other_display_name(store) or f"エスパス{_data_store(store)}"
             _title = (f"{int(_m.group(1))}/{int(_m.group(2))}/{int(_m.group(3))} {_store_disp}"
                       if _m else _store_disp)
             st.caption("📋 pisionの代わりに照合用（2台以上を平均差枚順・1台機種はバラエティに集約／数値はpisionの生データと一致）")
@@ -17302,7 +17338,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _ig_halls_pv = fetch_pision_halls(_ig_api_key_pv)
                                         for _igh_pv in _ig_halls_pv:
                                             _ighn_pv = _igh_pv.get("name") or _igh_pv.get("displayName") or ""
-                                            if store in _ighn_pv and "エスパス" in _ighn_pv:
+                                            if _data_store(store) in _ighn_pv and "エスパス" in _ighn_pv:
                                                 _ig_hall_id_pv = str(_igh_pv.get("id") or _igh_pv.get("hallId") or "")
                                                 break
                                     _ig_pision_items_pv = fetch_pision_results(_ig_api_key_pv, _ig_hall_id_pv, _ig_date_pv) if _ig_hall_id_pv else None
@@ -21334,7 +21370,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 for _igh_exec in _ig_halls_exec:
                                     _ighn_exec = _igh_exec.get("name") or _igh_exec.get("displayName") or ""
                                     _ig_all_hall_names.append(_ighn_exec)
-                                    if store in _ighn_exec and "エスパス" in _ighn_exec:
+                                    if _data_store(store) in _ighn_exec and "エスパス" in _ighn_exec:
                                         _ig_hall_id_exec = str(_igh_exec.get("id") or _igh_exec.get("hallId") or "")
                                         break
                             if not _ig_hall_id_exec:
@@ -21992,7 +22028,7 @@ def show_auto_article_page() -> None:
                         _art_tb_hall_id = None
                         for h in _art_tb_halls:
                             _hn = h.get("name") or h.get("displayName") or ""
-                            if store in _hn and "エスパス" in _hn:
+                            if _data_store(store) in _hn and "エスパス" in _hn:
                                 _art_tb_hall_id = str(h.get("id") or h.get("hallId") or "")
                                 break
                         if _art_tb_hall_id is not None:
@@ -23576,7 +23612,7 @@ def show_auto_article_page() -> None:
                                 _pv_hall_id_sl = None
                                 for _h_pv in _pv_halls_sl:
                                     _hn_pv = _h_pv.get("name") or _h_pv.get("displayName") or ""
-                                    if store in _hn_pv and "エスパス" in _hn_pv:
+                                    if _data_store(store) in _hn_pv and "エスパス" in _hn_pv:
                                         _pv_hall_id_sl = str(_h_pv.get("id") or _h_pv.get("hallId") or "")
                                         break
                                 if _pv_hall_id_sl:
@@ -24172,7 +24208,7 @@ def show_auto_article_page() -> None:
                                         _upd_hid = None
                                         for _hh in _upd_halls:
                                             _hhn = _hh.get("name") or _hh.get("displayName") or ""
-                                            if store in _hhn and "エスパス" in _hhn:
+                                            if _data_store(store) in _hhn and "エスパス" in _hhn:
                                                 _upd_hid = str(_hh.get("id") or _hh.get("hallId") or "")
                                                 break
                                         if _upd_hid:
@@ -25467,7 +25503,7 @@ def show_auto_article_page() -> None:
                         _art_hall_id_sl = None
                         for _h_sl in _art_halls_sl:
                             _hn_sl = _h_sl.get("name") or _h_sl.get("displayName") or ""
-                            if store in _hn_sl and "エスパス" in _hn_sl:
+                            if _data_store(store) in _hn_sl and "エスパス" in _hn_sl:
                                 _art_hall_id_sl = str(_h_sl.get("id") or _h_sl.get("hallId") or "")
                                 break
                         if _art_hall_id_sl:
@@ -26409,6 +26445,7 @@ _ROTE_NEW_TEXT_STORES: "frozenset[str]" = frozenset({
     "溝の口新館",
     "西武新宿",
     "新大久保",
+    "モグ玄・新大久保",
 })
 
 
@@ -28366,7 +28403,7 @@ def show_rote_page() -> None:
                         _rote_hall_id = None
                         for _h_r in _rote_halls:
                             _hn_r = _h_r.get("name") or _h_r.get("displayName") or ""
-                            if store in _hn_r and "エスパス" in _hn_r:
+                            if _data_store(store) in _hn_r and "エスパス" in _hn_r:
                                 _rote_hall_id = str(_h_r.get("id") or _h_r.get("hallId") or "")
                                 break
                         if _rote_hall_id is not None:
@@ -28439,7 +28476,7 @@ def show_rote_page() -> None:
                         if _rv_filter and "機種名" in _rv_df.columns:
                             _rv_df = _rv_df[_rv_df["機種名"].isin(_rv_filter)]
                         _rv_title = (f"{_rote_date.year}/{_rote_date.month}/{_rote_date.day}"
-                                     f" エスパス{store}")
+                                     f" エスパス{_data_store(store)}")
                         # summary=None でサマリーボックスを非表示にして機種テーブルのみ描画
                         if {"機種名", "差枚"} <= set(_rv_df.columns):
                             _rv_g = _rv_df.groupby("機種名", sort=False)
@@ -28517,7 +28554,7 @@ def show_rote_page() -> None:
             except Exception:
                 pass
 
-    if uploaded is None and store not in ("渋谷新館", "上野本館", "溝の口新館", "溝の口本館", "西武新宿", "新大久保"):
+    if uploaded is None and store not in ("渋谷新館", "上野本館", "溝の口新館", "溝の口本館", "西武新宿", "新大久保", "モグ玄・新大久保"):
         st.info("Excelをアップロードすると機種名入力欄が表示されます。")
         st.markdown("---")
         if st.button("← 画像種類選択に戻る", key="rote_back_top"):
@@ -28684,7 +28721,7 @@ def show_rote_page() -> None:
     _rote_date_label = ""
     _rd = None
     _rote_out_dir  = None
-    _rote_store_full = store
+    _rote_store_full = _data_store(store)
     if uploaded is not None:
         _m = re.search(r"(\d{4})(\d{2})(\d{2})", uploaded.name)
         if _m:
@@ -28694,7 +28731,7 @@ def show_rote_page() -> None:
         _rote_stem    = os.path.splitext(uploaded.name)[0].replace("_20S", "")
         _rote_out_dir = tempfile.mkdtemp() if _IS_CLOUD else os.path.join(_DESKTOP, _rote_stem)
         _m_store      = re.match(r'^\d{8}_(.*)', _rote_stem)
-        _rote_store_full = _m_store.group(1) if _m_store else store
+        _rote_store_full = _data_store(_m_store.group(1) if _m_store else store)
         # ファイル名の店名に「エスパス」が付かない場合は補完（Cloud/ローカルで表記統一）
         if _rote_store_full and not _rote_store_full.startswith("エスパス"):
             _rote_store_full = f"エスパス{_rote_store_full}"
@@ -29891,7 +29928,7 @@ def show_name_conversion_page() -> None:
                 # 既存13店舗（STORES）はそのままの順序で、その下へ「その他」配下を追加する。
                 # 設定ファイル（store_settings/_other_stores.json）から動的に読むので、
                 # 店舗が増えてもコード変更は不要。表示は display_name（「エスパス」を付けない）。
-                _nc_opts = list(STORES.keys()) + [
+                _nc_opts = [_s for _s in STORES if _s not in _STORE_DATA_ALIAS] + [
                     _s for _s in _load_other_stores().keys() if _s not in STORES]
                 _nc_store = st.selectbox(
                     "店舗を選択", _nc_opts, key="nc_pision_store",
@@ -30565,6 +30602,7 @@ def fetch_pision_realtime(hall_name: str, date_str: str, trigger: bool = True) -
     収集は数分かかるため、表示するのは「今すぐ読める最新の完了スナップショット」。
     trigger=False なら収集を起こさず（実行中にせず）に最新完了分を読むだけ（完了確認用）。
     戻り値: {ok, items, skipped, article_id, snapshot_time, collect_started, running, error, debug}。"""
+    hall_name = _data_store(hall_name)
     import requests
     result = {"ok": False, "items": [], "skipped": 0, "article_id": None,
               "snapshot_time": None, "collect_started": False, "running": False,
@@ -31159,7 +31197,7 @@ def _composite_slump_onto_images(
                     _halls = fetch_pision_halls(_key)
                     for _h in _halls:
                         _hn = _h.get("name") or _h.get("displayName") or ""
-                        if store in _hn and "エスパス" in _hn:
+                        if _data_store(store) in _hn and "エスパス" in _hn:
                             _hall_id = str(_h.get("id") or _h.get("hallId") or "")
                             break
                 _items = fetch_pision_results(_key, _hall_id, date_str) if _hall_id else None

@@ -14718,6 +14718,23 @@ def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = No
     return img
 
 
+def _ban_list_with_kojin(result: dict, kojin_zentai_machines, kojin_y_ban_map: dict) -> dict:
+    """🔍用：⑧と同じく②個別「全台」（その機種の全台）と②個別「優秀台」（掲載台）を一覧の入力へ足す。"""
+    _df = result.get("df")
+    _r = dict(result)
+    _zen = list(result.get("zen_dai_list", []))
+    if _df is not None:
+        for _km in kojin_zentai_machines or []:
+            _km = str(_km).strip()
+            _bs = [int(_b) for _b in _df[_df["機種名"] == _km]["台番"].tolist()] if _km else []
+            if _bs:
+                _zen.append({"name": _km, "bans": _bs})
+    _r["zen_dai_list"] = _zen
+    _r["high_ratio_list"] = list(result.get("high_ratio_list", [])) + [
+        {"name": _fn, "has_image": True, "bans": list(_bs)} for _fn, _bs in (kojin_y_ban_map or {}).items() if _bs]
+    return _r
+
+
 def _ban_list_image(store: str, result: dict, sue_ban_map: "dict | None" = None,
                     rec_ban_map: "dict | None" = None,
                     recommended_blocks: "list | None" = None) -> "Image.Image | None":
@@ -14738,12 +14755,48 @@ def _ban_list_omit_msg(img) -> str:
     return f"台番一覧：75セルを超えたため末尾を省略（{_n}行）" if _n else ""
 
 
-# 台番一覧の店舗では作らなくなった高配分・並びの個別画像（過去の⑧等の残り）の判定。
-# 命名規則は自動高配分 `{機種名}_高配分.jpg`、並び `{機種名}(N台並び).jpg`（同名重複時は
-# `（開始～終了）` 付き）で、どちらも連番 `NN_` と横版 `_side` があり得る。
-# 末尾・⑤・全台系・②個別（優秀台）・列 `(列仕掛け)`・その他・ジャグラー統合・台番一覧には一致しない。
+# 台番一覧の店舗では作らない個別画像（台番一覧へ載せるカテゴリ）の判定。連番 `NN_` を外した名前で見る。
+#   高配分     `{機種名}_高配分.jpg`
+#   並び       `{機種名}(N台並び).jpg`（同名重複時は `（開始～終了）` 付き）
+#   末尾       `末尾N番台`・`末尾ゾロ目の台`・`ジャグラーの末尾N番台`・`ジャグラーの末尾ゾロ目番台`
+#              （＋`のプラス台`／`の優秀台`）.jpg
+#   ⑤         `オススメ_{タイトル}_{プラス台|1000枚以上|2000枚以上}.jpg`（同名時は `(2)` 等）
+#   単品(その他) `その他の優秀台ピックアップ.jpg`・`その他の優秀台+N枚以上.jpg`・入力タイトルの名前
+#   優秀機種(全台系・②個別全台) `{当日の機種名}.jpg`／②個別優秀台 `{当日の機種名}（優秀台）.jpg`
+# いずれも横版 `_side` があり得る。ジャグラー統合・列 `(列仕掛け)`・②台番範囲／個別ピック・台番一覧は対象外。
 _BAN_LIST_OLD_HIGH_RE = re.compile(r"_高配分(_side)?\.jpg$")
 _BAN_LIST_OLD_NAMI_RE = re.compile(r"\(\d+台並び\)(（\d+～\d+）)?(_side)?\.jpg$")
+_BAN_LIST_OLD_SUE_RE = re.compile(
+    r"^(ジャグラーの末尾(\d+|ゾロ目)番台|末尾(\d+番台|ゾロ目の台))(のプラス台|の優秀台)?(_side)?\.jpg$")
+_BAN_LIST_OLD_REC_RE = re.compile(r"^オススメ_.+_(プラス台|1000枚以上|2000枚以上|\d+)(\(\d+\))?(_side)?\.jpg$")
+_BAN_LIST_OLD_SONOTA_RE = re.compile(r"^その他の優秀台(ピックアップ|\+[\d,]+枚以上)(_side)?\.jpg$")
+
+
+def _ban_list_machine_names(df) -> set:
+    """当日の機種名（優秀機種・②個別の画像名の判定用）。生の名前と安全化した名前の両方。"""
+    if df is None or "機種名" not in getattr(df, "columns", []):
+        return set()
+    _ns = {str(_m) for _m in df["機種名"].dropna() if str(_m).strip()}
+    return _ns | {_make_safe_fn(_m) for _m in _ns}
+
+
+def _ban_list_sonota_names(title: str) -> set:
+    """その他の優秀台の入力タイトルで作られる画像名（既定名は正規表現で判定）。"""
+    _t = (title or "").strip()
+    return {f"{_make_safe_fn(_t)}.jpg", f"{_make_safe_fn(_t)}_side.jpg"} if _t else set()
+
+
+def _ban_list_cat_image(fn: str, machine_names: set = frozenset(), extra: set = frozenset()) -> bool:
+    """台番一覧へ載せるカテゴリの個別画像の名前か（上の命名規則に完全一致するものだけ）。"""
+    _b = re.sub(r"^\d{2}_", "", fn or "")
+    if (_BAN_LIST_OLD_HIGH_RE.search(_b) or _BAN_LIST_OLD_NAMI_RE.search(_b)
+            or _BAN_LIST_OLD_SUE_RE.match(_b) or _BAN_LIST_OLD_REC_RE.match(_b)
+            or _BAN_LIST_OLD_SONOTA_RE.match(_b) or _b in extra):
+        return True
+    for _sfx in ("（優秀台）_side.jpg", "（優秀台）.jpg", "_side.jpg", ".jpg"):
+        if _b.endswith(_sfx) and _b[:-len(_sfx)] in machine_names:
+            return True
+    return False
 
 
 def _ban_list_out_dir(excel_name: str) -> "str | None":
@@ -14753,15 +14806,15 @@ def _ban_list_out_dir(excel_name: str) -> "str | None":
     return os.path.join(_DESKTOP, os.path.splitext(excel_name)[0].replace("_20S", ""))
 
 
-def _ban_list_purge_old_images(store: str, output_dir: "str | None", log=None) -> list[str]:
-    """台番一覧の店舗だけ：出力フォルダに残る旧仕様の高配分・並びの個別画像を消す。
-    判定は上の命名規則に完全一致するものだけ（部分一致で広く消さない）。"""
+def _ban_list_purge_old_images(store: str, output_dir: "str | None", log=None,
+                               machine_names: set = frozenset(), extra: set = frozenset()) -> list[str]:
+    """台番一覧の店舗だけ：出力フォルダにある、台番一覧へ載せるカテゴリの個別画像
+    （今回作られた分・過去の⑧等の残り）を消す。判定は _ban_list_cat_image() の命名規則だけ。"""
     if store not in _BAN_LIST_IMG_STORES or not output_dir or not os.path.isdir(output_dir):
         return []
     _removed: list[str] = []
     for _f in sorted(os.listdir(output_dir)):
-        _bare = re.sub(r"^\d{2}_", "", _f)
-        if not (_BAN_LIST_OLD_HIGH_RE.search(_bare) or _BAN_LIST_OLD_NAMI_RE.search(_bare)):
+        if not _ban_list_cat_image(_f, machine_names, extra):
             continue
         _fp = os.path.join(output_dir, _f)
         if not os.path.isfile(_fp):
@@ -14770,7 +14823,7 @@ def _ban_list_purge_old_images(store: str, output_dir: "str | None", log=None) -
             os.remove(_fp)
             _removed.append(_f)
             if log:
-                log(f"  🗑️ 旧画像を削除（台番一覧へ集約）: {_f}")
+                log(f"  🗑️ 個別画像を削除（台番一覧へ集約）: {_f}")
         except OSError:
             pass
     return _removed
@@ -17851,18 +17904,26 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 pass  # pision取得失敗時は表のみ画像のままプレビュー表示
 
                     if store in _BAN_LIST_IMG_STORES and _prev_result.get("ok"):
-                        # 高配分・並びの個別画像は出さない（台番一覧へ載せる）
+                        # 台番一覧へ載せるカテゴリ（優秀機種・高配分・並び・末尾・⑤・単品）の個別画像は出さない
+                        _bl_mac_pv = _ban_list_machine_names(_prev_result.get("df"))
+                        _bl_ext_pv = _ban_list_sonota_names(sonota_extra_title)
                         _bl_drop_pv = {f"{_make_safe_fn(_it['name'])}_高配分.jpg"
                                        for _it in _prev_result.get("high_ratio_list", [])}
                         _bl_drop_pv |= set(locals().get("_narabi_ban_map") or {})
-                        _prev_img_list = [(_f, _i) for _f, _i in _prev_img_list if _f not in _bl_drop_pv]
-                        _ban_list_purge_old_images(store, _ban_list_out_dir(uploaded.name))
+                        _bl_drop_pv |= set(_sue_ban_all_pv) | set(_sue_src_all_pv) | set(_rec_ban_map)
+                        _prev_img_list = [(_f, _i) for _f, _i in _prev_img_list
+                                          if _f not in _bl_drop_pv
+                                          and not _ban_list_cat_image(_f, _bl_mac_pv, _bl_ext_pv)]
+                        _ban_list_purge_old_images(store, _ban_list_out_dir(uploaded.name),
+                                                   machine_names=_bl_mac_pv, extra=_bl_ext_pv)
                     st.session_state[_aprev_key]    = _dedup_previews(_prev_img_list)
                     # 台番一覧（モグ玄・新大久保のみ）：⑧と同じ関数・同じ入力で作る
                     if store in _BAN_LIST_IMG_STORES:
                         st.session_state[f"ban_list_img_{store}"] = (
-                            _ban_list_image(store, _prev_result, _sue_ban_all_pv,
-                                            _rec_ban_map, recommended_blocks)
+                            _ban_list_image(store,
+                                            (_ban_list_with_kojin(_prev_result, kojin_zentai_machines, _kojin_y_ban_pv)
+                                             if kojin_enabled else _prev_result),
+                                            _sue_ban_all_pv, _rec_ban_map, recommended_blocks)
                             if _prev_result.get("ok") else None)
                     st.session_state[_aprev_df_key] = _prev_result.get("df")
                     st.session_state[_aprev_di_key] = _prev_result.get("diff_raw")
@@ -17915,8 +17976,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _unit_src.update(_sue_src_all_pv)
                     _unit_src.update(_variety_src_pv)
                     if store in _BAN_LIST_IMG_STORES:
-                        # 高配分の画像を出さないので🎯パネルも出さない
-                        _unit_src = {_k: _v for _k, _v in _unit_src.items() if _v.get("kind") != "high"}
+                        # 個別画像を出さないカテゴリは🎯パネルも出さない
+                        _bl_mac_u = _ban_list_machine_names(_prev_result.get("df"))
+                        _bl_ext_u = _ban_list_sonota_names(sonota_extra_title)
+                        _unit_src = {_k: _v for _k, _v in _unit_src.items()
+                                     if _v.get("kind") not in ("high", "sonota", "kojin_yushu")
+                                     and _k not in (locals().get("_bl_drop_pv") or set())
+                                     and not _ban_list_cat_image(_k, _bl_mac_u, _bl_ext_u)}
                     st.session_state[_aprev_unit_key] = _unit_src
                     # 「未反映」判定用スナップショット（今回のプレビューへ反映済みの内容）
                     st.session_state[_unit_snap_key] = _unit_ex_snapshot(_unit_ex_state(store, _excel_stem))
@@ -18311,9 +18377,14 @@ def show_auto_page(with_slump: bool = False) -> None:
                         # 台番一覧（モグ玄・新大久保のみ）：📝でも作る。高配分・並びの画像は出さず一覧へ載せる
                         _bl_m_img = None
                         if store in _BAN_LIST_IMG_STORES:
+                            # 台番一覧へ載せるカテゴリの個別画像は出さない（台番一覧へ集約）
+                            _bl_mac_m = _ban_list_machine_names(_df_m)
+                            _bl_ext_m = _ban_list_sonota_names(sonota_extra_title)
                             _manual_imgs = [(_f, _i) for _f, _i in _manual_imgs
-                                            if _bl_kind_m.get(_f) not in ("high", "nami")]
-                            _ban_list_purge_old_images(store, _ban_list_out_dir(uploaded.name))
+                                            if _f not in _bl_kind_m
+                                            and not _ban_list_cat_image(_f, _bl_mac_m, _bl_ext_m)]
+                            _ban_list_purge_old_images(store, _ban_list_out_dir(uploaded.name),
+                                                       machine_names=_bl_mac_m, extra=_bl_ext_m)
                             _bl_m_img = _ban_list_image_manual(store, _df_m, uploaded.name,
                                                                _manual_ban_map, _bl_kind_m)
                         if _manual_imgs or _bl_m_img is not None:
@@ -18351,7 +18422,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             if _manual_unit_ky:
                                 if store in _BAN_LIST_IMG_STORES:
                                     _manual_unit_src = {_k: _v for _k, _v in _manual_unit_src.items()
-                                                        if _bl_kind_m.get(_k) not in ("high", "nami")}
+                                                        if _k not in _bl_kind_m}
                                 st.session_state[_aprev_unit_key] = _manual_unit_src
                                 st.session_state[_unit_snap_key] = _unit_ex_snapshot(
                                     _unit_ex_state(store, _excel_stem))
@@ -20179,7 +20250,9 @@ def show_auto_page(with_slump: bool = False) -> None:
 
                     # 台番一覧（モグ玄・新大久保のみ）：📝プレビューと同じ関数・同じ入力で1枚保存（PNG）
                     if store in _BAN_LIST_IMG_STORES:
-                        _ban_list_purge_old_images(store, output_dir, log=_m_log)
+                        _ban_list_purge_old_images(store, output_dir, log=_m_log,
+                                                   machine_names=_ban_list_machine_names(_df_exec_m),
+                                                   extra=_ban_list_sonota_names(sonota_extra_title))
                         _rm_stale_image(output_dir, _BAN_LIST_FN, log=_m_log)
                         _bl_ex_m = _ban_list_image_manual(store, _df_exec_m, uploaded.name,
                                                           _m_exec_ban_map_e, _bl_kind_e)
@@ -21571,7 +21644,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _log(f"  ⚠️ {_ban_list_omit_msg(_bl_ex)}")
                 # 高配分・並びの個別画像は保存しない（台番一覧へ載せる）。今回パイプラインが
                 # 作った高配分画像と、過去の⑧等で作られた旧画像（連番あり／なし）を命名規則で消す
-                _ban_list_purge_old_images(store, output_dir, log=_log)
+                _ban_list_purge_old_images(store, output_dir, log=_log,
+                                           machine_names=_ban_list_machine_names(result.get("df")),
+                                           extra=_ban_list_sonota_names(sonota_extra_title))
 
             # ── 全台系→高配分→並び→ジャグラー優秀台→その他 の順にリネーム ──
             if result["ok"]:

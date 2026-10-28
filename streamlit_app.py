@@ -14949,7 +14949,8 @@ def _build_sue_images(uploaded, store: str, tails, mode: str, is_juggler: bool =
                       exclude_kind: str = "suebangai",
                       article_mode: bool = False,
                       hq_scale: float = 1.0,
-                      sue_pink_bar: bool = False):
+                      sue_pink_bar: bool = False,
+                      h3_out=None):
     """④末尾／ジャグラー末尾画像を作る共通関数（通常ページ・記事用ページ共通）。
 
     show_auto_page 内のネスト関数 _gen_sue_imgs_on_fly の本体をそのまま移したもの。
@@ -14964,6 +14965,8 @@ def _build_sue_images(uploaded, store: str, tails, mode: str, is_juggler: bool =
     戻り値: [(ファイル名, PIL Image), ...]
     src_out[fn] = {kind, machine(画像キー), bans(除外前候補), tail, is_juggler}
     ban_out[fn] = 確定掲載台番 / stat_out[fn] = 集計対象台番（絞り込み前）
+    h3_out[fn] = {total, count, all_avg_diff}：ピンクバーと同じ集計値（_bar_of）。
+                 ピンクバーなしのモードでも、付き表示なら出る値を入れる（記事用WPの末尾H3用）
     """
     _imgs = []
     try:
@@ -15035,7 +15038,8 @@ def _build_sue_images(uploaded, store: str, tails, mode: str, is_juggler: bool =
                         _title = f"ジャグラーの{_lbl_base}番台の優秀台"
                     if _filt.empty:
                         continue
-                    _stat_of = {"total_diff": _jof_td, "avg_diff": _jof_ad, "win_count": _jof_wc, "total_count": _jof_total} if _jb_of else None
+                    _bar_of = {"total_diff": _jof_td, "avg_diff": _jof_ad, "win_count": _jof_wc, "total_count": _jof_total}
+                    _stat_of = _bar_of if _jb_of else None
                 else:
                     # 全台: G数フィルターのみ（確率・差枚条件なし）
                     _title = f"ジャグラーの{_lbl_base}番台"
@@ -15043,6 +15047,7 @@ def _build_sue_images(uploaded, store: str, tails, mode: str, is_juggler: bool =
                                 "avg_diff": int(round(_filt["差枚"].mean())),
                                 "win_count": int((_filt["差枚"] > 0).sum()),
                                 "total_count": len(_filt)}
+                    _bar_of = _stat_of
             else:
                 _p_of  = mode in ("プラス台（ピンクバー付き）", "プラス台（ピンクバーなし）", "プラス台")
                 _y_of  = mode in ("優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）")
@@ -15063,13 +15068,15 @@ def _build_sue_images(uploaded, store: str, tails, mode: str, is_juggler: bool =
                         _title = f"{_lbl_base}の優秀台"
                     if _filt.empty:
                         continue
-                    _stat_of = {"total_diff": _of_td, "avg_diff": _of_ad, "win_count": _of_wc, "total_count": _of_total} if _b_of else None
+                    _bar_of = {"total_diff": _of_td, "avg_diff": _of_ad, "win_count": _of_wc, "total_count": _of_total}
+                    _stat_of = _bar_of if _b_of else None
                 else:
                     _title = _lbl_base
                     _stat_of = {"total_diff": int(_filt["差枚"].sum()),
                                 "avg_diff": int(round(_filt["差枚"].mean())),
                                 "win_count": int((_filt["差枚"] > 0).sum()),
                                 "total_count": len(_filt)}
+                    _bar_of = _stat_of
             _fn_of = f"{_make_safe_fn(_title)}.jpg"
             # 🎯掲載台を選ぶ（④末尾）: 候補抽出・集計（_stat_of / _stat_bans）を
             # 確定させたあと、画像へ載せる台だけを間引く。
@@ -15100,6 +15107,10 @@ def _build_sue_images(uploaded, store: str, tails, mode: str, is_juggler: bool =
                                    if str(b).split(".")[0].lstrip("-").isdigit()]
             if stat_out is not None:
                 stat_out[_fn_of] = _stat_bans
+            if h3_out is not None:
+                h3_out[_fn_of] = {"total": _bar_of["total_count"],
+                                  "count": _bar_of["win_count"],
+                                  "all_avg_diff": _bar_of["avg_diff"]}
     except Exception:
         pass
     return _imgs
@@ -24941,6 +24952,7 @@ def show_auto_article_page() -> None:
             _art_sue_ban_e:  dict[str, list[int]] = {}
             _art_sue_src_e:  dict[str, dict]      = {}
             _art_sue_stat_e: dict[str, list[int]] = {}
+            _art_sue_h3_e:   dict[str, dict]      = {}
             _a_st_e, _a_sm_e, _a_jt_e, _a_jm_e = _art_sue_settings()
             def _art_gen_sue_e() -> None:
                 """④末尾・ジャグラー末尾画像を生成・保存する（下の2か所のどちらか一方で1回だけ呼ぶ）。"""
@@ -24953,6 +24965,7 @@ def show_auto_article_page() -> None:
                                 uploaded, store, _tails_e, _mode_e, is_juggler=_isjug_e,
                                 ban_out=_art_sue_ban_e, stat_out=_art_sue_stat_e,
                                 src_out=_art_sue_src_e, article_mode=True,
+                                h3_out=_art_sue_h3_e,
                                 hq_scale=(_ART_HQ_SCALE if store in _ART_HQ_STORES else 1.0),
                                 exclude_state=_art_unit_state_e,
                                 exclude_kind="art_suebangai",
@@ -25840,6 +25853,11 @@ def show_auto_article_page() -> None:
                         _fn for _fn, _bns in _art_sue_ban_e.items() if _bns]
                     if store in _ART_WP_SUE_H3_STORES:
                         _art_wp_pl["sue_h3"] = True
+                        # 末尾H3の集計（各画像のピンクバーと同じ値）。無いファイルは wp_client が
+                        # 従来どおりファイル名だけのH3にする
+                        _art_wp_pl["sue_h3_stats"] = {
+                            _fn: dict(_art_sue_h3_e[_fn])
+                            for _fn in _art_wp_pl["suebangai"] if _fn in _art_sue_h3_e}
                     _art_wp_pl["variety"] = (
                         [_art_var_fn_e] if _art_var_fn_e else [])
                     # ── 渋谷新館の記事用にだけ存在するセクション（2026-09-04 追加）──

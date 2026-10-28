@@ -466,6 +466,20 @@ def h3_zendai(item: dict, count_style: str = "slash") -> str:
     return f"{base}{_ARROW_R2}平均{fmt_signed(avg)}枚"
 
 
+def h3_sue(item: dict, count_style: str = "slash") -> str:
+    """末尾H3。`末尾27番台(9台中7台+)→平均+1,811枚`（2026-10-28）。
+
+    台数部分・矢印・fmt_signed は h3_zendai() と同じ。ただし **平均がマイナスでも
+    `→平均-320枚` を出す**（h3_zendai() のマイナス非表示は末尾へ適用しない）。
+    h3_zendai() 本体は変更しない（全台系・高配分のH3を巻き込まないため）。
+    """
+    if count_style == "total_first":
+        base = f"{item['name']}({item['total']}台中{item['count']}台+)"
+    else:
+        base = f"{item['name']}({item['count']}/{item['total']}台+)"
+    return f"{base}{_ARROW_R2}平均{fmt_signed(int(item['all_avg_diff']))}枚"
+
+
 def line_high(item: dict) -> str:
     """`Lモンハンライズ(4/6台+）➡平均+1,850枚`。
 
@@ -1291,8 +1305,14 @@ def plan_blocks(payload: dict) -> list[dict]:
             # payload["sue_h3"] の店舗（新宿歌舞伎町の記事用）だけ、各画像の直前へH3。
             # 文言は⑧が保存したファイル名から拡張子を除いたもの（＝画像タイトル）。
             # キーを渡さない店舗は従来どおり H2 → 画像 のまま（1ブロックも増えない）。
+            # payload["sue_h3_stats"][fn]（画像のピンクバーと同じ集計）があれば
+            # `末尾27番台(9台中7台+)→平均+1,811枚`、無ければファイル名だけ。
             if payload.get("sue_h3"):
-                plan.append({"type": "h3", "text": os.path.splitext(fn)[0]})
+                _sue_st = (payload.get("sue_h3_stats") or {}).get(fn)
+                _sue_nm = os.path.splitext(fn)[0]
+                plan.append({"type": "h3", "text": (
+                    h3_sue({"name": _sue_nm, **_sue_st}, _h3_cnt)
+                    if _sue_st else _sue_nm)})
             plan.append({"type": "image", "file": fn, "label": f"末尾 {fn}"})
         # 末尾コメントは **末尾画像の後に1回だけ**。payload["comments"] に
         # "suebangai" を渡した店舗だけ入る（他店舗は1ブロックも変わらない）。

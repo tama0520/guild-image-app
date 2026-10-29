@@ -14945,20 +14945,16 @@ def _ban_list_image_manual(store: str, df, excel_name: str, ban_map: dict,
                            kinds: dict) -> "Image.Image | None":
     """台番一覧（📝記入部分のみプレビューと📝の⑧で共通）。
     ban_map: 画像名 → 掲載台番／kinds: 画像名 → zen・high・nami・sue・single・"rec:{入力タイトル}"。
-    記入した部分の掲載台だけを載せる。single（その他の優秀台）も単品ピックアップの自動補充も使わない。"""
+    ②個別画像に記入した機種の掲載台だけを載せる（zen＝②全台・high＝②優秀台）。
+    並び・末尾・⑤・single（その他の優秀台）も、単品ピックアップの自動補充も使わない。"""
     if store not in _BAN_LIST_IMG_STORES or df is None:
         return None
     _of = lambda k: [_fn for _fn, _k in kinds.items() if _k == k and _fn in ban_map]
-    _rec: dict[str, list[int]] = {}
-    for _fn, _k in kinds.items():
-        if _k.startswith("rec:") and _fn in ban_map:
-            _rec.setdefault(_k[4:], []).extend(ban_map[_fn])
     _blocks, _ = _ban_list_blocks_from(
         df,
         [_b for _fn in _of("zen") for _b in ban_map[_fn]],
         [_b for _fn in _of("high") for _b in ban_map[_fn]],
-        [ban_map[_fn] for _fn in _of("nami")],
-        {_fn: ban_map[_fn] for _fn in _of("sue")}, _rec)
+        [], {}, {})
     _m = re.search(r"(\d{4})(\d{2})(\d{2})", excel_name or "")
     _d = None
     if _m:

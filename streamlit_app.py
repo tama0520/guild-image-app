@@ -14640,7 +14640,8 @@ def _ban_list_blocks(result: dict, sue_ban_map: "dict | None" = None,
         sue_ban_map or {}, _rec)
 
 
-def _ban_list_layout(blocks: list[dict], pool: list[dict]) -> "tuple[list[list], int]":
+def _ban_list_layout(blocks: list[dict], pool: list[dict], ncol: int = _BAN_LIST_NCOL,
+                     nrow: int = _BAN_LIST_NROW) -> "tuple[list[list], int]":
     """25セル×3列へ上から順に詰める（1列目→2列目→3列目）。見出し行も1セル。
     - 見出しはブロックごとに1回だけ（列をまたいでも付け直さない）
     - 見出しだけが列の最下段に残る場合は、見出しごと次の列へ送る
@@ -14650,7 +14651,7 @@ def _ban_list_layout(blocks: list[dict], pool: list[dict]) -> "tuple[list[list],
     - 75セルを超える分は載せない（4列目は作らない）
     戻り値：(各列のセル（ちょうど25個）, 載せられなかった行数)。
     セル：("hdr", bi) / ("row", bi, 行, 行番号, 並びの塊番号) / ("blank",)。"""
-    NC, NR = _BAN_LIST_NCOL, _BAN_LIST_NROW
+    NC, NR = ncol, nrow
     cols: list[list] = [[] for _ in range(NC)]
     pos = [0]   # 今の列
 
@@ -14701,16 +14702,22 @@ def _ban_list_layout(blocks: list[dict], pool: list[dict]) -> "tuple[list[list],
     return cols, omitted
 
 
-def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = None) -> "Image.Image | None":
+def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = None,
+                        single_col: bool = False) -> "Image.Image | None":
     """台番一覧を 25セル×3列で描く。高さは実際に描いた最下端で切り取り、最後に外周の黒枠を引く。
     罫線は1座標1本（同じ位置へ重ねない）。列の仕切りは各1本だけ。
-    75セルを超えて載せられなかった行数は戻り値の info["ban_list_omitted"] に入れる。"""
+    75セルを超えて載せられなかった行数は戻り値の info["ban_list_omitted"] に入れる。
+    single_col=True（📝・⑧📝）：1列だけで、載せる行数（見出し＋台）ぶんの高さ。空欄で埋めず上限なし。"""
     if not blocks and not pool:
         return None
     blocks = list(blocks)
     _tf = _ban_list_title_font_path()
     f_body = ImageFont.truetype(_BAN_LIST_BODY_FONT, _BAN_LIST_FS)
-    cols, _omitted = _ban_list_layout(blocks, pool or [])
+    if single_col:
+        _n = sum(1 + sum(len(_a) for _a in _b["atoms"]) for _b in blocks)
+        cols, _omitted = _ban_list_layout(blocks, [], ncol=1, nrow=max(_n, 1))
+    else:
+        cols, _omitted = _ban_list_layout(blocks, pool or [])
     NC = len(cols)
 
     def _tw(s: str) -> int:
@@ -14946,7 +14953,9 @@ def _ban_list_image_manual(store: str, df, excel_name: str, ban_map: dict,
     """台番一覧（📝記入部分のみプレビューと📝の⑧で共通）。
     ban_map: 画像名 → 掲載台番／kinds: 画像名 → zen・high・nami・sue・single・"rec:{入力タイトル}"。
     ②個別画像に記入した機種の掲載台だけを載せる（zen＝②全台・high＝②優秀台）。
-    並び・末尾・⑤・single（その他の優秀台）も、単品ピックアップの自動補充も使わない。"""
+    並び・末尾・⑤・single（その他の優秀台）も、単品ピックアップの自動補充も使わない。
+    通常の3列×25セルではなく縦長1列で描き、タイトルは「{M/D}はにぃポスト結果考察」
+    （M/D はExcelファイル名の YYYYMMDD＝データの日付。取れなければ日付なし）。"""
     if store not in _BAN_LIST_IMG_STORES or df is None:
         return None
     _of = lambda k: [_fn for _fn, _k in kinds.items() if _k == k and _fn in ban_map]
@@ -14962,7 +14971,8 @@ def _ban_list_image_manual(store: str, df, excel_name: str, ban_map: dict,
             _d = datetime.date(int(_m.group(1)), int(_m.group(2)), int(_m.group(3)))
         except ValueError:
             pass
-    return draw_ban_list_image(_ban_list_title(store, _d), _blocks, [])
+    _title = (f"{_d.month}/{_d.day}" if _d is not None else "") + "はにぃポスト結果考察"
+    return draw_ban_list_image(_title, _blocks, [], single_col=True)
 
 
 def _dedup_previews(items: list) -> list:

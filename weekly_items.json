@@ -1711,5 +1711,46 @@
         "2026-10-28": false
       }
     }
+  },
+  "モグ玄・新大久保": {
+    "t2": {
+      "items": [
+        "ツノッチが3体(並び？)",
+        "ツノ1本(角？)",
+        "ツノ2本(角2？)",
+        "バーベル上げ(前日から上げ？)",
+        "椅子に座る(据え置き？)",
+        "",
+        "",
+        ""
+      ],
+      "title": "毎日オススメ ネオアイム・ゴージャグ3",
+      "date_checks": {
+        "2026-10-27": [
+          false,
+          true,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-10-28": [
+          false,
+          false,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      "blank_date_checks": {
+        "2026-10-27": false,
+        "2026-10-28": false
+      }
+    }
   }
 }

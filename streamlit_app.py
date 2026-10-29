@@ -8768,7 +8768,8 @@ def generate_report_text(
                 _hp += [f"♦{it['name']}" for it, _ in _hp_items] + [""]
                 _hp += ["🎯" for _ in _hp_items] + [""]
                 _hp += [f"・{it['name']}：平均{_fmt_diff(avg)}" for it, avg in _hp_items] + [""]
-            _hp += ["💬", "", "", "🔍", ""]
+            # 💬・🔍は出さない。直前の空行と合わせて空行6行で全体結果へつなぐ
+            _hp += ["", "", "", "", ""]
             _hp += [f"【 {date.month}/{date.day}の結果📈 】" if date is not None else "【 結果📈 】",
                     f"総差枚：{_fmt_diff(_zst_m['total_diff'] if _zst_m else 0)}",
                     f"平均差枚：{_fmt_diff(_zst_m['avg_diff'] if _zst_m else 0)}", ""]

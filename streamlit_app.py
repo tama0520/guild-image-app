@@ -14722,10 +14722,15 @@ def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = No
 
     _all = [_cells(_c[2]) for _col in cols for _c in _col if _c[0] == "row"]
     _hdrs = [blocks[_c[1]]["title"] for _col in cols for _c in _col if _c[0] == "hdr"]
-    ban_w = max([_tw(_c[1]) for _c in _all] + [_tw("台番")])
-    games_w = max([_tw(_c[2]) for _c in _all] + [_tw("回転")])
-    diff_w = max([_tw(_c[3]) for _c in _all] + [_tw("差枚")])
-    name_w = max([_tw(_c[0]) for _c in _all] + [_tw(_t) - ban_w - _BAN_LIST_GAP for _t in _hdrs] + [0])
+    # 台番・回転数・差枚数の列：数字は右揃えのまま、数字の幅の中心へ見出しを左右中央で置く
+    ban_dw = max([_tw(_c[1]) for _c in _all] + [0])
+    games_dw = max([_tw(_c[2]) for _c in _all] + [0])
+    diff_dw = max([_tw(_c[3]) for _c in _all] + [0])
+    ban_w = max(ban_dw, _tw("台番"))
+    games_w = max(games_dw, _tw("回転数"))
+    diff_w = max(diff_dw, _tw("差枚数"))
+    # 見出し行の左（ブロック名）は台番の見出しへ重ねない
+    name_w = max([_tw(_c[0]) for _c in _all] + [_tw(_t) for _t in _hdrs] + [0])
     G, P, LW, FW, RH = _BAN_LIST_GAP, _BAN_LIST_PAD, _BAN_LIST_LW, _BAN_LIST_FRAME_W, _BAN_LIST_ROW_H
     col_w = P + name_w + G + ban_w + G + games_w + G + diff_w + P
     W = FW + NC * col_w + (NC - 1) * LW + FW
@@ -14748,9 +14753,13 @@ def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = No
 
     _asc = f_body.getbbox("回転台番0123456789")
 
-    def _text(x: int, y: int, s: str, fill, right_x: "int | None" = None) -> None:
+    def _text(x: int, y: int, s: str, fill, right_x: "int | None" = None,
+              center_x: "float | None" = None) -> None:
         if right_x is not None:
             x = right_x - _tw(s)
+        if center_x is not None:
+            _ib = f_body.getbbox(s)
+            x = int(round(center_x - (_ib[0] + _ib[2]) / 2))
         dr.text((x, y + (RH - (_asc[3] - _asc[1])) // 2 - _asc[1]), s, font=f_body, fill=fill)
 
     _hlines: set = set()
@@ -14758,9 +14767,12 @@ def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = No
 
     def _col(items: list, x0: int) -> None:
         nonlocal bottom
-        x_ban_r = x0 + P + name_w + G + ban_w
-        x_games_r = x_ban_r + G + games_w
-        x_diff_r = x_games_r + G + diff_w
+        x_ban_l = x0 + P + name_w + G
+        x_games_l = x_ban_l + ban_w + G
+        x_diff_l = x_games_l + games_w + G
+        x_ban_r = x_ban_l + (ban_w + ban_dw) // 2
+        x_games_r = x_games_l + (games_w + games_dw) // 2
+        x_diff_r = x_diff_l + (diff_w + diff_dw) // 2
         y = _BAN_LIST_TITLE_H
         prev = None   # 直前のデータ行 (bi, 行, 塊番号, 行番号)
         for _i, _it in enumerate(items):
@@ -14768,8 +14780,9 @@ def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = No
                 _b = blocks[_it[1]]
                 dr.rectangle([x0, y, x0 + col_w - 1, y + RH - 1], fill=_b["color"])
                 _text(x0 + P, y, _b["title"], "white")
-                _text(0, y, "回転", "white", right_x=x_games_r)
-                _text(0, y, "差枚", "white", right_x=x_diff_r)
+                _text(0, y, "台番", "white", center_x=x_ban_r - ban_dw / 2)
+                _text(0, y, "回転数", "white", center_x=x_games_r - games_dw / 2)
+                _text(0, y, "差枚数", "white", center_x=x_diff_r - diff_dw / 2)
                 if _i > 0:
                     _hlines.add((y, x0, x0 + col_w - 1))
                 prev = None
@@ -14780,7 +14793,7 @@ def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = No
                 _c = _cells(_r)
                 _minus = _r["diff"] < 0
                 if _minus:
-                    dr.rectangle([x_games_r + G // 2, y, x0 + col_w - 1, y + RH - 1], fill=_BAN_LIST_MINUS_BG)
+                    dr.rectangle([x_games_l + games_w + G // 2, y, x0 + col_w - 1, y + RH - 1], fill=_BAN_LIST_MINUS_BG)
                 _text(x0 + P, y, _c[0], _BAN_LIST_TEXT)
                 _text(0, y, _c[1], _BAN_LIST_TEXT, right_x=x_ban_r)
                 _text(0, y, _c[2], _BAN_LIST_TEXT, right_x=x_games_r)
@@ -14932,7 +14945,7 @@ def _ban_list_image_manual(store: str, df, excel_name: str, ban_map: dict,
                            kinds: dict) -> "Image.Image | None":
     """台番一覧（📝記入部分のみプレビューと📝の⑧で共通）。
     ban_map: 画像名 → 掲載台番／kinds: 画像名 → zen・high・nami・sue・single・"rec:{入力タイトル}"。
-    single（その他の優秀台）は一覧では使わず、残りセルを単品ピックアップで自動補充する。"""
+    記入した部分の掲載台だけを載せる。single（その他の優秀台）も単品ピックアップの自動補充も使わない。"""
     if store not in _BAN_LIST_IMG_STORES or df is None:
         return None
     _of = lambda k: [_fn for _fn, _k in kinds.items() if _k == k and _fn in ban_map]
@@ -14940,7 +14953,7 @@ def _ban_list_image_manual(store: str, df, excel_name: str, ban_map: dict,
     for _fn, _k in kinds.items():
         if _k.startswith("rec:") and _fn in ban_map:
             _rec.setdefault(_k[4:], []).extend(ban_map[_fn])
-    _blocks, _pool = _ban_list_blocks_from(
+    _blocks, _ = _ban_list_blocks_from(
         df,
         [_b for _fn in _of("zen") for _b in ban_map[_fn]],
         [_b for _fn in _of("high") for _b in ban_map[_fn]],
@@ -14953,7 +14966,7 @@ def _ban_list_image_manual(store: str, df, excel_name: str, ban_map: dict,
             _d = datetime.date(int(_m.group(1)), int(_m.group(2)), int(_m.group(3)))
         except ValueError:
             pass
-    return draw_ban_list_image(_ban_list_title(store, _d), _blocks, _pool)
+    return draw_ban_list_image(_ban_list_title(store, _d), _blocks, [])
 
 
 def _dedup_previews(items: list) -> list:

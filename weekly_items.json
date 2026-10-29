@@ -1057,47 +1057,7 @@
       "title": "月間オススメ カバネリ海門決戦",
       "machine_name": "カバネリ海門決戦",
       "date_checks": {
-        "2026-09-15": [
-          false,
-          false,
-          true,
-          false,
-          true,
-          false,
-          false,
-          false
-        ],
-        "2026-09-16": [
-          false,
-          false,
-          true,
-          false,
-          true,
-          false,
-          false,
-          false
-        ],
-        "2026-09-17": [
-          false,
-          false,
-          true,
-          false,
-          true,
-          false,
-          false,
-          false
-        ],
-        "2026-09-18": [
-          false,
-          false,
-          true,
-          false,
-          true,
-          false,
-          false,
-          false
-        ],
-        "2026-09-19": [
+        "2026-10-22": [
           false,
           false,
           false,
@@ -1107,17 +1067,57 @@
           false,
           false
         ],
-        "2026-09-20": [
+        "2026-10-23": [
           false,
           false,
           false,
           false,
-          true,
+          false,
           false,
           false,
           false
         ],
-        "2026-09-21": [
+        "2026-10-24": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-10-25": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-10-26": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-10-27": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "2026-10-28": [
           false,
           false,
           false,
@@ -1129,13 +1129,13 @@
         ]
       },
       "blank_date_checks": {
-        "2026-09-15": false,
-        "2026-09-16": false,
-        "2026-09-17": false,
-        "2026-09-18": false,
-        "2026-09-19": true,
-        "2026-09-20": false,
-        "2026-09-21": true
+        "2026-10-22": false,
+        "2026-10-23": false,
+        "2026-10-24": false,
+        "2026-10-25": false,
+        "2026-10-26": false,
+        "2026-10-27": false,
+        "2026-10-28": false
       },
       "start_date": "2026-10-05",
       "checks": [

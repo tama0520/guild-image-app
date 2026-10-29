@@ -27963,9 +27963,10 @@ def _draw_weekly_table_image(
     C_CK_BG   = C_ROTE_WEEKLY_CK_BG if theme_new else C_YL      # ④
     if theme_mogu:
         C_TTL_BG  = C_ROTE_MOGU_HDR_BG
-        C_DHDR_BG = C_ROTE_MOGU_HDR_BG
+        C_DHDR_BG = C_ROTE_MOGU_MAC_BG   # 日付行はローテ画像の機種名と同じ青
         C_DHDR_FG = C_WH
         C_ITEM_BG = C_ROTE_MOGU_BAN_BG
+        C_CK_BG   = C_WH                 # ○セルは塗らない（通常セルと同じ白）
     _txt_font = _rote_mogu_font if theme_mogu else load_font
 
     # ◎○など記号だけ Meiryo、それ以外は MochiyPopOne（1文字単位で切り替え）

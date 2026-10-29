@@ -105,13 +105,16 @@ STORES: dict[str, list[str]] = {
     "稲毛":         _IMAGE_TYPES,
     "秋葉原":       _IMAGE_TYPES,
     # 別入口（トップでは4列ではなく「YG用」の直後に出す。下の _STORE_DATA_ALIAS 参照）
+    "モグ玄・新宿歌舞伎町": _IMAGE_TYPES,
     "モグ玄・新大久保": _IMAGE_TYPES,
 }
 
 # 既存店舗と同じ Pision データ・同じ機能を使う別入口の店舗 {入口の店舗名: データ元の店舗名}。
 # 入力の保存・画面・出力フォルダは入口の店舗名で分け、Pisionのホール判定と
 # 結果テキストの店名表記だけデータ元の店舗名を使う。トップの4列・スマホの店舗順には入れない。
-_STORE_DATA_ALIAS: "dict[str, str]" = {"モグ玄・新大久保": "新大久保"}
+# 並び順＝トップのボタン順（「YG用」→ モグ玄・新宿歌舞伎町 → モグ玄・新大久保）。
+_STORE_DATA_ALIAS: "dict[str, str]" = {"モグ玄・新宿歌舞伎町": "新宿歌舞伎町",
+                                       "モグ玄・新大久保": "新大久保"}
 
 
 def _data_store(store: str) -> str:
@@ -120,7 +123,7 @@ def _data_store(store: str) -> str:
 
 # オススメ機種ピックアップ・素材メモ・詳細結果テキスト機能を持つ店舗
 # 新店舗に同機能を追加するにはここに店舗名を追記するだけでよい
-EXTENDED_FEATURE_STORES: frozenset[str] = frozenset({"新宿歌舞伎町", "西武新宿", "新大久保", "高田馬場", "上野本館", "上野新館", "渋谷新館", "赤坂見附", "新小岩", "溝の口本館", "溝の口新館", "稲毛", "モグ玄・新大久保"})
+EXTENDED_FEATURE_STORES: frozenset[str] = frozenset({"新宿歌舞伎町", "西武新宿", "新大久保", "高田馬場", "上野本館", "上野新館", "渋谷新館", "赤坂見附", "新小岩", "溝の口本館", "溝の口新館", "稲毛", "モグ玄・新大久保", "モグ玄・新宿歌舞伎町"})
 
 # 店舗ごとの結果テキスト絵文字設定 {store: (e1, e2)}
 # e1=冒頭アイコン, e2=セクション見出しアイコン
@@ -168,6 +171,7 @@ ROTE_BAN_EMOJI_CONFIG: dict[str, str] = {
 # ROTE_EMOJI_CONFIG 自体は画像・他用途でも使うため変更しない（表示側だけで切り替える）。
 _ROTE_BRACKET_NAME_STORES: "frozenset[str]" = frozenset({
     "新宿歌舞伎町",
+    "モグ玄・新宿歌舞伎町",
     "新大久保",
     "モグ玄・新大久保",
 })
@@ -181,18 +185,19 @@ ROTE_BAN_COLOR_CONFIG: dict[str, str] = {
     "新大久保":     "#AED6F1",
     "モグ玄・新大久保": "#AED6F1",
     "新宿歌舞伎町": "#FFF2CD",
+    "モグ玄・新宿歌舞伎町": "#FFF2CD",
 }
 
 # ローテ用「1カテゴリ＝1機種＝1枚」方式の店舗（①〜⑥の6カテゴリ・各1機種）
 # 未登録店舗は従来どおり①②の各最大6機種を1枚へまとめる方式
-_ROTE_SINGLE_STORES: frozenset[str] = frozenset({"新宿歌舞伎町"})
+_ROTE_SINGLE_STORES: frozenset[str] = frozenset({"新宿歌舞伎町", "モグ玄・新宿歌舞伎町"})
 
 # 2026-09-11: ローテ用でランキング画像（ranking_*.png）を作らない店舗。
 # 現在 generate_ranking_image() の呼び出しは _ROTE_SINGLE_STORES 経路にしか無いが、
 # 他店舗の既存挙動を壊さないよう店舗集合でゲートする（店舗追加はこの集合の編集だけ）。
 # **generate_ranking_image() 本体・ランキング用の定数・描画ロジックは削除しない。**
 # 既存の ranking_*.png を後から削除する処理も追加しない（最初から生成経路へ入れない）。
-_ROTE_RANKING_OFF_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+_ROTE_RANKING_OFF_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町", "モグ玄・新宿歌舞伎町"})
 
 
 def _rote_ranking_on(store: str) -> bool:
@@ -216,6 +221,7 @@ _ROTE_NEW_THEME_STORES: "frozenset[str]" = frozenset({
     "渋谷新館",
     "新大久保",
     "モグ玄・新大久保",
+    "モグ玄・新宿歌舞伎町",
 })
 
 
@@ -228,7 +234,7 @@ def _rote_new_theme(store: str) -> bool:
 # 台番一覧の見本（_BAN_LIST_*）と同じ紺／青系・NotoSansJP-Black にする店舗。
 # 紫系（_ROTE_NEW_THEME_STORES / _ROTE_WEEKLY_NEW_THEME_STORES）より優先する。
 # 変えるのは色と書体だけで、サイズ・列幅・行高・配置・データ・ファイル名は変更しない。
-_ROTE_MOGU_THEME_STORES: "frozenset[str]" = frozenset({"モグ玄・新大久保"})
+_ROTE_MOGU_THEME_STORES: "frozenset[str]" = frozenset({"モグ玄・新大久保", "モグ玄・新宿歌舞伎町"})
 C_ROTE_MOGU_HDR_BG = "#1D3461"   # 台番・日付ヘッダー／表タイトル・日付行（見本タイトルバーの紺）
 C_ROTE_MOGU_MAC_BG = "#4A7ABF"   # 機種名（見本「高配分」見出しの青）
 C_ROTE_MOGU_BAN_BG = "#C0D8EE"   # 台番セル／表の項目列（見本本文の濃いほうの青）
@@ -538,6 +544,7 @@ DEFAULT_STORE_CONFIG: dict = {
 # キーは STORES の店舗名と一致させること
 STORE_CONFIG: dict[str, dict] = {
     "新宿歌舞伎町": {},
+    "モグ玄・新宿歌舞伎町": {},
     "西武新宿":     {},
     "新大久保":     {},
     "高田馬場":     {},
@@ -796,6 +803,7 @@ STORE_NARABI_SCRIPT: dict[str, str] = {
     "稲毛":   _NARABI_GENERIC,
     "秋葉原": _NARABI_GENERIC,
     "モグ玄・新大久保": _NARABI_GENERIC,
+    "モグ玄・新宿歌舞伎町": _NARABI_GENERIC,
 }
 
 # 列ごとの最低表示幅（px）― 旧スクリプトの CSS 幅と同値。scale=150/96 で乗算して実使用
@@ -950,6 +958,7 @@ _SLUMP_THEME_STORES: frozenset[str] = frozenset({
     "上野本館",
     "秋葉原",
     "新宿歌舞伎町",
+    "モグ玄・新宿歌舞伎町",   # スランプ固有の見た目は現時点で新宿歌舞伎町と同じ
 })
 # 対象ページはスランプ付き結果ポスト用のみ。
 # 記事用(auto_article)・単体スランプページ(slump_graph)は**含めない**。
@@ -2309,6 +2318,7 @@ def _add_margin(img: Image.Image, pad: int = 20, color: str = "#CFEEEE") -> Imag
 # rote 入口を持つ8店舗すべてが対象（2026-09-11 新宿歌舞伎町で先行確認 → 全店舗へ展開）。
 _ROTE_PLAIN_STORES: "frozenset[str]" = frozenset({
     "新宿歌舞伎町",
+    "モグ玄・新宿歌舞伎町",
     "高田馬場",
     "上野本館",
     "渋谷新館",
@@ -5012,6 +5022,47 @@ def show_image_type_page() -> None:
                         use_container_width=True,
                     ):
                         _navigate("auto_slump")
+                if st.button(
+                    "📋 ローテ用",
+                    key="rote_mode_btn",
+                    use_container_width=True,
+                ):
+                    _navigate("rote")
+        elif store == "モグ玄・新宿歌舞伎町":
+            # モグ玄・新宿歌舞伎町：新宿歌舞伎町の②スランプ付き結果（auto_slump2）と
+            # ③ローテ用（rote）だけ。記事用・かぶぱは出さない。キー・色・遷移先は新宿歌舞伎町と同じ。
+            st.markdown(
+                """<style>
+                .st-key-auto_slump2_btn button {
+                    background-color: #00ACC1 !important;
+                    border-color: #00838F !important;
+                    color: white !important;
+                }
+                .st-key-auto_slump2_btn button:hover {
+                    background-color: #00838F !important;
+                    border-color: #00838F !important;
+                }
+                .st-key-rote_mode_btn button {
+                    background-color: #1976D2 !important;
+                    border-color: #1565C0 !important;
+                    color: white !important;
+                }
+                .st-key-rote_mode_btn button:hover {
+                    background-color: #1565C0 !important;
+                    border-color: #1565C0 !important;
+                }
+                </style>""",
+                unsafe_allow_html=True,
+            )
+            _col_l, _col_r = st.columns(2)
+            with _col_l:
+                if st.button(
+                    "📈 スランプ付き結果ポスト用",
+                    key="auto_slump2_btn",
+                    use_container_width=True,
+                ):
+                    _navigate("auto_slump2")
+            with _col_r:
                 if st.button(
                     "📋 ローテ用",
                     key="rote_mode_btn",
@@ -8675,6 +8726,7 @@ def generate_report_text(
     _STORE_DISPLAY_NAMES: dict[str, str] = {
         "西武新宿": "エスパス 西武 新宿",
         "モグ玄・新大久保": "エスパス新大久保",
+        "モグ玄・新宿歌舞伎町": "エスパス新宿歌舞伎町",
     }
     # 「その他」配下（エスパス以外）は設定の display_name をそのまま使う。
     # 既存店舗は _other_display_name() が None を返し、従来経路のまま。
@@ -9402,6 +9454,7 @@ _ARTICLE_INPUTS_JSON = os.path.join(BASE_DIR, "article_page_inputs.json")
 _KOJIN_DATE_SCOPED_STORES: frozenset[str] = frozenset({
     "新小岩",
     _KABUPA_SLUMP2_NS,   # 新宿歌舞伎町の②スランプ付き結果のみ（①かぶぱは対象外）
+    "モグ玄・新宿歌舞伎町",
     "上野新館",
     "上野本館",
     "稲毛",
@@ -9485,6 +9538,7 @@ _KOJIN_Y_EXPAND_SLUMP_STORES = frozenset({
     "上野本館",
     "新小岩",
     _KABUPA_SLUMP2_NS,   # 新宿歌舞伎町の②スランプ付き結果のみ（①かぶぱは3/6枠）
+    "モグ玄・新宿歌舞伎町",
 })
 
 def _collect_kojin_pick(store: str, prefix: str = "") -> list[tuple[str, set[int]]]:
@@ -9807,7 +9861,7 @@ _JUG_AUTO_MEM_FIELDS: "dict[str, str]" = {          # page → article_shared_in
     "auto_slump2": "jug_extra_auto_slump2",
     "auto_article": "jug_extra_auto_article",
 }
-_JUG_AUTO_MEM_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+_JUG_AUTO_MEM_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町", "モグ玄・新宿歌舞伎町"})
 
 
 def _jug_auto_mem_field(store: str) -> "str | None":
@@ -9870,7 +9924,7 @@ _SONOTA_AUTO_MEM_FIELDS: "dict[str, str]" = {       # page → article_shared_in
     "auto_slump2": "sonota_extra_auto_slump2",
     "auto_article": "sonota_extra_auto_article",
 }
-_SONOTA_AUTO_MEM_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+_SONOTA_AUTO_MEM_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町", "モグ玄・新宿歌舞伎町"})
 
 
 def _sonota_auto_mem_field(store: str) -> "str | None":
@@ -16244,7 +16298,7 @@ def show_auto_page(with_slump: bool = False) -> None:
     if kojin_enabled:
         _kojin_candidates = _excel_candidates
         # 新宿歌舞伎町: マイジャグV/ファンキー2 は台番の階（2F=3桁/3F=4桁）別バリアントを予測変換に追加
-        if store == "新宿歌舞伎町":
+        if _data_store(store) == "新宿歌舞伎町":
             _kc = list(_kojin_candidates)
             for _fm in _FLOOR_SPLIT_MACHINES:
                 if _fm in _kojin_candidates:
@@ -16306,7 +16360,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                           on_click=_expand_ky, use_container_width=True)
             kojin_yushu_machines = [st.session_state.get(f"kojin_y_{_i}_{store}", "") for _i in range(_ky_count)]
         # 対象店舗のスランプ付きは台番範囲を使わない（UI非表示＋下流も空文字で無効化）
-        if not _no_kojin_narabi and store != "溝の口新館" and store != "新宿歌舞伎町":
+        if not _no_kojin_narabi and store != "溝の口新館" and _data_store(store) != "新宿歌舞伎町":
             st.markdown("**並び台番範囲 優秀台**")
             _col_nr, _col_nt = st.columns([2, 3])
             with _col_nr:
@@ -27051,6 +27105,7 @@ def _save_master_df(df: pd.DataFrame) -> None:
 # 台番の抽出条件と並び順・空カテゴリ挙動・機種見出しは変更しない。
 _ROTE_NEW_TEXT_STORES: "frozenset[str]" = frozenset({
     "新宿歌舞伎町",
+    "モグ玄・新宿歌舞伎町",
     "高田馬場",
     "溝の口本館",
     "溝の口新館",
@@ -27105,7 +27160,7 @@ def _generate_rote_result_text(
     import calendar as _cal
     dow = ["月", "火", "水", "木", "金", "土", "日"][date_obj.weekday()]
 
-    if store == "新宿歌舞伎町":
+    if _data_store(store) == "新宿歌舞伎町":
         # 月内3期間（1～10 / 11～20 / 21～月末）で week_str と day_num を計算
         # 計算は _tenday_period() へ切り出した（出力文字列は従来と完全に同一）。
         m = date_obj.month
@@ -30905,7 +30960,9 @@ class _SGError(Exception):
 
 def _sg_hall_id(store: str) -> "int | None":
     """店舗名 → slotterguild の hall_id（未登録店舗は None）。
-    既存エスパス店舗は _SG_HALL_IDS、「その他」配下は設定ファイルの値を使う。"""
+    既存エスパス店舗は _SG_HALL_IDS、「その他」配下は設定ファイルの値を使う。
+    別入口（_STORE_DATA_ALIAS）はデータ元店舗の hall_id を使う。"""
+    store = _data_store(store)
     if store in _SG_HALL_IDS:
         return _SG_HALL_IDS[store]
     return _other_sg_hall_id(store)
@@ -31494,7 +31551,7 @@ def _kabupa_panel_on(store: str) -> bool:
 # 従来は高配分リスト全件（画像なしの機種＝ジャグラーガールズ等も含む）で除外していたため、
 # その機種の overflow 台がその他に残っていた。⑦→🔄 と ⑧ で同じ判定を使う。
 _JUG_OV_MOVE_PAGES:  "frozenset[str]" = frozenset({"auto_slump2"})
-_JUG_OV_MOVE_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+_JUG_OV_MOVE_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町", "モグ玄・新宿歌舞伎町"})
 
 
 def _jug_ov_move_on(store: str) -> bool:
@@ -32545,7 +32602,7 @@ _GAP_SCREEN_SHRINK = 0.95
 
 # スランプ空きコマに液晶をはめ込む対象店舗（⑥液晶セレクタも有効化）。秋葉原は
 # タイトル型レイアウト（_build_slump_title_img）だが同じ3列グリッドなので対応。
-_GAP_FILL_STORES = {"新宿歌舞伎町", "上野新館", "上野本館", "新小岩", "秋葉原"}
+_GAP_FILL_STORES = {"新宿歌舞伎町", "上野新館", "上野本館", "新小岩", "秋葉原", "モグ玄・新宿歌舞伎町"}
 
 # 記事用ページ経路だけで液晶をはめ込む店舗（通常ページには一切適用しない）。
 # session_state も専用キー（_art_gap_meta_/_art_gap_base_）で通常ページと分離する。
@@ -32579,6 +32636,7 @@ _GAP_FILL_OFF_SLUMP_STORES: "frozenset[str]" = frozenset({
     "上野本館",
     "秋葉原",        # auto_slump はOFF。auto_article は _GAP_FILL_STORES 経由で液晶を維持する
     "新宿歌舞伎町",  # auto_slump（かぶぱ）/ auto_slump2 の両方がOFFになる
+    "モグ玄・新宿歌舞伎町",
 })
 
 

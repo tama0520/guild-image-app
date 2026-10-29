@@ -2861,12 +2861,19 @@ def generate_rote_image(df: pd.DataFrame, machine_names: list[str], date_label: 
     d   = ImageDraw.Draw(img)
 
     # ── ヘルパー ───────────────────────────────────────────────────────────
-    def cell(x, y, w, h, bg, text="", fg="black", align="center"):
+    def _diff_vbb(text):
+        # _rote_mogu の差枚セルだけ：「,」はベースラインより下へ伸び bbox 下端が
+        # 数字より下がる（NotoSansJP-Black で約7px）ため、上下位置は「,」を除いた
+        # bbox で決める（数字が見た目のセル中央に来る）。他店舗は None＝従来どおり。
+        return d.textbbox((0, 0), text.replace(",", ""), font=font) if _rote_mogu else None
+
+    def cell(x, y, w, h, bg, text="", fg="black", align="center", vbb=None):
         d.rectangle([x, y, x + w - 1, y + h - 1], fill=bg, outline=C_BORDER)
         if text:
             bb = d.textbbox((0, 0), text, font=font)
-            tw, th = bb[2] - bb[0], bb[3] - bb[1]
-            ty = y + (h - th) // 2 - bb[1]  # bb[1] 補正で真の上下センター
+            vb = vbb or bb
+            tw, th = bb[2] - bb[0], vb[3] - vb[1]
+            ty = y + (h - th) // 2 - vb[1]  # bb[1] 補正で真の上下センター
             if align == "center":
                 tx = x + (w - tw) // 2
             elif align == "right":
@@ -2875,7 +2882,7 @@ def generate_rote_image(df: pd.DataFrame, machine_names: list[str], date_label: 
                 tx = x + int(8 * SC)
             d.text((tx, ty), text, fill=fg, font=font)
 
-    def rainbow_cell(x, y, w, h, text=""):
+    def rainbow_cell(x, y, w, h, text="", vbb=None):
         # aaa.jpg 実測に合わせた虹色（緑:#82F78C、赤:#FF4343 基準）
         stops = [
             (255, 67, 67),   # 赤
@@ -2896,9 +2903,10 @@ def generate_rote_image(df: pd.DataFrame, machine_names: list[str], date_label: 
         d.rectangle([x, y, x + w - 1, y + h - 1], outline=C_BORDER)
         if text:
             bb = d.textbbox((0, 0), text, font=font)
-            tw, th = bb[2] - bb[0], bb[3] - bb[1]
+            vb = vbb or bb
+            tw, th = bb[2] - bb[0], vb[3] - vb[1]
             tx = x + (w - tw) // 2
-            ty = y + (h - th) // 2 - bb[1]  # bb[1] 補正で真の上下センター
+            ty = y + (h - th) // 2 - vb[1]  # bb[1] 補正で真の上下センター
             d.text((tx, ty), text, fill="black", font=font)
 
     # ── 凡例 ───────────────────────────────────────────────────────────────
@@ -2946,9 +2954,10 @@ def generate_rote_image(df: pd.DataFrame, machine_names: list[str], date_label: 
                 diff_str = f"+{v:,}"
                 bg, fg   = _rote_diff_color(v)
                 if bg == "rainbow":
-                    rainbow_cell(COL_BAN, cy, COL_DIFF, ROW_H, diff_str)
+                    rainbow_cell(COL_BAN, cy, COL_DIFF, ROW_H, diff_str, vbb=_diff_vbb(diff_str))
                 else:
-                    cell(COL_BAN, cy, COL_DIFF, ROW_H, bg, diff_str, fg, align="center")
+                    cell(COL_BAN, cy, COL_DIFF, ROW_H, bg, diff_str, fg, align="center",
+                         vbb=_diff_vbb(diff_str))
 
             cy += ROW_H
 

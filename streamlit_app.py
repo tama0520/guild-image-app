@@ -8754,6 +8754,28 @@ def generate_report_text(
         # ②個別画像など name がそのまま画像タイトルの経路）。結果テキストだけの置換はしない。
         _hp_items = [({**it, "name": it.get("img_name") or it["name"]}, avg)
                      for it, avg in _hp_items]
+        if store_name == "モグ玄・新大久保":
+            # モグ玄・新大久保だけの新形式。機種一覧・並び順・平均（all_avg_diff）は上の _hp_items のまま。
+            # 全体＝_zendai_total_stat(diff_raw)、ジャグラー＝_juggler_total_stat(df, juggler_series)（既存の集計）。
+            _zst_m = _zendai_total_stat(diff_raw)
+            try:
+                _jst_m = _juggler_total_stat(df, get_store_config(store_name)["juggler_series"])
+            except Exception:
+                _jst_m = None
+            _hp = ([f"{date.month}月{date.day}日（{weekday_jp[date.weekday()]}）", ""] if date is not None else [])
+            _hp += [f"【 {store_display} 】", "", "『はにぃポスト結果考察』", ""]
+            if _hp_items:
+                _hp += [f"♦{it['name']}" for it, _ in _hp_items] + [""]
+                _hp += ["🎯" for _ in _hp_items] + [""]
+                _hp += [f"・{it['name']}：平均{_fmt_diff(avg)}" for it, avg in _hp_items] + [""]
+            _hp += ["💬", "", "", "🔍", ""]
+            _hp += [f"【 {date.month}/{date.day}の結果📈 】" if date is not None else "【 結果📈 】",
+                    f"総差枚：{_fmt_diff(_zst_m['total_diff'] if _zst_m else 0)}",
+                    f"平均差枚：{_fmt_diff(_zst_m['avg_diff'] if _zst_m else 0)}", ""]
+            _hp += ["【 ジャグラー全体の結果 】",
+                    f"総差枚：{_fmt_diff(_jst_m[0] if _jst_m else 0)}",
+                    f"平均差枚：{_fmt_diff(_jst_m[1] if _jst_m else 0)}"]
+            return "\n".join(_hp)
         _hp_blocks = ["\n".join(_result_summary_lines(it, avg, _avg_show_thr))
                       for it, avg in _hp_items]
         _hp = [header, store_display, "", "🐝はにぃポスト結果考察🐝", ""]

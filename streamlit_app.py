@@ -224,6 +224,36 @@ def _rote_new_theme(store: str) -> bool:
     return store in _ROTE_NEW_THEME_STORES
 
 
+# 2026-10-29: ローテ用画像（ローテ①②③・{機種名}ローテ・月間①の表.png）を
+# 台番一覧の見本（_BAN_LIST_*）と同じ紺／青系・NotoSansJP-Black にする店舗。
+# 紫系（_ROTE_NEW_THEME_STORES / _ROTE_WEEKLY_NEW_THEME_STORES）より優先する。
+# 変えるのは色と書体だけで、サイズ・列幅・行高・配置・データ・ファイル名は変更しない。
+_ROTE_MOGU_THEME_STORES: "frozenset[str]" = frozenset({"モグ玄・新大久保"})
+C_ROTE_MOGU_HDR_BG = "#1D3461"   # 台番・日付ヘッダー／表タイトル・日付行（見本タイトルバーの紺）
+C_ROTE_MOGU_MAC_BG = "#4A7ABF"   # 機種名（見本「高配分」見出しの青）
+C_ROTE_MOGU_BAN_BG = "#C0D8EE"   # 台番セル／表の項目列（見本本文の濃いほうの青）
+C_ROTE_MOGU_BAN_FG = "#111111"   # 台番の数字（見本本文の文字色）
+
+
+def _rote_mogu_theme(store: str) -> bool:
+    """ローテ用画像を見本の紺／青系・NotoSansJP-Black にする店舗か。"""
+    return store in _ROTE_MOGU_THEME_STORES
+
+
+_rote_mogu_font_cache: "dict[int, ImageFont.ImageFont]" = {}
+
+
+def _rote_mogu_font(size: int) -> "ImageFont.ImageFont":
+    """_ROTE_MOGU_THEME_STORES 用の書体（同梱 NotoSansJP-Black・Cloud共通）。読めなければ load_font()。"""
+    if size not in _rote_mogu_font_cache:
+        try:
+            _rote_mogu_font_cache[size] = ImageFont.truetype(
+                os.path.join(_FONTS_DIR, "NotoSansJP-Black.otf"), size)
+        except Exception:
+            return load_font(size)
+    return _rote_mogu_font_cache[size]
+
+
 # ローテ用 紫系配色で「台番の数字」セルの背景に使う淡紫（ユーザー選択値）。
 # 値はスランプカードの C_SL_PURPLE と同じ #C7B4DD だが、ローテ側の変更で
 # スランプ・高配分の定数へ影響を出さないためローテ専用定数として持つ。
@@ -2791,9 +2821,15 @@ def generate_rote_image(df: pd.DataFrame, machine_names: list[str], date_label: 
     C_MAC_BG  = C_NEW_HEADER_BG if _rote_new else "#000000"
     C_MAC_FG  = "#FFFFFF"
     C_BAN_FG  = C_NEW_DATA_FG if _rote_new else "black"   # 台番の数字の文字色
+    _rote_mogu = _rote_mogu_theme(store)
+    if _rote_mogu:
+        C_HDR_BG = C_ROTE_MOGU_HDR_BG
+        C_MAC_BG = C_ROTE_MOGU_MAC_BG
+        C_BAN_BG = C_ROTE_MOGU_BAN_BG
+        C_BAN_FG = C_ROTE_MOGU_BAN_FG
 
     FONT_SZ = int(15 * SC)  # 約115%（一段階大きく）
-    font = load_font(FONT_SZ)
+    font = _rote_mogu_font(FONT_SZ) if _rote_mogu else load_font(FONT_SZ)
 
     # ── 日付ラベル ─────────────────────────────────────────────────────────
     if not date_label:
@@ -27879,10 +27915,12 @@ def _draw_weekly_table_image(
     cell_machines=None,
     theme_new: bool = False,
     title_fit: bool = False,
+    theme_mogu: bool = False,
 ) -> "Image.Image":
     """週間オススメ表をPIL画像で生成する。
     title_fit=True のときだけ、タイトルが表幅を超える場合に文字を縮小し、
-    それでも収まらなければ項目列を広げる（既定 False＝従来と同一）。"""
+    それでも収まらなければ項目列を広げる（既定 False＝従来と同一）。
+    theme_mogu=True（_ROTE_MOGU_THEME_STORES）は紺／青系・NotoSansJP-Black（既定 False＝従来と同一）。"""
     # cell_machinesモードはHTML+CSS+Playwright実装に委譲
     if cell_machines is not None:
         return _weekly_table_html_image(items, date_labels, cell_machines, title,
@@ -27914,6 +27952,12 @@ def _draw_weekly_table_image(
     C_DHDR_FG = C_WH if theme_new else C_BK
     C_ITEM_BG = C_ROTE_NEW_BAN_BG if theme_new else C_BG        # ③
     C_CK_BG   = C_ROTE_WEEKLY_CK_BG if theme_new else C_YL      # ④
+    if theme_mogu:
+        C_TTL_BG  = C_ROTE_MOGU_HDR_BG
+        C_DHDR_BG = C_ROTE_MOGU_HDR_BG
+        C_DHDR_FG = C_WH
+        C_ITEM_BG = C_ROTE_MOGU_BAN_BG
+    _txt_font = _rote_mogu_font if theme_mogu else load_font
 
     # ◎○など記号だけ Meiryo、それ以外は MochiyPopOne（1文字単位で切り替え）
     _SYM_CHARS = set("◎○●◯△▲▽▼□■◇◆")
@@ -27942,7 +27986,7 @@ def _draw_weekly_table_image(
         return _sym_cache[size]
 
     def _char_font(c: str, size: int) -> "ImageFont.ImageFont":
-        return _sym_font(size) if c in _SYM_CHARS else load_font(size)
+        return _sym_font(size) if c in _SYM_CHARS else _txt_font(size)
 
     # 測定用テンポラリ draw（ITEM_W 計算に使用）
     _td = ImageDraw.Draw(Image.new("RGB", (1, 1)))
@@ -28704,7 +28748,8 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
                 _wimg = _rote_margin(store, _draw_weekly_table_image(
                     _items, _out_labels, _out_checks, title=_title or "週間オススメ",
                     theme_new=_rote_weekly_new_theme(store),
-                    title_fit=store in _MONTHLY_T2_TWO_MACHINES))
+                    title_fit=store in _MONTHLY_T2_TWO_MACHINES,
+                    theme_mogu=_rote_mogu_theme(store)))
                 _buf  = _io.BytesIO()
                 _wimg.save(_buf, format="PNG", dpi=(300, 300))
                 _buf.seek(0)
@@ -29626,6 +29671,7 @@ def show_rote_page() -> None:
                                 title=_wt_title or _wt_default_title,
                                 theme_new=_rote_weekly_new_theme(store),
                                 title_fit=_t2_extra,
+                                theme_mogu=_rote_mogu_theme(store),
                             ))
                         if _wtn == 1:
                             _wt1_mac = st.session_state.get(f"weekly_machine_{store}_t1", "").strip()

@@ -20372,6 +20372,15 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                    machine_names=_ban_list_machine_names(_df_exec_m),
                                                    extra=_ban_list_sonota_names(sonota_extra_title))
                         _rm_stale_image(output_dir, _BAN_LIST_FN, log=_m_log)
+                        # 前回の⑧（通常・📝）が連番付きで残したジャグラーシリーズ優秀台を消す。
+                        # 今回の⑧📝で作った分は連番付与の前で `NN_` が無いので消えない（名前の完全一致だけ）
+                        for _f_jg in sorted(os.listdir(output_dir)):
+                            if re.fullmatch(r"\d{2}_ジャグラーシリーズ優秀台(_side)?\.jpg", _f_jg):
+                                try:
+                                    os.remove(os.path.join(output_dir, _f_jg))
+                                    _m_log(f"  🗑️ 前回の画像を削除: {_f_jg}")
+                                except OSError:
+                                    pass
                         _bl_ex_m = _ban_list_image_manual(store, _df_exec_m, uploaded.name,
                                                           _m_exec_ban_map_e, _bl_kind_e)
                         if _bl_ex_m is not None:

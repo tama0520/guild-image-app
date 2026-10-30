@@ -17999,7 +17999,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                     _ig_tmpl_pv, str(_b_pv), _dn_pv,
                                                     _it_pv["points"], diff=_it_pv.get("diff"),
                                                     machine_name=_dn_pv if _show_mn_pv else None,
-                                                    show_diff=_sd_pv,
+                                                    show_diff=_sd_pv, games=_it_pv.get("games"),
                                                 ))
                                             except Exception:
                                                 pass
@@ -19645,7 +19645,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _dn_u2 = (_it_u2.get("_convertedName") or _it_u2.get("displayName") or _upd_ban2mac.get(str(_b_u2), str(_b_u2)))
                                         try:
                                             _g_imgs_u2.append(draw_slump_graph(_upd_tmpl, str(_b_u2), _dn_u2, _it_u2["points"], diff=_it_u2.get("diff"),
-                                                                               machine_name=_dn_u2))
+                                                                               machine_name=_dn_u2, games=_it_u2.get("games")))
                                         except Exception:
                                             pass
                                     # 「その他」配下: タイトルバー + パネル + 表 にする
@@ -22163,7 +22163,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                     _ig_tmpl_exec, str(_b_exec), _dn_exec,
                                                     _it_exec["points"], diff=_it_exec.get("diff"),
                                                     machine_name=_dn_exec if _show_mn_exec else None,
-                                                    show_diff=_sd_exec,
+                                                    show_diff=_sd_exec, games=_it_exec.get("games"),
                                                 ))
                                             except Exception:
                                                 pass
@@ -32021,6 +32021,7 @@ def _composite_slump_onto_images(
                 _g_imgs.append(draw_slump_graph(
                     _tmpl, str(_b), _dn, _it["points"], diff=_it.get("diff"),
                     machine_name=_dn if _show_mn else None, show_diff=_sd,
+                    games=_it.get("games"),
                 ))
             except Exception:
                 pass
@@ -32089,6 +32090,104 @@ def _composite_slump_onto_images(
     return _merged
 
 
+# ── モグ玄・新宿歌舞伎町 × auto_slump2 だけの横長スランプカード ──────────────
+# 見本（白地の横長カード・左上に台番＋機種名とG数・右上に差枚・赤線＋サーモン塗り）に寄せる。
+# カードは 2倍解像度（288×203・縦横比≒1.42）で描き、_attach_slump_to_table() 側で
+# 1行7台のセル幅へ縮小する。他店舗・他ページは _mogu_kabu_slump_on() が False なので従来どおり。
+_MOGU_SL_PAGES:  "frozenset[str]" = frozenset({"auto_slump2"})
+_MOGU_SL_STORES: "frozenset[str]" = frozenset({"モグ玄・新宿歌舞伎町"})
+_MOGU_SL_COLS    = 7                       # 1行の台数（縦レイアウト・_side とも）
+_MOGU_SL_W, _MOGU_SL_H = 288, 203          # カードの描画サイズ（2倍解像度）
+_MOGU_SL_TOP_K, _MOGU_SL_BOT_K = 5000, 2000  # 目盛：上 +5,000 ／ 下 -2,000（自動縮小しない）
+C_MOGU_SL_BG    = (250, 251, 253)   # #FAFBFD カード地
+C_MOGU_SL_FRAME = (227, 231, 240)   # #E3E7F0 外枠
+C_MOGU_SL_NAME  = (11, 19, 40)      # #0B1328 台番＋機種名
+C_MOGU_SL_SUB   = (154, 164, 187)   # #9AA4BB G数・目盛文字
+C_MOGU_SL_ZERO  = (201, 207, 220)   # #C9CFDC 0の基準線
+C_MOGU_SL_LINE  = (204, 48, 30)     # #CC301E 折れ線
+C_MOGU_SL_FILL  = (253, 228, 214)   # #FDE4D6 0との間の塗り
+C_MOGU_SL_PLUS  = (197, 69, 0)      # #C54500 プラス差枚
+C_MOGU_SL_MINUS = (26, 79, 181)     # #1A4FB5 マイナス差枚
+C_MOGU_SL_EVEN  = (85, 91, 110)     # #555B6E ±0
+
+
+def _mogu_kabu_slump_on() -> bool:
+    """スランプを横長カード・1行7台で描くか（page × store の AND・保存フラグなし）。
+    True は auto_slump2 × モグ玄・新宿歌舞伎町 の1通りだけ。Streamlit 外では False。"""
+    try:
+        return (st.session_state.get("page") in _MOGU_SL_PAGES
+                and st.session_state.get("selected_store") in _MOGU_SL_STORES)
+    except Exception:
+        return False
+
+
+def _mogu_slump_card(unit_id: str, display_name: str, points: list,
+                     diff: "int | None", games, show_diff: bool) -> "Image.Image":
+    """横長スランプカード（_mogu_kabu_slump_on() のときだけ draw_slump_graph() から呼ぶ）。"""
+    W, H = _MOGU_SL_W, _MOGU_SL_H
+    img = Image.new("RGB", (W, H), C_MOGU_SL_BG)
+    d = ImageDraw.Draw(img)
+    d.rectangle((0, 0, W - 1, H - 1), outline=C_MOGU_SL_FRAME, width=2)
+    _sub_f = _rote_mogu_font(17)
+    _tick_f = _rote_mogu_font(14)
+    # グラフ領域（カード下側を広く使う）。0 は +5,000:-2,000 の比率の位置
+    GX0, GX1, GY0, GY1 = 60, W - 10, 70, H - 10
+    _k = (GY1 - GY0) / ((_MOGU_SL_TOP_K + _MOGU_SL_BOT_K) / 1000)   # 1,000枚あたりのpx
+    GZ = GY0 + _k * (_MOGU_SL_TOP_K / 1000)
+    d.line((GX0, round(GZ), GX1, round(GZ)), fill=C_MOGU_SL_ZERO, width=2)
+    for _t, _y in (("+5,000", GY0), ("0", GZ), ("-2,000", GY1)):
+        _bb = _tick_f.getbbox(_t)
+        _ty = round(_y - (_bb[1] + _bb[3]) / 2)
+        _ty = max(GY0 - 6 - _bb[1], min(_ty, GY1 + 4 - _bb[3]))
+        d.text((GX0 - 6 - _bb[2], _ty), _t, fill=C_MOGU_SL_SUB, font=_tick_f)
+    # 折れ線＋塗り。上（+5,000超）ははみ出してよい・下（-2,000未満）は GY1 でクリップ（既存と同じ考え方）
+    if len(points) >= 2:
+        _mx = max(p["x"] for p in points)
+        if _mx > 0:
+            _pts = [(GX0 + (p["x"] / _mx) * (GX1 - GX0), GZ - (p["y"] / 1000) * _k) for p in points]
+            lay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+            ld = ImageDraw.Draw(lay)
+            ld.polygon([(_pts[0][0], GZ)] + _pts + [(_pts[-1][0], GZ)], fill=C_MOGU_SL_FILL + (255,))
+            ld.line(_pts, fill=C_MOGU_SL_LINE + (255,), width=4, joint="curve")
+            _mask = Image.new("L", (W, H), 0)
+            ImageDraw.Draw(_mask).rectangle((2, 2, W - 3, GY1), fill=255)
+            img.paste(lay, (0, 0), Image.composite(lay.getchannel("A"), _mask, _mask))
+            d = ImageDraw.Draw(img)
+    # 文字は地色の縁取り付き（はみ出した線・塗りの上でも読めるように）
+    _sw = dict(stroke_width=3, stroke_fill=C_MOGU_SL_BG)
+    # 右上：差枚（「枚」なし・プラス橙／マイナス青）。show_diff=False なら出さない
+    if points and show_diff:
+        _raw = diff if diff is not None else points[-1]["y"]
+        _v = _pipeline_calc_d(_raw)
+        _dt = _fmt_diff(_v).replace("枚", "")
+        _df = _rote_mogu_font(34)
+        _bb = _df.getbbox(_dt)
+        d.text((W - 10 - _bb[2], 26 - _bb[1]), _dt,
+               fill=(C_MOGU_SL_PLUS if _v > 0 else (C_MOGU_SL_MINUS if _v < 0 else C_MOGU_SL_EVEN)), font=_df, **_sw)
+    # 左上：台番＋機種名（1行）。入らなければ段階的に縮小し、最小でも入らなければ末尾を「…」で省略
+    _nt = f"{unit_id} {display_name}".strip()
+    _ns = 22
+    _nf = _rote_mogu_font(_ns)
+    while _nf.getlength(_nt) > W - 20 and _ns > 15:
+        _ns -= 1
+        _nf = _rote_mogu_font(_ns)
+    if _nf.getlength(_nt) > W - 20:
+        while len(_nt) > 1 and _nf.getlength(_nt + "…") > W - 20:
+            _nt = _nt[:-1]
+        _nt += "…"
+    _bb = _nf.getbbox(_nt)
+    d.text((10 - _bb[0], 8 - _bb[1]), _nt, fill=C_MOGU_SL_NAME, font=_nf, **_sw)
+    try:
+        _g = int(games) if games is not None and str(games) != "" else None
+    except (TypeError, ValueError):
+        _g = None
+    if _g is not None:
+        _gt = f"{_g:,}G"
+        _bb = _sub_f.getbbox(_gt)
+        d.text((10 - _bb[0], 38 - _bb[1]), _gt, fill=C_MOGU_SL_SUB, font=_sub_f, **_sw)
+    return img
+
+
 def draw_slump_graph(
     template_path,
     unit_id: str,
@@ -32098,6 +32197,7 @@ def draw_slump_graph(
     machine_name: "str | None" = None,
     show_diff: bool = True,
     out_scale: float = 1.0,
+    games=None,
 ) -> "Image.Image":
     """スランプグラフを template に描画して PIL Image を返す。
 
@@ -32105,6 +32205,9 @@ def draw_slump_graph(
     out_scale 倍へ縮小して返し、文字も out_scale 倍のフォントで描く。
     ＝出来上がりを後から拡大するのではなく、最初から高解像度で描画する。
     既定 1.0 では従来と完全に同一の出力になる。"""
+    # モグ玄・新宿歌舞伎町 × auto_slump2 だけ横長カード（games は他店舗では使わない）
+    if _mogu_kabu_slump_on():
+        return _mogu_slump_card(unit_id, display_name, points, diff, games, show_diff)
     SCALE     = 3
     X_START   = 24
     X_END     = 364
@@ -32430,7 +32533,7 @@ def _attach_slump_to_table_side(
     gap_screen_img=None,
 ) -> "Image.Image":
     """表画像（左）＋スランプグラフ4列（右）の横レイアウト合成（16台以上用）。"""
-    COLS = 4
+    COLS = _MOGU_SL_COLS if _mogu_kabu_slump_on() else 4   # モグ玄・新宿歌舞伎町だけ7列
     PAD  = 12
     GAP  = 8
     # 表とグラフエリアの間隔（旧 SIDE_GAP = 24）は設けない。表の右端から
@@ -32899,6 +33002,8 @@ def _attach_slump_to_table(
       縦長を抑える（列数以外のレイアウト・順序・サイズは変更しない）。
     """
     COLS = max(1, int(cols or 3))
+    if _mogu_kabu_slump_on():
+        COLS = _MOGU_SL_COLS   # モグ玄・新宿歌舞伎町 × auto_slump2 だけ1行7台
     # hq_scale>1（記事用の高解像度画像）では余白も同じ倍率にしてレイアウト比率を保つ。
     # 列数・行数・中央寄せ・液晶のはめ込み位置は変更しない。
     _hq  = hq_scale if hq_scale and hq_scale > 0 else 1.0

@@ -14650,9 +14650,11 @@ def _ban_list_blocks_from(df, zen_bans, high_bans, nami_groups, sue_map: dict,
         _add("jug", None, [[_r] for _r in _rows_of(jug_bans)])
     _nami = [_rows_of(_g) for _g in nami_groups]
     _add("nami", None, sorted((_g for _g in _nami if _g), key=lambda _g: _g[0]["ban"]))
-    for _kd, _mp in (("retsu", retsu_map), ("extra", extra_map)):
-        for _fn, _bans in (_mp or {}).items():
-            _add(_kd, os.path.splitext(_fn)[0], [[_r] for _r in _rows_of(_bans or [])])
+    # 列は1入力＝1かたまり（並びと同じく列をまたがせない・見出しごと次の列へ送る）。追加ブロックは1台ずつ
+    for _fn, _bans in (retsu_map or {}).items():
+        _add("retsu", os.path.splitext(_fn)[0], [_rows_of(_bans or [])])
+    for _fn, _bans in (extra_map or {}).items():
+        _add("extra", os.path.splitext(_fn)[0], [[_r] for _r in _rows_of(_bans or [])])
     for _fn, _bans in (sue_map or {}).items():
         _add("sue", _ban_list_sue_title(_fn), [[_r] for _r in _rows_of(_bans or [])])
     for _t, _bans in (rec_map or {}).items():

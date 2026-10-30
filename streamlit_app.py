@@ -14519,6 +14519,8 @@ def _pv_off_toggle(store: str, excel_name: str, fname: str) -> None:
 def _pv_is_on(store: str, excel_name: str, fname: str) -> bool:
     """⑦プレビューの最終ON/OFF判定（⑦表示・🔄その他を更新・⑧本番・結果テキスト共通）。
     widget state があればその現在値、無ければOFF集合を正本として判定する。"""
+    if _mogu_kabu_slump_on():
+        return True   # モグ玄・新宿歌舞伎町は紫系の個別画像とチェックを出さないので、常にONとして扱う
     _k = _pv_ck_key(store, excel_name, fname)
     if _k in st.session_state:
         return bool(st.session_state[_k])
@@ -14579,6 +14581,10 @@ _BAN_LIST_KINDS: "dict[str, dict]" = {
     "sue":    {"title": None,               "color": "#785AAA", "sep": None},
     "rec":    {"title": None,               "color": "#3C78BE", "sep": None},
     "single": {"title": "単品ピックアップ", "color": "#4A7CC0", "sep": None},
+    # モグ玄・新宿歌舞伎町だけで使う（_mogu_kabu_lists）
+    "jug":    {"title": "ジャグラー",       "color": "#2E8B57", "sep": "machine"},
+    "retsu":  {"title": None,               "color": "#5A6B8C", "sep": None},
+    "extra":  {"title": None,               "color": "#5A6B8C", "sep": None},
 }
 
 
@@ -14597,11 +14603,16 @@ def _ban_list_sue_title(fn: str) -> str:
 
 
 def _ban_list_blocks_from(df, zen_bans, high_bans, nami_groups, sue_map: dict,
-                          rec_map: dict) -> "tuple[list[dict], list[dict]]":
+                          rec_map: dict, jug_bans=None, retsu_map: "dict | None" = None,
+                          extra_map: "dict | None" = None,
+                          single_bans=None) -> "tuple[list[dict], list[dict]]":
     """表示する台があるブロックと、単品ピックアップの候補を返す（🔍・⑧・📝で共通）。
     各ブロックは {kind, title, color, sep, atoms}。atoms は列をまたがせない行のかたまり
     （並びは1つの並びで1かたまり、それ以外は1台ずつ）。各ブロック内は台番昇順。
     sue_map: 末尾画像名 → 台番／rec_map: ⑤の入力タイトル → 台番。
+    以下はモグ玄・新宿歌舞伎町だけが渡す（省略時は従来どおり）：
+    jug_bans: ジャグラー（高配分の後）／retsu_map・extra_map: 列・その他の追加画像の 画像名 → 台番（並びの後）／
+    single_bans: 📝で記入した単品（差枚の多い順で全件・末尾と⑤の後）。
     単品の候補：当日の全台のうち差枚 +1,000枚以上で、どのブロックにも載っていない台
     （差枚の多い順・同じなら台番の小さい順）。"""
     if df is None or "台番" not in df.columns:
@@ -14635,12 +14646,20 @@ def _ban_list_blocks_from(df, zen_bans, high_bans, nami_groups, sue_map: dict,
 
     _add("zen", None, [[_r] for _r in _rows_of(zen_bans)])
     _add("high", None, [[_r] for _r in _rows_of(high_bans)])
+    if jug_bans:
+        _add("jug", None, [[_r] for _r in _rows_of(jug_bans)])
     _nami = [_rows_of(_g) for _g in nami_groups]
     _add("nami", None, sorted((_g for _g in _nami if _g), key=lambda _g: _g[0]["ban"]))
+    for _kd, _mp in (("retsu", retsu_map), ("extra", extra_map)):
+        for _fn, _bans in (_mp or {}).items():
+            _add(_kd, os.path.splitext(_fn)[0], [[_r] for _r in _rows_of(_bans or [])])
     for _fn, _bans in (sue_map or {}).items():
         _add("sue", _ban_list_sue_title(_fn), [[_r] for _r in _rows_of(_bans or [])])
     for _t, _bans in (rec_map or {}).items():
         _add("rec", _t, [[_r] for _r in _rows_of(_bans)])
+    if single_bans:
+        _add("single", None, [[_r] for _r in sorted(_rows_of(single_bans),
+                                                    key=lambda _r: (-_r["diff"], _r["ban"]))])
     _used = {_r["ban"] for _b in blocks for _a in _b["atoms"] for _r in _a}
     pool = sorted((_r for _b, _r in _rows.items()
                    if _b not in _used and _r["diff"] >= _BAN_LIST_SINGLE_MIN),
@@ -18071,6 +18090,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _prev_img_list = [(_f, _i) for _f, _i in _prev_img_list
                                           if _f not in _bl_drop_pv
                                           and not _ban_list_cat_image(_f, _bl_mac_pv, _bl_ext_pv)]
+                        if _mogu_kabu_slump_on():
+                            # モグ玄・新宿歌舞伎町：紫系の表画像は一切出さない（ジャグラー・列・②範囲等も台番一覧へ）
+                            _prev_img_list = []
                         _ban_list_purge_old_images(store, _ban_list_out_dir(uploaded.name),
                                                    machine_names=_bl_mac_pv, extra=_bl_ext_pv)
                     st.session_state[_aprev_key]    = _dedup_previews(_prev_img_list)
@@ -18082,13 +18104,18 @@ def show_auto_page(with_slump: bool = False) -> None:
                                              if kojin_enabled else _prev_result),
                                             _sue_ban_all_pv, _rec_ban_map, recommended_blocks)
                             if _prev_result.get("ok") else None)
-                    # スランプ一覧（モグ玄・新宿歌舞伎町 × auto_slump2 のみ）：⑧と同じ関数・同じ入力
+                    # 台番一覧・スランプ一覧（モグ玄・新宿歌舞伎町 × auto_slump2 のみ）：⑧と同じ関数・同じ入力
                     if _mogu_kabu_slump_on():
-                        st.session_state[f"slump_sheet_img_{store}"] = _mogu_kabu_slump_sheet(
+                        _mk_bl_pv, _mk_ss_pv = _mogu_kabu_lists_result(
                             store,
                             (_ban_list_with_kojin(_prev_result, kojin_zentai_machines, _kojin_y_ban_pv)
                              if kojin_enabled else _prev_result),
+                            _sue_ban_all_pv, _rec_ban_map, recommended_blocks,
+                            locals().get("_pv_ban_map") or {},
+                            retsu_ranges if retsu_ok else [], sonota_extra_title,
                             locals().get("_ig_by_uid_pv"))
+                        st.session_state[f"ban_list_img_{store}"] = _mk_bl_pv
+                        st.session_state[f"slump_sheet_img_{store}"] = _mk_ss_pv
                     st.session_state[_aprev_df_key] = _prev_result.get("df")
                     st.session_state[_aprev_di_key] = _prev_result.get("diff_raw")
                     st.session_state[_aprev_ex_key] = _prev_result.get("sonota_excellent_list", [])
@@ -18147,6 +18174,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                      if _v.get("kind") not in ("high", "sonota", "kojin_yushu")
                                      and _k not in (locals().get("_bl_drop_pv") or set())
                                      and not _ban_list_cat_image(_k, _bl_mac_u, _bl_ext_u)}
+                    if _mogu_kabu_slump_on():
+                        _unit_src = {}   # 紫系の表画像を出さないので🎯パネルも出さない
                     st.session_state[_aprev_unit_key] = _unit_src
                     # 「未反映」判定用スナップショット（今回のプレビューへ反映済みの内容）
                     st.session_state[_unit_snap_key] = _unit_ex_snapshot(_unit_ex_state(store, _excel_stem))
@@ -18541,6 +18570,13 @@ def show_auto_page(with_slump: bool = False) -> None:
 
                         # 台番一覧（モグ玄・新大久保のみ）：📝でも作る。高配分・並びの画像は出さず一覧へ載せる
                         _bl_m_img = None
+                        _ss_m_img = None
+                        if _mogu_kabu_slump_on():
+                            # モグ玄・新宿歌舞伎町：紫系の表画像は作らず、記入した内容だけで台番一覧・スランプ一覧
+                            _bl_m_img, _ss_m_img = _mogu_kabu_lists_manual(
+                                store, _df_m, uploaded.name, _manual_ban_map, _bl_kind_m,
+                                retsu_ranges if retsu_ok else [])
+                            _manual_imgs = []
                         if store in _BAN_LIST_MANUAL_STORES:
                             # 台番一覧へ載せるカテゴリの個別画像は出さない（台番一覧へ集約）
                             _bl_mac_m = _ban_list_machine_names(_df_m)
@@ -18581,6 +18617,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                             st.session_state[f"_manual_preview_mode_{store}"] = True
                             if store in _BAN_LIST_MANUAL_STORES:
                                 st.session_state[f"ban_list_img_{store}"] = _bl_m_img
+                            if _mogu_kabu_slump_on():
+                                st.session_state[f"ban_list_img_{store}"] = _bl_m_img
+                                st.session_state[f"slump_sheet_img_{store}"] = _ss_m_img
                             # 🎯掲載台を選ぶ（かぶぱ＝全対象／秋葉原スランプ付き＝②個別優秀台のみ）:
                             # パネル用の候補と未反映判定用スナップショット。
                             # 対象外の店舗は _manual_unit_src が空なのでパネルは出ない（従来どおり）。
@@ -18588,6 +18627,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 if store in _BAN_LIST_MANUAL_STORES:
                                     _manual_unit_src = {_k: _v for _k, _v in _manual_unit_src.items()
                                                         if _k not in _bl_kind_m}
+                                if _mogu_kabu_slump_on():
+                                    _manual_unit_src = {}   # 紫系の表画像を出さないので🎯パネルも出さない
                                 st.session_state[_aprev_unit_key] = _manual_unit_src
                                 st.session_state[_unit_snap_key] = _unit_ex_snapshot(
                                     _unit_ex_state(store, _excel_stem))
@@ -18653,7 +18694,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                             st.code(traceback.format_exc())
                 st.rerun()
         else:
-            st.caption(f"📋 {len(_auto_previews)}枚の画像プレビュー　チェックした画像のみ生成されます")
+            if _mogu_kabu_slump_on():
+                st.caption("📋 台番一覧・スランプ一覧のプレビュー（紫系の表画像は作りません）")
+            else:
+                st.caption(f"📋 {len(_auto_previews)}枚の画像プレビュー　チェックした画像のみ生成されます")
             # 🎯掲載台パネルの二重描画防止（同名プレビューが並んだ際のキー衝突対策）
             _unit_panel_done: set[tuple] = set()
             # パネル一覧の表示元。📝記入部分のみ経路（かぶぱ）は専用キーに保持している
@@ -19734,11 +19778,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             pass
                         if _updated:
                             if _mogu_kabu_slump_on():
-                                # 🔍と同じく、台番一覧へ載せるカテゴリ（⑤・その他など）の個別画像は出さない
-                                _bl_mac_ux = _ban_list_machine_names(_pv_df)
-                                _bl_ext_ux = _ban_list_sonota_names(sonota_extra_title)
-                                _new_prev = [(_f, _i) for _f, _i in _new_prev
-                                             if not _ban_list_cat_image(_f, _bl_mac_ux, _bl_ext_ux)]
+                                # 🔍と同じく、紫系の表画像は出さない（台番一覧・スランプ一覧は🔍で作ったもの）
+                                _new_prev = []
                             st.session_state[_aprev_key] = _dedup_previews(_new_prev)
                             st.rerun()
             with _btn_clr:
@@ -19837,6 +19878,8 @@ def show_auto_page(with_slump: bool = False) -> None:
         with open(excel_path, "wb") as f:
             f.write(uploaded.getvalue())
         os.makedirs(output_dir, exist_ok=True)
+        # モグ玄・新宿歌舞伎町：⑧前の .jpg の（更新時刻・サイズ）。今回の⑧で書いた紫系の表画像だけを後で消す判定に使う
+        _mk_pre_sigs = _mogu_kabu_jpg_sigs(output_dir) if _mogu_kabu_slump_on() else set()
 
         _is_manual_mode = bool(st.session_state.get(f"_manual_preview_mode_{store}", False))
         if _is_manual_mode:
@@ -20358,8 +20401,25 @@ def show_auto_page(with_slump: bool = False) -> None:
                         except Exception:
                             _m_log(f"  ❌ バラエティ画像エラー: {traceback.format_exc()}")
 
+                    # モグ玄・新宿歌舞伎町：紫系の表画像は保存しない。記入した内容だけで台番一覧・スランプ一覧を作る
+                    if _mogu_kabu_slump_on():
+                        _mogu_kabu_purge(store, output_dir, _mk_pre_sigs,
+                                         list(_exec_order) + list(_m_exec_ban_map_e),
+                                         _ban_list_machine_names(_df_exec_m),
+                                         _ban_list_sonota_names(sonota_extra_title), log=_m_log)
+                        _rm_stale_image(output_dir, _BAN_LIST_FN)
+                        _rm_stale_image(output_dir, _MOGU_SHEET_FN)
+                        _mk_bl_em, _mk_ss_em = _mogu_kabu_lists_manual(
+                            store, _df_exec_m, uploaded.name, _m_exec_ban_map_e, _bl_kind_e,
+                            retsu_ranges if retsu_ok else [])
+                        _exec_order = []
+                        for _mk_fn, _mk_img in ((_BAN_LIST_FN, _mk_bl_em), (_MOGU_SHEET_FN, _mk_ss_em)):
+                            if _mk_img is not None:
+                                _mk_img.save(os.path.join(output_dir, _mk_fn), format="PNG")
+                                _exec_order.append(_mk_fn)
+                                _m_log(f"  ✅ {_mk_fn}")
                     # with_slump: 記入部分の画像にスランプグラフを合成（連番付与前）
-                    if with_slump and _exec_order:
+                    if with_slump and _exec_order and not _mogu_kabu_slump_on():
                         _me_pairs: list[tuple[str, "Image.Image"]] = []
                         for _fn_c in list(_exec_order):
                             _fp_c = os.path.join(output_dir, _fn_c)
@@ -21823,8 +21883,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                 _rm_stale_image(output_dir, _BAN_LIST_FN, log=_log)
                 if _mogu_kabu_slump_on():
                     _rm_stale_image(output_dir, _MOGU_SHEET_FN, log=_log)
-                _bl_ex = _ban_list_image(store, result, _sue_ban_run, _exec_rec_ban_map,
-                                         recommended_blocks)
+                # モグ玄・新宿歌舞伎町は、ジャグラー等も含めて後で作る（下の _mogu_kabu_lists_result）
+                _bl_ex = (None if _mogu_kabu_slump_on() else
+                          _ban_list_image(store, result, _sue_ban_run, _exec_rec_ban_map,
+                                          recommended_blocks))
                 if _bl_ex is not None:
                     _bl_ex.save(os.path.join(output_dir, _BAN_LIST_FN), format="PNG")
                     _log(f"  ✅ {_BAN_LIST_FN}")
@@ -22125,6 +22187,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                     # オススメ機種の台番を ban_map に追加
                     _ig_bm_u.update(_exec_rec_ban_map)
                     st.session_state[f"_inagawa_ban_map_{store}"] = _ig_bm_u
+                    if _mogu_kabu_slump_on():
+                        # 紫系の表画像は保存しない：今回の⑧で書いたものと前回の残り（完全一致）を消し、
+                        # スランプ合成もしない（合成対象を空にする）
+                        _mogu_kabu_purge(store, output_dir, _mk_pre_sigs, list(_order) + list(_ig_bm_u),
+                                         _ban_list_machine_names(result.get("df")),
+                                         _ban_list_sonota_names(sonota_extra_title), log=_log)
+                        st.session_state[f"_inagawa_jpgs_{store}"] = []
 
                     # ── pisionデータ取得・スランプグラフ合成・output_dir上書き ──
                     _ig_api_key_exec = _get_pision_api_key()
@@ -22287,18 +22356,23 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             with open(_cfp_exec, "wb") as _cfh_exec:
                                                 _cfh_exec.write(_cb_exec)
                                     st.session_state[f"_inagawa_jpgs_{store}"] = _ig_composite_kept
-                                    # スランプ一覧（モグ玄・新宿歌舞伎町 × auto_slump2 のみ）：🔍と同じ関数・同じ入力。
-                                    # 連番の付け直しは済んでいるので、残っている画像の最大連番の次（＝台番一覧の次）で保存する
-                                    _ss_ex = _mogu_kabu_slump_sheet(store, result, _ig_by_uid_exec)
-                                    if _ss_ex is not None:
-                                        _ss_seq = 1 + max([int(_f[:2]) for _f in os.listdir(output_dir)
-                                                           if re.match(r"^\d{2}_", _f)
-                                                           and os.path.isfile(os.path.join(output_dir, _f))] + [0])
-                                        _ss_fn = f"{_ss_seq:02d}_{_MOGU_SHEET_FN}"
-                                        _ss_ex.save(os.path.join(output_dir, _ss_fn), format="PNG")
-                                        _log(f"  ✅ {_ss_fn}")
                         except Exception as _ig_exc_exec:
                             _log(f"❌ スランプグラフ合成エラー: {_ig_exc_exec}")
+                    # 台番一覧・スランプ一覧（モグ玄・新宿歌舞伎町 × auto_slump2 のみ）：🔍と同じ関数・同じ入力。
+                    # 連番の付け直しは済んでいるので、残っている画像の最大連番の次から保存する
+                    if _mogu_kabu_slump_on():
+                        _mk_bl_ex, _mk_ss_ex = _mogu_kabu_lists_result(
+                            store, result, _sue_ban_run, _exec_rec_ban_map, recommended_blocks,
+                            _ig_bm_u, retsu_ranges if retsu_ok else [], sonota_extra_title,
+                            locals().get("_ig_by_uid_exec"))
+                        for _mk_fn, _mk_img in ((_BAN_LIST_FN, _mk_bl_ex), (_MOGU_SHEET_FN, _mk_ss_ex)):
+                            if _mk_img is None:
+                                continue
+                            _mk_seq = 1 + max([int(_f[:2]) for _f in os.listdir(output_dir)
+                                               if re.match(r"^\d{2}_", _f)
+                                               and os.path.isfile(os.path.join(output_dir, _f))] + [0])
+                            _mk_img.save(os.path.join(output_dir, f"{_mk_seq:02d}_{_mk_fn}"), format="PNG")
+                            _log(f"  ✅ {_mk_seq:02d}_{_mk_fn}")
 
             all_ok = result["ok"] and (narabi_result is None or narabi_result["ok"])
             if all_ok:
@@ -32260,11 +32334,11 @@ def _mogu_slump_card(unit_id: str, display_name: str, points: list,
 
 
 # ── スランプ一覧（モグ玄・新宿歌舞伎町 × auto_slump2 だけ） ──────────────────
-# 台番一覧と同じブロック（優秀機種・高配分だけ）の台から、差枚プラスの台のカードを1行7台で並べた1枚。
+# 台番一覧と同じブロック（優秀機種・高配分・ジャグラーだけ）の台から、差枚プラスの台のカードを1行7台で並べた1枚。
 # カードは上の _mogu_slump_card()（e234268 の横長カード・+5,000/-2,000固定）をそのまま縮小して使う。
 # 分類帯の「N台中M台プラス・平均」は台番一覧と同じ df の差枚で、その分類の全対象台から出す。
 _MOGU_SHEET_FN = "スランプ一覧.png"
-_MOGU_SHEET_KINDS: "tuple[str, ...]" = ("zen", "high")
+_MOGU_SHEET_KINDS: "tuple[str, ...]" = ("zen", "high", "jug")
 _MOGU_SHEET_NOTE = "各グラフは開店から閉店まで・縦の目盛りは+5,000～-2,000固定（灰色の線が±0）・全台の差枚は台番一覧に"
 _MOGU_SHEET_SIGN = "モグ玄"
 _MOGU_SHEET_CELL_W = 244          # カード1枚の幅（288×203 を縮小）
@@ -32274,13 +32348,13 @@ C_MOGU_SHEET_NOTE = (138, 147, 168)   # #8A93A8 注記
 C_MOGU_SHEET_SIGN = (90, 100, 128)    # #5A6480 署名
 
 
-def _mogu_kabu_slump_sheet(store: str, result: dict, by_uid: "dict | None") -> "Image.Image | None":
-    """スランプ一覧（🔍と⑧で共通）。対象外・カードを描くデータがないときは None。"""
-    if not _mogu_kabu_slump_on() or not result or not result.get("ok") or not by_uid:
+def _mogu_kabu_slump_sheet(store: str, d, blocks: list, by_uid: "dict | None") -> "Image.Image | None":
+    """スランプ一覧（🔍・⑧・📝・⑧📝で共通）。blocks は台番一覧と同じブロック。
+    対象外・カードを描くデータがないときは None。"""
+    if not _mogu_kabu_slump_on() or not blocks or not by_uid:
         return None
-    _blocks, _ = _ban_list_blocks(result)
     secs = []
-    for _b in _blocks:
+    for _b in blocks:
         if _b["kind"] not in _MOGU_SHEET_KINDS:
             continue
         _rows = [_r for _a in _b["atoms"] for _r in _a]
@@ -32309,9 +32383,9 @@ def _mogu_kabu_slump_sheet(store: str, result: dict, by_uid: "dict | None") -> "
     img = Image.new("RGB", (W, H), "white")
     dr = ImageDraw.Draw(img)
     dr.rectangle([0, 0, W - 1, _MOGU_SHEET_TITLE_H - 1], fill=_BAN_LIST_TITLE_BG)
-    _d = result.get("date")
+    _d = d
     title = ((f"{_d.month}/{_d.day}　" if _d is not None else "")
-             + f"エスパス{_data_store(store)}・スランプ（優秀機種＆高配分）")
+             + f"エスパス{_data_store(store)}・スランプ（優秀機種・高配分・ジャグラー）")
     _fs = 32
     while True:
         f_title = ImageFont.truetype(_ban_list_title_font_path(), _fs, index=0)
@@ -32344,6 +32418,151 @@ def _mogu_kabu_slump_sheet(store: str, result: dict, by_uid: "dict | None") -> "
     _bb = dr.textbbox((0, 0), _MOGU_SHEET_SIGN, font=f_sign)
     dr.text((W - 14 - _bb[2], _fy - (_bb[1] + _bb[3]) // 2), _MOGU_SHEET_SIGN, font=f_sign, fill=C_MOGU_SHEET_SIGN)
     return img
+
+
+# ── モグ玄・新宿歌舞伎町 × auto_slump2：紫系の表画像を作らず、台番一覧＋スランプ一覧の2枚へ集約 ──
+# 🔍・⑧は run_auto_pipeline の結果＋画像名→台番（ban_map）、📝・⑧📝は記入部分の画像名→台番・種別から作る。
+# ジャグラー・列（列仕掛け）・その他の追加画像（②台番範囲・個別ピック・バラエティ等）も台番一覧のブロックにする。
+_MOGU_JUG_FN = "ジャグラーシリーズ優秀台.jpg"
+
+
+def _mogu_kabu_col_map(df, retsu_ranges) -> dict:
+    """列（列仕掛け）の 画像名 → 台番（_build_col_items と同じ規則・入力した列の順）。"""
+    return {_fn: _bans for _, _, _fn, _bans in _build_col_items(df, retsu_ranges)} if retsu_ranges else {}
+
+
+def _mogu_kabu_split_extra(ban_map: dict, col_map: dict, skip) -> "tuple[list, dict, dict]":
+    """ban_map からジャグラーの台番・列・その他の追加ブロック（画像名 → 台番）を取り出す。
+    skip(画像名) が True の画像（台番一覧の既存カテゴリ）は追加ブロックにしない。"""
+    _col_keys = {_make_safe_fn(os.path.splitext(_f)[0]) for _f in col_map}
+    extra: dict[str, list[int]] = {}
+    for _fn, _bans in (ban_map or {}).items():
+        _b = re.sub(r"^\d{2}_", "", _fn)
+        if (not _bans or _b == _MOGU_JUG_FN or _make_safe_fn(os.path.splitext(_b)[0]) in _col_keys
+                or skip(_b)):
+            continue
+        extra[_b] = list(_bans)
+    return list((ban_map or {}).get(_MOGU_JUG_FN) or []), dict(col_map), extra
+
+
+def _mogu_kabu_lists(store: str, d, df, zen, high, nami, sue_map: dict, rec_map: dict, jug, col_map: dict,
+                     extra_map: dict, single_bans, pool_on: bool, by_uid) -> "tuple":
+    """台番一覧（3列・行数可変）とスランプ一覧（優秀機種・高配分・ジャグラー）を返す。表示する台がなければ None。"""
+    blocks, pool = _ban_list_blocks_from(df, zen, high, nami, sue_map, rec_map, jug_bans=jug,
+                                         retsu_map=col_map, extra_map=extra_map, single_bans=single_bans)
+    pool = pool if pool_on else []
+    if not blocks and not pool:
+        return None, None
+    return (draw_ban_list_image(_ban_list_title(store, d), blocks, pool, grow=True),
+            _mogu_kabu_slump_sheet(store, d, blocks, by_uid))
+
+
+def _mogu_kabu_lists_result(store: str, result: dict, sue_map: dict, rec_ban_map: dict,
+                            recommended_blocks, ban_map: dict, retsu_ranges, sonota_title: str,
+                            by_uid) -> "tuple":
+    """🔍・⑧：run_auto_pipeline の結果と ban_map から作る。単品は残りセルだけ自動補充する。"""
+    if not _mogu_kabu_slump_on() or not result or not result.get("ok"):
+        return None, None
+    df = result.get("df")
+    _mac = _ban_list_machine_names(df)
+    _ext = _ban_list_sonota_names(sonota_title)
+    jug, col, extra = _mogu_kabu_split_extra(ban_map, _mogu_kabu_col_map(df, retsu_ranges),
+                                             lambda _f: _ban_list_cat_image(_f, _mac, _ext))
+    _rec: dict[str, list[int]] = {}
+    if rec_ban_map and recommended_blocks:
+        for (_bi, _thr), _fn in _rec_block_fn_map(recommended_blocks).items():
+            if _fn in rec_ban_map:
+                _t = recommended_blocks[_bi]["title"].strip() or "オススメ機種"
+                _rec.setdefault(_t, []).extend(rec_ban_map[_fn])
+    return _mogu_kabu_lists(
+        store, result.get("date"), df,
+        [_b for _it in result.get("zen_dai_list", []) for _b in _it.get("bans", [])],
+        [_b for _it in result.get("high_ratio_list", []) if _it.get("has_image") for _b in _it.get("bans", [])],
+        [_it.get("bans", []) for _it in result.get("nami_list", [])],
+        sue_map or {}, _rec, jug, col, extra, None, True, by_uid)
+
+
+def _mogu_kabu_by_uid(store: str, date_str: str) -> "dict | None":
+    """📝・⑧📝のスランプ一覧用の pision 台別データ（_composite_slump_onto_images と同じ取得・キャッシュ）。"""
+    if not date_str:
+        return None
+    _composite_slump_onto_images([], {}, store, date_str=date_str)
+    if st.session_state.get(f"_slump_by_uid_date_{store}") == date_str:
+        return st.session_state.get(f"_slump_by_uid_{store}")
+    return None
+
+
+def _mogu_kabu_lists_manual(store: str, df, excel_name: str, ban_map: dict, kinds: dict,
+                            retsu_ranges) -> "tuple":
+    """📝・⑧📝：記入した内容だけ（画像名 → 台番・種別）から作る。単品の自動補充はせず、
+    記入した「その他の優秀台」等は単品ブロックとして全件載せる。"""
+    if not _mogu_kabu_slump_on() or df is None:
+        return None, None
+    _of = lambda k: [_fn for _fn, _k in kinds.items() if _k == k and _fn in ban_map]
+    _rec: dict[str, list[int]] = {}
+    for _fn, _k in kinds.items():
+        if str(_k).startswith("rec:") and _fn in ban_map:
+            _rec.setdefault(str(_k)[4:].strip() or "オススメ機種", []).extend(ban_map[_fn])
+    jug, col, extra = _mogu_kabu_split_extra(ban_map, _mogu_kabu_col_map(df, retsu_ranges),
+                                             lambda _f: _f in kinds)
+    _m = re.search(r"(\d{4})(\d{2})(\d{2})", excel_name or "")
+    _d = None
+    if _m:
+        try:
+            _d = datetime.date(int(_m.group(1)), int(_m.group(2)), int(_m.group(3)))
+        except ValueError:
+            pass
+    return _mogu_kabu_lists(
+        store, _d, df,
+        [_b for _fn in _of("zen") for _b in ban_map[_fn]],
+        [_b for _fn in _of("high") for _b in ban_map[_fn]],
+        [ban_map[_fn] for _fn in _of("nami")],
+        {_fn: ban_map[_fn] for _fn in _of("sue")}, _rec, jug, col, extra,
+        [_b for _fn in _of("single") for _b in ban_map[_fn]], False,
+        _mogu_kabu_by_uid(store, _d.strftime("%Y-%m-%d") if _d else ""))
+
+
+def _mogu_kabu_jpg_sigs(output_dir: str) -> set:
+    """出力フォルダの .jpg の（更新時刻ns, サイズ）。⑧前後で比べ、今回の⑧で書いたファイルだけを見分ける。"""
+    _sigs: set = set()
+    try:
+        for _f in os.listdir(output_dir):
+            _p = os.path.join(output_dir, _f)
+            if _f.lower().endswith(".jpg") and os.path.isfile(_p):
+                _s = os.stat(_p)
+                _sigs.add((_s.st_mtime_ns, _s.st_size))
+    except OSError:
+        pass
+    return _sigs
+
+
+def _mogu_kabu_purge(store: str, output_dir: str, pre_sigs: set, names, machine_names: set,
+                     sonota_names: set, log=None) -> None:
+    """⑧・⑧📝：紫系の表画像（.jpg）を出力フォルダから消す。
+    ① 今回の⑧で書いたもの（⑧前に無かった更新時刻・サイズ）
+    ② 前回までの残り：今回の画像名（NN_ の有無・_side）と、台番一覧のカテゴリ・ジャグラーの命名規則に完全一致するもの
+    ⑧前からあり、名前が規則に当たらないファイル（手置き）は消さない。"""
+    if not output_dir or not os.path.isdir(output_dir):
+        return
+    _rm: list[str] = []
+    for _f in sorted(os.listdir(output_dir)):
+        _p = os.path.join(output_dir, _f)
+        if not _f.lower().endswith(".jpg") or not os.path.isfile(_p):
+            continue
+        _s = os.stat(_p)
+        if (_s.st_mtime_ns, _s.st_size) not in pre_sigs:
+            try:
+                os.remove(_p)
+                _rm.append(_f)
+            except OSError:
+                pass
+    for _n in dict.fromkeys([re.sub(r"^\d{2}_", "", _x) for _x in names] + [_MOGU_JUG_FN]):
+        if _n.lower().endswith(".jpg"):
+            _rm += _rm_stale_image(output_dir, _n)
+    if log:
+        for _f in _rm:
+            log(f"  🗑️ 紫系の表画像を削除: {_f}")
+    _ban_list_purge_old_images(store, output_dir, log=log, machine_names=machine_names, extra=sonota_names)
 
 
 def draw_slump_graph(

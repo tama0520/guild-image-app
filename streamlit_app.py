@@ -32271,17 +32271,12 @@ def _mogu_slump_card(unit_id: str, display_name: str, points: list,
     d = ImageDraw.Draw(img)
     d.rectangle((0, 0, W - 1, H - 1), outline=C_MOGU_SL_FRAME, width=2)
     _sub_f = _rote_mogu_font(17)
-    _tick_f = _rote_mogu_font(14)
-    # グラフ領域（カード下側を広く使う）。0 は +5,000:-2,000 の比率の位置
-    GX0, GX1, GY0, GY1 = 60, W - 10, 70, H - 10
+    # グラフ領域（カード下側を広く使う）。0 は +5,000:-2,000 の比率の位置（目盛りの文字は出さない）。
+    # 左端は G数の文字の始点（x=10）、右端は従来どおり W-10
+    GX0, GX1, GY0, GY1 = 10, W - 10, 70, H - 10
     _k = (GY1 - GY0) / ((_MOGU_SL_TOP_K + _MOGU_SL_BOT_K) / 1000)   # 1,000枚あたりのpx
     GZ = GY0 + _k * (_MOGU_SL_TOP_K / 1000)
     d.line((GX0, round(GZ), GX1, round(GZ)), fill=C_MOGU_SL_ZERO, width=2)
-    for _t, _y in (("+5,000", GY0), ("0", GZ), ("-2,000", GY1)):
-        _bb = _tick_f.getbbox(_t)
-        _ty = round(_y - (_bb[1] + _bb[3]) / 2)
-        _ty = max(GY0 - 6 - _bb[1], min(_ty, GY1 + 4 - _bb[3]))
-        d.text((GX0 - 6 - _bb[2], _ty), _t, fill=C_MOGU_SL_SUB, font=_tick_f)
     # 折れ線＋塗り。上（+5,000超）ははみ出してよい・下（-2,000未満）は GY1 でクリップ（既存と同じ考え方）
     if len(points) >= 2:
         _mx = max(p["x"] for p in points)
@@ -32308,23 +32303,27 @@ def _mogu_slump_card(unit_id: str, display_name: str, points: list,
         d.text((W - 10 - _bb[2], 26 - _bb[1]), _dt,
                fill=(C_MOGU_SL_PLUS if _v > 0 else (C_MOGU_SL_MINUS if _v < 0 else C_MOGU_SL_EVEN)), font=_df, **_sw)
         _dw = (_bb[2] - _bb[0]) + 2 * 3 + 12
-    # 左上：台番＋機種名（1行）。差枚の領域へ入らない幅（_nmax）の中で、台番は必ず出し、
-    # 機種名を段階的に縮小し、最小でも入らなければ機種名の末尾を「…」で省略
+    # 左上：台番＋機種名（1行）。差枚の領域へ入らない幅（_nmax）の中で描く。
+    # 台番は必ず基本サイズ（17px）で出し、機種名も同じ大きさから始めて、入らなければ機種名だけを
+    # 段階的に縮小（最小15px）し、それでも入らなければ機種名の末尾を「…」で省略する。台番と機種名は同じベースライン
     _nmax = W - 20 - _dw
     _ban_t = str(unit_id).strip()
     _mn_t = str(display_name or "").strip()
-    _nt = f"{_ban_t} {_mn_t}".strip()
-    _ns = 22
-    _nf = _rote_mogu_font(_ns)
-    while _nf.getlength(_nt) > _nmax and _ns > 15:
+    _bf = _rote_mogu_font(17)
+    _bw = _bf.getlength(_ban_t + " ") if _mn_t else _bf.getlength(_ban_t)
+    _ns = 17
+    _nf = _bf
+    while _mn_t and _bw + _nf.getlength(_mn_t) > _nmax and _ns > 15:
         _ns -= 1
         _nf = _rote_mogu_font(_ns)
-    if _nf.getlength(_nt) > _nmax:
-        while _mn_t and _nf.getlength(f"{_ban_t} {_mn_t}…") > _nmax:
+    if _mn_t and _bw + _nf.getlength(_mn_t) > _nmax:
+        while _mn_t and _bw + _nf.getlength(_mn_t + "…") > _nmax:
             _mn_t = _mn_t[:-1]
-        _nt = f"{_ban_t} {_mn_t}…" if _mn_t else _ban_t
-    _bb = _nf.getbbox(_nt)
-    d.text((10 - _bb[0], 8 - _bb[1]), _nt, fill=C_MOGU_SL_NAME, font=_nf, **_sw)
+        _mn_t = (_mn_t + "…") if _mn_t else ""
+    _base = 8 - _bf.getbbox(_ban_t or "0", anchor="ls")[1]
+    d.text((10, _base), _ban_t, fill=C_MOGU_SL_NAME, font=_bf, anchor="ls", **_sw)
+    if _mn_t:
+        d.text((10 + _bw, _base), _mn_t, fill=C_MOGU_SL_NAME, font=_nf, anchor="ls", **_sw)
     try:
         _g = int(games) if games is not None and str(games) != "" else None
     except (TypeError, ValueError):
@@ -32339,15 +32338,13 @@ def _mogu_slump_card(unit_id: str, display_name: str, points: list,
 # ── スランプ一覧（モグ玄・新宿歌舞伎町 × auto_slump2 だけ） ──────────────────
 # 台番一覧と同じブロック（優秀機種・高配分・ジャグラーだけ）の台から、差枚プラスの台のカードを1行7台で並べた1枚。
 # カードは上の _mogu_slump_card()（e234268 の横長カード・+5,000/-2,000固定）をそのまま縮小して使う。
-# 分類帯の「N台中M台プラス・平均」は台番一覧と同じ df の差枚で、その分類の全対象台から出す。
+# 分類帯は分類名だけ（集計の文字は出さない）。下部は右下の署名だけ。
 _MOGU_SHEET_FN = "スランプ一覧.png"
 _MOGU_SHEET_KINDS: "tuple[str, ...]" = ("zen", "high", "jug")
-_MOGU_SHEET_NOTE = "各グラフは開店から閉店まで・縦の目盛りは+5,000～-2,000固定（灰色の線が±0）・全台の差枚は台番一覧に"
 _MOGU_SHEET_SIGN = "モグ玄"
 _MOGU_SHEET_CELL_W = 244          # カード1枚の幅（288×203 を縮小）
 _MOGU_SHEET_M, _MOGU_SHEET_G = 6, 6
-_MOGU_SHEET_TITLE_H, _MOGU_SHEET_BAND_H, _MOGU_SHEET_FOOT_H = 62, 44, 40
-C_MOGU_SHEET_NOTE = (138, 147, 168)   # #8A93A8 注記
+_MOGU_SHEET_TITLE_H, _MOGU_SHEET_BAND_H, _MOGU_SHEET_FOOT_H = 62, 44, 34
 C_MOGU_SHEET_SIGN = (90, 100, 128)    # #5A6480 署名
 
 
@@ -32364,8 +32361,6 @@ def _mogu_kabu_slump_sheet(store: str, d, blocks: list, by_uid: "dict | None") -
         if not _rows:
             continue
         _plus = [_r for _r in _rows if _r["diff"] > 0]
-        _avg = int(round(sum(_r["diff"] for _r in _rows) / len(_rows)))
-        _stat = f"{len(_rows)}台中{len(_plus)}台プラス　平均{fmt_diff(_avg)}（プラスの台だけ表示）"
         _cards = []
         for _r in _plus:
             _it = by_uid.get(str(_r["ban"]))
@@ -32374,21 +32369,21 @@ def _mogu_kabu_slump_sheet(store: str, d, blocks: list, by_uid: "dict | None") -
             _dn = _it.get("_convertedName") or _it.get("displayName") or _r["name"]
             _cards.append(_mogu_slump_card(str(_r["ban"]), _dn, _it["points"], _it.get("diff"),
                                            _it.get("games"), True))
-        secs.append((_b, _stat, _cards))
-    if not any(_c for _, _, _c in secs):
+        secs.append((_b, _cards))
+    if not any(_c for _, _c in secs):
         return None
     NC, M, G = _MOGU_SL_COLS, _MOGU_SHEET_M, _MOGU_SHEET_G
     CW = _MOGU_SHEET_CELL_W
     CH = round(CW * _MOGU_SL_H / _MOGU_SL_W)
     W = M * 2 + NC * CW + (NC - 1) * G
     H = _MOGU_SHEET_TITLE_H + _MOGU_SHEET_FOOT_H + sum(
-        _MOGU_SHEET_BAND_H + G + math.ceil(len(_c) / NC) * (CH + G) for _, _, _c in secs)
+        _MOGU_SHEET_BAND_H + G + math.ceil(len(_c) / NC) * (CH + G) for _, _c in secs)
     img = Image.new("RGB", (W, H), "white")
     dr = ImageDraw.Draw(img)
     dr.rectangle([0, 0, W - 1, _MOGU_SHEET_TITLE_H - 1], fill=_BAN_LIST_TITLE_BG)
     _d = d
     title = ((f"{_d.month}/{_d.day}　" if _d is not None else "")
-             + f"エスパス{_data_store(store)}・スランプ（優秀機種・高配分・ジャグラー）")
+             + f"エスパス{_data_store(store)}・スランプ")
     _fs = 32
     while True:
         f_title = ImageFont.truetype(_ban_list_title_font_path(), _fs, index=0)
@@ -32399,25 +32394,20 @@ def _mogu_kabu_slump_sheet(store: str, d, blocks: list, by_uid: "dict | None") -
     dr.text(((W - (_tb[2] - _tb[0])) // 2 - _tb[0], (_MOGU_SHEET_TITLE_H - (_tb[3] - _tb[1])) // 2 - _tb[1]),
             title, font=f_title, fill="white")
     f_band = _rote_mogu_font(26)
-    f_stat = _rote_mogu_font(22)
     y = _MOGU_SHEET_TITLE_H
-    for _b, _stat, _cards in secs:
+    for _b, _cards in secs:
         dr.rectangle([0, y, W - 1, y + _MOGU_SHEET_BAND_H - 1], fill=_b["color"])
-        for _t, _f, _right in ((_b["title"], f_band, False), (_stat, f_stat, True)):
-            _bb = dr.textbbox((0, 0), _t, font=_f)
-            _x = (W - 14 - _bb[2]) if _right else (14 - _bb[0])
-            dr.text((_x, y + (_MOGU_SHEET_BAND_H - (_bb[3] - _bb[1])) // 2 - _bb[1]), _t, font=_f, fill="white")
+        _bb = dr.textbbox((0, 0), _b["title"], font=f_band)
+        dr.text((14 - _bb[0], y + (_MOGU_SHEET_BAND_H - (_bb[3] - _bb[1])) // 2 - _bb[1]),
+                _b["title"], font=f_band, fill="white")
         y += _MOGU_SHEET_BAND_H + G
         for _i, _c in enumerate(_cards):
             _cx = M + (_i % NC) * (CW + G)
             _cy = y + (_i // NC) * (CH + G)
             img.paste(_c.resize((CW, CH), Image.LANCZOS), (_cx, _cy))
         y += math.ceil(len(_cards) / NC) * (CH + G)
-    f_note = _rote_mogu_font(15)
     f_sign = _rote_mogu_font(20)
     _fy = y + _MOGU_SHEET_FOOT_H // 2
-    _bb = dr.textbbox((0, 0), _MOGU_SHEET_NOTE, font=f_note)
-    dr.text((14 - _bb[0], _fy - (_bb[1] + _bb[3]) // 2), _MOGU_SHEET_NOTE, font=f_note, fill=C_MOGU_SHEET_NOTE)
     _bb = dr.textbbox((0, 0), _MOGU_SHEET_SIGN, font=f_sign)
     dr.text((W - 14 - _bb[2], _fy - (_bb[1] + _bb[3]) // 2), _MOGU_SHEET_SIGN, font=f_sign, fill=C_MOGU_SHEET_SIGN)
     return img
@@ -32456,7 +32446,9 @@ def _mogu_kabu_lists(store: str, d, df, zen, high, nami, sue_map: dict, rec_map:
     pool = pool if pool_on else []
     if not blocks and not pool:
         return None, None
-    return (draw_ban_list_image(_ban_list_title(store, d), blocks, pool, grow=True),
+    # タイトルは「M/D　エスパス{店名}」だけ（「・台番一覧」は付けない）
+    _title = (f"{d.month}/{d.day}　" if d is not None else "") + f"エスパス{_data_store(store)}"
+    return (draw_ban_list_image(_title, blocks, pool, grow=True),
             _mogu_kabu_slump_sheet(store, d, blocks, by_uid))
 
 

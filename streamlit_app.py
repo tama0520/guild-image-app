@@ -27248,6 +27248,11 @@ def _generate_rote_result_text(
             f"🏆{week_str}オススメポスター🏆",
             (f"{day_num}日目" if _new_text else f"＼＼{day_num}日目結果／／"),
         ]
+        if store == "モグ玄・新大久保":
+            # モグ玄・新大久保だけ冒頭を差し替える。week_str・day_num は上の既存計算のまま
+            lines = [f"{date_obj.month}月{date_obj.day}日（{dow}）", "",
+                     "【 エスパス新大久保 】", "",
+                     f"♦{week_str}オススメポスター♦", f"{day_num}日目"]
 
     _re, _te = ROTE_EMOJI_CONFIG.get(store, ("🌌", "🔥"))
     _be = ROTE_BAN_EMOJI_CONFIG.get(store, "💫")
@@ -27257,7 +27262,7 @@ def _generate_rote_result_text(
     # 他店舗へ展開するときはこの条件だけを広げる。
     # 差枚帯の閾値・台番の抽出条件・並び順は変更しない。
     if store in _ROTE_NEW_TEXT_STORES:
-        _tp, _ts, _be = "💎", "", "・"
+        _tp, _ts, _be = ("💡" if store == "モグ玄・新大久保" else "💎"), "", "・"
     else:
         _tp, _ts = _te, _te
     name_col = "機種名" if "機種名" in df.columns else None
@@ -27305,7 +27310,7 @@ def _generate_rote_result_text(
 
 
 def _monthly_t2_result_text(
-    df: pd.DataFrame, machines: list[str], date_obj, store_full: str,
+    df: pd.DataFrame, machines: list[str], date_obj, store_full: str, store: str = "",
 ) -> str:
     """新大久保ローテ：月間オススメ表①の機種ごとに +1,000枚以上の台を出す結果テキスト。
     機種の抽出は generate_rote_image() と同じ _rote_match_sub()、並びは上野本館の
@@ -27313,6 +27318,11 @@ def _monthly_t2_result_text(
     dow = ["月", "火", "水", "木", "金", "土", "日"][date_obj.weekday()]
     lines = [f"{date_obj.month}/{date_obj.day}({dow})📝結果📝", store_full, "",
              "🏆毎日オススメポスター🏆"]
+    _mogu = store == "モグ玄・新大久保"
+    if _mogu:
+        # モグ玄・新大久保だけ冒頭と差枚帯の絵文字を差し替える（抽出・並び・台番行は不変）
+        lines = [f"{date_obj.month}月{date_obj.day}日（{dow}）", "",
+                 "【 エスパス新大久保 】", "", "🔴毎日オススメポスター🔴"]
     for kw in machines:
         kw = (kw or "").strip()
         if not kw:
@@ -27328,7 +27338,7 @@ def _monthly_t2_result_text(
         sub = sub[sub["差枚"] >= 1000].sort_values(["差枚", "台番"], ascending=[False, True])
         if sub.empty:
             continue
-        lines.append("💎1,000枚超")
+        lines.append("💡1,000枚超" if _mogu else "💎1,000枚超")
         for _, row in sub.iterrows():
             lines.append(f"・【{int(row['台番'])}番台】+{int(row['差枚']):,}枚")
     return "\n".join(lines).rstrip()
@@ -29988,7 +29998,7 @@ def show_rote_page() -> None:
                     _t2im.save(os.path.join(_rote_out_dir, f"{_t2m}ローテ.png"), format="PNG", dpi=(300, 300))
                     _t2_rote_imgs.append((_t2m, _t2im))
                 if _t2_macs:
-                    _t2_result = _monthly_t2_result_text(df, _t2_macs, _rd, _rote_store_full)
+                    _t2_result = _monthly_t2_result_text(df, _t2_macs, _rd, _rote_store_full, store=store)
                     with open(os.path.join(_rote_out_dir, f"{'・'.join(_t2_macs)}結果.txt"),
                               "w", encoding="utf-8") as _f:
                         _f.write(_t2_result)

@@ -27270,8 +27270,8 @@ def _generate_rote_result_text(
         _tp, _ts, _be = ("💡" if store in ("モグ玄・新大久保", "モグ玄・新宿歌舞伎町") else "💎"), "", "・"
     else:
         _tp, _ts = _te, _te
-    # 差枚帯の語尾。モグ玄・新宿歌舞伎町だけ「以上」（閾値・判定 >= は不変）
-    _tw = "以上" if store == "モグ玄・新宿歌舞伎町" else "超"
+    # 差枚帯の語尾。モグ玄2店舗だけ「以上」（閾値・判定 >= は不変）
+    _tw = "以上" if store in ("モグ玄・新宿歌舞伎町", "モグ玄・新大久保") else "超"
     name_col = "機種名" if "機種名" in df.columns else None
     tiers = [
         (10000, None,  f"{_tp}10,000枚{_tw}{_ts}"),
@@ -27345,7 +27345,7 @@ def _monthly_t2_result_text(
         sub = sub[sub["差枚"] >= 1000].sort_values(["差枚", "台番"], ascending=[False, True])
         if sub.empty:
             continue
-        lines.append("💡1,000枚超" if _mogu else "💎1,000枚超")
+        lines.append("💡1,000枚以上" if _mogu else "💎1,000枚超")
         for _, row in sub.iterrows():
             lines.append(f"・【{int(row['台番'])}番台】+{int(row['差枚']):,}枚")
     return "\n".join(lines).rstrip()

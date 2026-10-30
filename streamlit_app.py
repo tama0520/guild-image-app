@@ -30010,9 +30010,18 @@ def show_rote_page() -> None:
                     _t2_rote_imgs.append((_t2m, _t2im))
                 if _t2_macs:
                     _t2_result = _monthly_t2_result_text(df, _t2_macs, _rd, _rote_store_full, store=store)
-                    with open(os.path.join(_rote_out_dir, f"{'・'.join(_t2_macs)}結果.txt"),
-                              "w", encoding="utf-8") as _f:
-                        _f.write(_t2_result)
+                    _t2_pk = "🔴毎日オススメポスター🔴"
+                    if store == "モグ玄・新大久保" and _rote_result and _t2_pk in _t2_result:
+                        # モグ玄・新大久保だけ、通常ローテ結果の後ろへ空行1行で毎日オススメ部分
+                        # （🔴…🔴以降。冒頭の日付・店名は重ねない）をつなぎ、結果テキスト.txt 1つにする
+                        _rote_result = _rote_result + "\n\n" + _t2_pk + _t2_result.split(_t2_pk, 1)[1]
+                        with open(os.path.join(_rote_out_dir, "結果テキスト.txt"), "w", encoding="utf-8") as _f:
+                            _f.write(_rote_result)
+                        _t2_result = ""
+                    else:
+                        with open(os.path.join(_rote_out_dir, f"{'・'.join(_t2_macs)}結果.txt"),
+                                  "w", encoding="utf-8") as _f:
+                            _f.write(_t2_result)
 
             # ── 横並びプレビュー ─────────────────────────────────────
             if _rote_single:

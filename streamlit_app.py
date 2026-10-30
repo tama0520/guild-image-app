@@ -19878,8 +19878,6 @@ def show_auto_page(with_slump: bool = False) -> None:
         with open(excel_path, "wb") as f:
             f.write(uploaded.getvalue())
         os.makedirs(output_dir, exist_ok=True)
-        # モグ玄・新宿歌舞伎町：⑧前の .jpg の（更新時刻・サイズ）。今回の⑧で書いた紫系の表画像だけを後で消す判定に使う
-        _mk_pre_sigs = _mogu_kabu_jpg_sigs(output_dir) if _mogu_kabu_slump_on() else set()
 
         _is_manual_mode = bool(st.session_state.get(f"_manual_preview_mode_{store}", False))
         if _is_manual_mode:
@@ -20403,7 +20401,7 @@ def show_auto_page(with_slump: bool = False) -> None:
 
                     # モグ玄・新宿歌舞伎町：紫系の表画像は保存しない。記入した内容だけで台番一覧・スランプ一覧を作る
                     if _mogu_kabu_slump_on():
-                        _mogu_kabu_purge(store, output_dir, _mk_pre_sigs,
+                        _mogu_kabu_purge(store, output_dir,
                                          list(_exec_order) + list(_m_exec_ban_map_e),
                                          _ban_list_machine_names(_df_exec_m),
                                          _ban_list_sonota_names(sonota_extra_title), log=_m_log)
@@ -22188,9 +22186,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _ig_bm_u.update(_exec_rec_ban_map)
                     st.session_state[f"_inagawa_ban_map_{store}"] = _ig_bm_u
                     if _mogu_kabu_slump_on():
-                        # 紫系の表画像は保存しない：今回の⑧で書いたものと前回の残り（完全一致）を消し、
-                        # スランプ合成もしない（合成対象を空にする）
-                        _mogu_kabu_purge(store, output_dir, _mk_pre_sigs, list(_order) + list(_ig_bm_u),
+                        # 紫系の表画像は保存しない：今回の⑧で作った画像（生成時に記録したファイル名）と
+                        # 前回の残り（既存の命名規則）を名前の完全一致で消し、スランプ合成もしない（合成対象を空にする）
+                        _mogu_kabu_purge(store, output_dir,
+                                         [os.path.basename(_f) for _f in result.get("files", [])]
+                                         + list(_moved_narabi) + list(_sue_saved_fns)
+                                         + list(_order) + list(_ig_bm_u),
                                          _ban_list_machine_names(result.get("df")),
                                          _ban_list_sonota_names(sonota_extra_title), log=_log)
                         st.session_state[f"_inagawa_jpgs_{store}"] = []
@@ -32522,40 +32523,16 @@ def _mogu_kabu_lists_manual(store: str, df, excel_name: str, ban_map: dict, kind
         _mogu_kabu_by_uid(store, _d.strftime("%Y-%m-%d") if _d else ""))
 
 
-def _mogu_kabu_jpg_sigs(output_dir: str) -> set:
-    """出力フォルダの .jpg の（更新時刻ns, サイズ）。⑧前後で比べ、今回の⑧で書いたファイルだけを見分ける。"""
-    _sigs: set = set()
-    try:
-        for _f in os.listdir(output_dir):
-            _p = os.path.join(output_dir, _f)
-            if _f.lower().endswith(".jpg") and os.path.isfile(_p):
-                _s = os.stat(_p)
-                _sigs.add((_s.st_mtime_ns, _s.st_size))
-    except OSError:
-        pass
-    return _sigs
-
-
-def _mogu_kabu_purge(store: str, output_dir: str, pre_sigs: set, names, machine_names: set,
+def _mogu_kabu_purge(store: str, output_dir: str, names, machine_names: set,
                      sonota_names: set, log=None) -> None:
-    """⑧・⑧📝：紫系の表画像（.jpg）を出力フォルダから消す。
-    ① 今回の⑧で書いたもの（⑧前に無かった更新時刻・サイズ）
-    ② 前回までの残り：今回の画像名（NN_ の有無・_side）と、台番一覧のカテゴリ・ジャグラーの命名規則に完全一致するもの
-    ⑧前からあり、名前が規則に当たらないファイル（手置き）は消さない。"""
+    """⑧・⑧📝：紫系の表画像（.jpg）を出力フォルダから消す。名前の完全一致だけで判定する。
+    ① 今回の⑧で作った画像の名前（呼び出し側が生成時に記録したファイル名・ban_map の画像名）と、
+       その連番付き `NN_{名前}`・横版 `{名前}_side.jpg`（_rm_stale_image と同じ規則）
+    ② 前回までの残り：台番一覧のカテゴリ・ジャグラーの既存命名規則（_ban_list_purge_old_images）
+    名前が①②に当たらないファイル（手置き）は消さない。"""
     if not output_dir or not os.path.isdir(output_dir):
         return
     _rm: list[str] = []
-    for _f in sorted(os.listdir(output_dir)):
-        _p = os.path.join(output_dir, _f)
-        if not _f.lower().endswith(".jpg") or not os.path.isfile(_p):
-            continue
-        _s = os.stat(_p)
-        if (_s.st_mtime_ns, _s.st_size) not in pre_sigs:
-            try:
-                os.remove(_p)
-                _rm.append(_f)
-            except OSError:
-                pass
     for _n in dict.fromkeys([re.sub(r"^\d{2}_", "", _x) for _x in names] + [_MOGU_JUG_FN]):
         if _n.lower().endswith(".jpg"):
             _rm += _rm_stale_image(output_dir, _n)

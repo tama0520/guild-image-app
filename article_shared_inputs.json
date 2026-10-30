@@ -5,5 +5,9 @@
     "hint_after": "これらがヒントになっていたのかも？",
     "jug_extra_auto_slump2": "なし",
     "sonota_extra_auto_slump2": "+2,000枚以上"
+  },
+  "モグ玄・新宿歌舞伎町": {
+    "sonota_extra_auto_slump2": "なし",
+    "jug_extra_auto_slump2": "なし"
   }
 }

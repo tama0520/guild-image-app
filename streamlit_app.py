@@ -14735,8 +14735,9 @@ def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = No
     罫線は1座標1本（同じ位置へ重ねない）。列の仕切りは各1本だけ。
     75セルを超えて載せられなかった行数は戻り値の info["ban_list_omitted"] に入れる。
     single_col=True（📝・⑧📝）：1列だけで、載せる行数（見出し＋台）ぶんの高さ。空欄で埋めず上限なし。
-    grow=True（_BAN_LIST_GROW_STORES）：3列のまま、単品の候補も含めて全件が入る行数まで縦に伸ばす。
-    行数は max(25, ceil(必要セル数/3)) から始め、配置ルールで入りきらなければ1行ずつ増やす。"""
+    grow=True（_BAN_LIST_GROW_STORES）：3列のまま、優秀機種〜⑤（主要カテゴリ）が全件入る行数まで縦に伸ばす。
+    行数は max(25, ceil(主要カテゴリの必要セル数/3)) から始め、配置ルールで入りきらなければ1行ずつ増やす。
+    単品ピックアップはその行数の残りセルだけへ入れ、単品のためには行数を増やさない。"""
     if not blocks and not pool:
         return None
     blocks = list(blocks)
@@ -14746,17 +14747,12 @@ def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = No
         _n = sum(1 + sum(len(_a) for _a in _b["atoms"]) for _b in blocks)
         cols, _omitted = _ban_list_layout(blocks, [], ncol=1, nrow=max(_n, 1))
     elif grow:
-        if pool:
-            _k = _BAN_LIST_KINDS["single"]
-            blocks.append({"kind": "single", "title": _k["title"], "color": _k["color"],
-                           "sep": _k["sep"], "atoms": [[_r] for _r in pool]})
         _need = sum(1 + sum(len(_a) for _a in _b["atoms"]) for _b in blocks)
         _nr = max(_BAN_LIST_NROW, math.ceil(_need / _BAN_LIST_NCOL))
-        while True:
-            cols, _omitted = _ban_list_layout(blocks, [], nrow=_nr)
-            if not _omitted:
-                break
+        while _ban_list_layout(blocks, [], nrow=_nr)[1]:
             _nr += 1
+        # 主要カテゴリの配置は同じ行数なので変わらない。単品は残りセルだけ（_ban_list_layout の既存処理）
+        cols, _omitted = _ban_list_layout(blocks, pool or [], nrow=_nr)
     else:
         cols, _omitted = _ban_list_layout(blocks, pool or [])
     NC = len(cols)
@@ -21921,6 +21917,23 @@ def show_auto_page(with_slump: bool = False) -> None:
                 # 台番一覧（モグ玄・新大久保のみ・最後の連番）
                 if store in _BAN_LIST_IMG_STORES:
                     _order.append(_BAN_LIST_FN)
+                # モグ玄・新宿歌舞伎町：連番の付け直し前に前回⑧の画像を整理する（名前の完全一致だけ）。
+                #  - ジャグラー横版（_side）：下で連番を外すと _order に無いため連番なしのまま残る。
+                #    今回の横版はこの後のスランプ合成で作り直すので先に消す
+                #  - `NN_{名前}.jpg/.png` と今回作った `{名前}` が両方あるとき：下の連番外しで前回分が
+                #    今回分を上書きし、スランプが二重に合成される。前回の `NN_{名前}` のほうを消す
+                if _mogu_kabu_slump_on():
+                    _now_fns = set(os.listdir(output_dir))
+                    for _f_js in sorted(_now_fns):
+                        _m_js = re.fullmatch(r"\d{2}_(.+\.(?:jpg|png))", _f_js)
+                        if ((re.fullmatch(r"(\d{2}_)?ジャグラーシリーズ優秀台_side\.jpg", _f_js)
+                             or (_m_js and _m_js.group(1) in _now_fns))
+                                and os.path.isfile(os.path.join(output_dir, _f_js))):
+                            try:
+                                os.remove(os.path.join(output_dir, _f_js))
+                                _log(f"  🗑️ 前回の画像を削除: {_f_js}")
+                            except OSError:
+                                pass
                 # 再実行時に前回の連番プレフィックスが残っていると衝突するため、先に剥がしておく
                 for _ef in os.listdir(output_dir):
                     _pm = re.match(r"^\d{2}_(.+)$", _ef)
@@ -32208,6 +32221,7 @@ def _mogu_slump_card(unit_id: str, display_name: str, points: list,
     # 文字は地色の縁取り付き（はみ出した線・塗りの上でも読めるように）
     _sw = dict(stroke_width=3, stroke_fill=C_MOGU_SL_BG)
     # 右上：差枚（「枚」なし・プラス橙／マイナス青）。show_diff=False なら出さない
+    _dw = 0   # 差枚の領域（文字幅＋縁取り＋すき間）。台番＋機種名はこの左だけに描く
     if points and show_diff:
         _raw = diff if diff is not None else points[-1]["y"]
         _v = _pipeline_calc_d(_raw)
@@ -32216,17 +32230,22 @@ def _mogu_slump_card(unit_id: str, display_name: str, points: list,
         _bb = _df.getbbox(_dt)
         d.text((W - 10 - _bb[2], 26 - _bb[1]), _dt,
                fill=(C_MOGU_SL_PLUS if _v > 0 else (C_MOGU_SL_MINUS if _v < 0 else C_MOGU_SL_EVEN)), font=_df, **_sw)
-    # 左上：台番＋機種名（1行）。入らなければ段階的に縮小し、最小でも入らなければ末尾を「…」で省略
-    _nt = f"{unit_id} {display_name}".strip()
+        _dw = (_bb[2] - _bb[0]) + 2 * 3 + 12
+    # 左上：台番＋機種名（1行）。差枚の領域へ入らない幅（_nmax）の中で、台番は必ず出し、
+    # 機種名を段階的に縮小し、最小でも入らなければ機種名の末尾を「…」で省略
+    _nmax = W - 20 - _dw
+    _ban_t = str(unit_id).strip()
+    _mn_t = str(display_name or "").strip()
+    _nt = f"{_ban_t} {_mn_t}".strip()
     _ns = 22
     _nf = _rote_mogu_font(_ns)
-    while _nf.getlength(_nt) > W - 20 and _ns > 15:
+    while _nf.getlength(_nt) > _nmax and _ns > 15:
         _ns -= 1
         _nf = _rote_mogu_font(_ns)
-    if _nf.getlength(_nt) > W - 20:
-        while len(_nt) > 1 and _nf.getlength(_nt + "…") > W - 20:
-            _nt = _nt[:-1]
-        _nt += "…"
+    if _nf.getlength(_nt) > _nmax:
+        while _mn_t and _nf.getlength(f"{_ban_t} {_mn_t}…") > _nmax:
+            _mn_t = _mn_t[:-1]
+        _nt = f"{_ban_t} {_mn_t}…" if _mn_t else _ban_t
     _bb = _nf.getbbox(_nt)
     d.text((10 - _bb[0], 8 - _bb[1]), _nt, fill=C_MOGU_SL_NAME, font=_nf, **_sw)
     try:

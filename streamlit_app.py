@@ -27231,6 +27231,11 @@ def _generate_rote_result_text(
             f"🏆{poster_machines}ポスター🏆",
             f"{day_num}日目",
         ]
+        if store == "モグ玄・新宿歌舞伎町":
+            # モグ玄・新宿歌舞伎町だけ冒頭を差し替える。week_str・poster_machines・day_num は上の既存計算のまま
+            lines = [f"{date_obj.month}月{date_obj.day}日（{dow}）", "",
+                     "【 エスパス 新宿 歌舞伎 町 】", "",
+                     f"♦{week_str}♦", f"♦{poster_machines}ポスター♦", f"{day_num}日目"]
     else:
         weekday = date_obj.weekday()          # 0=月
         day_num = weekday + 1
@@ -27262,15 +27267,17 @@ def _generate_rote_result_text(
     # 他店舗へ展開するときはこの条件だけを広げる。
     # 差枚帯の閾値・台番の抽出条件・並び順は変更しない。
     if store in _ROTE_NEW_TEXT_STORES:
-        _tp, _ts, _be = ("💡" if store == "モグ玄・新大久保" else "💎"), "", "・"
+        _tp, _ts, _be = ("💡" if store in ("モグ玄・新大久保", "モグ玄・新宿歌舞伎町") else "💎"), "", "・"
     else:
         _tp, _ts = _te, _te
+    # 差枚帯の語尾。モグ玄・新宿歌舞伎町だけ「以上」（閾値・判定 >= は不変）
+    _tw = "以上" if store == "モグ玄・新宿歌舞伎町" else "超"
     name_col = "機種名" if "機種名" in df.columns else None
     tiers = [
-        (10000, None,  f"{_tp}10,000枚超{_ts}"),
-        (5000,  10000, f"{_tp}5,000枚超{_ts}"),
-        (3000,  5000,  f"{_tp}3,000枚超{_ts}"),
-        (1000,  3000,  f"{_tp}1,000枚超{_ts}"),
+        (10000, None,  f"{_tp}10,000枚{_tw}{_ts}"),
+        (5000,  10000, f"{_tp}5,000枚{_tw}{_ts}"),
+        (3000,  5000,  f"{_tp}3,000枚{_tw}{_ts}"),
+        (1000,  3000,  f"{_tp}1,000枚{_tw}{_ts}"),
     ]
 
     for kw in machine_inputs:

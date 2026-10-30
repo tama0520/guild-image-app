@@ -14541,7 +14541,11 @@ def _pv_set_on(store: str, excel_name: str, fname: str) -> None:
 #   🔍プレビュー・⑧：run_auto_pipeline() の戻り値＋末尾・⑤の掲載台 → _ban_list_image()
 #   📝記入部分のみプレビュー・📝の⑧：記入部分の画像名→掲載台番 → _ban_list_image_manual()
 # この店舗では高配分・並びの個別画像は作らず、この一覧へ載せる（4経路とも）。
-_BAN_LIST_IMG_STORES: "frozenset[str]" = frozenset({"モグ玄・新大久保"})
+_BAN_LIST_IMG_STORES: "frozenset[str]" = frozenset({"モグ玄・新大久保", "モグ玄・新宿歌舞伎町"})
+# 📝・⑧📝の台番一覧（②だけ・縦長1列・はにぃポスト結果考察）を作る店舗。通常の一覧とは分ける
+_BAN_LIST_MANUAL_STORES: "frozenset[str]" = frozenset({"モグ玄・新大久保"})
+# 3列のまま行数を伸ばして全件載せる店舗（75セル上限・残りセルだけの単品補充をしない）
+_BAN_LIST_GROW_STORES: "frozenset[str]" = frozenset({"モグ玄・新宿歌舞伎町"})
 _BAN_LIST_FN = "台番一覧.png"
 # タイトルバーは HG創英角ポップ体（HGRPP1.TTC・ローカルWindows）。HGRPP1 が無い環境（Cloud）では
 # 画像生成を止めず、リポジトリ同梱で記事用にCloud実績のある NotoSansJP-Black で描く。
@@ -14726,11 +14730,13 @@ def _ban_list_layout(blocks: list[dict], pool: list[dict], ncol: int = _BAN_LIST
 
 
 def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = None,
-                        single_col: bool = False) -> "Image.Image | None":
+                        single_col: bool = False, grow: bool = False) -> "Image.Image | None":
     """台番一覧を 25セル×3列で描く。高さは実際に描いた最下端で切り取り、最後に外周の黒枠を引く。
     罫線は1座標1本（同じ位置へ重ねない）。列の仕切りは各1本だけ。
     75セルを超えて載せられなかった行数は戻り値の info["ban_list_omitted"] に入れる。
-    single_col=True（📝・⑧📝）：1列だけで、載せる行数（見出し＋台）ぶんの高さ。空欄で埋めず上限なし。"""
+    single_col=True（📝・⑧📝）：1列だけで、載せる行数（見出し＋台）ぶんの高さ。空欄で埋めず上限なし。
+    grow=True（_BAN_LIST_GROW_STORES）：3列のまま、単品の候補も含めて全件が入る行数まで縦に伸ばす。
+    行数は max(25, ceil(必要セル数/3)) から始め、配置ルールで入りきらなければ1行ずつ増やす。"""
     if not blocks and not pool:
         return None
     blocks = list(blocks)
@@ -14739,6 +14745,18 @@ def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = No
     if single_col:
         _n = sum(1 + sum(len(_a) for _a in _b["atoms"]) for _b in blocks)
         cols, _omitted = _ban_list_layout(blocks, [], ncol=1, nrow=max(_n, 1))
+    elif grow:
+        if pool:
+            _k = _BAN_LIST_KINDS["single"]
+            blocks.append({"kind": "single", "title": _k["title"], "color": _k["color"],
+                           "sep": _k["sep"], "atoms": [[_r] for _r in pool]})
+        _need = sum(1 + sum(len(_a) for _a in _b["atoms"]) for _b in blocks)
+        _nr = max(_BAN_LIST_NROW, math.ceil(_need / _BAN_LIST_NCOL))
+        while True:
+            cols, _omitted = _ban_list_layout(blocks, [], nrow=_nr)
+            if not _omitted:
+                break
+            _nr += 1
     else:
         cols, _omitted = _ban_list_layout(blocks, pool or [])
     NC = len(cols)
@@ -14884,7 +14902,8 @@ def _ban_list_image(store: str, result: dict, sue_ban_map: "dict | None" = None,
     if store not in _BAN_LIST_IMG_STORES or not result or not result.get("ok"):
         return None
     _blocks, _pool = _ban_list_blocks(result, sue_ban_map, rec_ban_map, recommended_blocks)
-    return draw_ban_list_image(_ban_list_title(store, result.get("date")), _blocks, _pool)
+    return draw_ban_list_image(_ban_list_title(store, result.get("date")), _blocks, _pool,
+                               grow=store in _BAN_LIST_GROW_STORES)
 
 
 def _ban_list_title(store: str, d) -> str:
@@ -14979,7 +14998,7 @@ def _ban_list_image_manual(store: str, df, excel_name: str, ban_map: dict,
     並び・末尾・⑤・single（その他の優秀台）も、単品ピックアップの自動補充も使わない。
     通常の3列×25セルではなく縦長1列で描き、タイトルは「{M/D}はにぃポスト結果考察」
     （M/D はExcelファイル名の YYYYMMDD＝データの日付。取れなければ日付なし）。"""
-    if store not in _BAN_LIST_IMG_STORES or df is None:
+    if store not in _BAN_LIST_MANUAL_STORES or df is None:
         return None
     _of = lambda k: [_fn for _fn, _k in kinds.items() if _k == k and _fn in ban_map]
     _blocks, _ = _ban_list_blocks_from(
@@ -17265,6 +17284,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 st.session_state.pop(f"jug_sue_ck_{store}_{_ci}", None)
             st.session_state.pop(f"_kabupa_prev_text_{store}", None)
             st.session_state.pop(f"ban_list_img_{store}", None)
+            st.session_state.pop(f"slump_sheet_img_{store}", None)
             st.session_state[_aprev_fname] = uploaded.name
 
         _auto_previews = st.session_state.get(_aprev_key)
@@ -18066,6 +18086,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                                              if kojin_enabled else _prev_result),
                                             _sue_ban_all_pv, _rec_ban_map, recommended_blocks)
                             if _prev_result.get("ok") else None)
+                    # スランプ一覧（モグ玄・新宿歌舞伎町 × auto_slump2 のみ）：⑧と同じ関数・同じ入力
+                    if _mogu_kabu_slump_on():
+                        st.session_state[f"slump_sheet_img_{store}"] = _mogu_kabu_slump_sheet(
+                            store,
+                            (_ban_list_with_kojin(_prev_result, kojin_zentai_machines, _kojin_y_ban_pv)
+                             if kojin_enabled else _prev_result),
+                            locals().get("_ig_by_uid_pv"))
                     st.session_state[_aprev_df_key] = _prev_result.get("df")
                     st.session_state[_aprev_di_key] = _prev_result.get("diff_raw")
                     st.session_state[_aprev_ex_key] = _prev_result.get("sonota_excellent_list", [])
@@ -18137,6 +18164,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 st.rerun()
             if _manual_prev_btn or _manual_regen:
                 st.session_state.pop(f"ban_list_img_{store}", None)
+                st.session_state.pop(f"slump_sheet_img_{store}", None)
                 _save_auto_inputs(store)
                 with st.spinner("記入部分のみプレビュー生成中…"):
                     try:
@@ -18517,7 +18545,7 @@ def show_auto_page(with_slump: bool = False) -> None:
 
                         # 台番一覧（モグ玄・新大久保のみ）：📝でも作る。高配分・並びの画像は出さず一覧へ載せる
                         _bl_m_img = None
-                        if store in _BAN_LIST_IMG_STORES:
+                        if store in _BAN_LIST_MANUAL_STORES:
                             # 台番一覧へ載せるカテゴリの個別画像は出さない（台番一覧へ集約）
                             _bl_mac_m = _ban_list_machine_names(_df_m)
                             _bl_ext_m = _ban_list_sonota_names(sonota_extra_title)
@@ -18555,13 +18583,13 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 )
                             st.session_state[_aprev_key] = _dedup_previews(_manual_imgs)
                             st.session_state[f"_manual_preview_mode_{store}"] = True
-                            if store in _BAN_LIST_IMG_STORES:
+                            if store in _BAN_LIST_MANUAL_STORES:
                                 st.session_state[f"ban_list_img_{store}"] = _bl_m_img
                             # 🎯掲載台を選ぶ（かぶぱ＝全対象／秋葉原スランプ付き＝②個別優秀台のみ）:
                             # パネル用の候補と未反映判定用スナップショット。
                             # 対象外の店舗は _manual_unit_src が空なのでパネルは出ない（従来どおり）。
                             if _manual_unit_ky:
-                                if store in _BAN_LIST_IMG_STORES:
+                                if store in _BAN_LIST_MANUAL_STORES:
                                     _manual_unit_src = {_k: _v for _k, _v in _manual_unit_src.items()
                                                         if _k not in _bl_kind_m}
                                 st.session_state[_aprev_unit_key] = _manual_unit_src
@@ -18747,6 +18775,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                              output_format="PNG")
                     if _ban_list_omit_msg(_bl_pv):
                         st.warning("⚠️ " + _ban_list_omit_msg(_bl_pv))
+            # スランプ一覧（モグ玄・新宿歌舞伎町 × auto_slump2 のみ）：台番一覧の後ろに表示（チェック対象外）
+            if _mogu_kabu_slump_on():
+                _ss_pv = st.session_state.get(f"slump_sheet_img_{store}")
+                if _ss_pv is not None:
+                    st.image(_ss_pv, caption=_MOGU_SHEET_FN, use_container_width=True,
+                             output_format="PNG")
             # 新宿歌舞伎町（かぶぱポストの結果）：画像の下に結果テキストをコピー可能な形で表示
             _kabupa_prev_text = st.session_state.get(f"_kabupa_prev_text_{store}")
             if _is_kabupa_pg and _kabupa_prev_text:
@@ -19703,6 +19737,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         except Exception:
                                             pass
                         if _updated:
+                            if _mogu_kabu_slump_on():
+                                # 🔍と同じく、台番一覧へ載せるカテゴリ（⑤・その他など）の個別画像は出さない
+                                _bl_mac_ux = _ban_list_machine_names(_pv_df)
+                                _bl_ext_ux = _ban_list_sonota_names(sonota_extra_title)
+                                _new_prev = [(_f, _i) for _f, _i in _new_prev
+                                             if not _ban_list_cat_image(_f, _bl_mac_ux, _bl_ext_ux)]
                             st.session_state[_aprev_key] = _dedup_previews(_new_prev)
                             st.rerun()
             with _btn_clr:
@@ -19978,7 +20018,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _mgp_e = _mgp_e.reset_index(drop=True)
                             _mefn_e = _unique_fn_e(f"{_make_safe_fn(_metit)}.jpg")
                             _meout = os.path.join(output_dir, _mefn_e)
-                            if store in _BAN_LIST_IMG_STORES:
+                            if store in _BAN_LIST_MANUAL_STORES:
                                 # 高配分の画像は作らず台番一覧へ載せる（前回分も残さない）
                                 _rm_stale_image(output_dir, _mefn_e, log=_m_log)
                             else:
@@ -20167,7 +20207,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _file_tit_e = _ntit_e
                             _nfn_e = _unique_fn_e(f"{_make_safe_fn(_file_tit_e)}.jpg")
                             _nout_e = os.path.join(output_dir, _nfn_e)
-                            if store in _BAN_LIST_IMG_STORES:
+                            if store in _BAN_LIST_MANUAL_STORES:
                                 # 並びの画像は作らず台番一覧へ載せる（前回分も残さない）
                                 _rm_stale_image(output_dir, _nfn_e, log=_m_log)
                             else:
@@ -20390,7 +20430,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _exec_order = _kept_order_e
 
                     # 台番一覧（モグ玄・新大久保のみ）：📝プレビューと同じ関数・同じ入力で1枚保存（PNG）
-                    if store in _BAN_LIST_IMG_STORES:
+                    if store in _BAN_LIST_MANUAL_STORES:
                         _ban_list_purge_old_images(store, output_dir, log=_m_log,
                                                    machine_names=_ban_list_machine_names(_df_exec_m),
                                                    extra=_ban_list_sonota_names(sonota_extra_title))
@@ -21785,6 +21825,8 @@ def show_auto_page(with_slump: bool = False) -> None:
             # NN_ を外した前回分が今回の保存を上書きする）
             if store in _BAN_LIST_IMG_STORES and result["ok"]:
                 _rm_stale_image(output_dir, _BAN_LIST_FN, log=_log)
+                if _mogu_kabu_slump_on():
+                    _rm_stale_image(output_dir, _MOGU_SHEET_FN, log=_log)
                 _bl_ex = _ban_list_image(store, result, _sue_ban_run, _exec_rec_ban_map,
                                          recommended_blocks)
                 if _bl_ex is not None:
@@ -22232,6 +22274,16 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             with open(_cfp_exec, "wb") as _cfh_exec:
                                                 _cfh_exec.write(_cb_exec)
                                     st.session_state[f"_inagawa_jpgs_{store}"] = _ig_composite_kept
+                                    # スランプ一覧（モグ玄・新宿歌舞伎町 × auto_slump2 のみ）：🔍と同じ関数・同じ入力。
+                                    # 連番の付け直しは済んでいるので、残っている画像の最大連番の次（＝台番一覧の次）で保存する
+                                    _ss_ex = _mogu_kabu_slump_sheet(store, result, _ig_by_uid_exec)
+                                    if _ss_ex is not None:
+                                        _ss_seq = 1 + max([int(_f[:2]) for _f in os.listdir(output_dir)
+                                                           if re.match(r"^\d{2}_", _f)
+                                                           and os.path.isfile(os.path.join(output_dir, _f))] + [0])
+                                        _ss_fn = f"{_ss_seq:02d}_{_MOGU_SHEET_FN}"
+                                        _ss_ex.save(os.path.join(output_dir, _ss_fn), format="PNG")
+                                        _log(f"  ✅ {_ss_fn}")
                         except Exception as _ig_exc_exec:
                             _log(f"❌ スランプグラフ合成エラー: {_ig_exc_exec}")
 
@@ -32185,6 +32237,93 @@ def _mogu_slump_card(unit_id: str, display_name: str, points: list,
         _gt = f"{_g:,}G"
         _bb = _sub_f.getbbox(_gt)
         d.text((10 - _bb[0], 38 - _bb[1]), _gt, fill=C_MOGU_SL_SUB, font=_sub_f, **_sw)
+    return img
+
+
+# ── スランプ一覧（モグ玄・新宿歌舞伎町 × auto_slump2 だけ） ──────────────────
+# 台番一覧と同じブロック（優秀機種・高配分だけ）の台から、差枚プラスの台のカードを1行7台で並べた1枚。
+# カードは上の _mogu_slump_card()（e234268 の横長カード・+5,000/-2,000固定）をそのまま縮小して使う。
+# 分類帯の「N台中M台プラス・平均」は台番一覧と同じ df の差枚で、その分類の全対象台から出す。
+_MOGU_SHEET_FN = "スランプ一覧.png"
+_MOGU_SHEET_KINDS: "tuple[str, ...]" = ("zen", "high")
+_MOGU_SHEET_NOTE = "各グラフは開店から閉店まで・縦の目盛りは+5,000～-2,000固定（灰色の線が±0）・全台の差枚は台番一覧に"
+_MOGU_SHEET_SIGN = "モグ玄"
+_MOGU_SHEET_CELL_W = 244          # カード1枚の幅（288×203 を縮小）
+_MOGU_SHEET_M, _MOGU_SHEET_G = 6, 6
+_MOGU_SHEET_TITLE_H, _MOGU_SHEET_BAND_H, _MOGU_SHEET_FOOT_H = 62, 44, 40
+C_MOGU_SHEET_NOTE = (138, 147, 168)   # #8A93A8 注記
+C_MOGU_SHEET_SIGN = (90, 100, 128)    # #5A6480 署名
+
+
+def _mogu_kabu_slump_sheet(store: str, result: dict, by_uid: "dict | None") -> "Image.Image | None":
+    """スランプ一覧（🔍と⑧で共通）。対象外・カードを描くデータがないときは None。"""
+    if not _mogu_kabu_slump_on() or not result or not result.get("ok") or not by_uid:
+        return None
+    _blocks, _ = _ban_list_blocks(result)
+    secs = []
+    for _b in _blocks:
+        if _b["kind"] not in _MOGU_SHEET_KINDS:
+            continue
+        _rows = [_r for _a in _b["atoms"] for _r in _a]
+        if not _rows:
+            continue
+        _plus = [_r for _r in _rows if _r["diff"] > 0]
+        _avg = int(round(sum(_r["diff"] for _r in _rows) / len(_rows)))
+        _stat = f"{len(_rows)}台中{len(_plus)}台プラス　平均{fmt_diff(_avg)}（プラスの台だけ表示）"
+        _cards = []
+        for _r in _plus:
+            _it = by_uid.get(str(_r["ban"]))
+            if _it is None or not _it.get("points"):
+                continue
+            _dn = _it.get("_convertedName") or _it.get("displayName") or _r["name"]
+            _cards.append(_mogu_slump_card(str(_r["ban"]), _dn, _it["points"], _it.get("diff"),
+                                           _it.get("games"), True))
+        secs.append((_b, _stat, _cards))
+    if not any(_c for _, _, _c in secs):
+        return None
+    NC, M, G = _MOGU_SL_COLS, _MOGU_SHEET_M, _MOGU_SHEET_G
+    CW = _MOGU_SHEET_CELL_W
+    CH = round(CW * _MOGU_SL_H / _MOGU_SL_W)
+    W = M * 2 + NC * CW + (NC - 1) * G
+    H = _MOGU_SHEET_TITLE_H + _MOGU_SHEET_FOOT_H + sum(
+        _MOGU_SHEET_BAND_H + G + math.ceil(len(_c) / NC) * (CH + G) for _, _, _c in secs)
+    img = Image.new("RGB", (W, H), "white")
+    dr = ImageDraw.Draw(img)
+    dr.rectangle([0, 0, W - 1, _MOGU_SHEET_TITLE_H - 1], fill=_BAN_LIST_TITLE_BG)
+    _d = result.get("date")
+    title = ((f"{_d.month}/{_d.day}　" if _d is not None else "")
+             + f"エスパス{_data_store(store)}・スランプ（優秀機種＆高配分）")
+    _fs = 32
+    while True:
+        f_title = ImageFont.truetype(_ban_list_title_font_path(), _fs, index=0)
+        _tb = dr.textbbox((0, 0), title, font=f_title)
+        if (_tb[2] - _tb[0]) <= W - 40 or _fs <= 12:
+            break
+        _fs -= 1
+    dr.text(((W - (_tb[2] - _tb[0])) // 2 - _tb[0], (_MOGU_SHEET_TITLE_H - (_tb[3] - _tb[1])) // 2 - _tb[1]),
+            title, font=f_title, fill="white")
+    f_band = _rote_mogu_font(26)
+    f_stat = _rote_mogu_font(22)
+    y = _MOGU_SHEET_TITLE_H
+    for _b, _stat, _cards in secs:
+        dr.rectangle([0, y, W - 1, y + _MOGU_SHEET_BAND_H - 1], fill=_b["color"])
+        for _t, _f, _right in ((_b["title"], f_band, False), (_stat, f_stat, True)):
+            _bb = dr.textbbox((0, 0), _t, font=_f)
+            _x = (W - 14 - _bb[2]) if _right else (14 - _bb[0])
+            dr.text((_x, y + (_MOGU_SHEET_BAND_H - (_bb[3] - _bb[1])) // 2 - _bb[1]), _t, font=_f, fill="white")
+        y += _MOGU_SHEET_BAND_H + G
+        for _i, _c in enumerate(_cards):
+            _cx = M + (_i % NC) * (CW + G)
+            _cy = y + (_i // NC) * (CH + G)
+            img.paste(_c.resize((CW, CH), Image.LANCZOS), (_cx, _cy))
+        y += math.ceil(len(_cards) / NC) * (CH + G)
+    f_note = _rote_mogu_font(15)
+    f_sign = _rote_mogu_font(20)
+    _fy = y + _MOGU_SHEET_FOOT_H // 2
+    _bb = dr.textbbox((0, 0), _MOGU_SHEET_NOTE, font=f_note)
+    dr.text((14 - _bb[0], _fy - (_bb[1] + _bb[3]) // 2), _MOGU_SHEET_NOTE, font=f_note, fill=C_MOGU_SHEET_NOTE)
+    _bb = dr.textbbox((0, 0), _MOGU_SHEET_SIGN, font=f_sign)
+    dr.text((W - 14 - _bb[2], _fy - (_bb[1] + _bb[3]) // 2), _MOGU_SHEET_SIGN, font=f_sign, fill=C_MOGU_SHEET_SIGN)
     return img
 
 

@@ -29989,7 +29989,18 @@ def show_rote_page() -> None:
                     _t2m = st.session_state.get(f"weekly_machine{_sfx}_{store}_t2", "").strip()
                     if _t2m and _t2m not in _t2_macs:
                         _t2_macs.append(_t2m)
-                for _t2m in _t2_macs:
+                # モグ玄・新大久保だけ、データのある2機種を1枚にまとめる（機種名1が上・機種名2が下）。
+                # 複数機種を1枚に描く処理は generate_rote_image() の既存処理をそのまま使う。
+                _t2_have = [_m for _m in _t2_macs
+                            if "機種名" in df.columns and not _rote_match_sub(df, "機種名", _m).empty]
+                if store == "モグ玄・新大久保" and len(_t2_have) >= 2:
+                    _t2_one = "・".join(_t2_have)
+                    _t2im = _rote_margin(store, generate_rote_image(
+                        df, _t2_have, date_label=_rote_date_label, store=store,
+                        with_legend=not _rote_plain(store)))
+                    _t2im.save(os.path.join(_rote_out_dir, f"{_t2_one}ローテ.png"), format="PNG", dpi=(300, 300))
+                    _t2_rote_imgs.append((_t2_one, _t2im))
+                for _t2m in ([] if _t2_rote_imgs else _t2_macs):
                     if "機種名" not in df.columns or _rote_match_sub(df, "機種名", _t2m).empty:
                         continue
                     _t2im = _rote_margin(store, generate_rote_image(

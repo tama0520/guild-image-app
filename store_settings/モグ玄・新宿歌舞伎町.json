@@ -1,3 +1,81 @@
 {
-  "rec_enabled": false
+  "rec_enabled": true,
+  "recommended_title_1": "オススメ機種",
+  "recommended_filter_1": "+1,000枚以上",
+  "recommended_title_2": "オススメ機種",
+  "recommended_filter_2": "+1,000枚以上",
+  "recommended_title_3": "オススメ機種",
+  "recommended_filter_3": "+1,000枚以上",
+  "recommended_title_4": "",
+  "recommended_filter_4": "プラス台",
+  "recommended_title_5": "",
+  "recommended_filter_5": "プラス台",
+  "recommended_title_6": "",
+  "recommended_filter_6": "プラス台",
+  "recommended_machines_1": [
+    "東京喰種",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "recommended_machines_2": [
+    "カバネリ海門決戦",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "recommended_machines_3": [
+    "炎炎ノ消防隊2",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "recommended_machines_4": [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "recommended_machines_5": [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "recommended_machines_6": [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ]
 }

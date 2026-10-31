@@ -14555,6 +14555,12 @@ _BAN_LIST_IMG_STORES: "frozenset[str]" = frozenset({"モグ玄・新大久保", 
 _BAN_LIST_MANUAL_STORES: "frozenset[str]" = frozenset({"モグ玄・新大久保"})
 # 3列のまま行数を伸ばして全件載せる店舗（75セル上限・残りセルだけの単品補充をしない）
 _BAN_LIST_GROW_STORES: "frozenset[str]" = frozenset({"モグ玄・新宿歌舞伎町"})
+# 店舗ごとの文字サイズ・間隔（draw_ban_list_image の引数）。無い店舗は既定値のまま。
+# title_fs＝タイトルの最大サイズ／hdr_fs＝見出しバーのブロック名（台番・回転数・差枚数は対象外）／
+# name_gap＝機種名列と台番列の間。
+_BAN_LIST_STYLE: "dict[str, dict]" = {
+    "モグ玄・新大久保": {"title_fs": 32, "hdr_fs": 18, "name_gap": 42},
+}
 _BAN_LIST_FN = "台番一覧.png"
 # タイトルバーは HG創英角ポップ体（HGRPP1.TTC・ローカルWindows）。HGRPP1 が無い環境（Cloud）では
 # 画像生成を止めず、リポジトリ同梱で記事用にCloud実績のある NotoSansJP-Black で描く。
@@ -14758,7 +14764,9 @@ def _ban_list_layout(blocks: list[dict], pool: list[dict], ncol: int = _BAN_LIST
 
 
 def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = None,
-                        single_col: bool = False, grow: bool = False) -> "Image.Image | None":
+                        single_col: bool = False, grow: bool = False,
+                        title_fs: int = _BAN_LIST_TITLE_FS, hdr_fs: int = _BAN_LIST_FS,
+                        name_gap: int = _BAN_LIST_GAP) -> "Image.Image | None":
     """台番一覧を 25セル×3列で描く。高さは実際に描いた最下端で切り取り、最後に外周の黒枠を引く。
     罫線は1座標1本（同じ位置へ重ねない）。列の仕切りは各1本だけ。
     75セルを超えて載せられなかった行数は戻り値の info["ban_list_omitted"] に入れる。
@@ -14771,6 +14779,7 @@ def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = No
     blocks = list(blocks)
     _tf = _ban_list_title_font_path()
     f_body = ImageFont.truetype(_BAN_LIST_BODY_FONT, _BAN_LIST_FS)
+    f_hdr = ImageFont.truetype(_BAN_LIST_BODY_FONT, hdr_fs)
     if single_col:
         _n = sum(1 + sum(len(_a) for _a in _b["atoms"]) for _b in blocks)
         cols, _omitted = _ban_list_layout(blocks, [], ncol=1, nrow=max(_n, 1))
@@ -14785,8 +14794,8 @@ def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = No
         cols, _omitted = _ban_list_layout(blocks, pool or [])
     NC = len(cols)
 
-    def _tw(s: str) -> int:
-        return int(math.ceil(f_body.getlength(s))) if s else 0
+    def _tw(s: str, font=None) -> int:
+        return int(math.ceil((font or f_body).getlength(s))) if s else 0
 
     def _cells(r: dict) -> "tuple[str, str, str, str]":
         _g = fmt_games(round_games(r["games"])) if r["games"] is not None else ""
@@ -14802,9 +14811,9 @@ def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = No
     games_w = max(games_dw, _tw("回転数"))
     diff_w = max(diff_dw, _tw("差枚数"))
     # 見出し行の左（ブロック名）は台番の見出しへ重ねない
-    name_w = max([_tw(_c[0]) for _c in _all] + [_tw(_t) for _t in _hdrs] + [0])
+    name_w = max([_tw(_c[0]) for _c in _all] + [_tw(_t, f_hdr) for _t in _hdrs] + [0])
     G, P, LW, FW, RH = _BAN_LIST_GAP, _BAN_LIST_PAD, _BAN_LIST_LW, _BAN_LIST_FRAME_W, _BAN_LIST_ROW_H
-    col_w = P + name_w + G + ban_w + G + games_w + G + diff_w + P
+    col_w = P + name_w + name_gap + ban_w + G + games_w + G + diff_w + P
     W = FW + NC * col_w + (NC - 1) * LW + FW
     _tmax = max(len(_c) for _c in cols)
     H_canvas = _BAN_LIST_TITLE_H + _tmax * RH + 200
@@ -14812,7 +14821,7 @@ def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = No
     dr = ImageDraw.Draw(img)
     dr.rectangle([0, 0, W - 1, _BAN_LIST_TITLE_H - 1], fill=_BAN_LIST_TITLE_BG)
     # タイトルは枠の内側に収まる大きさまで縮める（フォントが替わっても切れないように）
-    _fs = _BAN_LIST_TITLE_FS
+    _fs = title_fs
     while True:
         f_title = ImageFont.truetype(_tf, _fs, index=0)
         _tb = dr.textbbox((0, 0), title, font=f_title)
@@ -14826,20 +14835,22 @@ def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = No
     _asc = f_body.getbbox("回転台番0123456789")
 
     def _text(x: int, y: int, s: str, fill, right_x: "int | None" = None,
-              center_x: "float | None" = None) -> None:
+              center_x: "float | None" = None, font=None) -> None:
         if right_x is not None:
             x = right_x - _tw(s)
         if center_x is not None:
             _ib = f_body.getbbox(s)
             x = int(round(center_x - (_ib[0] + _ib[2]) / 2))
-        dr.text((x, y + (RH - (_asc[3] - _asc[1])) // 2 - _asc[1]), s, font=f_body, fill=fill)
+        _f = font or f_body
+        _a = _asc if _f is f_body else _f.getbbox("回転台番0123456789")
+        dr.text((x, y + (RH - (_a[3] - _a[1])) // 2 - _a[1]), s, font=_f, fill=fill)
 
     _hlines: set = set()
     bottom = _BAN_LIST_TITLE_H
 
     def _col(items: list, x0: int) -> None:
         nonlocal bottom
-        x_ban_l = x0 + P + name_w + G
+        x_ban_l = x0 + P + name_w + name_gap
         x_games_l = x_ban_l + ban_w + G
         x_diff_l = x_games_l + games_w + G
         x_ban_r = x_ban_l + (ban_w + ban_dw) // 2
@@ -14851,7 +14862,7 @@ def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = No
             if _it[0] == "hdr":
                 _b = blocks[_it[1]]
                 dr.rectangle([x0, y, x0 + col_w - 1, y + RH - 1], fill=_b["color"])
-                _text(x0 + P, y, _b["title"], "white")
+                _text(x0 + P, y, _b["title"], "white", font=f_hdr)
                 _text(0, y, "台番", "white", center_x=x_ban_r - ban_dw / 2)
                 _text(0, y, "回転数", "white", center_x=x_games_r - games_dw / 2)
                 _text(0, y, "差枚数", "white", center_x=x_diff_r - diff_dw / 2)
@@ -14927,7 +14938,7 @@ def _ban_list_image(store: str, result: dict, sue_ban_map: "dict | None" = None,
         return None
     _blocks, _pool = _ban_list_blocks(result, sue_ban_map, rec_ban_map, recommended_blocks)
     return draw_ban_list_image(_ban_list_title(store, result.get("date")), _blocks, _pool,
-                               grow=store in _BAN_LIST_GROW_STORES)
+                               grow=store in _BAN_LIST_GROW_STORES, **_BAN_LIST_STYLE.get(store, {}))
 
 
 def _ban_list_title(store: str, d) -> str:
@@ -15038,7 +15049,7 @@ def _ban_list_image_manual(store: str, df, excel_name: str, ban_map: dict,
         except ValueError:
             pass
     _title = (f"{_d.month}/{_d.day}" if _d is not None else "") + "はにぃポスト結果考察"
-    return draw_ban_list_image(_title, _blocks, [], single_col=True)
+    return draw_ban_list_image(_title, _blocks, [], single_col=True, **_BAN_LIST_STYLE.get(store, {}))
 
 
 def _dedup_previews(items: list) -> list:

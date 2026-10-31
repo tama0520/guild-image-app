@@ -7948,6 +7948,20 @@ def generate_recommended_result_text(
     return "\n\n".join(sections)
 
 
+# 結果テキストの⑤欄を⑤画像の掲載台（bans_by_block）から出す店舗。書式は新宿歌舞伎町 記事用の⑤と同じ
+# （見出しは他セクションと同じ絵文字・機種名の行頭「・」・同じタイトルは見出し1回）。⑧と⑧📝で共通
+_REC_TEXT_IMG_BANS_STORES: "frozenset[str]" = frozenset({"モグ玄・新宿歌舞伎町"})
+
+
+def _rec_text_from_img_bans(store: str, recommended_blocks: list, df, diff_raw, bans_by_block: dict,
+                            exclude_machines: "set | None" = None) -> str:
+    """⑤画像に実際に載った台（ブロック番号 → 台番）だけで⑤欄の結果テキストを作る。"""
+    return generate_recommended_result_text(
+        recommended_blocks, df, diff_raw, exclude_machines=exclude_machines, store_name=store,
+        plain_head=True, bans_by_block=bans_by_block,
+        section_emoji=STORE_EMOJI_CONFIG.get(store, ("💫", "👑"))[1], merge_same_title=True)
+
+
 def _fmt_diff(n: int) -> str:
     if n == 0:
         return "±0枚"
@@ -20359,6 +20373,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _kabupa_rm_stale(_ofn_rm)
 
                     # ⑤ オススメ機種ピックアップ
+                    _rec_bbb_e: dict = {}   # ⑤ブロック番号 → 画像に載った台番（結果テキストの⑤欄用）
                     if recommended_blocks:
                         _ms_sfx_e ={1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
                         _ms_fn_map_e = _rec_block_fn_map(recommended_blocks)
@@ -20388,6 +20403,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 if _rec_bans_e:
                                     _m_exec_ban_map_e[_mrfn_e] = sorted(set(_rec_bans_e))
                                     _bl_kind_e[_mrfn_e] = f"rec:{_mbt_e}"
+                                    _rec_bbb_e.setdefault(_mbi_e, []).extend(_rec_bans_e)
                                 _m_log(f"  ✅ オススメ「{_mbt_e}」({_ms_sfxv_e})")
 
                     # ⑤ バラエティ画像（秋葉原・新宿歌舞伎町スランプ付き＋高田馬場）
@@ -20715,6 +20731,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 poster_weekly=_poster_weekly_items(
                                     store, recommended_blocks, _df_exec_m, _diff_exec_m),
                             )
+                            if store in _REC_TEXT_IMG_BANS_STORES and with_slump and _rec_bbb_e:
+                                _rec_txt_m = _rec_text_from_img_bans(store, recommended_blocks, _df_exec_m,
+                                                                     _diff_exec_m, _rec_bbb_e)
+                                if _rec_txt_m:
+                                    _m_report_text = insert_formatted_result_before_other_picks(
+                                        _m_report_text, _rec_txt_m, store)
                         for _old_rt, _new_rt in STORE_RESULT_TRANSFORMS.get(store, []):
                             _m_report_text = _m_report_text.replace(_old_rt, _new_rt)
                         _txt_name_m = (f"{_m_date.month:02d}{_m_date.day:02d}_結果.txt" if _m_date else "結果.txt")
@@ -22575,7 +22597,16 @@ def show_auto_page(with_slump: bool = False) -> None:
             if _rec_pickup_on(store) and recommended_blocks:
                 _rec_df       = result.get("df")
                 _rec_diff_raw = result.get("diff_raw")
-                if _rec_df is not None and _rec_diff_raw is not None:
+                if (_rec_df is not None and _rec_diff_raw is not None
+                        and store in _REC_TEXT_IMG_BANS_STORES and with_slump):
+                    _rec_bbb_x: dict = {}
+                    for (_rbi_x, _rthr_x), _rfn_x in _rec_block_fn_map(recommended_blocks).items():
+                        _rec_bbb_x.setdefault(_rbi_x, []).extend(_exec_rec_ban_map.get(_rfn_x, []))
+                    _rec_text = _rec_text_from_img_bans(store, recommended_blocks, _rec_df, _rec_diff_raw,
+                                                        _rec_bbb_x, exclude_machines=_memo_machines)
+                    if _rec_text:
+                        report_text = insert_formatted_result_before_other_picks(report_text, _rec_text, store)
+                elif _rec_df is not None and _rec_diff_raw is not None:
                     _rec_text = generate_recommended_result_text(
                         # ブロック番号（block_summaries・絵文字）をずらさないよう空ブロックへ置換
                         [({**b, "title": ""} if any(b is _h for _h in _pw_hide) else b)

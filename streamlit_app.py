@@ -32406,8 +32406,9 @@ def _mogu_kabu_slump_sheet(store: str, d, blocks: list, by_uid: "dict | None") -
             if _it is None or not _it.get("points"):
                 continue
             _dn = _it.get("_convertedName") or _it.get("displayName") or _r["name"]
+            # G数は台番一覧の回転数と同じ値（同じ行の df ゲーム数を round_games。欠損なら出さない）
             _cards.append(_mogu_slump_card(str(_r["ban"]), _dn, _it["points"], _it.get("diff"),
-                                           _it.get("games"), True))
+                                           round_games(_r["games"]) if _r["games"] is not None else None, True))
         secs.append((_b, _cards))
     if not any(_c for _, _c in secs):
         return None

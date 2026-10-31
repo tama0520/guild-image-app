@@ -27377,7 +27377,7 @@ def _generate_rote_result_text(
             # モグ玄・新宿歌舞伎町だけ冒頭を差し替える。week_str・day_num は上の既存計算のまま。
             # 見出しは期間＋ポスター＋日数の1行（機種名の列挙は出さない）
             lines = [f"{date_obj.month}月{date_obj.day}日（{dow}）", "",
-                     "【 エスパス 新宿 歌舞伎 町 】", "", "",
+                     "【 エスパス新宿歌舞伎町 】", "", "",
                      f"♦{week_str}ポスター {day_num}日目♦"]
     else:
         weekday = date_obj.weekday()          # 0=月

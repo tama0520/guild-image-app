@@ -27374,10 +27374,11 @@ def _generate_rote_result_text(
             f"{day_num}日目",
         ]
         if store == "モグ玄・新宿歌舞伎町":
-            # モグ玄・新宿歌舞伎町だけ冒頭を差し替える。week_str・poster_machines・day_num は上の既存計算のまま
+            # モグ玄・新宿歌舞伎町だけ冒頭を差し替える。week_str・day_num は上の既存計算のまま。
+            # 見出しは期間＋ポスター＋日数の1行（機種名の列挙は出さない）
             lines = [f"{date_obj.month}月{date_obj.day}日（{dow}）", "",
-                     "【 エスパス 新宿 歌舞伎 町 】", "",
-                     f"♦{week_str}♦", f"♦{poster_machines}ポスター♦", f"{day_num}日目"]
+                     "【 エスパス 新宿 歌舞伎 町 】", "", "",
+                     f"♦{week_str}ポスター {day_num}日目♦"]
     else:
         weekday = date_obj.weekday()          # 0=月
         day_num = weekday + 1
@@ -27443,8 +27444,8 @@ def _generate_rote_result_text(
         else:
             lines.append(f"{_re}{machine_name}{_re}")
 
-        if store == "モグ玄・新大久保":
-            # モグ玄・新大久保だけ差枚帯の見出しを出さず「台番：差枚」を差枚降順（同差枚は台番昇順）で並べる。
+        if store in ("モグ玄・新大久保", "モグ玄・新宿歌舞伎町"):
+            # モグ玄2店舗だけ差枚帯の見出しを出さず「台番：差枚」を差枚降順（同差枚は台番昇順）で並べる。
             # 対象台（+1,000枚以上）は差枚帯の合計と同じ。機種間は空行2行
             for _, row in sub.sort_values(["差枚", "台番"], ascending=[False, True]).iterrows():
                 lines.append(f"{int(row['台番'])}番台：+{int(row['差枚']):,}枚")

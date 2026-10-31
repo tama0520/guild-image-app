@@ -14556,10 +14556,10 @@ _BAN_LIST_MANUAL_STORES: "frozenset[str]" = frozenset({"モグ玄・新大久保
 # 3列のまま行数を伸ばして全件載せる店舗（75セル上限・残りセルだけの単品補充をしない）
 _BAN_LIST_GROW_STORES: "frozenset[str]" = frozenset({"モグ玄・新宿歌舞伎町"})
 # 店舗ごとの文字サイズ・間隔（draw_ban_list_image の引数）。無い店舗は既定値のまま。
-# title_fs＝タイトルの最大サイズ／hdr_fs＝見出しバーのブロック名（台番・回転数・差枚数は対象外）／
+# title_fs＝タイトルの最大サイズ／hdr_fs＝見出しバーの文字（ブロック名と台番・回転数・差枚数）／
 # name_gap＝機種名列と台番列の間。
 _BAN_LIST_STYLE: "dict[str, dict]" = {
-    "モグ玄・新大久保": {"title_fs": 32, "hdr_fs": 18, "name_gap": 42},
+    "モグ玄・新大久保": {"title_fs": 32, "hdr_fs": 18, "name_gap": 58},
 }
 _BAN_LIST_FN = "台番一覧.png"
 # タイトルバーは HG創英角ポップ体（HGRPP1.TTC・ローカルWindows）。HGRPP1 が無い環境（Cloud）では
@@ -14838,10 +14838,10 @@ def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = No
               center_x: "float | None" = None, font=None) -> None:
         if right_x is not None:
             x = right_x - _tw(s)
-        if center_x is not None:
-            _ib = f_body.getbbox(s)
-            x = int(round(center_x - (_ib[0] + _ib[2]) / 2))
         _f = font or f_body
+        if center_x is not None:
+            _ib = _f.getbbox(s)
+            x = int(round(center_x - (_ib[0] + _ib[2]) / 2))
         _a = _asc if _f is f_body else _f.getbbox("回転台番0123456789")
         dr.text((x, y + (RH - (_a[3] - _a[1])) // 2 - _a[1]), s, font=_f, fill=fill)
 
@@ -14863,9 +14863,9 @@ def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = No
                 _b = blocks[_it[1]]
                 dr.rectangle([x0, y, x0 + col_w - 1, y + RH - 1], fill=_b["color"])
                 _text(x0 + P, y, _b["title"], "white", font=f_hdr)
-                _text(0, y, "台番", "white", center_x=x_ban_r - ban_dw / 2)
-                _text(0, y, "回転数", "white", center_x=x_games_r - games_dw / 2)
-                _text(0, y, "差枚数", "white", center_x=x_diff_r - diff_dw / 2)
+                _text(0, y, "台番", "white", center_x=x_ban_r - ban_dw / 2, font=f_hdr)
+                _text(0, y, "回転数", "white", center_x=x_games_r - games_dw / 2, font=f_hdr)
+                _text(0, y, "差枚数", "white", center_x=x_diff_r - diff_dw / 2, font=f_hdr)
                 if _i > 0:
                     _hlines.add((y, x0, x0 + col_w - 1))
                 prev = None

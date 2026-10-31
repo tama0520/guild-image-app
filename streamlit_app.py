@@ -32478,6 +32478,10 @@ def _mogu_kabu_split_extra(ban_map: dict, col_map: dict, skip) -> "tuple[list, d
     return list((ban_map or {}).get(_MOGU_JUG_FN) or []), dict(col_map), extra
 
 
+# モグ玄・新宿歌舞伎町の台番一覧だけ見出し色を変えるブロック種別（_BAN_LIST_KINDS の共通色は変えない）
+_MOGU_KABU_KIND_COLORS: "dict[str, str]" = {"rec": "#D65A8A"}
+
+
 def _mogu_kabu_lists(store: str, d, df, zen, high, nami, sue_map: dict, rec_map: dict, jug, col_map: dict,
                      extra_map: dict, single_bans, pool_on: bool, by_uid) -> "tuple":
     """台番一覧（3列・行数可変）とスランプ一覧（優秀機種・高配分・ジャグラー）を返す。表示する台がなければ None。"""
@@ -32486,6 +32490,8 @@ def _mogu_kabu_lists(store: str, d, df, zen, high, nami, sue_map: dict, rec_map:
     pool = pool if pool_on else []
     if not blocks and not pool:
         return None, None
+    for _b in blocks:
+        _b["color"] = _MOGU_KABU_KIND_COLORS.get(_b["kind"], _b["color"])
     # タイトルは「M/D　エスパス{店名}」だけ（「・台番一覧」は付けない）
     _title = (f"{d.month}/{d.day}　" if d is not None else "") + f"エスパス{_data_store(store)}"
     return (draw_ban_list_image(_title, blocks, pool, grow=True, **_BAN_LIST_STYLE.get(store, {})),

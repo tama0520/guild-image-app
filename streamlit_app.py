@@ -16102,6 +16102,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                     st.session_state[_tb_src_key]   = "Pision"
                     # 取得後の再実行で②③などの入力欄の値が破棄されるため、同じExcel名でも次の描画で保存値を復元させる
                     st.session_state[f"_auto_tb_refetched_{store}"] = st.session_state[_tb_name_key]
+                    if _mogu_kabu_slump_on():
+                        st.session_state[f"_rec_on_pending_{store}"] = True   # ⑤を次の描画でONにする
                 st.session_state[_tb_fetched_key] = _tb_date_str
                 st.rerun()
 
@@ -16152,6 +16154,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                     st.session_state[_tb_src_key]           = "slotterguild.com"
                     # 取得後の再実行で②③などの入力欄の値が破棄されるため、同じExcel名でも次の描画で保存値を復元させる
                     st.session_state[f"_auto_tb_refetched_{store}"] = st.session_state[_tb_name_key]
+                    if _mogu_kabu_slump_on():
+                        st.session_state[f"_rec_on_pending_{store}"] = True   # ⑤を次の描画でONにする
                     st.rerun()
 
             if st.session_state.get(_tb_fetched_key) == _tb_date_str:
@@ -17044,6 +17048,17 @@ def show_auto_page(with_slump: bool = False) -> None:
         # 保存済み機種名を受け取り、ウィジェットのキー不在時の seed に使う
         # （default="" のままだと ⑤OFF→ON の再描画で空文字が焼き付く）
         _rec_saved_m = _init_recommended_settings(store)
+        if _mogu_kabu_slump_on():
+            # モグ玄・新宿歌舞伎町のスランプ付き結果だけ：データを取得するたび（同日の再取得も）と
+            # ①のExcel名が変わったときに⑤をONで始める。その後ユーザーがOFFにすればそのまま。
+            # 機種名・タイトルは従来どおり store_settings から復元する（ここでは触らない）
+            _rec_src = getattr(uploaded, "name", "") or ""
+            _rec_new = st.session_state.pop(f"_rec_on_pending_{store}", False)
+            if _rec_src and st.session_state.get(f"_rec_on_src_{store}") != _rec_src:
+                st.session_state[f"_rec_on_src_{store}"] = _rec_src
+                _rec_new = True
+            if _rec_src and _rec_new:
+                st.session_state[f"rec_enabled_{store}"] = True
         st.markdown(f"### {_sec_num()} オススメ機種ピックアップ")
         rec_enabled = st.checkbox("オススメ機種ピックアップを使用する", key=f"rec_enabled_{store}",
                                    on_change=_save_rec_enabled, args=(store,))

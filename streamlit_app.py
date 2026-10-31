@@ -4047,6 +4047,10 @@ _WP_RULES: "dict[str, tuple[tuple[str, int], ...]]" = {
 _WP_KINDS: "tuple[str, ...]" = ("事前", "何の日", "結果", "ローテ")
 # 事前だけ「対象日の前日（＝作業日）に予定がある人」が作る店舗。
 _WP_PRE_PREV_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町", "秋葉原"})
+# 上と同じ事前ルールを 2026-11-01 から使う店舗。“今日”（_wp_today()・日本時間7:00切替）と作業日が
+# どちらも開始日以降のときだけ有効（11/1 7:00 より前・それ以前の作業日の表示は従来どおり）。
+_WP_PRE_PREV_STORES_LATER: "frozenset[str]" = frozenset({"渋谷新館", "上野新館", "上野本館", "新大久保"})
+_WP_PRE_PREV_LATER_FROM: "tuple[int, int, int]" = (2026, 11, 1)
 # 「何の日」を作る（店舗, 区分）→ 前日が空欄のときの代わりの（店舗, 区分）。
 # 何の日は対象日の前日に作り、担当は事前と同じ（前日の秋葉原② → 空欄なら前日の新宿歌舞伎町①）。
 _WP_NANNOHI: "dict[tuple[str, str], tuple[str, str]]" = {("秋葉原", "②"): ("新宿歌舞伎町", "①")}
@@ -4287,6 +4291,9 @@ def _wp_tasks_for(work_date) -> dict:
         for _ms in _res.get("missing", []):
             _warnings.append(f"{_y}/{_m} 追加店舗を読めません: {_ms}")
     _tasks, _seen = [], set()
+    _pre_prev = _WP_PRE_PREV_STORES
+    if min(work_date, _wp_today()) >= _dt.date(*_WP_PRE_PREV_LATER_FROM):
+        _pre_prev = _pre_prev | _WP_PRE_PREV_STORES_LATER
     _order = sorted(_assign.keys(), key=lambda k: (k[1], min(r for _, _, r in _assign[k])))
     for (_s, _d) in _order:
         for _cat, _who, _r in sorted(_assign[(_s, _d)], key=lambda t: t[2]):
@@ -4322,7 +4329,7 @@ def _wp_tasks_for(work_date) -> dict:
                                        f"（{_why}）。")
                         continue
                     _person = _p[0]
-                elif _kind == "事前" and _s in _WP_PRE_PREV_STORES:
+                elif _kind == "事前" and _s in _pre_prev:
                     # 対象日の前日に「同じ店舗・同じ区分」で予定がある人が作る
                     # （前日が前月の場合もあるので行番号ではなく区分で照合する）
                     _prev = _d - _dt.timedelta(days=1)

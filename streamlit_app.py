@@ -27396,10 +27396,10 @@ def _generate_rote_result_text(
             (f"{day_num}日目" if _new_text else f"＼＼{day_num}日目結果／／"),
         ]
         if store == "モグ玄・新大久保":
-            # モグ玄・新大久保だけ冒頭を差し替える。week_str・day_num は上の既存計算のまま
+            # モグ玄・新大久保だけ冒頭を差し替える。day_num は上の既存計算のまま（期間の表記は出さない）
             lines = [f"{date_obj.month}月{date_obj.day}日（{dow}）", "",
-                     "【 エスパス新大久保 】", "",
-                     f"♦{week_str}オススメポスター♦", f"{day_num}日目"]
+                     "【 エスパス新大久保 】", "", "",
+                     f"♦オススメポスター{day_num}日目♦"]
 
     _re, _te = ROTE_EMOJI_CONFIG.get(store, ("🌌", "🔥"))
     _be = ROTE_BAN_EMOJI_CONFIG.get(store, "💫")
@@ -27442,6 +27442,14 @@ def _generate_rote_result_text(
             lines.append(f"【{machine_name}】")
         else:
             lines.append(f"{_re}{machine_name}{_re}")
+
+        if store == "モグ玄・新大久保":
+            # モグ玄・新大久保だけ差枚帯の見出しを出さず「台番：差枚」を差枚降順（同差枚は台番昇順）で並べる。
+            # 対象台（+1,000枚以上）は差枚帯の合計と同じ。機種間は空行2行
+            for _, row in sub.sort_values(["差枚", "台番"], ascending=[False, True]).iterrows():
+                lines.append(f"{int(row['台番'])}番台：+{int(row['差枚']):,}枚")
+            lines.append("")
+            continue
 
         for lo, hi, label in tiers:
             if hi is None:
@@ -27487,7 +27495,12 @@ def _monthly_t2_result_text(
         sub = sub[sub["差枚"] >= 1000].sort_values(["差枚", "台番"], ascending=[False, True])
         if sub.empty:
             continue
-        lines.append("💡1,000枚以上" if _mogu else "💎1,000枚超")
+        if _mogu:
+            # モグ玄・新大久保だけ差枚帯の見出しを出さず「台番：差枚」（並びは上の差枚降順→台番昇順のまま）
+            for _, row in sub.iterrows():
+                lines.append(f"{int(row['台番'])}番台：+{int(row['差枚']):,}枚")
+            continue
+        lines.append("💎1,000枚超")
         for _, row in sub.iterrows():
             lines.append(f"・【{int(row['台番'])}番台】+{int(row['差枚']):,}枚")
     return "\n".join(lines).rstrip()

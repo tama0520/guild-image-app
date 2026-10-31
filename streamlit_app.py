@@ -32284,6 +32284,9 @@ C_MOGU_SL_FILL  = (253, 228, 214)   # #FDE4D6 0との間の塗り
 C_MOGU_SL_PLUS  = (197, 69, 0)      # #C54500 プラス差枚
 C_MOGU_SL_MINUS = (26, 79, 181)     # #1A4FB5 マイナス差枚
 C_MOGU_SL_EVEN  = (85, 91, 110)     # #555B6E ±0
+# 右上の差枚（文字の上端y・大きさ）と、機種名を縮小する下限（これでも入らなければ末尾を「…」）
+_MOGU_SL_DIFF_Y, _MOGU_SL_DIFF_FS = 30, 32
+_MOGU_SL_NAME_MIN = 14
 
 
 def _mogu_kabu_slump_on() -> bool:
@@ -32331,29 +32334,32 @@ def _mogu_slump_card(unit_id: str, display_name: str, points: list,
         _raw = diff if diff is not None else points[-1]["y"]
         _v = _pipeline_calc_d(_raw)
         _dt = _fmt_diff(_v).replace("枚", "")
-        _df = _rote_mogu_font(34)
+        _df = _rote_mogu_font(_MOGU_SL_DIFF_FS)
         _bb = _df.getbbox(_dt)
-        d.text((W - 10 - _bb[2], 26 - _bb[1]), _dt,
+        d.text((W - 10 - _bb[2], _MOGU_SL_DIFF_Y - _bb[1]), _dt,
                fill=(C_MOGU_SL_PLUS if _v > 0 else (C_MOGU_SL_MINUS if _v < 0 else C_MOGU_SL_EVEN)), font=_df, **_sw)
         _dw = (_bb[2] - _bb[0]) + 2 * 3 + 12
     # 左上：台番＋機種名（1行）。差枚の領域へ入らない幅（_nmax）の中で描く。
     # 台番は必ず基本サイズ（17px）で出し、機種名も同じ大きさから始めて、入らなければ機種名だけを
-    # 段階的に縮小（最小15px）し、それでも入らなければ機種名の末尾を「…」で省略する。台番と機種名は同じベースライン
-    _nmax = W - 20 - _dw
+    # 段階的に縮小（最小 _MOGU_SL_NAME_MIN）し、それでも入らなければ機種名の末尾を「…」で省略する。台番と機種名は同じベースライン
+    # 差枚は機種名より下（縁取りどうしも重ならない高さ）にあるので、そのときは右端まで機種名に使う
     _ban_t = str(unit_id).strip()
     _mn_t = str(display_name or "").strip()
     _bf = _rote_mogu_font(17)
+    _base = 8 - _bf.getbbox(_ban_t or "0", anchor="ls")[1]
+    if _dw and _base + _bf.getbbox("台番機種名0", anchor="ls")[3] + 3 <= _MOGU_SL_DIFF_Y - 3:
+        _dw = 0
+    _nmax = W - 20 - _dw
     _bw = _bf.getlength(_ban_t + " ") if _mn_t else _bf.getlength(_ban_t)
     _ns = 17
     _nf = _bf
-    while _mn_t and _bw + _nf.getlength(_mn_t) > _nmax and _ns > 15:
+    while _mn_t and _bw + _nf.getlength(_mn_t) > _nmax and _ns > _MOGU_SL_NAME_MIN:
         _ns -= 1
         _nf = _rote_mogu_font(_ns)
     if _mn_t and _bw + _nf.getlength(_mn_t) > _nmax:
         while _mn_t and _bw + _nf.getlength(_mn_t + "…") > _nmax:
             _mn_t = _mn_t[:-1]
         _mn_t = (_mn_t + "…") if _mn_t else ""
-    _base = 8 - _bf.getbbox(_ban_t or "0", anchor="ls")[1]
     d.text((10, _base), _ban_t, fill=C_MOGU_SL_NAME, font=_bf, anchor="ls", **_sw)
     if _mn_t:
         d.text((10 + _bw, _base), _mn_t, fill=C_MOGU_SL_NAME, font=_nf, anchor="ls", **_sw)

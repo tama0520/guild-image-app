@@ -9837,11 +9837,13 @@ def _manual_sonota_auto_bans(df, store, kojin_zentai_machines, kojin_yushu_machi
 # 📝記入部分のみの「その他の優秀台」自動抽出で⑤オススメ機種を機種単位で除外するページ×店舗
 # （2026-10-21）。🔍・⑧の通常経路が sonota_exclude（⑤機種）で除外しているのと同じ扱いにする。
 _MANUAL_SONOTA_REC_EXC_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
+# 同じ除外をスランプ付き結果で行う店舗（📝・⑧📝の単品ピックアップ＝その他の優秀台へ⑤の機種を重ねない）
+_MANUAL_SONOTA_REC_EXC_SLUMP_STORES: "frozenset[str]" = frozenset({"モグ玄・新宿歌舞伎町"})
 
 
 def _manual_sonota_rec_machines(store: str, with_slump: bool, recommended_blocks) -> set:
     """📝の「その他の優秀台」自動抽出から外す⑤オススメ機種名（対象外の店舗・ページは空集合）。"""
-    if with_slump or store not in _MANUAL_SONOTA_REC_EXC_STORES:
+    if store not in (_MANUAL_SONOTA_REC_EXC_SLUMP_STORES if with_slump else _MANUAL_SONOTA_REC_EXC_STORES):
         return set()
     return {m.strip() for _b in (recommended_blocks or []) for m in _b["machines"] if m.strip()}
 
@@ -32502,7 +32504,9 @@ def _mogu_kabu_lists(store: str, d, df, zen, high, nami, sue_map: dict, rec_map:
     """台番一覧（3列・行数可変）とスランプ一覧（優秀機種・高配分・ジャグラー）を返す。表示する台がなければ None。"""
     blocks, pool = _ban_list_blocks_from(df, zen, high, nami, sue_map, rec_map, jug_bans=jug,
                                          retsu_map=col_map, extra_map=extra_map, single_bans=single_bans)
-    pool = pool if pool_on else []
+    # 単品の自動補充は⑤に載った機種を機種単位で外す（同じ台は元々入らない。閾値違いの同機種も重ねない）
+    _rec_names = {_r["name"] for _b in blocks if _b["kind"] == "rec" for _a in _b["atoms"] for _r in _a}
+    pool = [_r for _r in pool if _r["name"] not in _rec_names] if pool_on else []
     if not blocks and not pool:
         return None, None
     for _b in blocks:

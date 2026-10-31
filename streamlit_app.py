@@ -14560,6 +14560,7 @@ _BAN_LIST_GROW_STORES: "frozenset[str]" = frozenset({"モグ玄・新宿歌舞�
 # name_gap＝機種名列と台番列の間。
 _BAN_LIST_STYLE: "dict[str, dict]" = {
     "モグ玄・新大久保": {"title_fs": 32, "hdr_fs": 18, "name_gap": 58},
+    "モグ玄・新宿歌舞伎町": {"title_fs": 32, "hdr_fs": 18, "name_gap": 58},
 }
 _BAN_LIST_FN = "台番一覧.png"
 # タイトルバーは HG創英角ポップ体（HGRPP1.TTC・ローカルWindows）。HGRPP1 が無い環境（Cloud）では
@@ -32480,7 +32481,7 @@ def _mogu_kabu_lists(store: str, d, df, zen, high, nami, sue_map: dict, rec_map:
         return None, None
     # タイトルは「M/D　エスパス{店名}」だけ（「・台番一覧」は付けない）
     _title = (f"{d.month}/{d.day}　" if d is not None else "") + f"エスパス{_data_store(store)}"
-    return (draw_ban_list_image(_title, blocks, pool, grow=True),
+    return (draw_ban_list_image(_title, blocks, pool, grow=True, **_BAN_LIST_STYLE.get(store, {})),
             _mogu_kabu_slump_sheet(store, d, blocks, by_uid))
 
 

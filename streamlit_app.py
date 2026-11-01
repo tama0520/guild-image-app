@@ -4174,6 +4174,8 @@ _WP_STORE_ORDER: "tuple[str, ...]" = (
 # 作業日が開始日以降のときだけ（それより前の日付の表示・完了履歴は変えない）。
 _WP_OC_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町", "新大久保"})
 _WP_OC_FROM: "tuple[int, int, int]" = (2026, 11, 1)
+# OC の「結果」は対象日がこの日以降のものだけ複製する（OC結果は 11/1 分から始まるため。事前・ローテは対象日で絞らない）
+_WP_OC_RESULT_FROM: "tuple[int, int, int]" = (2026, 11, 1)
 
 
 def _wp_add_oc_tasks(tasks: list, work_date) -> list:
@@ -4186,6 +4188,8 @@ def _wp_add_oc_tasks(tasks: list, work_date) -> list:
     for _t in tasks:
         _out.append(_t)
         if _t["store"] not in _WP_OC_STORES:
+            continue
+        if _t["kind"] == "結果" and _t["target_date"] < _dt.date(*_WP_OC_RESULT_FROM):
             continue
         _key = "|".join([_t["work_date"].isoformat(), _t["target_date"].isoformat(), _t["store"],
                          "OC", _t["kind"], _t["person"]])

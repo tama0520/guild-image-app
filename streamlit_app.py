@@ -3239,6 +3239,35 @@ def _osu_top_fetch_rows() -> list:
     return [list(_row) for _row in _csv.reader(io.StringIO(_txt))]
 
 
+def _osu_top_xlsx_text(v) -> str:
+    """XLSX のセル値を公開CSVと同じ文字列にする（B1 の日付は「YYYY年M月」・整数の小数は整数）。"""
+    if v is None:
+        return ""
+    if isinstance(v, datetime.datetime):
+        return f"{v.year}年{v.month}月"
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))
+    return str(v)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _osu_top_month_rows(year: int, month: int) -> "list | None":
+    """エスパスの予定表から対象年月のシートを「📋 本日の仕事」と同じ方法（_wp_fetch_xlsx のブック →
+    _wp_month_sheet）で選び、公開CSVと同じ形の行リスト（1〜94行・A〜AG列の文字列）で返す。シートが無ければ None。
+    固定 gid の CSV（_osu_top_fetch_rows）は月が替わっても前の月のタブを指すため使わない。"""
+    import openpyxl as _ox
+    try:
+        _wb = _ox.load_workbook(io.BytesIO(_wp_fetch_xlsx()), read_only=True)
+    except _WPError as _e:
+        raise _OsuTopError(str(_e))
+    _ws = _wp_month_sheet(_wb, year, month)
+    if _ws is None:
+        return None
+    return [[_osu_top_xlsx_text(_v) for _v in _r]
+            for _r in _ws.iter_rows(min_row=1, max_row=_OSU_TOP_ROW_END,
+                                    max_col=_OSU_TOP_COL_END + 1, values_only=True)]
+
+
 def _osu_top_cell(rows: list, r1: int, c0: int) -> str:
     """1始まり行・0始まり列のセル値（範囲外は空文字）。"""
     if r1 - 1 >= len(rows):
@@ -3537,6 +3566,8 @@ def _osu_top_move(i: int, delta: int, key: str = "_osu_top_order") -> None:
 
 def _osu_top_refetch() -> None:
     _osu_top_fetch_rows.clear()
+    _osu_top_month_rows.clear()
+    _wp_fetch_xlsx.clear()
     _osu_top_fetch_csv.clear()
     st.session_state.pop("_osu_top_order_key", None)
     st.session_state.pop("_osu_top_order2_key", None)
@@ -3573,9 +3604,12 @@ def show_osusume_top_page() -> None:
     _names: list = []
     try:
         with st.spinner("スプレッドシートを読み込んでいます…"):
-            _rows = _osu_top_fetch_rows()
-        _col = _osu_top_date_col(_rows, _day)
-        if _col is None:
+            _rows = _osu_top_month_rows(_day.year, _day.month)
+        _col = None if _rows is None else _osu_top_date_col(_rows, _day)
+        if _rows is None:
+            st.warning(f"⚠️ エスパスの予定表に {_day.year}年{_day.month}月 のシートがありません"
+                       f"（名前に「{_WP_SHEET_TITLE_HINT}」を含み、B1 が {_day.year}年{_day.month}月 のシート）。")
+        elif _col is None:
             st.warning(f"⚠️ エスパスのシートに {_day.month}/{_day.day} の日付列がありません"
                        f"（シートの対象月: {_osu_top_sheet_month(_rows) or '不明'}）。")
         else:
@@ -4192,6 +4226,19 @@ def _wp_store_name(b_value: str) -> str:
     return _s.replace("エスパス", "").replace(" ", "").replace("　", "").strip()
 
 
+def _wp_month_sheet(wb, year: int, month: int):
+    """予定表ブックから対象年月のシート（名前に「月案件」を含み、B1 の日付の年月が一致）を返す。無ければ None。
+    「📋 本日の仕事」と「おすすめ」で共用する。"""
+    import datetime as _dt
+    for _w in wb.worksheets:
+        if _WP_SHEET_TITLE_HINT not in _w.title:
+            continue
+        _b1 = next(_w.iter_rows(min_row=1, max_row=1, min_col=2, max_col=2, values_only=True))[0]
+        if isinstance(_b1, _dt.datetime) and (_b1.year, _b1.month) == (year, month):
+            return _w
+    return None
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def _wp_month_schedule(year: int, month: int) -> dict:
     """対象年月のシートから担当（予定）を読む。
@@ -4203,14 +4250,7 @@ def _wp_month_schedule(year: int, month: int) -> dict:
     import io as _io, datetime as _dt, calendar as _cal
     import openpyxl as _ox
     _wb = _ox.load_workbook(_io.BytesIO(_wp_fetch_xlsx()), read_only=True)
-    _ws = None
-    for _w in _wb.worksheets:
-        if _WP_SHEET_TITLE_HINT not in _w.title:
-            continue
-        _b1 = next(_w.iter_rows(min_row=1, max_row=1, min_col=2, max_col=2, values_only=True))[0]
-        if isinstance(_b1, _dt.datetime) and (_b1.year, _b1.month) == (year, month):
-            _ws = _w
-            break
+    _ws = _wp_month_sheet(_wb, year, month)
     if _ws is None:
         return {"ok": False, "error": f"{month}月のシートがありません", "sheet": "",
                 "cells": [], "bad": []}

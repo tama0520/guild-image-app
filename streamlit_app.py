@@ -7876,6 +7876,68 @@ def format_result_memo_sections(
 # 見出し・🍯機種名（画像を作った機種数）・📍×3・画像を作った機種の結果・💬・🔍 だけを出力する。
 _HONEY_POST_RESULT_STORES: "frozenset[str]" = frozenset({"新大久保", "モグ玄・新大久保"})
 
+# スランプ付き結果ポスト用の結果テキストを専用の固定構成で出す店舗（モグ玄・新宿歌舞伎町だけ）。
+# 日付 → 【 店名 】 → 『  』×3 → ☆優秀機種 → 🔴高配分機種 → ♦並び → 🟨末尾 → 他単品多数 → 総差・平均・勝率。
+# 機種は台番一覧と同じ（優秀機種＝zen_dai_list、高配分＝high_ratio_list の画像あり）。0件の見出しは出さない。
+_MOGU_KABU_RESULT_TEXT_STORES: "frozenset[str]" = frozenset({"モグ玄・新宿歌舞伎町"})
+_MOGU_KABU_RESULT_TEXT_NAME = "エスパス 新宿 歌舞伎町"
+
+
+def _mogu_kabu_num(v: int) -> str:
+    """+6,900／-120／±0（「枚」は付けない）。"""
+    return f"+{v:,}" if v > 0 else (f"{v:,}" if v < 0 else "±0")
+
+
+def _mogu_kabu_report_text(date, zen_dai_list: list, high_ratio_list: list, nami_list: list,
+                           suebangai_data, jug_sue_data, diff_raw) -> str:
+    """モグ玄・新宿歌舞伎町 スランプ付き結果ポスト用の結果テキスト（⑧・⑧📝で共通）。"""
+    _wd = "月火水木金土日"
+    out: list[str] = ([f"{date.month}月{date.day}日（{_wd[date.weekday()]}）", ""] if date is not None else [])
+    out += [f"【 {_MOGU_KABU_RESULT_TEXT_NAME} 】", "", "", "『  』", "『  』", "『  』", ""]
+
+    def _avg_rows(pairs) -> list[str]:
+        # 平均差枚の多い順（同値は機種名順）。機種名は画像タイトルと同じ表記（img_name があればそれ）
+        return [f"{_mogu_kabu_num(_a)}　{_n}" for _a, _n in sorted(pairs, key=lambda _p: (-_p[0], _p[1]))]
+
+    _zen = _avg_rows((int(_it.get("all_avg_diff", 0)), _it.get("img_name") or _it["name"])
+                     for _it in zen_dai_list or [])
+    _high = _avg_rows((_high_avg_of(_it), _it.get("img_name") or _it["name"])
+                      for _it in high_ratio_list or [] if _it.get("has_image"))
+    # 並び：機種ごとに1行（並びの順のまま・台数だけ）
+    _nm_order: list[str] = []
+    _nm_counts: dict[str, list[int]] = {}
+    for _it in nami_list or []:
+        _m = _it.get("machine") or str(_it.get("title", "")).split("(")[0]
+        _c = _it.get("count")
+        if _c is None:
+            _mc = re.search(r"(\d+)台", str(_it.get("title", "")))
+            _c = int(_mc.group(1)) if _mc else None
+        if not _m or _c is None:
+            continue
+        if _m not in _nm_counts:
+            _nm_order.append(_m)
+            _nm_counts[_m] = []
+        _nm_counts[_m].append(int(_c))
+    _nami = [_m + "".join(f" {_c}台" for _c in _nm_counts[_m]) for _m in _nm_order]
+    # 末尾：結果テキストの既存表記（末尾⑤番台・末尾ゾロ目の台／ジャグラーの末尾…）と平均差枚
+    _circ = dict(zip("0123456789", "⓪①②③④⑤⑥⑦⑧⑨"))
+    _sue = [f"{_mogu_kabu_num(int(_it['avg_diff']))}　"
+            + ("末尾ゾロ目の台" if _it["tail"] == "ゾロ目" else f"末尾{_circ.get(_it['tail'], _it['tail'])}番台")
+            for _it in suebangai_data or []]
+    _sue += [f"{_mogu_kabu_num(int(_it['avg_diff']))}　"
+             + ("ジャグラーの末尾ゾロ目番台" if _it["tail"] == "ゾロ目"
+                else f"ジャグラーの末尾{_circ.get(_it['tail'], _it['tail'])}番台")
+             for _it in jug_sue_data or []]
+    for _head, _rows in (("☆優秀機種", _zen), ("🔴高配分機種", _high), ("♦並び", _nami), ("🟨末尾", _sue)):
+        if _rows:
+            out += [_head] + _rows + [""]
+    _st = _zendai_total_stat(diff_raw)
+    out += ["他単品多数", "→表でチェック", "", "", "",
+            f"総差　{_mogu_kabu_num(_st['total_diff'] if _st else 0)}",
+            f"平均　{_mogu_kabu_num(_st['avg_diff'] if _st else 0)}",
+            f"勝率　{_st['win_count'] if _st else 0}/{_st['total_count'] if _st else 0}"]
+    return "\n".join(out)
+
 
 def _img_title_name(machine: str) -> str:
     """自動生成画像（全台系・高配分）のタイトルに使う機種名表記。
@@ -7892,7 +7954,7 @@ def insert_formatted_result_before_other_picks(
     if not formatted_text.strip():
         return result_text
     # 固定構成の店舗は⑤・素材メモなどの追加ブロックを差し込まない
-    if store_name in _HONEY_POST_RESULT_STORES:
+    if store_name in _HONEY_POST_RESULT_STORES or store_name in _MOGU_KABU_RESULT_TEXT_STORES:
         return result_text
     e2 = STORE_EMOJI_CONFIG.get(store_name, ("💫", "👑"))[1]
     if store_name == "新小岩":
@@ -8891,6 +8953,9 @@ def generate_report_text(
     _yg_body = _yg_paste_report_body(store_name, df)
     if _yg_body is not None:
         return "\n".join([header, store_display, "", "", "", "", "", _yg_body])
+    if store_name in _MOGU_KABU_RESULT_TEXT_STORES:
+        return _mogu_kabu_report_text(date, zen_dai_list, high_ratio_list, nami_list,
+                                      suebangai_data, jug_sue_data, diff_raw)
     if store_name in _HONEY_POST_RESULT_STORES:
         # 固定構成：見出し → 🍯機種名×画像を作った機種数 → 📍×3
         #          → 画像を作った機種の結果 → 💬 → 空行2 → 🔍。

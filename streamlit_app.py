@@ -32565,8 +32565,9 @@ def _mogu_slump_card(unit_id: str, display_name: str, points: list,
 # 台番一覧と同じブロック（単品ピックアップ以外）の台から、差枚プラスの台のカードを1行7台で並べる。
 # カードは上の _mogu_slump_card()（e234268 の横長カード・+5,000/-2,000固定）をそのまま縮小して使う。
 # 分類帯は分類名だけ（集計の文字は出さない）。下部は右下の署名だけ。
-# 1枚はカード最大 _MOGU_SHEET_MAX_ROWS 段まで。分類順に詰め、超えたら次の画像へ（続きの画像にも分類帯を出す）。
-# 画像は最大 _MOGU_SHEET_MAX_PAGES 枚。最後の画像は段数の上限なしで残りを全件載せる。
+# 枚数は カード段数 ÷ _MOGU_SHEET_MAX_ROWS 段（切り上げ・最大 _MOGU_SHEET_MAX_PAGES 枚）。
+# 段数を各画像へできるだけ均等に配る（差は最大1段・多い方が先）。分類順・カード順のまま区切り、
+# 分類の途中で次の画像へ送ってよい（続きの画像にも分類帯を出す）。段は分類ごとに7枚ずつ（分類が変わると新しい段）。
 _MOGU_SHEET_FN = "スランプ一覧.png"
 _MOGU_SHEET_KINDS: "tuple[str, ...]" = ("zen", "high", "jug", "nami", "retsu", "extra", "sue", "rec")
 _MOGU_SHEET_MAX_ROWS, _MOGU_SHEET_MAX_PAGES = 6, 3
@@ -32601,19 +32602,22 @@ def _mogu_kabu_slump_sheet(store: str, d, blocks: list, by_uid: "dict | None") -
                                            round_games(_r["games"]) if _r["games"] is not None else None, True))
         secs.append((_b, _cards))
     NC = _MOGU_SL_COLS
-    # 分類ごとのカードを段単位で画像へ割り振る（分類の途中で次の画像へ送ってよい）
-    pages: list[list] = [[]]
-    _left = _MOGU_SHEET_MAX_ROWS
-    for _b, _cards in secs:
-        _rows_c = [_cards[_i:_i + NC] for _i in range(0, len(_cards), NC)]
-        while _rows_c:
-            if _left <= 0 and len(pages) < _MOGU_SHEET_MAX_PAGES:
-                pages.append([])
-                _left = _MOGU_SHEET_MAX_ROWS
-            _n = len(_rows_c) if len(pages) >= _MOGU_SHEET_MAX_PAGES else min(_left, len(_rows_c))
-            pages[-1].append((_b, [_c for _r in _rows_c[:_n] for _c in _r]))
-            _rows_c = _rows_c[_n:]
-            _left -= _n
+    # 実際の配置単位（分類ごとに7枚で1段）の並びを作り、段数を画像へ均等に配る
+    _rows_all = [(_b, _cards[_i:_i + NC]) for _b, _cards in secs for _i in range(0, len(_cards), NC)]
+    _np = min(_MOGU_SHEET_MAX_PAGES, max(1, math.ceil(len(_rows_all) / _MOGU_SHEET_MAX_ROWS)))
+    _q, _rem = divmod(len(_rows_all), _np)
+    pages: list[list] = []
+    _pos = 0
+    for _k in range(_np):
+        _n = _q + (1 if _k < _rem else 0)
+        _pg: list = []
+        for _b, _row in _rows_all[_pos:_pos + _n]:
+            if _pg and _pg[-1][0] is _b:
+                _pg[-1][1].extend(_row)
+            else:
+                _pg.append((_b, list(_row)))
+        pages.append(_pg)
+        _pos += _n
     return [_mogu_kabu_slump_page(store, d, _p) for _p in pages if _p]
 
 

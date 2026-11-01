@@ -18763,7 +18763,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             # モグ玄・新宿歌舞伎町：紫系の表画像は作らず、記入した内容だけで台番一覧・スランプ一覧
                             _bl_m_img, _ss_m_img = _mogu_kabu_lists_manual(
                                 store, _df_m, uploaded.name, _manual_ban_map, _bl_kind_m,
-                                retsu_ranges if retsu_ok else [])
+                                retsu_ranges if retsu_ok else [], recommended_blocks)
                             _manual_imgs = []
                         if store in _BAN_LIST_MANUAL_STORES:
                             # 台番一覧へ載せるカテゴリの個別画像は出さない（台番一覧へ集約）
@@ -20599,7 +20599,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _rm_stale_image(output_dir, _MOGU_SHEET_FN)
                         _mk_bl_em, _mk_ss_em = _mogu_kabu_lists_manual(
                             store, _df_exec_m, uploaded.name, _m_exec_ban_map_e, _bl_kind_e,
-                            retsu_ranges if retsu_ok else [])
+                            retsu_ranges if retsu_ok else [], recommended_blocks)
                         _exec_order = []
                         for _mk_fn, _mk_img in ((_BAN_LIST_FN, _mk_bl_em), (_MOGU_SHEET_FN, _mk_ss_em)):
                             if _mk_img is not None:
@@ -32667,10 +32667,23 @@ _MOGU_KABU_KIND_COLORS: "dict[str, str]" = {"rec": "#D65A8A"}
 
 
 def _mogu_kabu_lists(store: str, d, df, zen, high, nami, sue_map: dict, rec_map: dict, jug, col_map: dict,
-                     extra_map: dict, single_bans, pool_on: bool, by_uid) -> "tuple":
+                     extra_map: dict, single_bans, pool_on: bool, by_uid,
+                     recommended_blocks=None) -> "tuple":
     """台番一覧（3列・行数可変）とスランプ一覧（優秀機種・高配分・ジャグラー）を返す。表示する台がなければ None。"""
     blocks, pool = _ban_list_blocks_from(df, zen, high, nami, sue_map, rec_map, jug_bans=jug,
                                          retsu_map=col_map, extra_map=extra_map, single_bans=single_bans)
+    # ⑤は機種ごとにまとめる：⑤の登録順（同じ見出しのブロック順→機種欄の順）→ 機種内は台番昇順のまま。
+    # 機種名は結果テキストの⑤（generate_recommended_result_text）と同じく df の機種名との完全一致
+    _rec_ord: dict[str, dict[str, int]] = {}
+    for _blk in recommended_blocks or []:
+        _o = _rec_ord.setdefault(_blk.get("title", "").strip() or "オススメ機種", {})
+        for _m in _blk.get("machines", []):
+            if _m.strip():
+                _o.setdefault(_m.strip(), len(_o))
+    for _b in blocks:
+        if _b["kind"] == "rec" and _rec_ord.get(_b["title"]):
+            _o = _rec_ord[_b["title"]]
+            _b["atoms"] = sorted(_b["atoms"], key=lambda _a: _o.get(_a[0]["name"], len(_o)))
     # 単品の自動補充は⑤に載った機種を機種単位で外す（同じ台は元々入らない。閾値違いの同機種も重ねない）
     _rec_names = {_r["name"] for _b in blocks if _b["kind"] == "rec" for _a in _b["atoms"] for _r in _a}
     pool = [_r for _r in pool if _r["name"] not in _rec_names] if pool_on else []
@@ -32706,7 +32719,7 @@ def _mogu_kabu_lists_result(store: str, result: dict, sue_map: dict, rec_ban_map
         [_b for _it in result.get("zen_dai_list", []) for _b in _it.get("bans", [])],
         [_b for _it in result.get("high_ratio_list", []) if _it.get("has_image") for _b in _it.get("bans", [])],
         [_it.get("bans", []) for _it in result.get("nami_list", [])],
-        sue_map or {}, _rec, jug, col, extra, None, True, by_uid)
+        sue_map or {}, _rec, jug, col, extra, None, True, by_uid, recommended_blocks)
 
 
 def _mogu_kabu_by_uid(store: str, date_str: str) -> "dict | None":
@@ -32720,7 +32733,7 @@ def _mogu_kabu_by_uid(store: str, date_str: str) -> "dict | None":
 
 
 def _mogu_kabu_lists_manual(store: str, df, excel_name: str, ban_map: dict, kinds: dict,
-                            retsu_ranges) -> "tuple":
+                            retsu_ranges, recommended_blocks=None) -> "tuple":
     """📝・⑧📝：記入した内容だけ（画像名 → 台番・種別）から作る。単品の自動補充はせず、
     記入した「その他の優秀台」等は単品ブロックとして全件載せる。"""
     if not _mogu_kabu_slump_on() or df is None:
@@ -32746,7 +32759,7 @@ def _mogu_kabu_lists_manual(store: str, df, excel_name: str, ban_map: dict, kind
         [ban_map[_fn] for _fn in _of("nami")],
         {_fn: ban_map[_fn] for _fn in _of("sue")}, _rec, jug, col, extra,
         [_b for _fn in _of("single") for _b in ban_map[_fn]], False,
-        _mogu_kabu_by_uid(store, _d.strftime("%Y-%m-%d") if _d else ""))
+        _mogu_kabu_by_uid(store, _d.strftime("%Y-%m-%d") if _d else ""), recommended_blocks)
 
 
 def _mogu_kabu_purge(store: str, output_dir: str, names, machine_names: set,

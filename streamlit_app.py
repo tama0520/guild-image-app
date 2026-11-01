@@ -4070,6 +4070,32 @@ _WP_STORE_ORDER: "tuple[str, ...]" = (
 )
 
 
+# 作業を区分だけ「OC」にして複製する店舗（担当・種別・対象日は元の作業のまま）。
+# 作業日が開始日以降のときだけ（それより前の日付の表示・完了履歴は変えない）。
+_WP_OC_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町", "新大久保"})
+_WP_OC_FROM: "tuple[int, int, int]" = (2026, 11, 1)
+
+
+def _wp_add_oc_tasks(tasks: list, work_date) -> list:
+    """_WP_OC_STORES の作業ごとに、区分を「OC」にした同じ作業を直後へ1件足す（元の作業は残す）。
+    担当・種別・対象日は元の作業をそのまま写す（OC用の担当判定はしない）。完了キーは区分が違うので別になる。"""
+    import datetime as _dt
+    if work_date < _dt.date(*_WP_OC_FROM):
+        return tasks
+    _out, _seen = [], set()
+    for _t in tasks:
+        _out.append(_t)
+        if _t["store"] not in _WP_OC_STORES:
+            continue
+        _key = "|".join([_t["work_date"].isoformat(), _t["target_date"].isoformat(), _t["store"],
+                         "OC", _t["kind"], _t["person"]])
+        if _key in _seen:
+            continue
+        _seen.add(_key)
+        _out.append({**_t, "cat": "OC", "key": _key})
+    return _out
+
+
 class _WPError(Exception):
     """予定表を正しく読めないとき（誤った担当・作業を表示しないため処理を止める）。"""
 
@@ -4341,7 +4367,7 @@ def _wp_tasks_for(work_date) -> dict:
                 _key = "|".join([work_date.isoformat(), _d.isoformat(), _s, _cat, _kind, _person])
                 _tasks.append({"work_date": work_date, "target_date": _d, "store": _s,
                                "cat": _cat, "kind": _kind, "person": _person, "key": _key})
-    return {"tasks": _tasks, "errors": _errors, "warnings": _warnings}
+    return {"tasks": _wp_add_oc_tasks(_tasks, work_date), "errors": _errors, "warnings": _warnings}
 
 
 def _wp_read_file() -> dict:

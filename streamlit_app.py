@@ -104,15 +104,14 @@ STORES: dict[str, list[str]] = {
     "溝の口新館":   _IMAGE_TYPES,
     "稲毛":         _IMAGE_TYPES,
     "秋葉原":       _IMAGE_TYPES,
-    # 別入口（トップでは4列ではなく「YG用」の直後に出す。下の _STORE_DATA_ALIAS 参照）
+    # 別入口（下の _STORE_DATA_ALIAS 参照。トップの並びは _TOP_MENU_ORDER）
     "モグ玄・新宿歌舞伎町": _IMAGE_TYPES,
     "モグ玄・新大久保": _IMAGE_TYPES,
 }
 
 # 既存店舗と同じ Pision データ・同じ機能を使う別入口の店舗 {入口の店舗名: データ元の店舗名}。
 # 入力の保存・画面・出力フォルダは入口の店舗名で分け、Pisionのホール判定と
-# 結果テキストの店名表記だけデータ元の店舗名を使う。トップの4列・スマホの店舗順には入れない。
-# 並び順＝トップのボタン順（「YG用」→ モグ玄・新宿歌舞伎町 → モグ玄・新大久保）。
+# 結果テキストの店名表記だけデータ元の店舗名を使う。トップのボタン順は _TOP_MENU_ORDER。
 _STORE_DATA_ALIAS: "dict[str, str]" = {"モグ玄・新宿歌舞伎町": "新宿歌舞伎町",
                                        "モグ玄・新大久保": "新大久保"}
 
@@ -4062,13 +4061,41 @@ def show_yg_list_page() -> None:
         _navigate("yg")
 
 
-# スマホ幅（既存のスマホ用CSSと同じ max-width:640px）だけで使うトップの並び。
-# PC／タブレット幅は従来の4列（STORES 順）のまま。遷移先は _store_menu_go() で共通化する。
+# PC用（4列）とスマホ用（1列）のトップメニューを出し分ける幅（既存のスマホ用CSSと同じ max-width:640px）。
+# 遷移先は _store_menu_go() で共通化する。
 _SP_MENU_BREAKPOINT = 640
-_SP_STORE_ORDER: "tuple[str, ...]" = (
-    "新宿歌舞伎町", "秋葉原", "上野本館", "上野新館", "新小岩", "渋谷新館", "新大久保",
-    "高田馬場", "赤坂見附", "西武新宿", "溝の口本館", "溝の口新館", "稲毛",
+# トップの店舗／機能ボタンの並び（PC は4列で左上から、スマホは1列で上から。両方この順）。
+# "other"／"osusume_top"／"yg" は「その他」「おすすめ」「YG用」。遷移先・key は従来どおり。
+_TOP_MENU_ORDER: "tuple[str, ...]" = (
+    "モグ玄・新宿歌舞伎町", "モグ玄・新大久保", "秋葉原", "上野本館", "上野新館", "渋谷新館",
+    "赤坂見附", "稲毛", "新宿歌舞伎町", "西武新宿", "新大久保", "高田馬場", "新小岩",
+    "溝の口本館", "溝の口新館", "other", "osusume_top", "yg",
 )
+# トップでグレーにする店舗ボタン。key の日本語は class 名で「-」になり店舗を区別できないため、
+# この店舗のボタンだけ ASCII key のコンテナ（PC用 top_gray_N・スマホ用 sp_top_gray_N）で包んで色を付ける。
+_TOP_GRAY_STORES: "tuple[str, ...]" = (
+    "新宿歌舞伎町", "西武新宿", "新大久保", "高田馬場", "新小岩", "溝の口本館", "溝の口新館",
+)
+_TOP_GRAY_BTN_CSS = (
+    "<style>"
+    "[class*='st-key-top_gray_'] button,[class*='st-key-sp_top_gray_'] button{"
+    "background:#ECEEF1!important;border-color:#C9CDD3!important;color:#3A3F47!important;}"
+    "[class*='st-key-top_gray_'] button:hover,[class*='st-key-sp_top_gray_'] button:hover{"
+    "background:#E1E4E8!important;border-color:#A9AFB8!important;color:#3A3F47!important;}"
+    "[class*='st-key-top_gray_'] button:active,[class*='st-key-top_gray_'] button:focus,"
+    "[class*='st-key-sp_top_gray_'] button:active,[class*='st-key-sp_top_gray_'] button:focus{"
+    "background:#D6DAE0!important;border-color:#A9AFB8!important;color:#3A3F47!important;}"
+    "</style>"
+)
+
+
+# グレーの店舗ボタンだけ ASCII key のコンテナで包む（それ以外は何もしない）
+def _top_btn_box(target: str, prefix: str = ""):
+    if target in _TOP_GRAY_STORES:
+        return st.container(key=f"{prefix}top_gray_{_TOP_GRAY_STORES.index(target)}")
+    return contextlib.nullcontext()
+
+
 # スマホ用トップの「おすすめ」ボタン（sp_store_osusume_top）だけの薄い紫。
 # PC／タブレット用の「おすすめ」（store_osusume_top）には色指定をかけず、他店舗と同じ白のまま。
 _OSU_TOP_BTN_CSS = (
@@ -4848,67 +4875,37 @@ def show_store_page() -> None:
         except Exception as e:   # 本日の仕事の不具合で店舗ボタン等を止めない
             st.error(f"❌ 本日の仕事を表示できませんでした: {type(e).__name__}")
     st.markdown("---")
-    store_list = [_s for _s in STORES if _s not in _STORE_DATA_ALIAS]
     _has_other = bool(_other_group_stores(""))
     _has_yg = bool(_other_group_stores(_YG_GROUP))
 
-    # ── PC／タブレット幅：従来どおり4列固定（並び・キーは変更しない） ──
+    # トップの並び（_TOP_MENU_ORDER）。STORES にあって並びに無い店舗は「その他」の前へ。
+    # 「その他」「YG用」は対象店舗があるときだけ出す（従来どおり）。
+    _menu = [_t for _t in _TOP_MENU_ORDER if _t in STORES or _t in ("other", "osusume_top", "yg")]
+    _extra = [_s for _s in STORES if _s not in _menu]
+    _menu[_menu.index("other"):_menu.index("other")] = _extra
+    _menu = [_t for _t in _menu if (_t != "other" or _has_other) and (_t != "yg" or _has_yg)]
+    _menu_lbl = {"other": ("その他", "store_other"), "osusume_top": ("おすすめ", "store_osusume_top"),
+                 "yg": ("YG用", "store_yg")}
+
+    # ── PC／タブレット幅：4列（左上から _TOP_MENU_ORDER の順） ──
     with st.container(key="store_menu_pc"):
         cols = st.columns(4)
+        for i, _t in enumerate(_menu):
+            _lb, _ky = _menu_lbl.get(_t, (_t, f"store_{_t}"))
+            with cols[i % len(cols)], _top_btn_box(_t):
+                if st.button(_lb, key=_ky, use_container_width=True):
+                    _store_menu_go(_t)
 
-        for i, store in enumerate(store_list):
-            with cols[i % len(cols)]:
-                if st.button(store, key=f"store_{store}", use_container_width=True):
-                    _store_menu_go(store)
-
-        # 既存13店舗の次に「その他」（エスパス以外）を1つだけ追加する。
-        # 既存の店舗ボタン・並び・キーは一切変更しない。
-        if _has_other:
-            with cols[len(store_list) % len(cols)]:
-                if st.button("その他", key="store_other", use_container_width=True):
-                    _store_menu_go("other")
-
-        # 「その他」の直後に「おすすめ」（スプレッドシートからおすすめ店舗を抽出）。
-        _osu_idx = len(store_list) + (1 if _has_other else 0)
-        with cols[_osu_idx % len(cols)]:
-            if st.button("おすすめ", key="store_osusume_top", use_container_width=True):
-                _store_menu_go("osusume_top")
-
-        # 「おすすめ」の直後に「YG用」（store_settings/_yg_stores.json の店舗）。
-        _yg_idx = _osu_idx + 1
-        if _has_yg:
-            with cols[_yg_idx % len(cols)]:
-                if st.button("YG用", key="store_yg", use_container_width=True):
-                    _store_menu_go("yg")
-
-        # 「YG用」の直後に別入口の店舗（モグ玄・新大久保）。
-        for _ai, _al in enumerate(_STORE_DATA_ALIAS, start=_yg_idx + (1 if _has_yg else 0)):
-            with cols[_ai % len(cols)]:
-                if st.button(_al, key=f"store_{_al}", use_container_width=True):
-                    _store_menu_go(_al)
-
-    # ── スマホ幅：おすすめ → 指定順の店舗 → その他 を1列で ──
+    # ── スマホ幅：PCと同じ順を1列で ──
     with st.container(key="store_menu_sp"):
         # CSS はこの（PC幅では非表示の）コンテナ内に置き、PC幅のレイアウトに余白を増やさない。
         # <style> は非表示要素の中でもページ全体へ効く。
-        st.markdown(_OSU_TOP_BTN_CSS, unsafe_allow_html=True)
-        if st.button("おすすめ", key="sp_store_osusume_top", use_container_width=True):
-            _store_menu_go("osusume_top")
-        _sp_stores = [_s for _s in _SP_STORE_ORDER if _s in STORES]
-        _sp_stores += [_s for _s in store_list if _s not in _sp_stores]   # 想定外の店舗は末尾へ
-        _sp_stores = [_s for _s in _sp_stores if _s not in _STORE_DATA_ALIAS]
-        for store in _sp_stores:
-            if st.button(store, key=f"sp_store_{store}", use_container_width=True):
-                _store_menu_go(store)
-        if _has_other:
-            if st.button("その他", key="sp_store_other", use_container_width=True):
-                _store_menu_go("other")
-        if _has_yg:
-            if st.button("YG用", key="sp_store_yg", use_container_width=True):
-                _store_menu_go("yg")
-        for _al in _STORE_DATA_ALIAS:
-            if st.button(_al, key=f"sp_store_{_al}", use_container_width=True):
-                _store_menu_go(_al)
+        st.markdown(_OSU_TOP_BTN_CSS + _TOP_GRAY_BTN_CSS, unsafe_allow_html=True)
+        for _t in _menu:
+            _lb, _ky = _menu_lbl.get(_t, (_t, f"store_{_t}"))
+            with _top_btn_box(_t, "sp_"):
+                if st.button(_lb, key=f"sp_{_ky}", use_container_width=True):
+                    _store_menu_go(_t)
 
 
 def show_other_store_page() -> None:

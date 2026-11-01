@@ -2047,3 +2047,9 @@ YG用ページ・YG用店舗ボタン（選択中表示なし）／`other_slump`
 3. `_other_slump_from_other()` の `_also_other` 限定を外さない
 4. マルハン大山専用の色・テーマを新設しない
 5. `wrt_machines.json`・`auto_page_inputs.json`・`auto_page_persistent_inputs.json` の既存差分、未追跡4件、stash 5件を保全する
+
+---
+
+## 【参照】YG用「一覧」：タブ①／②を対象日の年月のシートから読む（2026-11-01・`6b48146`）
+
+主記録は `top_ui_tools.md` の「【正式仕様】トップ「おすすめ」／YG用「一覧」：月別の予定表を対象日の年月から自動選択（2026-11-01・`ca64dcb`／`6b48146`）」。YG一覧のタブ①／②はおすすめと同じ `_osu_extra_month_rows()`（シート名の「YYYY年M月」で選ぶ・無ければ警告）。抽出・テキストの作り方は変わらない。

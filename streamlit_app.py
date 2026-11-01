@@ -4896,12 +4896,12 @@ def show_store_page() -> None:
                              disabled=_t in _TOP_DISABLED_STORES):
                     _store_menu_go(_t)
 
-    # ── スマホ幅：PCと同じ順を1列で ──
+    # ── スマホ幅：「おすすめ」を先頭に、あとは PC と同じ順を1列で ──
     with st.container(key="store_menu_sp"):
         # CSS はこの（PC幅では非表示の）コンテナ内に置き、PC幅のレイアウトに余白を増やさない。
         # <style> は非表示要素の中でもページ全体へ効く。
         st.markdown(_OSU_TOP_BTN_CSS + _TOP_GRAY_BTN_CSS, unsafe_allow_html=True)
-        for _t in _menu:
+        for _t in ["osusume_top"] + [_x for _x in _menu if _x != "osusume_top"]:
             _lb, _ky = _menu_lbl.get(_t, (_t, f"store_{_t}"))
             with _top_btn_box(_t, "sp_"):
                 if st.button(_lb, key=f"sp_{_ky}", use_container_width=True,

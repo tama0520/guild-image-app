@@ -3206,6 +3206,10 @@ _OSU_TOP_STORE_ORDER: "tuple[str, ...]" = (
     "エスパス稲毛",
 )
 _OSU_TOP_NO_RANK = len(_OSU_TOP_RANKS)
+# イベント名の行（B列）に値がある日だけ抽出する店舗（他の行の丸数字などだけの日は載せない）。
+# 載せた日の分類（並び順）は従来どおりブロック全体から決める。
+_OSU_TOP_EVENT_ROW_LABEL = "カリスマ・天下無双・SSなど"
+_OSU_TOP_EVENT_ONLY_STORES: "frozenset[str]" = frozenset({"エスパス新大久保"})
 _OSU_TOP_CIRCLED_RE = re.compile(r"[①-⑳]")
 # 店舗名末尾の「・×」「・〇」等（全角/半角の中黒・前後空白も許容）だけを外す。
 _OSU_TOP_SUFFIX_RE = re.compile(r"\s*[・･]\s*[×✕xX〇○◯]\s*$")
@@ -3324,6 +3328,8 @@ def _osu_top_extract(rows: list, col: int) -> list:
         _val = _osu_top_cell(rows, _r, col)
         if not _val.strip():
             continue
+        if re.sub(r"\s+", "", _label) == _OSU_TOP_EVENT_ROW_LABEL:
+            _cur["event"] = True
         _rk = _osu_top_rank_of(_val)
         if _rk is None:
             _rk = _osu_top_rank_of(_label) if not _is_head else 0
@@ -3331,7 +3337,8 @@ def _osu_top_extract(rows: list, col: int) -> list:
             _rk = _OSU_TOP_NO_RANK
         if _cur["rank"] is None or _rk < _cur["rank"]:
             _cur["rank"] = _rk
-    _hits = [_s for _s in _found if _s["rank"] is not None]
+    _hits = [_s for _s in _found if _s["rank"] is not None
+             and (_s["name"] not in _OSU_TOP_EVENT_ONLY_STORES or _s.get("event"))]
     _n_known = len(_OSU_TOP_STORE_ORDER)
     # 分類 → 固定店舗順 → （未知の店舗は既知13店舗の後ろに）シート順
     return sorted(_hits, key=lambda _s: (

@@ -35229,8 +35229,8 @@
   },
   "20261031_渋谷新館_20S.xlsx": {
     "kojin_enabled": true,
-    "narabi_enabled": false,
-    "narabi_ranges_input": "",
+    "narabi_enabled": true,
+    "narabi_ranges_input": "2110-2112,2133-2135,2184-2188,2194-2198,2207-2209,2214-2216",
     "retsu_enabled": false,
     "retsu_ranges_input": "",
     "suebangai_enabled": false,

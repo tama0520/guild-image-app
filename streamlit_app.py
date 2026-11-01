@@ -14924,6 +14924,7 @@ def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = No
     """台番一覧を 25セル×3列で描く。高さは実際に描いた最下端で切り取り、最後に外周の黒枠を引く。
     罫線は1座標1本（同じ位置へ重ねない）。列の仕切りは各1本だけ。
     75セルを超えて載せられなかった行数は戻り値の info["ban_list_omitted"] に入れる。
+    実際に載せた単品ピックアップの行（載せた順）は info["ban_list_single_rows"] に入れる。
     single_col=True（📝・⑧📝）：1列だけで、載せる行数（見出し＋台）ぶんの高さ。空欄で埋めず上限なし。
     grow=True（_BAN_LIST_GROW_STORES）：3列のまま、優秀機種〜⑤（主要カテゴリ）が全件入る行数まで縦に伸ばす。
     行数は max(25, ceil(主要カテゴリの必要セル数/3)) から始め、配置ルールで入りきらなければ1行ずつ増やす。
@@ -15064,6 +15065,8 @@ def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = No
                  (0, 0, FW - 1, H - 1), (W - FW, 0, W - 1, H - 1)):
         dr.rectangle(_box, fill=_BAN_LIST_FRAME)
     img.info["ban_list_omitted"] = _omitted
+    img.info["ban_list_single_rows"] = [_c[2] for _col in cols for _c in _col
+                                        if _c[0] == "row" and blocks[_c[1]]["kind"] == "single"]
     return img
 
 
@@ -32563,19 +32566,23 @@ def _mogu_slump_card(unit_id: str, display_name: str, points: list,
 
 
 # ── スランプ一覧（モグ玄・新宿歌舞伎町 × auto_slump2 だけ） ──────────────────
-# 台番一覧と同じブロック（単品ピックアップ以外）の台から、差枚プラスの台のカードを1行7台で並べる。
+# 台番一覧と同じブロック（単品ピックアップは台番一覧に実際に載った台）から、差枚プラスの台のカードを1行7台で並べる。
 # カードは上の _mogu_slump_card()（e234268 の横長カード・+5,000/-2,000固定）をそのまま縮小して使う。
 # 分類帯は分類名だけ（集計の文字は出さない）。下部は右下の署名だけ。
 # 枚数は カード段数 ÷ _MOGU_SHEET_MAX_ROWS 段（切り上げ・最大 _MOGU_SHEET_MAX_PAGES 枚）。
 # 段数を各画像へできるだけ均等に配る（差は最大1段・多い方が先）。分類順・カード順のまま区切り、
 # 分類の途中で次の画像へ送ってよい（続きの画像にも分類帯を出す）。段は分類ごとに7枚ずつ（分類が変わると新しい段）。
 _MOGU_SHEET_FN = "スランプ一覧.png"
-_MOGU_SHEET_KINDS: "tuple[str, ...]" = ("zen", "high", "jug", "nami", "retsu", "extra", "sue", "rec")
+_MOGU_SHEET_KINDS: "tuple[str, ...]" = ("zen", "high", "jug", "nami", "retsu", "extra", "sue", "rec", "single")
 _MOGU_SHEET_MAX_ROWS, _MOGU_SHEET_MAX_PAGES = 6, 3
 _MOGU_SHEET_SIGN = "モグ玄"
 _MOGU_SHEET_CELL_W = 244          # カード1枚の幅（288×203 を縮小）
 _MOGU_SHEET_M, _MOGU_SHEET_G = 6, 6
-_MOGU_SHEET_TITLE_H, _MOGU_SHEET_BAND_H, _MOGU_SHEET_FOOT_H = 62, 44, 34
+# タイトルバーの高さ・文字サイズは 62px・32px の 1.3 倍
+_MOGU_SHEET_TITLE_H, _MOGU_SHEET_BAND_H, _MOGU_SHEET_FOOT_H = 81, 44, 34
+_MOGU_SHEET_TITLE_FS = 42
+# 複数枚のときだけタイトル末尾に付ける番号（1枚なら付けない）
+_MOGU_SHEET_PAGE_MARKS = "①②③④⑤⑥⑦⑧⑨"
 C_MOGU_SHEET_SIGN = (90, 100, 128)    # #5A6480 署名
 
 
@@ -32619,11 +32626,13 @@ def _mogu_kabu_slump_sheet(store: str, d, blocks: list, by_uid: "dict | None") -
                 _pg.append((_b, list(_row)))
         pages.append(_pg)
         _pos += _n
-    return [_mogu_kabu_slump_page(store, d, _p) for _p in pages if _p]
+    pages = [_p for _p in pages if _p]
+    return [_mogu_kabu_slump_page(store, d, _p, _MOGU_SHEET_PAGE_MARKS[_i] if len(pages) > 1 else "")
+            for _i, _p in enumerate(pages)]
 
 
-def _mogu_kabu_slump_page(store: str, d, secs: list) -> "Image.Image":
-    """スランプ一覧の1枚（secs＝[(ブロック, カード)]）。"""
+def _mogu_kabu_slump_page(store: str, d, secs: list, mark: str = "") -> "Image.Image":
+    """スランプ一覧の1枚（secs＝[(ブロック, カード)]）。mark は複数枚のときのタイトル末尾の番号（①②③）。"""
     NC, M, G = _MOGU_SL_COLS, _MOGU_SHEET_M, _MOGU_SHEET_G
     CW = _MOGU_SHEET_CELL_W
     CH = round(CW * _MOGU_SL_H / _MOGU_SL_W)
@@ -32635,8 +32644,8 @@ def _mogu_kabu_slump_page(store: str, d, secs: list) -> "Image.Image":
     dr.rectangle([0, 0, W - 1, _MOGU_SHEET_TITLE_H - 1], fill=_BAN_LIST_TITLE_BG)
     _d = d
     title = ((f"{_d.month}/{_d.day}　" if _d is not None else "")
-             + f"エスパス{_data_store(store)}・スランプ")
-    _fs = 32
+             + f"エスパス{_data_store(store)}・スランプ{mark}")
+    _fs = _MOGU_SHEET_TITLE_FS
     while True:
         f_title = ImageFont.truetype(_ban_list_title_font_path(), _fs, index=0)
         _tb = dr.textbbox((0, 0), title, font=f_title)
@@ -32697,7 +32706,7 @@ _MOGU_KABU_KIND_COLORS: "dict[str, str]" = {"rec": "#D65A8A"}
 def _mogu_kabu_lists(store: str, d, df, zen, high, nami, sue_map: dict, rec_map: dict, jug, col_map: dict,
                      extra_map: dict, single_bans, pool_on: bool, by_uid,
                      recommended_blocks=None) -> "tuple":
-    """台番一覧（3列・行数可変）とスランプ一覧（単品以外・1〜3枚のリスト）を返す。表示する台がなければ None と []。"""
+    """台番一覧（3列・行数可変）とスランプ一覧（単品は台番一覧に載った台・1〜3枚のリスト）を返す。表示する台がなければ None と []。"""
     blocks, pool = _ban_list_blocks_from(df, zen, high, nami, sue_map, rec_map, jug_bans=jug,
                                          retsu_map=col_map, extra_map=extra_map, single_bans=single_bans)
     # ⑤は機種ごとにまとめる：⑤の登録順（同じ見出しのブロック順→機種欄の順）→ 機種内は台番昇順のまま。
@@ -32721,8 +32730,15 @@ def _mogu_kabu_lists(store: str, d, df, zen, high, nami, sue_map: dict, rec_map:
         _b["color"] = _MOGU_KABU_KIND_COLORS.get(_b["kind"], _b["color"])
     # タイトルは「M/D　エスパス{店名}」だけ（「・台番一覧」は付けない）
     _title = (f"{d.month}/{d.day}　" if d is not None else "") + f"エスパス{_data_store(store)}"
-    return (draw_ban_list_image(_title, blocks, pool, grow=True, **_BAN_LIST_STYLE.get(store, {})),
-            _mogu_kabu_slump_sheet(store, d, blocks, by_uid))
+    _bl = draw_ban_list_image(_title, blocks, pool, grow=True, **_BAN_LIST_STYLE.get(store, {}))
+    # スランプ一覧の単品ピックアップは台番一覧に実際に載った台（🔍・⑧は残りセルの自動補充、📝は記入した単品）
+    _single = list((_bl.info.get("ban_list_single_rows") if _bl is not None else None) or [])
+    _sheet = [_b for _b in blocks if _b["kind"] != "single"]
+    if _single:
+        _k = _BAN_LIST_KINDS["single"]
+        _sheet.append({"kind": "single", "title": _k["title"], "color": _k["color"], "sep": _k["sep"],
+                       "atoms": [[_r] for _r in _single]})
+    return _bl, _mogu_kabu_slump_sheet(store, d, _sheet, by_uid)
 
 
 def _mogu_kabu_lists_result(store: str, result: dict, sue_map: dict, rec_ban_map: dict,

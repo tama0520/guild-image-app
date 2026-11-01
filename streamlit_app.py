@@ -32568,14 +32568,13 @@ def _mogu_slump_card(unit_id: str, display_name: str, points: list,
 # ── スランプ一覧（モグ玄・新宿歌舞伎町 × auto_slump2 だけ） ──────────────────
 # 台番一覧と同じブロック（単品ピックアップは台番一覧に実際に載った台）から、差枚プラスの台のカードを1行7台で並べる。
 # カードは上の _mogu_slump_card()（e234268 の横長カード・+5,000/-2,000固定）をそのまま縮小して使う。
-# 分類帯は分類名だけ（集計の文字は出さない）。下部は右下の署名だけ。
+# 分類帯は分類名だけ（集計の文字は出さない）。下部は余白だけ（右下の署名「モグ玄」は出さない）。
 # 枚数は カード段数 ÷ _MOGU_SHEET_MAX_ROWS 段（切り上げ・最大 _MOGU_SHEET_MAX_PAGES 枚）。
 # 段数を各画像へできるだけ均等に配る（差は最大1段・多い方が先）。分類順・カード順のまま区切り、
 # 分類の途中で次の画像へ送ってよい（続きの画像にも分類帯を出す）。段は分類ごとに7枚ずつ（分類が変わると新しい段）。
 _MOGU_SHEET_FN = "スランプ一覧.png"
 _MOGU_SHEET_KINDS: "tuple[str, ...]" = ("zen", "high", "jug", "nami", "retsu", "extra", "sue", "rec", "single")
 _MOGU_SHEET_MAX_ROWS, _MOGU_SHEET_MAX_PAGES = 6, 3
-_MOGU_SHEET_SIGN = "モグ玄"
 _MOGU_SHEET_CELL_W = 244          # カード1枚の幅（288×203 を縮小）
 _MOGU_SHEET_M, _MOGU_SHEET_G = 6, 6
 # タイトルバーの高さ・文字サイズは 62px・32px の 1.3 倍
@@ -32583,7 +32582,6 @@ _MOGU_SHEET_TITLE_H, _MOGU_SHEET_BAND_H, _MOGU_SHEET_FOOT_H = 81, 44, 34
 _MOGU_SHEET_TITLE_FS = 42
 # 複数枚のときだけタイトル末尾に付ける番号（1枚なら付けない）
 _MOGU_SHEET_PAGE_MARKS = "①②③④⑤⑥⑦⑧⑨"
-C_MOGU_SHEET_SIGN = (90, 100, 128)    # #5A6480 署名
 
 
 def _mogu_kabu_slump_sheet(store: str, d, blocks: list, by_uid: "dict | None") -> "list[Image.Image]":
@@ -32667,10 +32665,6 @@ def _mogu_kabu_slump_page(store: str, d, secs: list, mark: str = "") -> "Image.I
             _cy = y + (_i // NC) * (CH + G)
             img.paste(_c.resize((CW, CH), Image.LANCZOS), (_cx, _cy))
         y += math.ceil(len(_cards) / NC) * (CH + G)
-    f_sign = _rote_mogu_font(20)
-    _fy = y + _MOGU_SHEET_FOOT_H // 2
-    _bb = dr.textbbox((0, 0), _MOGU_SHEET_SIGN, font=f_sign)
-    dr.text((W - 14 - _bb[2], _fy - (_bb[1] + _bb[3]) // 2), _MOGU_SHEET_SIGN, font=f_sign, fill=C_MOGU_SHEET_SIGN)
     return img
 
 

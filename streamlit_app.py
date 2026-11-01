@@ -8895,6 +8895,8 @@ def generate_report_text(
         # 固定構成：見出し → 🍯機種名×画像を作った機種数 → 📍×3
         #          → 画像を作った機種の結果 → 💬 → 空行2 → 🔍。
         # 画像を作っていない高配分項目（has_image=False）と(1/2台)降格は出さない。
+        # ただしモグ玄・新大久保は、②個別画像の「優秀台」（is_yushu）に入れた機種なら
+        # (1/2台)でも出す（台番一覧には載っているため）。
         # 並びは全台系・高配分をまとめて平均差枚の多い順（同値は機種名＝画像名の昇順）。
         # 🍯の行と結果ブロックは同じリストから作るので順序が必ず一致する。
         _hp_items = (
@@ -8902,7 +8904,8 @@ def generate_report_text(
              for it in zen_dai_list if it.get("name") not in _hide_sum]
             + [(it, _high_avg_of(it)) for it in high_ratio_list
                if it.get("has_image", True) is not False
-               and it["name"] not in _demoted_names
+               and (it["name"] not in _demoted_names
+                    or (store_name == "モグ玄・新大久保" and it.get("is_yushu")))
                and it["name"] not in _hide_sum])
         _hp_items.sort(key=lambda p: (-p[1], _make_safe_fn(str(p[0].get("name", "")))))
         # 機種名は画像タイトルに使った表記をそのまま使う（img_name。無ければ name＝
@@ -15182,7 +15185,7 @@ def _ban_list_image_manual(store: str, df, excel_name: str, ban_map: dict,
     ban_map: 画像名 → 掲載台番／kinds: 画像名 → zen・high・nami・sue・single・"rec:{入力タイトル}"。
     ②個別画像に記入した機種の掲載台だけを載せる（zen＝②全台・high＝②優秀台）。
     並び・末尾・⑤・single（その他の優秀台）も、単品ピックアップの自動補充も使わない。
-    通常の3列×25セルではなく縦長1列で描き、タイトルは「{M/D}はにぃポスト結果考察」
+    通常の3列×25セルではなく縦長1列で描き、タイトルは「{M/D} はにぃポスト結果考察」（日付の後に半角スペース）
     （M/D はExcelファイル名の YYYYMMDD＝データの日付。取れなければ日付なし）。"""
     if store not in _BAN_LIST_MANUAL_STORES or df is None:
         return None
@@ -15199,7 +15202,7 @@ def _ban_list_image_manual(store: str, df, excel_name: str, ban_map: dict,
             _d = datetime.date(int(_m.group(1)), int(_m.group(2)), int(_m.group(3)))
         except ValueError:
             pass
-    _title = (f"{_d.month}/{_d.day}" if _d is not None else "") + "はにぃポスト結果考察"
+    _title = (f"{_d.month}/{_d.day} " if _d is not None else "") + "はにぃポスト結果考察"
     return draw_ban_list_image(_title, _blocks, [], single_col=True, **_BAN_LIST_STYLE.get(store, {}))
 
 
@@ -20253,7 +20256,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _m_log(f"  ✅ 優秀台「{_metit}」({len(_mgp_e)}台)")
                             _mga_all_e = _mga_e
                             _mda_all_e = _mda_e
-                            _m_high.append({"name": _km_e, "count": int((_mda_all_e > 0).sum()), "total": len(_mga_all_e), "diffs": sorted([int(d) for d in _mda_e.tolist() if int(d) >= 1000], reverse=True), "all_avg_diff": int(round(_mda_all_e.mean())), "has_image": True})
+                            _m_high.append({"name": _km_e, "count": int((_mda_all_e > 0).sum()), "total": len(_mga_all_e), "diffs": sorted([int(d) for d in _mda_e.tolist() if int(d) >= 1000], reverse=True), "all_avg_diff": int(round(_mda_all_e.mean())), "has_image": True, "is_yushu": True})
 
                         # 個別機種の優秀台ピックアップ（貼った台番のみ・ピンクバーなし）
                         for _pk_tit_e, _pk_bans_e in (_collect_kojin_pick(store) if kojin_enabled

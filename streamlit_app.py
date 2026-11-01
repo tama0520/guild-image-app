@@ -4071,28 +4071,27 @@ _TOP_MENU_ORDER: "tuple[str, ...]" = (
     "赤坂見附", "稲毛", "新宿歌舞伎町", "西武新宿", "新大久保", "高田馬場", "新小岩",
     "溝の口本館", "溝の口新館", "other", "osusume_top", "yg",
 )
-# トップでグレーにする店舗ボタン。key の日本語は class 名で「-」になり店舗を区別できないため、
-# この店舗のボタンだけ ASCII key のコンテナ（PC用 top_gray_N・スマホ用 sp_top_gray_N）で包んで色を付ける。
-_TOP_GRAY_STORES: "tuple[str, ...]" = (
+# トップで当面使わない店舗ボタン：グレーで押せない（st.button の disabled）。店舗のページ・機能は残す。
+# 使えるように戻すときはこの集合から外すだけ（並びは _TOP_MENU_ORDER のまま）。
+# key の日本語は class 名で「-」になり店舗を区別できないため、この店舗のボタンだけ
+# ASCII key のコンテナ（PC用 top_gray_N・スマホ用 sp_top_gray_N）で包んで色を付ける。
+_TOP_DISABLED_STORES: "tuple[str, ...]" = (
     "新宿歌舞伎町", "西武新宿", "新大久保", "高田馬場", "新小岩", "溝の口本館", "溝の口新館",
 )
 _TOP_GRAY_BTN_CSS = (
     "<style>"
     "[class*='st-key-top_gray_'] button,[class*='st-key-sp_top_gray_'] button{"
-    "background:#ECEEF1!important;border-color:#C9CDD3!important;color:#3A3F47!important;}"
-    "[class*='st-key-top_gray_'] button:hover,[class*='st-key-sp_top_gray_'] button:hover{"
-    "background:#E1E4E8!important;border-color:#A9AFB8!important;color:#3A3F47!important;}"
-    "[class*='st-key-top_gray_'] button:active,[class*='st-key-top_gray_'] button:focus,"
-    "[class*='st-key-sp_top_gray_'] button:active,[class*='st-key-sp_top_gray_'] button:focus{"
-    "background:#D6DAE0!important;border-color:#A9AFB8!important;color:#3A3F47!important;}"
+    "background:#D5D8DC!important;border-color:#AEB3BA!important;color:#555B63!important;"
+    "opacity:1!important;cursor:not-allowed!important;}"
+    "[class*='st-key-top_gray_'] button p,[class*='st-key-sp_top_gray_'] button p{color:#555B63!important;}"
     "</style>"
 )
 
 
 # グレーの店舗ボタンだけ ASCII key のコンテナで包む（それ以外は何もしない）
 def _top_btn_box(target: str, prefix: str = ""):
-    if target in _TOP_GRAY_STORES:
-        return st.container(key=f"{prefix}top_gray_{_TOP_GRAY_STORES.index(target)}")
+    if target in _TOP_DISABLED_STORES:
+        return st.container(key=f"{prefix}top_gray_{_TOP_DISABLED_STORES.index(target)}")
     return contextlib.nullcontext()
 
 
@@ -4893,7 +4892,8 @@ def show_store_page() -> None:
         for i, _t in enumerate(_menu):
             _lb, _ky = _menu_lbl.get(_t, (_t, f"store_{_t}"))
             with cols[i % len(cols)], _top_btn_box(_t):
-                if st.button(_lb, key=_ky, use_container_width=True):
+                if st.button(_lb, key=_ky, use_container_width=True,
+                             disabled=_t in _TOP_DISABLED_STORES):
                     _store_menu_go(_t)
 
     # ── スマホ幅：PCと同じ順を1列で ──
@@ -4904,7 +4904,8 @@ def show_store_page() -> None:
         for _t in _menu:
             _lb, _ky = _menu_lbl.get(_t, (_t, f"store_{_t}"))
             with _top_btn_box(_t, "sp_"):
-                if st.button(_lb, key=f"sp_{_ky}", use_container_width=True):
+                if st.button(_lb, key=f"sp_{_ky}", use_container_width=True,
+                             disabled=_t in _TOP_DISABLED_STORES):
                     _store_menu_go(_t)
 
 

@@ -7885,7 +7885,7 @@ _MOGU_KABU_RESULT_TEXT_NAME = "エスパス 新宿 歌舞伎町"
 
 
 def _mogu_kabu_report_text(date, zen_dai_list: list, high_ratio_list: list, nami_list: list,
-                           suebangai_data, jug_sue_data, diff_raw) -> str:
+                           suebangai_data, jug_sue_data, diff_raw, df=None) -> str:
     """モグ玄・新宿歌舞伎町 スランプ付き結果ポスト用の結果テキスト（⑧・⑧📝で共通）。
     平均・勝ち台数・台数・台番範囲は既存の項目の値（all_avg_diff／_high_avg_of／count・total、
     並びの ban_range・avg_diff、末尾の avg_diff・win_count・total）をそのまま使う。"""
@@ -7903,13 +7903,22 @@ def _mogu_kabu_report_text(date, zen_dai_list: list, high_ratio_list: list, nami
 
     _zen = _avg_rows((int(_it.get("all_avg_diff", 0)), _it) for _it in zen_dai_list or [])
     _high = _avg_rows((_high_avg_of(_it), _it) for _it in high_ratio_list or [] if _it.get("has_image"))
-    # 並び：1並び1行（nami_list の順のまま）。台番範囲・平均はその並びの既存の値
+    # 並び：1並び1行（nami_list の順のまま）。台番範囲はその並びの既存の ban_range。
+    # 平均はその並びの台番（bans）の差枚を、総差枚と同じ diff_raw から int(round(平均)) で出す
+    # （通常⑧の nami_list.avg_diff は補正前の差枚なので使わない。⑧📝と同じ値になる）。
+    # bans・df が無いときだけ既存の avg_diff。
     _nami = []
     for _it in nami_list or []:
         _m = _it.get("machine") or str(_it.get("title", "")).split("(")[0]
         _br = _it.get("ban_range")
-        _nami.append(f"〇{_m}({_br})　平均{_fmt_diff(int(_it['avg_diff']))}" if _br
-                     else f"〇{_it.get('title', _m)}　平均{_fmt_diff(int(_it['avg_diff']))}")
+        _avg = int(_it["avg_diff"])
+        if _it.get("bans") and df is not None and diff_raw is not None and "台番" in df.columns:
+            _bs = {int(_b) for _b in _it["bans"]}
+            _idx = df.index[df["台番"].apply(lambda _x: pd.notna(_x) and int(_x) in _bs)]
+            if len(_idx):
+                _avg = int(round(diff_raw.loc[_idx].mean()))
+        _nami.append(f"〇{_m}({_br})　平均{_fmt_diff(_avg)}" if _br
+                     else f"〇{_it.get('title', _m)}　平均{_fmt_diff(_avg)}")
     # 末尾：結果テキストの既存表記（末尾⑤番台・末尾ゾロ目の台／ジャグラーの末尾…）・平均・勝ち台数/対象台数
     _circ = dict(zip("0123456789", "⓪①②③④⑤⑥⑦⑧⑨"))
     _sue = [f"〇{'末尾ゾロ目の台' if _it['tail'] == 'ゾロ目' else '末尾' + _circ.get(_it['tail'], _it['tail']) + '番台'}"
@@ -8945,7 +8954,7 @@ def generate_report_text(
         return "\n".join([header, store_display, "", "", "", "", "", _yg_body])
     if store_name in _MOGU_KABU_RESULT_TEXT_STORES:
         return _mogu_kabu_report_text(date, zen_dai_list, high_ratio_list, nami_list,
-                                      suebangai_data, jug_sue_data, diff_raw)
+                                      suebangai_data, jug_sue_data, diff_raw, df)
     if store_name in _HONEY_POST_RESULT_STORES:
         # 固定構成：見出し → 🍯機種名×画像を作った機種数 → 📍×3
         #          → 画像を作った機種の結果 → 💬 → 空行2 → 🔍。

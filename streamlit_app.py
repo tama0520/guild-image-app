@@ -3353,9 +3353,16 @@ def _osu_top_extract(rows: list, col: int) -> list:
 #     「2026/10/1」「2026-10-01 0:00:00」のような年付き・日時形式は日付部分で照合する。
 #   - 同じ日付の行が複数続く（1行=1店舗）。系列・住所の列はないので系列は店名の先頭から判定する。
 _OSU_EXTRA_SHEET_ID = "11XhABCZJr5a5PBg91ZaXz36bBavyfyGPT4t42wImPWY"
-_OSU_EXTRA_TABS: "tuple[tuple[str, str], ...]" = (   # (表示名, gid)。この順＝タブ①→タブ②
+_OSU_EXTRA_TABS: "tuple[tuple[str, str], ...]" = (   # (表示名, 2026-10 のタブの gid)。この順＝タブ①→タブ②
     ("タブ①", "2112181980"),
     ("タブ②", "603219537"),
+)
+# 月ごとのシートの見つけ方（タブの順と同じ）。固定 gid は月が替わっても前の月のタブを指すため、
+# 対象日の年月とシート名の「YYYY年M月」が一致するシートを読む（_osu_extra_month_rows）。
+#   タブ①:「2026年11月 アプリ対応版」  タブ②:「2026年11月【SNS】アプリ対応版」（末尾の空白や「試作版」も可）
+_OSU_EXTRA_TAB_TITLE_RES: "tuple[re.Pattern, ...]" = (
+    re.compile(r"^\s*(\d{4})\s*年\s*(\d{1,2})\s*月\s+アプリ"),
+    re.compile(r"^\s*(\d{4})\s*年\s*(\d{1,2})\s*月\s*【SNS】"),
 )
 _OSU_EXTRA_HEAD_SCAN = 10          # 見出し行を探す先頭行数
 _OSU_EXTRA_H_DATE = "日付"
@@ -3430,6 +3437,48 @@ def _osu_top_fetch_csv(url: str) -> list:
     except UnicodeDecodeError:
         raise _OsuTopError("スプレッドシートの文字コードを読み取れませんでした。")
     return [list(_row) for _row in _csv.reader(io.StringIO(_txt))]
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _osu_extra_fetch_xlsx() -> bytes:
+    """追加2タブのスプレッドシートを XLSX で取得する（成功時だけ5分キャッシュ）。"""
+    import requests as _rq
+    _url = f"https://docs.google.com/spreadsheets/d/{_OSU_EXTRA_SHEET_ID}/export?format=xlsx"
+    try:
+        _r = _rq.get(_url, timeout=_OSU_TOP_TIMEOUT)
+    except _rq.exceptions.Timeout:
+        raise _OsuTopError(f"スプレッドシートへの接続がタイムアウトしました（{_OSU_TOP_TIMEOUT}秒）。")
+    except _rq.exceptions.RequestException as _e:
+        raise _OsuTopError(f"スプレッドシートへ接続できませんでした（{type(_e).__name__}）。")
+    if _r.status_code != 200:
+        raise _OsuTopError(
+            f"スプレッドシートを取得できませんでした（HTTP {_r.status_code}）。"
+            "共有設定（リンクを知っている全員・閲覧者）が外れた可能性があります。")
+    return _r.content
+
+
+def _osu_extra_xlsx_text(v) -> str:
+    """XLSX のセル値を CSV に近い文字列にする（日付は「M/D(曜)」・整数の小数は整数）。"""
+    if v is None:
+        return ""
+    if isinstance(v, datetime.datetime) and (v.hour, v.minute, v.second) == (0, 0, 0):
+        return f"{v.month}/{v.day}({_OSU_WEEKDAYS[v.weekday()]})"
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))
+    return str(v)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _osu_extra_month_rows(tab_idx: int, year: int, month: int) -> "list | None":
+    """タブ①／②のうち対象年月のシート（シート名の「YYYY年M月」が一致・_OSU_EXTRA_TAB_TITLE_RES）を
+    行リストで返す。無ければ None（前の月のシートへは戻さない）。おすすめ・YG一覧で共用。"""
+    import openpyxl as _ox
+    _wb = _ox.load_workbook(io.BytesIO(_osu_extra_fetch_xlsx()), read_only=True, data_only=True)
+    for _w in _wb.worksheets:
+        _m = _OSU_EXTRA_TAB_TITLE_RES[tab_idx].match(_w.title)
+        if _m and (int(_m.group(1)), int(_m.group(2))) == (year, month):
+            return [[_osu_extra_xlsx_text(_v) for _v in _r] for _r in _w.iter_rows(values_only=True)]
+    return None
 
 
 def _osu_extra_url(gid: str) -> str:
@@ -3569,6 +3618,8 @@ def _osu_top_refetch() -> None:
     _osu_top_month_rows.clear()
     _wp_fetch_xlsx.clear()
     _osu_top_fetch_csv.clear()
+    _osu_extra_fetch_xlsx.clear()
+    _osu_extra_month_rows.clear()
     st.session_state.pop("_osu_top_order_key", None)
     st.session_state.pop("_osu_top_order2_key", None)
 
@@ -3626,7 +3677,10 @@ def show_osusume_top_page() -> None:
     for _ti, (_tlabel, _gid) in enumerate(_OSU_EXTRA_TABS):
         try:
             with st.spinner(f"{_tlabel} を読み込んでいます…"):
-                _xr = _osu_top_fetch_csv(_osu_extra_url(_gid))
+                _xr = _osu_extra_month_rows(_ti, _day.year, _day.month)
+            if _xr is None:
+                st.warning(f"⚠️ {_tlabel}: {_day.year}年{_day.month}月 のシートがありません。")
+                continue
             _ex_hits += _osu_extra_extract(_xr, _day, _ti)
         except _OsuTopError as _e:
             st.error(f"❌ {_tlabel}: {_e}")
@@ -3681,9 +3735,9 @@ def show_osusume_top_page() -> None:
 # ══════════════════════════════════════════════════════════════
 # 「YG用」→「一覧」ページ（選択日の YG 一覧の店舗と企画をテキスト化）
 # ══════════════════════════════════════════════════════════════
-# 参照元は「おすすめ」の追加2タブと**同じスプレッドシート・同じ gid**
-# （_OSU_EXTRA_SHEET_ID / _OSU_EXTRA_TABS）。月替わりでシートが変わる場合も、
-# おすすめと同じその定数を差し替えれば YG 一覧も同時に切り替わる（URL を別に持たない）。
+# 参照元は「おすすめ」の追加2タブと**同じスプレッドシート・同じシート**
+# （_OSU_EXTRA_SHEET_ID / _osu_extra_month_rows）。対象日の年月のシートを名前から選ぶので、
+# 月替わりもおすすめと同時に自動で切り替わる（2026-11 から。それまでは固定 gid）。
 # 取得（_osu_top_fetch_csv・成功時5分キャッシュ）・日付照合（_osu_extra_date_match）・
 # 見出し行と「ホール」列の検出（_osu_extra_cols）は既存処理をそのまま使う。
 # シート構造（2026-10 の実データで確認）:
@@ -3927,6 +3981,8 @@ def _yg_list_text(day: datetime.date, blocks: list, day_on: "dict[str, bool]") -
 
 def _yg_list_refetch() -> None:
     _osu_top_fetch_csv.clear()
+    _osu_extra_fetch_xlsx.clear()
+    _osu_extra_month_rows.clear()
 
 
 def show_yg_list_page() -> None:
@@ -3949,7 +4005,10 @@ def show_yg_list_page() -> None:
         for _ti, (_tlabel, _gid) in enumerate(_OSU_EXTRA_TABS):
             try:
                 with st.spinner(f"{_tlabel} を読み込んでいます…"):
-                    _xr = _osu_top_fetch_csv(_osu_extra_url(_gid))
+                    _xr = _osu_extra_month_rows(_ti, _day.year, _day.month)
+                if _xr is None:
+                    st.warning(f"⚠️ {_tlabel}: {_day.year}年{_day.month}月 のシートがありません。")
+                    continue
                 _rs, _odd = _yg_list_extract(_xr, _day, with_kikaku=(_ti == 0))
                 if _odd:
                     st.warning(f"⚠️ {_tlabel}: 「一覧」列に〇以外の値があるため対象外にしました（"

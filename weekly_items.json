@@ -1796,7 +1796,7 @@
   "モグ玄・新大久保": {
     "t2": {
       "items": [
-        "ツノッチが3体(並び？)",
+        "ツノっちが3体(並び？)",
         "ツノ1本(角？)",
         "ツノ2本(角2？)",
         "バーベル上げ(前日から上げ？)",
@@ -1807,75 +1807,30 @@
       ],
       "title": "毎日オススメ ネオアイム・ゴージャグ3",
       "date_checks": {
-        "2026-10-27": [
-          true,
-          false,
-          false,
-          true,
-          false,
-          false,
-          false,
-          false
-        ],
-        "2026-10-28": [
-          false,
-          true,
-          false,
-          true,
-          false,
-          false,
-          false,
-          false
-        ],
-        "2026-10-29": [
-          false,
-          false,
-          false,
-          true,
-          false,
-          false,
-          false,
-          false
-        ],
-        "2026-10-30": [
-          true,
-          true,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false
-        ],
-        "2026-10-31": [
-          true,
-          true,
-          false,
-          true,
-          false,
-          false,
-          false,
-          false
-        ],
         "2026-11-01": [
           true,
           true,
           false,
-          true,
           false,
+          true,
           false,
           false,
           false
         ]
       },
       "blank_date_checks": {
-        "2026-10-27": false,
-        "2026-10-28": false,
-        "2026-10-29": false,
-        "2026-10-30": false,
-        "2026-10-31": false,
         "2026-11-01": false
-      }
+      },
+      "blank_days": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "monthly_start": "2026-11-02"
     }
   }
 }

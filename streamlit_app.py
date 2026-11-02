@@ -34423,7 +34423,7 @@ def main() -> None:
     _log_rss("main() 起動直後")
     # ページ設定（ブラウザタブのタイトルとレイアウト）
     st.set_page_config(
-        page_title="ギルド画像生成",
+        page_title="データ画像生成",
         page_icon="🎰",
         layout="wide",
         initial_sidebar_state="expanded",

@@ -306,9 +306,9 @@ def _monthly_t2_ms_fallback(store: str) -> "str | None":
     return _fd.isoformat() if _fd else None
 
 
-# 月間オススメ表①（t2）を新しい周期で始める店舗 → (周期の開始日, 最初に表を出す日)。
-# 開始日以降は monthly_start を使わず「当日を含む直近7日」。最初に出す日より前（11/1〜11/7）は
-# 表示対象なし（画面の表入力・表画像とも出さない）。11/8＝11/2〜11/8、以降1日ずつスライド。
+# 月間オススメ表①（t2）を新しい周期で始める店舗 → (周期の開始日, 直近7日にスライドする最初の日)。
+# 開始日以降は monthly_start を使わない。開始日〜スライド前日（11/1〜11/7）は開始日固定で列を増やし
+# （11/1＝11/1の1日、11/2＝11/1〜11/2 … 11/7＝11/1〜11/7）、11/8 から「当日を含む直近7日」（11/8＝11/2〜11/8）。
 # チェックは従来どおり weekly_items.json の日付キー（date_checks）なので、旧周期の値は新しい日付へ出ない。
 # 開始日より前の基準日（過去データ）は従来の計算のまま。①の機種のローテ画像・毎日オススメ結果は対象外。
 _MONTHLY_T2_CYCLE: "dict[str, tuple[datetime.date, datetime.date]]" = {
@@ -317,12 +317,12 @@ _MONTHLY_T2_CYCLE: "dict[str, tuple[datetime.date, datetime.date]]" = {
 
 
 def _monthly_t2_cycle_dates(store: str, ref) -> "list | None":
-    """新周期の表示日（当日を含む直近7日・表示対象なしは []）。新周期の対象外なら None（従来の計算）。"""
+    """新周期の表示日（開始日固定で列を増やす→直近7日）。新周期の対象外なら None（従来の計算）。"""
     _c = _MONTHLY_T2_CYCLE.get(store)
     if _c is None or ref is None or ref < _c[0]:
         return None
     if ref < _c[1]:
-        return []
+        return [_c[0] + datetime.timedelta(days=_i) for _i in range((ref - _c[0]).days + 1)]
     return [ref - datetime.timedelta(days=6 - _i) for _i in range(7)]
 
 
@@ -28896,13 +28896,6 @@ def show_weekly_table_section(store: str, table_num: int = 1, excel_date=None) -
                     _end   = _ref
                 _cap_suffix = "（Excelの日付より自動設定）" if excel_date is not None else "（今日の日付より自動設定）"
                 _cyc = _monthly_t2_cycle_dates(store, _ref) if _tn == 2 else None
-                if _cyc == []:
-                    _c0, _c1 = _MONTHLY_T2_CYCLE[store]
-                    _c1s = _c1 - _dt.timedelta(days=6)
-                    st.info(f"📅 表示対象なし（{_c0.month}/{_c0.day}から新しい周期。"
-                            f"{_c1.month}/{_c1.day}から {_c1s.month}/{_c1s.day}～{_c1.month}/{_c1.day} を表示し、"
-                            f"以降は当日を含む直近7日）")
-                    return
                 if _cyc:
                     _start, _end = _cyc[0], _cyc[-1]
             else:
@@ -30207,10 +30200,8 @@ def show_rote_page() -> None:
                             _wt_start  = _rd_ref - datetime.timedelta(days=6)
                             _wt_n_cols = 7
                         _cyc_gen = _monthly_t2_cycle_dates(store, _rd_ref) if _wtn == 2 else None
-                        if _cyc_gen == []:
-                            continue      # 新周期の表示対象なし（11/1〜11/7）：表画像を作らない
                         if _cyc_gen:
-                            _wt_start, _wt_n_cols = _cyc_gen[0], 7
+                            _wt_start, _wt_n_cols = _cyc_gen[0], len(_cyc_gen)
                     else:
                         _wt_start  = st.session_state.get(f"weekly_start_{store}_t{_wtn}")
                         _wt_n_cols = 7

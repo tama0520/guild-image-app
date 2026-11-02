@@ -1816,10 +1816,21 @@
           false,
           false,
           false
+        ],
+        "2026-11-02": [
+          true,
+          false,
+          false,
+          true,
+          true,
+          false,
+          false,
+          false
         ]
       },
       "blank_date_checks": {
-        "2026-11-01": false
+        "2026-11-01": false,
+        "2026-11-02": false
       },
       "blank_days": [
         false,

@@ -1856,6 +1856,16 @@
           false,
           false,
           false
+        ],
+        "2026-11-01": [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
         ]
       },
       "blank_date_checks": {
@@ -1863,7 +1873,8 @@
         "2026-10-28": false,
         "2026-10-29": false,
         "2026-10-30": false,
-        "2026-10-31": false
+        "2026-10-31": false,
+        "2026-11-01": false
       }
     }
   }

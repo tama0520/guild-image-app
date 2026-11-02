@@ -4170,7 +4170,7 @@ _WP_RULES: "dict[str, tuple[tuple[str, int], ...]]" = {
     "⑥": (("事前", -1), ("ローテ", 0), ("結果", 1)),
     "⑦": (("事前", -1),),
 }
-_WP_KINDS: "tuple[str, ...]" = ("事前", "何の日", "結果", "ローテ")
+_WP_KINDS: "tuple[str, ...]" = ("事前", "何の日", "結果", "ブログ", "ローテ")
 # 事前だけ「対象日の前日（＝作業日）に予定がある人」が作る店舗。
 _WP_PRE_PREV_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町", "秋葉原"})
 # 上と同じ事前ルールを 2026-11-01 から使う店舗。“今日”（_wp_today()・日本時間7:00切替）と作業日が
@@ -4202,6 +4202,15 @@ _WP_OC_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町", "新大久保
 _WP_OC_FROM: "tuple[int, int, int]" = (2026, 11, 1)
 # OC の「結果」は対象日がこの日以降のものだけ複製する（OC結果は 11/1 分から始まるため。事前・ローテは対象日で絞らない）
 _WP_OC_RESULT_FROM: "tuple[int, int, int]" = (2026, 11, 1)
+# ブログ：前日分の結果を作業日に書く作業（作業日 D に「D−1分」）。担当は予定表のこの店舗の ⑥ の行で、
+# 作業日のセルに付いた色の人（セルは空欄でもよい・色の判定は既存の _wp_cell_color／_WP_PERSON_COLORS）。
+# 作業日が開始日以降だけ。OC には複製しない（_wp_add_oc_tasks の後に足す）。
+_WP_BLOG_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+_WP_BLOG_CAT = "⑥"
+_WP_BLOG_KIND = "ブログ"
+_WP_BLOG_FROM: "tuple[int, int, int]" = (2026, 11, 1)
+# 「本日の仕事」の表示だけの店舗名（作業の抽出・完了キー・他機能の店舗名は変えない）
+_WP_STORE_DISPLAY: "dict[str, str]" = {"新宿歌舞伎町": "歌舞伎町"}
 
 
 def _wp_add_oc_tasks(tasks: list, work_date) -> list:
@@ -4360,6 +4369,7 @@ def _wp_month_schedule(year: int, month: int) -> dict:
                 "error": f"「{_ws.title}」の日付見出し（C1〜）が想定と違います。予定表のレイアウトを確認してください。"}
     _theme = _wp_theme_colors(_wb)
     _cells, _bad, _store, _nstores = [], [], None, 0
+    _blog = []    # (店舗, 日, 担当)：ブログ担当（_WP_BLOG_STORES の ⑥ の行で色が付いたセル）
     for _ri in range(_WP_FIRST_ROW - 1, min(len(_rows), _WP_LAST_ROW)):
         _row = _rows[_ri]
         _b = str(_row[1].value or "").strip() if len(_row) > 1 else ""
@@ -4375,6 +4385,11 @@ def _wp_month_schedule(year: int, month: int) -> dict:
                 break
             _cell = _row[_cidx]
             _v = str(_cell.value or "").strip()
+            if _store in _WP_BLOG_STORES and _label == _WP_BLOG_CAT:
+                # 値の有無は問わず色だけを見る（担当色でなければブログなし）
+                _who_b = _WP_PERSON_COLORS.get(_wp_cell_color(_cell, _theme) or "")
+                if _who_b:
+                    _blog.append((_store, _di + 1, _who_b))
             if not _v or _v not in _WP_CIRC:
                 continue
             _cat = _label or _v
@@ -4425,7 +4440,7 @@ def _wp_month_schedule(year: int, month: int) -> dict:
                 continue
             _cells.append((_disp, _di + 1, _v, _who, _ri + 1))
     return {"ok": True, "error": "", "sheet": _ws.title, "cells": _cells, "bad": _bad,
-            "missing": _missing}
+            "missing": _missing, "blog": _blog}
 
 
 def _wp_tasks_for(work_date) -> dict:
@@ -4439,6 +4454,7 @@ def _wp_tasks_for(work_date) -> dict:
                     (work_date - _dt.timedelta(days=1), work_date, work_date + _dt.timedelta(days=1))})
     _errors, _warnings = [], []
     _assign: dict = {}          # (店舗, date) -> [(区分, 担当, 行)]
+    _blog_who: dict = {}        # (店舗, date) -> ブログ担当
     _loaded = set()
     for _y, _m in _need:
         _res = _wp_month_schedule(_y, _m)
@@ -4448,6 +4464,8 @@ def _wp_tasks_for(work_date) -> dict:
         _loaded.add((_y, _m))
         for _s, _d, _cat, _who, _r in _res["cells"]:
             _assign.setdefault((_s, _dt.date(_y, _m, _d)), []).append((_cat, _who, _r))
+        for _s, _d, _who in _res.get("blog", []):
+            _blog_who.setdefault((_s, _dt.date(_y, _m, _d)), _who)
         for _bad in _res["bad"]:
             _warnings.append(f"担当色を判定できないセル: {_bad}")
         for _ms in _res.get("missing", []):
@@ -4503,7 +4521,18 @@ def _wp_tasks_for(work_date) -> dict:
                 _key = "|".join([work_date.isoformat(), _d.isoformat(), _s, _cat, _kind, _person])
                 _tasks.append({"work_date": work_date, "target_date": _d, "store": _s,
                                "cat": _cat, "kind": _kind, "person": _person, "key": _key})
-    return {"tasks": _wp_add_oc_tasks(_tasks, work_date), "errors": _errors, "warnings": _warnings}
+    _blog_tasks = []
+    if work_date >= _dt.date(*_WP_BLOG_FROM):
+        for _s in sorted(_WP_BLOG_STORES):
+            _who = _blog_who.get((_s, work_date))
+            if not _who:
+                continue
+            _td = work_date - _dt.timedelta(days=1)
+            _key = "|".join([work_date.isoformat(), _td.isoformat(), _s, "", _WP_BLOG_KIND, _who])
+            _blog_tasks.append({"work_date": work_date, "target_date": _td, "store": _s,
+                                "cat": "", "kind": _WP_BLOG_KIND, "person": _who, "key": _key})
+    return {"tasks": _wp_add_oc_tasks(_tasks, work_date) + _blog_tasks,
+            "errors": _errors, "warnings": _warnings}
 
 
 def _wp_read_file() -> dict:
@@ -4731,14 +4760,14 @@ _WP_CSS = """
 
 def _wp_task_label(t: dict, done: bool) -> str:
     _d = t["target_date"]
-    _txt = f"{t['store']}　{t['cat']}{t['kind']}（{_d.month}/{_d.day}分）"
+    _txt = f"{_WP_STORE_DISPLAY.get(t['store'], t['store'])}　{t['cat']}{t['kind']}（{_d.month}/{_d.day}分）"
     return f"✅ 完了　{_txt}" if done else f"⬜ {_txt}"
 
 
 def _wp_task_label_pc(t: dict, done: bool) -> str:
     """PC用カードの短いラベル（店舗・区分作業・対象日・完了状態は残す）。"""
     _d = t["target_date"]
-    _txt = f"{t['store']} {t['cat']}{t['kind']} {_d.month}/{_d.day}分"
+    _txt = f"{_WP_STORE_DISPLAY.get(t['store'], t['store'])} {t['cat']}{t['kind']} {_d.month}/{_d.day}分"
     return f"✅完了 {_txt}" if done else f"⬜ {_txt}"
 
 

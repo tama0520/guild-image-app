@@ -307,8 +307,9 @@ def _monthly_t2_ms_fallback(store: str) -> "str | None":
 
 
 # 月間オススメ表①（t2）を新しい周期で始める店舗 → (周期の開始日, 直近7日にスライドする最初の日)。
-# 開始日以降は monthly_start を使わない。基準日が開始日〜スライド前日（11/1〜11/7）の間は毎日
-# 開始日からの7日（11/1〜11/7）で固定し、11/8 から「当日を含む直近7日」（11/8＝11/2〜11/8）。
+# 開始日以降は monthly_start を使わない。基準日（Excelの日付）が開始日〜スライド前日（11/1〜11/7）の間は
+# 開始日〜基準日（11/1＝11/1だけ、11/2＝11/1〜11/2 … 11/7＝11/1〜11/7。未来日の列は出さない）、
+# 11/8 から「当日を含む直近7日」（11/8＝11/2〜11/8）。
 # チェックは従来どおり weekly_items.json の日付キー（date_checks）なので、旧周期の値は新しい日付へ出ない。
 # 開始日より前の基準日（過去データ）は従来の計算のまま。①の機種のローテ画像・毎日オススメ結果は対象外。
 _MONTHLY_T2_CYCLE: "dict[str, tuple[datetime.date, datetime.date]]" = {
@@ -317,12 +318,12 @@ _MONTHLY_T2_CYCLE: "dict[str, tuple[datetime.date, datetime.date]]" = {
 
 
 def _monthly_t2_cycle_dates(store: str, ref) -> "list | None":
-    """新周期の表示日（開始日からの7日で固定→直近7日）。新周期の対象外なら None（従来の計算）。"""
+    """新周期の表示日（開始日〜基準日→直近7日）。新周期の対象外なら None（従来の計算）。"""
     _c = _MONTHLY_T2_CYCLE.get(store)
     if _c is None or ref is None or ref < _c[0]:
         return None
     if ref < _c[1]:
-        return [_c[0] + datetime.timedelta(days=_i) for _i in range(7)]
+        return [_c[0] + datetime.timedelta(days=_i) for _i in range((ref - _c[0]).days + 1)]
     return [ref - datetime.timedelta(days=6 - _i) for _i in range(7)]
 
 

@@ -656,3 +656,105 @@ URLの `page=` に**現在存在しない値**が入ると：
 
 <!-- VERBATIM-END id=S25957 -->
 
+
+---
+
+## 【正式仕様・後発例外】機種名変換.xlsxのローカル同期：ahead=0／behind>0時のみ安全なff-onlyを許可（2026-11-03・`36d25db`）
+
+「機種名変換：保存時GitHub自動同期（2026-09-01 確定・`fae637e` / `bde3afb`）」の **⑧（`behind > 0` は停止）への後発例外**。⑧〜⑭・㉑の本文は書き換えず、この節で例外だけを追加する。**通常 merge／rebase を許可する変更ではない。**
+
+| commit | 内容 |
+|---|---|
+| `5168d55` | `update: 機種名変換マスタを更新` — 停止していた未同期5行（上野新館11/2の1件を含む）を手動で `機種名変換.xlsx` 1ファイルだけ commit / push（データのみ） |
+| **`36d25db`** | **機種名変換の自動同期：ahead=0・behind>0のときだけff-onlyで最新を取り込んでから機種名変換.xlsxだけcommit/push**（`streamlit_app.py` のみ・+77 / −14） |
+
+### A. 従来停止の原因
+
+- 従来は fetch → ahead / behind 確認で `behind > 0` なら一律に「GitHub側に新しいcommitがN件あります。自動でmerge/rebaseは行いません。」で停止していた
+- Cloud が `work_progress.json` 等を auto commit するだけで behind>0 になる。ローカルが最新に追いつくのはセッション開始時の pull と画像生成・保存時の自動 push のときだけのため、通常運用で頻発した
+- 結果、`機種名変換.xlsx` はローカル保存だけで GitHub／Cloud へ反映されないことがあった（2026-11-03：behind=3 で停止・未同期5行 → `5168d55` で手動反映）
+
+### B. 対象経路
+
+- `_sync_name_map()` の**ローカル分岐だけ**
+- 機種名変換の3保存経路（📋マスタ保存／🔄変換実行の追加／🔍Pisionチェックの追加）はすべて `_sync_name_map_ui()` → `_sync_name_map()` を通る
+- Cloud の Contents API 経路は変更しない
+
+### C. ff-only 許可条件（すべて満たすときだけ）
+
+- `ahead = 0`
+- `behind > 0`
+- `機種名変換.xlsx` に HEAD との差分がある
+- `git merge --ff-only <fetch で取得した origin/main>` が成功する
+- D の安全確認がすべて成功する
+
+このとき：fetch → ff-only → 安全確認 → `機種名変換.xlsx` だけ stage → `機種名変換.xlsx` だけ commit → push
+
+- behind>0 でも `機種名変換.xlsx` に差分が無ければ **ff-only は実行せず**「変更なし（同期不要）」で終了（Cloud 側 commit を無意味に取り込まない）
+
+### D. ff 後の安全確認（1つでも NG なら commit / push しない）
+
+1. HEAD が取得した origin/main と一致
+2. `機種名変換.xlsx` の内容が ff 前と同一（sha1）で、HEAD との差分が残っている
+3. ff 前に dirty だった他ファイルの内容（sha1）が不変
+4. ahead = 0 / behind = 0
+
+### E. 他 dirty は許容
+
+- `auto_page_inputs.json`・`weekly_items.json`・`work_progress.json`・`store_settings`・その他既存 dirty・既存 stage 済みファイル・未追跡ファイルがあっても自動同期を止めない
+- それらを stage・commit・変更しない（ローカル dirty と重なる取り込みは git 自身が ff-only を拒否 → G で停止）
+
+### F. `機種名変換.xlsx` だけ stage／commit
+
+- stage は `git add -- 機種名変換.xlsx` のみ。commit も pathspec 限定（`-- 機種名変換.xlsx`）
+- 既存 stage は解除せず、今回の commit へ巻き込まない
+- push 前に `git diff-tree --no-commit-id --name-only -r -z HEAD` で commit 内容が `機種名変換.xlsx` の1ファイルだけ、かつ ahead=1 であることを確認（日本語ファイル名の quote を避けるため `-z`）
+
+### G. 停止条件（従来どおり停止・自動解決しない）
+
+- fetch 失敗（「fetch失敗」と表示）
+- ahead > 0（従来文言）
+- ahead > 0 かつ behind > 0 の分岐（「分岐しています」と表示）
+- ff-only 不可（merge conflict のおそれ・GitHub 側で `機種名変換.xlsx` が更新済み・ローカル dirty と重なる等。git のエラー文を添える）
+- ff 後の安全確認 NG
+- commit 内容が `機種名変換.xlsx` 以外を含む／commit 後 ahead ≠ 1（push しない）
+- push 拒否
+- その他想定外状態
+
+禁止（今回も）：`git pull` / `git pull --rebase` / `git rebase` / 通常 merge / 自動競合解消 / stash（pop・apply・drop 含む）/ reset / restore / clean / `git add .` / `git add -A`。許可する履歴操作は `git merge --ff-only` だけ。
+
+### H. push 競合時は自動再送しない
+
+- ff 後に commit した直後に Cloud が push すると、こちらの push は拒否され得る
+- 自動 rebase・自動再 push・自動ループはしない。「GitHub側が更新されたためpushできませんでした。ローカル保存とcommitは完了していますが、GitHubへは未反映です…」と表示して停止
+- ローカル保存と commit は残る。次回は ahead／分岐として停止するため手動解消が必要（安全側の正式仕様・⑫⑬の考え方を維持）
+
+### 成功通知
+
+- ff-only で取り込んだ場合：「GitHubの最新（新しいcommit N件）をff-onlyで取り込んでからGitHubへ同期しました」（成功通知に統合）
+- behind=0 の通常同期：従来どおり「GitHubへ同期しました」
+
+### I. 検証ケース（一時 repo：bare remote＋ローカル clone＋Cloud 役 clone・全 PASS）
+
+- A：ahead0/behind3・xlsx dirty・他 dirty あり → ff-only 成功・xlsx だけ commit/push・他 dirty の内容／status 不変
+- B：ahead0/behind0 → 従来どおり commit/push
+- C：ahead1/behind0 → 停止（HEAD・remote 不変）
+- D：ahead1/behind1 → 分岐として停止
+- E：Cloud が `weekly_items.json` を更新・ローカルも同ファイル dirty → ff-only 不可で停止（HEAD・内容不変）
+- E2：Cloud 側で `機種名変換.xlsx` 更新済み → ff-only 不可で停止・ローカル xlsx 不変
+- F：ff 後・push 直前に Cloud commit → push 拒否・自動 rebase／再 push なしで停止（次回は分岐として停止）
+- G：他ファイル stage 済み＋未 stage dirty＋未追跡あり → 成功・既存 stage 維持・commit は xlsx だけ
+- H：behind2・xlsx 差分なし → ff せず「変更なし」
+- 検証途中で diff-tree の日本語名 quote により B まで停止する不具合を発見 → `-z` に修正後に全ケース再検証。本体の反映コードは検証した複製とバイト一致
+
+### J. 他同期機能は変更なし
+
+- Cloud の Contents API 経路・`_sync_name_map_ui()`・`_git_auto_push()`・`_git_auto_pull()`・`_sync_machine_image_master()`・work_progress 同期・weekly_items 同期・その他 GitHub 同期は変更なし
+- 例外は **`機種名変換.xlsx` のローカル同期だけ**。⑳の「`_git_auto_push()` の targets へ `機種名変換.xlsx` を追加しない」も維持
+- 注意：ff-only で取り込んだ commit に `streamlit_app.py` の変更が含まれる場合、8501 は次の rerun から新しいコードで動く（`_git_auto_pull()` と同じ）
+
+### K. 既存⑧との関係
+
+- ⑧「behind>0 なら自動 merge/rebase せず停止」の安全思想は維持
+- `36d25db` 以降、**`機種名変換.xlsx` のローカル同期だけ**、`ahead=0` ＋ `behind>0` ＋ ff-only 可能 ＋ 安全再確認成功 のときに fast-forward のみ許可する後発例外
+- ⑨（ahead>0 停止）・⑬（差分判定より前に ahead 判定）・⑭（分岐は自動解決しない）・㉑の非回帰項目は維持。通常 merge／rebase は引き続き禁止

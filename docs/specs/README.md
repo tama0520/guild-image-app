@@ -13,6 +13,7 @@ Cloud↔GitHub同期・store_settings運用・機種画像/機種名変換の同
 - `S04126` L4126–4397：機種名変換：保存時GitHub自動同期（2026-09-01 確定・`fae637e` / `bde3afb`）
 - `S13451` L13451–13539：Streamlit Cloud 起動障害：`packages.txt` 削除で復旧（2026-09-09・`625d29b`）
 - `S25957` L25957–26046：【正式仕様】不正・未知の `page=` によるCloud無限rerunの防止（2026-10-12・`5c429cc`）
+- （分割後追記・マーカー外）【正式仕様・後発例外】機種名変換.xlsxのローカル同期：ahead=0／behind>0時のみ安全なff-onlyを許可（2026-11-03・`36d25db`）（`S04126` ⑧の後発例外。通常merge／rebaseは引き続き禁止）
 
 ## [top_ui_tools.md](top_ui_tools.md) — トップ画面・ツールページ
 

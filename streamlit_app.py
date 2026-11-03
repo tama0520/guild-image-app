@@ -27438,9 +27438,13 @@ def _sync_name_map() -> tuple[bool, str]:
              そのcommitが機種名変換由来かどうかに関係なく停止する（案B・安全優先）。
     Cloud   : GitHub Contents API（読み込み時SHAと現在SHAの一致確認・不一致ならPUTしない）
 
-    **pull / rebase / merge / reset / force push / autostash は一切行わない。**
-    リモートが進んでいる・push が拒否された場合は**その場で停止**して理由を返す
-    （自動解決しない）。戻り値: (成功, メッセージ)
+    **pull / rebase / 通常merge / reset / force push / autostash / stash は一切行わない。**
+    例外は1つだけ：**ahead==0 かつ behind>0 かつ 機種名変換.xlsx に差分あり**のときは
+    `git merge --ff-only origin/main` で GitHub の最新を取り込んでから同期する
+    （Cloud の auto commit で止まらないように）。他の dirty は許容するが stage / commit
+    しない。ff-only 不可・取り込み後の再確認で想定外・diverge は停止する。
+    push が拒否された場合は**その場で停止**して理由を返す（自動 rebase・再送はしない）。
+    戻り値: (成功, メッセージ)
 
     ・対象は `機種名変換.xlsx` の1ファイルのみ。他の変更ファイル・未追跡ファイルは
       絶対に stage / commit しない（`git add .` / `-A` / `commit -a` は使わない）。
@@ -27507,7 +27511,7 @@ def _sync_name_map() -> tuple[bool, str]:
         except Exception as e:
             return False, f"同期失敗: {e}"
 
-    # ── ローカル: git（pull/rebase/merge/reset/force は使わない）──────
+    # ── ローカル: git（pull/rebase/通常merge/reset/force は使わない。ff-only だけ条件付き）──
     import subprocess
 
     def _git(*args, check=True):
@@ -27525,16 +27529,65 @@ def _sync_name_map() -> tuple[bool, str]:
         except ValueError:
             return 0
 
+    def _out(*args) -> str:
+        return _git(*args).stdout.decode("utf-8", errors="replace").strip()
+
+    def _dirty_snapshot(names=None) -> dict:
+        # 追跡ファイルのうち HEAD と違うもの（stage 済みを含む）→ ワークツリー内容の hash
+        _names = names if names is not None else [
+            n for n in _git("diff", "--name-only", "-z", "HEAD").stdout
+            .decode("utf-8", errors="replace").split("\0") if n]
+        _snap = {}
+        for _n in _names:
+            _fp = os.path.join(BASE_DIR, _n)
+            try:
+                with open(_fp, "rb") as _f:
+                    _snap[_n] = hashlib.sha1(_f.read()).hexdigest()
+            except FileNotFoundError:
+                _snap[_n] = None
+        return _snap
+
+    _ff_msg = ""
     try:
         # 1) リモートの状態を取得（fetch のみ。pull は絶対にしない）
-        _git("fetch", "origin", "main")
+        try:
+            _git("fetch", "origin", "main")
+        except subprocess.CalledProcessError as e:
+            return False, f"同期停止: GitHubの状態を取得できませんでした（fetch失敗: {_err(e)}）"
         _ahead  = _count("origin/main..HEAD")   # ローカルにある未pushのcommit数
         _behind = _count("HEAD..origin/main")   # GitHub側にある未取り込みのcommit数
-        # 2) GitHub側が進んでいる → 停止（merge/rebase/pull/reset/force はしない）
-        if _behind > 0:
-            return False, ("同期停止: GitHub側に新しいcommitが"
-                           f"{_behind}件あります。自動でmerge/rebaseは行いません。"
-                           "手動で確認してください")
+        # 2) 分岐（ahead>0 かつ behind>0）→ 停止（自動解決しない）
+        if _ahead > 0 and _behind > 0:
+            return False, (f"同期停止: ローカル（未push {_ahead}件）とGitHub（新しいcommit {_behind}件）が"
+                           "分岐しています。自動でmerge/rebaseは行いません。手動で確認してください")
+        # 2') GitHub側だけ進んでいる（ahead==0）→ 機種名変換.xlsx に差分があるときだけ ff-only で取り込む
+        if _ahead == 0 and _behind > 0:
+            if _git("diff", "--quiet", "HEAD", "--", _rp, check=False).returncode == 0:
+                return True, "変更なし（同期不要）"
+            _head0 = _out("rev-parse", "HEAD")
+            _target = _out("rev-parse", "origin/main")
+            _snap0 = _dirty_snapshot()
+            _mr = _git("merge", "--ff-only", _target, check=False)
+            if _mr.returncode != 0:
+                return False, ("同期停止: GitHub側に新しいcommitが"
+                               f"{_behind}件あり、ff-onlyで取り込めませんでした"
+                               "（ローカルの変更と重なっている可能性）。"
+                               "自動でmerge/rebaseは行いません。手動で確認してください"
+                               f"（{_err(_mr)}）")
+            # 取り込み後の再確認：HEAD が取り込み先・他の dirty の内容不変・機種名変換.xlsx の差分が残る
+            _head1 = _out("rev-parse", "HEAD")
+            _snap1 = _dirty_snapshot(list(_snap0))   # 取り込み前の dirty を同じ名前で読み直す
+            _changed = [k for k, v in _snap0.items() if k != _rp and _snap1.get(k) != v]
+            if (_head1 != _target or _rp not in _snap0 or _snap1.get(_rp) != _snap0.get(_rp)
+                    or _git("diff", "--quiet", "HEAD", "--", _rp, check=False).returncode == 0
+                    or _changed
+                    or _count("origin/main..HEAD") != 0 or _count("HEAD..origin/main") != 0):
+                return False, ("同期停止: ff-only取り込み後の確認で想定外の状態になりました"
+                               f"（HEAD {_head0[:7]}→{_head1[:7]}"
+                               + (f"・内容が変わったファイル: {', '.join(_changed)}" if _changed else "")
+                               + "）。commit・pushはしていません。手動で確認してください")
+            _ahead, _behind = 0, 0
+            _ff_msg = f"GitHubの最新（新しいcommit {_count(_head0 + '..HEAD')}件）をff-onlyで取り込んでから"
         # 3) 未pushのローカルcommitがある → **由来を問わず**停止（案B）
         #    push はブランチ単位のため、別件のcommitまで巻き込む可能性がある。
         #    新しいcommitも作らない（未pushcommitの積み上がりも防ぐ）。
@@ -27553,15 +27606,25 @@ def _sync_name_map() -> tuple[bool, str]:
             return True, "変更なし（同期不要）"
         # 7) パス限定 commit（他ファイルが stage 済みでも巻き込まない）
         _git("commit", "-m", "update: 機種名変換マスタを更新", "--", _rp)
-        # 8) push（拒否されたら停止。rollback も force もしない）
+        # 7') push 前確認：今の commit が 機種名変換.xlsx だけ・ahead==1
+        _files = [n for n in _out("diff-tree", "--no-commit-id", "--name-only", "-r", "-z", "HEAD")
+                  .split("\0") if n]
+        if _files != [_rp] or _count("origin/main..HEAD") != 1:
+            return False, ("同期停止: commit内容が想定外のためpushしません"
+                           f"（{', '.join(_files)}）。手動でGit履歴を確認してください")
+        # 8) push（拒否されたら停止。rollback も force も自動rebase・再送もしない）
         try:
             _git("push", "origin", "main")
         except subprocess.CalledProcessError as e:
-            return False, ("同期停止: pushに失敗しました。"
+            _e = _err(e)
+            _why = ("GitHub側が更新されたためpushできませんでした。"
+                    if any(_k in _e for _k in ("rejected", "fetch first", "non-fast-forward"))
+                    else "pushに失敗しました。")
+            return False, (f"同期停止: {_why}"
                            "ローカル保存とcommitは完了していますが、GitHubへは未反映です。"
                            "次回の自動同期は安全のため停止します。"
-                           f"手動でGit履歴を確認してください（{_err(e)}）")
-        return True, "GitHubへ同期しました"
+                           f"手動でGit履歴を確認してください（{_e}）")
+        return True, f"{_ff_msg}GitHubへ同期しました"
     except subprocess.CalledProcessError as e:
         return False, f"同期停止: {_err(e)}"
     except Exception as e:

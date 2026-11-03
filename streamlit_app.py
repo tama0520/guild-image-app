@@ -4201,6 +4201,9 @@ _WP_PRE_PREV_LATER_FROM: "tuple[int, int, int]" = (2026, 11, 1)
 # 「何の日」を作る（店舗, 区分）→ 前日が空欄のときの代わりの（店舗, 区分）。
 # 何の日は対象日の前日に作り、担当は事前と同じ（前日の秋葉原② → 空欄なら前日の新宿歌舞伎町①）。
 _WP_NANNOHI: "dict[tuple[str, str], tuple[str, str]]" = {("秋葉原", "②"): ("新宿歌舞伎町", "①")}
+# ②の事前・何の日は、対象日 D の②に入っている本人が作る（前日の印・他店舗の①は見ない）。
+# “今日”（_wp_today()）と作業日がどちらも開始日以降のときだけ（それより前の作業日の表示は従来どおり）。
+_WP_CAT2_SELF_FROM: "tuple[int, int, int]" = (2026, 11, 3)
 _WP_PROGRESS_FN = "work_progress.json"
 # エスパス13店舗の範囲（3〜94行目）の外にある追加店舗。B列の店名と完全一致する1行だけを読み、
 # 行位置は月ごとに違うため名前で探す（シート上の店名 → 表示名）。区分はセル値の丸数字。
@@ -4495,6 +4498,7 @@ def _wp_tasks_for(work_date) -> dict:
     _pre_prev = _WP_PRE_PREV_STORES
     if min(work_date, _wp_today()) >= _dt.date(*_WP_PRE_PREV_LATER_FROM):
         _pre_prev = _pre_prev | _WP_PRE_PREV_STORES_LATER
+    _cat2_self = min(work_date, _wp_today()) >= _dt.date(*_WP_CAT2_SELF_FROM)
     _order = sorted(_assign.keys(), key=lambda k: (k[1], min(r for _, _, r in _assign[k])))
     for (_s, _d) in _order:
         for _cat, _who, _r in sorted(_assign[(_s, _d)], key=lambda t: t[2]):
@@ -4515,7 +4519,9 @@ def _wp_tasks_for(work_date) -> dict:
                     continue
                 _seen.add(_dk)
                 _person = _who
-                if (_s, _cat) in _WP_NANNOHI and _kind in ("事前", "何の日"):
+                if _cat2_self and _cat == "②" and _kind in ("事前", "何の日"):
+                    pass        # 対象日 D の②の担当本人（結果と同じ人）
+                elif (_s, _cat) in _WP_NANNOHI and _kind in ("事前", "何の日"):
                     # 秋葉原②の事前・何の日（同じ担当）: 前日の秋葉原②担当 →
                     # 空欄なら前日の新宿歌舞伎町①担当。どちらも無ければ割り当てずエラー。
                     _prev = _d - _dt.timedelta(days=1)

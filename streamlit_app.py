@@ -9887,7 +9887,9 @@ _KOJIN_Y_EXPAND_SLUMP_STORES = frozenset({
 def _collect_kojin_pick(store: str, prefix: str = "") -> list[tuple[str, set[int]]]:
     """個別機種の優秀台ピックアップの (タイトル, 台番set) を返す（台番非空のみ）。"""
     out: list[tuple[str, set[int]]] = []
-    for i in range(_KOJIN_PICK_COUNT):
+    # モグ玄・新宿歌舞伎町のスランプ付き結果ポスト用は入力欄を撤去したので、保存値が残っていても使わない
+    _skip_pick = (not prefix) and store in _MOGU_SL_STORES and _mogu_kabu_slump_on()
+    for i in range(0 if _skip_pick else _KOJIN_PICK_COUNT):
         title = str(st.session_state.get(f"{prefix}kojin_pick_title_{i}_{store}", "")).strip()
         bans_text = str(st.session_state.get(f"{prefix}kojin_pick_bans_{i}_{store}", "")).strip()
         if not bans_text:
@@ -10197,6 +10199,8 @@ def _manual_sonota_auto_extract(df, diff, thr, exc_mac, exc_ban,
 # 「優秀台」は _kojin_yushu_filter()、枚数条件は _SONOTA_AUTO_THR を再利用する
 # （新しい優秀台判定・新しい閾値は作らない）。
 _JUG_AUTO_OPTS = ["なし", "優秀台", "+1,000枚以上", "+2,000枚以上"]
+# モグ玄・新宿歌舞伎町のスランプ付き結果ポスト用 ⑥「ジャグラーの優秀台」だけの選択肢（優秀台なし・+3,000枚以上あり）
+_MOGU_JUG_AUTO_OPTS = ["なし", "+1,000枚以上", "+2,000枚以上", "+3,000枚以上"]
 # 「ジャグラーシリーズ優秀台」の自動抽出条件を、日付をまたいで記憶・復元するページ×店舗（2026-10-01）。
 # ラジオは変更可能。最後に選んだ条件を article_shared_inputs.json（店舗単位・Cloud↔GitHub 同期済みの
 # 既存ファイル）へページ別に保存し、日付変更・再取得・再読込・Cloud Reboot 後も復元する。
@@ -10294,7 +10298,7 @@ def _manual_juggler_auto_extract(df, diff, mode: str, cfg: dict,
     **機種名単位では除外しない**（②に同じジャグラー機種があっても、②へ載っていない
     優秀台は統合画像へ残す）。"""
     _empty = df.iloc[0:0].copy() if df is not None else None
-    if df is None or df.empty or mode not in _JUG_AUTO_OPTS or mode == "なし":
+    if df is None or df.empty or (mode not in _JUG_AUTO_OPTS and mode not in _SONOTA_AUTO_THR) or mode == "なし":
         return _empty
     _series = set(cfg.get("juggler_series", set()))
     if not _series:
@@ -16111,6 +16115,41 @@ def _build_sue_images(uploaded, store: str, tails, mode: str, is_juggler: bool =
     return _imgs
 
 
+def _mk_mode_label(v: str) -> str:
+    """モグ玄・新宿歌舞伎町のスランプ付き：末尾モードの表示名（ピンクバー表記を出さない）。"""
+    return str(v).replace("（ピンクバー付き）", "")
+
+
+def _mk_thr_set(widget_key: str, opt: str, opts: list, field, label: str, store: str, xl) -> None:
+    """閾値チェック欄の on_change：1つだけON（他は外す）・全部OFFは「なし」。保存はラジオと同じ関数。"""
+    _ck = f"{widget_key}__ck_{opt}"
+    if st.session_state.get(_ck):
+        st.session_state[widget_key] = opt
+    elif st.session_state.get(widget_key) == opt:
+        st.session_state[widget_key] = "なし"
+    for _o in opts:
+        if _o not in ("なし", opt):
+            st.session_state[f"{widget_key}__ck_{_o}"] = False
+    if field:
+        _save_jug_auto_mem(store, field, widget_key, _save_auto_inputs, (store, xl), opts=opts, label=label)
+    else:
+        _save_auto_inputs(store, xl)
+
+
+def _mk_thr_row(title: str, widget_key: str, opts: list, field, label: str, store: str, xl) -> None:
+    """⑥「その他」の1行：太字の見出し＋その横に閾値のチェック欄（「なし」以外の選択肢）。"""
+    _cur = st.session_state.get(widget_key, "なし")
+    _ch = [_o for _o in opts if _o != "なし"]
+    _cols = st.columns([1.6] + [1] * len(_ch))
+    with _cols[0]:
+        st.markdown(f"**{title}**")
+    for _c, _o in zip(_cols[1:], _ch):
+        st.session_state[f"{widget_key}__ck_{_o}"] = (_cur == _o)
+        with _c:
+            st.checkbox(_o, key=f"{widget_key}__ck_{_o}", on_change=_mk_thr_set,
+                        args=(widget_key, _o, opts, field, label, store, xl))
+
+
 def show_auto_page(with_slump: bool = False) -> None:
     """自動処理ページ: PIL パイプラインで全画像を生成する"""
     store = st.session_state.selected_store
@@ -16120,6 +16159,10 @@ def show_auto_page(with_slump: bool = False) -> None:
     _is_kabupa_pg = _is_kabupa_page()
     _variety_ui = ((with_slump and (store == "秋葉原" or _is_kabupa_pg))
                    or store == "高田馬場")
+    # モグ玄・新宿歌舞伎町のスランプ付き結果ポスト用だけ：②④⑤⑥の入力欄を整理する（バラエティは⑥の中）
+    _mk_ui = with_slump and _mogu_kabu_slump_on()
+    if _mk_ui:
+        _variety_ui = True
     # セクション番号を動的採番（実際に表示されたセクションだけ丸数字を消費し、番号飛びを防ぐ）
     _CIRCLED_SEC = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫"
     _sec_state = {"n": 0}
@@ -16712,8 +16755,10 @@ def show_auto_page(with_slump: bool = False) -> None:
     variety_enabled: bool = False
     variety_ranges_text: str = ""
     variety_mode: str = "全台"
-    kojin_enabled = st.checkbox("個別画像も生成する", key="kojin_enabled",
-                                on_change=_save_auto_inputs, args=(store, _auto_xl))
+    # モグ玄・新宿歌舞伎町のスランプ付きは毎回使うので常に表示（チェック欄なし）
+    kojin_enabled = (True if _mk_ui else
+                     st.checkbox("個別画像も生成する", key="kojin_enabled",
+                                 on_change=_save_auto_inputs, args=(store, _auto_xl)))
     if kojin_enabled:
         _kojin_candidates = _excel_candidates
         # 新宿歌舞伎町: マイジャグV/ファンキー2 は台番の階（2F=3桁/3F=4桁）別バリアントを予測変換に追加
@@ -16725,7 +16770,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                         if _v not in _kc:
                             _kc.append(_v)
             _kojin_candidates = _kc
-        st.caption("指定した機種の個別画像を生成します。ここに入力した機種はその他の優秀台ピックアップから除外されます。")
+        if not _mk_ui:
+            st.caption("指定した機種の個別画像を生成します。ここに入力した機種はその他の優秀台ピックアップから除外されます。")
         # 未描画 run を挟んだ後の初回描画でブラウザへ初期値を届けるための保存値参照用
         _kojin_excel = st.session_state.get("auto_current_excel")
         # 新宿歌舞伎町の①かぶぱは 左=優秀台6個・右=全台3個。
@@ -16822,8 +16868,8 @@ def show_auto_page(with_slump: bool = False) -> None:
             kojin_narabi_title        = st.session_state.get(f"kojin_narabi_title_{store}", "")
             kojin_narabi2_ranges_text = st.session_state.get(f"kojin_narabi2_range_{store}", "")
             kojin_narabi2_title       = st.session_state.get(f"kojin_narabi2_title_{store}", "")
-        # 個別機種の優秀台ピックアップ（新宿歌舞伎町の①かぶぱだけ非表示）
-        if not _is_kabupa_pg:
+        # 個別機種の優秀台ピックアップ（新宿歌舞伎町の①かぶぱ・モグ玄・新宿歌舞伎町のスランプ付きは非表示）
+        if not _is_kabupa_pg and not _mk_ui:
             st.markdown("**個別機種の優秀台ピックアップ**")
             st.caption("タイトルと台番を指定した機種は、貼った台番だけの画像を作り、自動高配分画像は生成しません。")
             for _pi in range(_KOJIN_PICK_COUNT):
@@ -16842,7 +16888,21 @@ def show_auto_page(with_slump: bool = False) -> None:
                         height=68,
                         on_change=_save_auto_inputs, args=(store, _auto_xl),
                     )
-        if not _is_kabupa_pg:  # その他の優秀台ピックアップ（①かぶぱは非表示）
+        if _mk_ui:
+            # 閾値は⑥「その他」のチェック欄で選ぶ。ここでは記憶値の復元だけ（ラジオと同じ）
+            _se_key = f"sonota_extra_auto_{_kojin_ns(store)}"
+            _se_mem = _sonota_auto_mem_field(store)
+            if _se_mem:
+                st.session_state[_se_key] = _jug_auto_mem_resolve(
+                    store, _se_mem, st.session_state.get(_se_key), opts=_SONOTA_AUTO_OPTS)
+            _jg_key = f"jug_extra_auto_{_kojin_ns(store)}"
+            _jg_mem = _jug_auto_mem_field(store)
+            if _jg_mem:
+                st.session_state[_jg_key] = _jug_auto_mem_resolve(
+                    store, _jg_mem, st.session_state.get(_jg_key), opts=_MOGU_JUG_AUTO_OPTS)
+            elif st.session_state.get(_jg_key) not in _MOGU_JUG_AUTO_OPTS:
+                st.session_state[_jg_key] = "なし"
+        if not _is_kabupa_pg and not _mk_ui:  # その他の優秀台ピックアップ（①かぶぱは非表示）
             st.markdown("**その他の優秀台ピックアップ**")
             # 秋葉原スランプ付き: タイトル未設定/空文字なら既定文言を session_state へ入れて常時表示する。
             # Streamlit は key が既存だと value= を無視するため、_restore_auto_inputs が入れた ""
@@ -16914,8 +16974,12 @@ def show_auto_page(with_slump: bool = False) -> None:
         if _yg_paste_on(store) and str(st.session_state.get(_yg_paste_key(store), "") or "").strip():
             sonota_extra_auto = "+1,000枚以上"
         jug_extra_auto = st.session_state.get(f"jug_extra_auto_{_kojin_ns(store)}", "なし")
-        if jug_extra_auto not in _JUG_AUTO_OPTS:
+        if jug_extra_auto not in (_MOGU_JUG_AUTO_OPTS if _mk_ui else _JUG_AUTO_OPTS):
             jug_extra_auto = "なし"
+        if _mk_ui:
+            # その他の優秀台は閾値だけ（タイトル・台番テキストの保存値は使わない）
+            sonota_extra_title = ""
+            sonota_extra_text  = ""
         # YG用 貼り付け欄の「全台系」を②全台へ足す（既存の②全台処理をそのまま使う）
         for _yz in _yg_paste_zen:
             if _yz not in [m.strip() for m in kojin_zentai_machines]:
@@ -17032,9 +17096,16 @@ def show_auto_page(with_slump: bool = False) -> None:
                                   else (["全台", "優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"]
                                         if _is_kabupa_pg
                                         else ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）", "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"]))
+                if _mk_ui:
+                    # 全台／プラス台／優秀台の3択（中身はピンクバー付きと同じ扱い。保存値の「なし」も付きへ寄せる）
+                    _sue_mode_opts = ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）"]
+                    _sv = st.session_state.get("suebangai_mode")
+                    if isinstance(_sv, str) and _sv.endswith("（ピンクバーなし）"):
+                        st.session_state["suebangai_mode"] = _sv.replace("（ピンクバーなし）", "（ピンクバー付き）")
                 if st.session_state.get("suebangai_mode") not in _sue_mode_opts:
                     st.session_state.pop("suebangai_mode", None)
                 _sue_mode = st.radio("モード", _sue_mode_opts, key="suebangai_mode",
+                                     format_func=(_mk_mode_label if _mk_ui else str),
                                      horizontal=True, on_change=_save_auto_inputs, args=(store, _auto_xl))
                 _sue_prev_key    = f"sue_preview_{store}"
                 _sue_prev_rt_key = f"sue_prev_tails_{store}"
@@ -17202,9 +17273,16 @@ def show_auto_page(with_slump: bool = False) -> None:
                 _jug_sue_mode_opts = (["全台", "優秀台（ピンクバー付き）", "優秀台（ピンクバーなし）"]
                                       if _is_kabupa_pg
                                       else ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）", "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"])
+                if _mk_ui:
+                    # 通常の末尾と同じ3択（中身はピンクバー付きと同じ扱い）
+                    _jug_sue_mode_opts = ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）"]
+                    _jsv = st.session_state.get("jug_sue_mode")
+                    if isinstance(_jsv, str) and _jsv.endswith("（ピンクバーなし）"):
+                        st.session_state["jug_sue_mode"] = _jsv.replace("（ピンクバーなし）", "（ピンクバー付き）")
                 if st.session_state.get("jug_sue_mode") not in _jug_sue_mode_opts:
                     st.session_state.pop("jug_sue_mode", None)
                 _jug_sue_mode = st.radio("モード（ジャグラー）", _jug_sue_mode_opts, key="jug_sue_mode",
+                                         format_func=(_mk_mode_label if _mk_ui else str),
                                          horizontal=True, on_change=_save_auto_inputs, args=(store, _auto_xl))
                 _jsue_prev_key    = f"jug_sue_preview_{store}"
                 _jsue_prev_rt_key = f"jug_sue_prev_tails_{store}"
@@ -17378,9 +17456,33 @@ def show_auto_page(with_slump: bool = False) -> None:
             if _rec_src and _rec_new:
                 st.session_state[f"rec_enabled_{store}"] = True
         st.markdown(f"### {_sec_num()} オススメ機種ピックアップ")
-        rec_enabled = st.checkbox("オススメ機種ピックアップを使用する", key=f"rec_enabled_{store}",
-                                   on_change=_save_rec_enabled, args=(store,))
-        if rec_enabled:
+        if _mk_ui:
+            # 毎回使うので常にON（チェック欄なし）
+            st.session_state[f"rec_enabled_{store}"] = True
+            rec_enabled = True
+        else:
+            rec_enabled = st.checkbox("オススメ機種ピックアップを使用する", key=f"rec_enabled_{store}",
+                                       on_change=_save_rec_enabled, args=(store,))
+        if rec_enabled and _mk_ui:
+            # ブロック1だけ：太字「オススメ機種」＋機種名6個。タイトル・抽出条件は画面に出さず保存値のまま
+            st.markdown("**オススメ機種**")
+            _mk_rec_rows = [st.columns(3) for _ in range(2)]
+            for _i, _col in enumerate([c for row in _mk_rec_rows for c in row]):
+                with _col:
+                    render_machine_autocomplete_input(
+                        str(_i + 1), f"rec_m1_{_i}_{store}", _excel_candidates,
+                        default=_rec_saved_m[1][_i],
+                        on_change=_save_rec_machines, on_change_args=(store,),
+                    )
+            _sel1 = st.session_state.get(f"rec_f_1_{store}")
+            if _sel1 not in _REC_F_OPTS:
+                _sel1 = _REC_F_OPTS[_rec_f_index(store, 1)]
+            recommended_blocks = [{
+                "title": st.session_state.get(f"rec_title_1_{store}", ""),
+                "machines": [st.session_state.get(f"rec_m1_{_i}_{store}", "") for _i in range(6)],
+                "thresholds": [{"プラス台": 1, "+1,000枚以上": 1000, "+2,000枚以上": 2000}.get(_sel1, 1)],
+            }]
+        elif rec_enabled:
             st.caption(
                 "入力した機種のうち、全台系・高配分に該当しない機種の優秀台（プラス台）を画像化します。"
                 "　タイトルと機種名は次回起動後も保持されます。"
@@ -17551,7 +17653,7 @@ def show_auto_page(with_slump: bool = False) -> None:
             ]
 
     # ── バラエティ画像（秋葉原スランプ付き＋高田馬場結果ポスト用）──────────
-    if _variety_ui:
+    if _variety_ui and not _mk_ui:
         st.markdown(f"### {_sec_num()} バラエティ画像")
         variety_enabled = st.checkbox("個別画像も生成する", key="variety_enabled",
                                       on_change=_save_auto_inputs, args=(store, _auto_xl))
@@ -17575,7 +17677,25 @@ def show_auto_page(with_slump: bool = False) -> None:
             )
 
     # ── ⑥ 結果テキスト素材メモ（拡張機能店舗・①かぶぱは非表示）──────────
-    if store in EXTENDED_FEATURE_STORES and not _is_kabupa_pg:
+    if _mk_ui:
+        # 単品ピックアップ・ジャグラーの優秀台の閾値（1つだけON・全部OFF＝なし）と、バラエティの優秀台
+        st.markdown(f"### {_sec_num()} その他")
+        _mk_thr_row("単品ピックアップ", f"sonota_extra_auto_{_kojin_ns(store)}", _SONOTA_AUTO_OPTS,
+                    _sonota_auto_mem_field(store), "その他の優秀台 抽出閾値", store, _auto_xl)
+        _mk_thr_row("ジャグラーの優秀台", f"jug_extra_auto_{_kojin_ns(store)}", _MOGU_JUG_AUTO_OPTS,
+                    _jug_auto_mem_field(store), "ジャグラー抽出条件", store, _auto_xl)
+        st.markdown("**バラエティの優秀台**")
+        _vr_key = f"variety_range_{store}"
+        if _vr_key not in st.session_state:
+            st.session_state[_vr_key] = ""
+        # 既存のバラエティ欄と同じく value= も渡す（未描画 run の後でもブラウザへ保存値が届く）
+        st.text_area("台番テキスト（台番を含むテキストをそのまま貼り付け）",
+                     value=st.session_state[_vr_key], key=_vr_key, height=80,
+                     on_change=_save_auto_inputs, args=(store, _auto_xl))
+        variety_ranges_text = st.session_state.get(_vr_key, "") or ""
+        variety_enabled = bool(variety_ranges_text.strip())
+        variety_mode = "全台"
+    elif store in EXTENDED_FEATURE_STORES and not _is_kabupa_pg:
         st.markdown(f"### {_sec_num()} 結果テキスト素材メモ")
         memo_enabled = st.checkbox("結果テキスト素材メモを使用する", key=f"memo_enabled_{store}")
         if memo_enabled:

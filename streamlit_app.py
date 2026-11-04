@@ -32984,6 +32984,14 @@ def _mogu_kabu_lists(store: str, d, df, zen, high, nami, sue_map: dict, rec_map:
     """台番一覧（3列・行数可変）とスランプ一覧（単品は台番一覧に載った台・1〜3枚のリスト）を返す。表示する台がなければ None と []。"""
     blocks, pool = _ban_list_blocks_from(df, zen, high, nami, sue_map, rec_map, jug_bans=jug,
                                          retsu_map=col_map, extra_map=extra_map, single_bans=single_bans)
+    # 優秀機種・高配分・ジャグラーは同じ機種を1つの塊にまとめる（台番が離れていても分けない）。
+    # 機種の順＝台番昇順で最初に出た順、機種内は台番昇順のまま（台番一覧・スランプ一覧で共通）
+    for _b in blocks:
+        if _b["kind"] in ("zen", "high", "jug"):
+            _first: dict[str, int] = {}
+            for _i, _a in enumerate(_b["atoms"]):
+                _first.setdefault(_a[0]["name"], _i)
+            _b["atoms"] = sorted(_b["atoms"], key=lambda _a: _first[_a[0]["name"]])
     # ⑤は機種ごとにまとめる：⑤の登録順（同じ見出しのブロック順→機種欄の順）→ 機種内は台番昇順のまま。
     # 機種名は結果テキストの⑤（generate_recommended_result_text）と同じく df の機種名との完全一致
     _rec_ord: dict[str, dict[str, int]] = {}

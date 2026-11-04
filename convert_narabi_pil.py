@@ -42,6 +42,9 @@ COL_SUFFIX = "(列仕掛け)"
 COL_CALC_D = False
 # 並び画像も同じ補正後差枚にするか（_patch_and_run_narabi(narabi_calc_d=True) のときだけ True。既定 False＝補正しない）。
 NARABI_CALC_D = False
+# 並び画像（列は対象外）の合算確率を生のゲーム数で出すか（_patch_and_run_narabi(narabi_raw_prob=True) のときだけ True）。
+# 既定 False＝従来どおり50G単位に丸めたゲーム数で出す。表示ゲーム数の丸めはどちらでも変えない。
+NARABI_RAW_PROB = False
 # __COL_CALC_D_INJECT__
 
 # 結果ポスト系の新デザイン（2026-09-10）。
@@ -428,6 +431,11 @@ for run_idx, (run, title, _dup_set) in enumerate(_JOBS):
     if COL_CALC_D and (run_idx >= len(runs) or NARABI_CALC_D):
         diff_raw_s = diff_raw_s.apply(_pipeline_calc_d)
         run_df_full["差枚数_disp"] = diff_raw_s.apply(fmt_diff)
+    if NARABI_RAW_PROB and run_idx < len(runs):
+        # streamlit_app.fmt_prob（⑦の _add_prob_col）と同じ：BB+RB=0 または G数=0 は「――」
+        run_df_full["合算確率"] = run_df_full.apply(
+            lambda r: ("――" if int(r["BIG"]) + int(r["REG"]) == 0 or int(r["ゲーム数_raw"]) == 0
+                       else f"1/{int(r['ゲーム数_raw']) / (int(r['BIG']) + int(r['REG'])):.1f}"), axis=1)
 
     print(f"\n[{run_idx+1}/{len(_JOBS)}] {title}")
 

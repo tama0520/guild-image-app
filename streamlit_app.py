@@ -9555,7 +9555,7 @@ def _patch_and_run_narabi(
     hq_min_rows: int | None = None, theme_new: bool = False, yg_theme: bool = False,
     font_path: str | None = None, art_header: bool = False,
     art_sum_center: bool = False, art_line: bool = False,
-    narabi_calc_d: bool = False,
+    narabi_calc_d: bool = False, narabi_raw_prob: bool = False,
 ) -> tuple[bool, str, str]:
     """並びスクリプト専用: INPUT/SPLIT_DIR/RANGES を書き換えて実行する。
     no_bar=True のときは NO_BAR も書き換え、青タイトルバーなしで生成させる
@@ -9634,6 +9634,11 @@ def _patch_and_run_narabi(
     # narabi_calc_d=True（新宿歌舞伎町の記事用）は並び画像も同じ補正後差枚にする（既定 False＝従来どおり）。
     if narabi_calc_d:
         code = re.sub(r'^NARABI_CALC_D\s*=\s*(True|False)', 'NARABI_CALC_D = True',
+                      code, flags=re.MULTILINE)
+    # narabi_raw_prob=True（新宿歌舞伎町の記事用）は並び画像の合算確率を生のゲーム数で出す
+    # （⑦の _add_prob_col と同じ）。表示ゲーム数の50G丸め・列画像は従来どおり。
+    if narabi_raw_prob:
+        code = re.sub(r'^NARABI_RAW_PROB\s*=\s*(True|False)', 'NARABI_RAW_PROB = True',
                       code, flags=re.MULTILINE)
     if col_ranges or narabi_calc_d:
         # 列画像の差枚を本体と同じ補正後にする（⑦プレビュー・結果テキストの列と一致）。
@@ -25056,7 +25061,10 @@ def show_auto_article_page() -> None:
                                       # 🔄でOFFの並び画像を外すための照合用（コメント文には使わない）
                                       **({"bans": [int(b) for b in (x.get("bans") or [])]}
                                          if store in _ART_CMT_NB_SYNC_STORES else {})}
-                                     for x in _art_pr.get("nami_list", [])],
+                                     # 並び画像・WP見出しと同じ補正後の平均にする店舗（勝ち台数 plus は従来どおり）
+                                     for x in (_art_nami_calc_d(_art_pr.get("nami_list", []), _art_pr.get("df"))
+                                               if store in _ART_NARABI_CALC_D_STORES
+                                               else _art_pr.get("nami_list", []))],
                             "retsu": [list(_b or []) for _b in _art_col_map.values()],
                             "sonota": (list(_art_cmt_son_manual) if _art_manual else
                                        [{"name": e.get("name"), "ban": e.get("ban"),
@@ -25929,6 +25937,7 @@ def show_auto_article_page() -> None:
                     art_line=_art_table_line_new(),
                     # 並び画像の差枚を⑦プレビューと同じ補正後にする（対象店舗だけ）
                     narabi_calc_d=(store in _ART_NARABI_CALC_D_STORES),
+                    narabi_raw_prob=(store in _ART_NARABI_CALC_D_STORES),
                 )
                 narabi_result = {"ok": ok_n, "stdout": out_n, "stderr": err_n}
                 st.write(f"{'✅' if ok_n else '❌'} 並び画像{'完了' if ok_n else 'エラー'}")

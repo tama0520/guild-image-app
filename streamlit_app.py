@@ -17234,8 +17234,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             # この st.rerun() はジャグラー末尾の欄を描く前に止まるため、
                                             # 欄の値が session_state から消え、空のまま自動保存される。
                                             # 値を session_state へ入れ直して残す（モグ玄・新宿歌舞伎町のスランプ付きだけ）
+                                            # ⑥「バラエティの優秀台」の台番テキストも同じ理由で残す
                                             for _jk in ("jug_sue_enabled", "jug_sue_tail_input_1", "jug_sue_tail_input_2",
-                                                        "jug_sue_tail_input_3", "jug_sue_mode"):
+                                                        "jug_sue_tail_input_3", "jug_sue_mode", f"variety_range_{store}"):
                                                 if _jk in st.session_state:
                                                     st.session_state[_jk] = st.session_state[_jk]
                                         st.rerun()

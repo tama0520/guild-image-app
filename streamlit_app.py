@@ -33174,8 +33174,14 @@ def _mogu_kabu_lists(store: str, d, df, zen, high, nami, sue_map: dict, rec_map:
             return 8 if _t.startswith("バラエティ") else 9
         return {"zen": 0, "high": 1, "retsu": 2, "nami": 3, "rec": 6, "jug": 7, "single": 10}.get(_k, 9)
     blocks = sorted(blocks, key=_mk_rank)   # 同じ順位の中は元の順のまま（安定ソート）
+    # 末尾・ジャグラーの末尾は④のモードで出し分ける：プラス台／優秀台（画像名が「〜のプラス台」「〜の優秀台」）だけ
+    # 「(優秀台)」を付け、全台（接尾辞なし）は付けない
+    _sue_y = {_ban_list_sue_title(_f) for _f in (sue_map or {})
+              if os.path.splitext(_f)[0].endswith(("のプラス台", "の優秀台"))}
     for _b in blocks:
         if _mk_rank(_b) in (1, 4, 5, 6, 7, 8) and "優秀台" not in str(_b["title"]):
+            if _b["kind"] == "sue" and _b["title"] not in _sue_y:
+                continue
             _b["title"] = f"{_b['title']}(優秀台)"
     for _b in blocks:
         _b["color"] = _MOGU_KABU_KIND_COLORS.get(_b["kind"], _b["color"])

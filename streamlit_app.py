@@ -17230,6 +17230,14 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         st.session_state[f"sue_src_{store}"] = _sue_src_pv
                                         for _ci in range(len(_sprev_list)):
                                             st.session_state[f"sue_ck_{store}_{_ci}"] = True
+                                        if _mk_ui:
+                                            # この st.rerun() はジャグラー末尾の欄を描く前に止まるため、
+                                            # 欄の値が session_state から消え、空のまま自動保存される。
+                                            # 値を session_state へ入れ直して残す（モグ玄・新宿歌舞伎町のスランプ付きだけ）
+                                            for _jk in ("jug_sue_enabled", "jug_sue_tail_input_1", "jug_sue_tail_input_2",
+                                                        "jug_sue_tail_input_3", "jug_sue_mode"):
+                                                if _jk in st.session_state:
+                                                    st.session_state[_jk] = st.session_state[_jk]
                                         st.rerun()
                                 except Exception as _e:
                                     st.error(f"❌ エラー: {_e}")

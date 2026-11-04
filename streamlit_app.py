@@ -6558,6 +6558,12 @@ _ART_WP_AUTHORS = ("t.ito", "r.iio", "k.furukawa", "t.ui", "m.suzuki", "m.takaha
 #   含む）だけ。全台系・並び・列・末尾・ジャグラー統合・⑤オススメ・バラエティ・
 #   他店舗・他ページへは広げない。
 _ART_SONOTA_NO_BAR_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+# 記事用で青タイトルバーを付けない店舗（上の「その他の優秀台」以外の残りの経路）：
+# 📝プレビュー後の🔄／⑧📝で作り直すジャグラー統合画像・②個別「台番範囲」2欄の画像。
+_ART_ALL_NO_BAR_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+# 記事用の並び・列のパネルを「その他」配下と同じ選び方にする店舗
+# （パネル登録のある機種が3機種以上なら2×2グリッド・1〜2機種は登録済みの機種を横一列）。
+_ART_NARABI_GRID_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 
 
 def _art_sonota_no_bar(store: str) -> bool:
@@ -24477,6 +24483,7 @@ def show_auto_article_page() -> None:
                                                 _base = _rts.strip() or f"{_rt.strip()}の優秀台"
                                                 _art_pil.append((f"{_base}.jpg", _build_machine_img(
                                                     _rp, _base, _stat_from_diff(_rdi),
+                                                    no_bar=(store in _ART_ALL_NO_BAR_STORES),
                                                     hq_scale=_art_hq_scale_for(f"{_base}.jpg", store, len(_rp)))))
                                         except Exception: pass
                             # ④ 末尾画像（通常末尾／ジャグラー末尾・並びの後・ジャグラーの前）
@@ -24860,16 +24867,21 @@ def show_auto_article_page() -> None:
                                             # 単一機種パネル（全幅）経路へ入れる（機種名は bans→ban2mac）。
                                             _pfn_pv2 = _art_osusume_panel_fn(
                                                 _bare_pv2, _bans_pv2, _pv_ban2mac)
+                                            _nga_pv2 = _art_narabi_panel_args(
+                                                store, _bare_pv2, _bans_pv2, _pv_ban2mac)
                                             _img_pv2, _, _ = _apply_panel_to_table_img(
                                                 _img_pv2, _pfn_pv2, _bans_pv2,
                                                 _pv_ban2mac, _pv_ban2diff,
                                                 _show_mn_pv2 or _is_sue_pv2 or _is_multi_pv2 or _osu_multi_pv2,
                                                 _is_sue_pv2,
                                                 crop_bar=False,      # 記事用は元画像をcropしない
-                                                is_multi=_is_multi_pv2 or _osu_multi_pv2,
+                                                is_multi=(_is_multi_pv2 or _osu_multi_pv2
+                                                          or bool(_nga_pv2 and _nga_pv2["is_multi"])),
                                                 # 列仕掛けも並びと同じパネル選定ルールへ
                                                 narabi_like=_art_is_narabi_fn(_bare_pv2),
-                                                max_panels=_art_panel_max(store, _bare_pv2, _bans_pv2, _pv_ban2mac))
+                                                max_panels=(_nga_pv2["max_panels"] if _nga_pv2 else
+                                                            _art_panel_max(store, _bare_pv2, _bans_pv2, _pv_ban2mac)),
+                                                panel_names=(_nga_pv2["panel_names"] if _nga_pv2 else None))
                                         # 高解像度対象（その他／ジャグラー統合）はスランプも2倍で描画
                                         _hq_pv2 = _art_hq_scale_for(
                                             re.sub(r"^\d{2}_", "", _fn_pv2),
@@ -25340,6 +25352,9 @@ def show_auto_article_page() -> None:
                                         f"_art_prev_manual_{store}", False):
                                     _aji = _art_jug_regen_img(store, _ajc)
                                     _aj_regen_new = True
+                                elif store in _ART_ALL_NO_BAR_STORES:
+                                    # 📝プレビュー後の🔄も青バーなし（表の描き方だけ。掲載台の組み立ては従来どおり）
+                                    _aji = _art_jug_regen_img(store, _ajc)
                                 else:
                                     _aji = _build_machine_img(_ajc, _ajt, None)
                                 _upd_bm["ジャグラーシリーズ優秀台.jpg"] = _bans_from_df(_ajc)
@@ -25438,6 +25453,8 @@ def show_auto_article_page() -> None:
                                                     _bare_u = re.sub(r"^\d{2}_", "", _fn_u)
                                                     _is_multi_u = _art_is_multi_machine(
                                                         _bare_u, _bans_u, _upd_b2mac)
+                                                    _nga_u = _art_narabi_panel_args(
+                                                        store, _bare_u, _bans_u, _upd_b2mac)
                                                     _img_u, _, _ = _apply_panel_to_table_img(
                                                         _img_u, _bare_u, _bans_u,
                                                         _upd_b2mac, _upd_b2diff,
@@ -25445,11 +25462,13 @@ def show_auto_article_page() -> None:
                                                         or _fn_u.startswith("バラエティ"),
                                                         _is_sue_u,
                                                         crop_bar=False,      # 記事用は元画像をcropしない
-                                                        is_multi=_is_multi_u,
+                                                        is_multi=_is_multi_u or bool(_nga_u and _nga_u["is_multi"]),
                                                         # 列仕掛けも並びと同じパネル選定ルールへ
                                                         narabi_like=_art_is_narabi_fn(_bare_u),
                                                         max_panels=(4 if (_aj_regen_new and _bare_u == _ART_JUG_FN)
-                                                                    else _art_panel_max(store, _bare_u, _bans_u, _upd_b2mac)))
+                                                                    else _nga_u["max_panels"] if _nga_u
+                                                                    else _art_panel_max(store, _bare_u, _bans_u, _upd_b2mac)),
+                                                        panel_names=(_nga_u["panel_names"] if _nga_u else None))
                                                 # 高解像度対象（その他／ジャグラー統合）はスランプも2倍で描画
                                                 _hq_u = _art_hq_scale_for(
                                                     re.sub(r"^\d{2}_", "", _fn_u),
@@ -26036,6 +26055,7 @@ def show_auto_article_page() -> None:
                                     _rng_stat  = _stat_from_diff(_rng_diff)
                                     _rng_img   = _build_machine_img(
                                         _rng_p, _base, _rng_stat,
+                                        no_bar=(store in _ART_ALL_NO_BAR_STORES),
                                         hq_scale=_art_hq_scale_for(f"{_make_safe_fn(_base)}.jpg",
                                                                    store, len(_rng_p)))
                                     _rng_out   = os.path.join(output_dir, f"{_make_safe_fn(_base)}.jpg")
@@ -26059,6 +26079,7 @@ def show_auto_article_page() -> None:
                                     _base2 = kojin_narabi2_title.strip() if kojin_narabi2_title.strip() else f"{kojin_narabi2_ranges_text.strip()}の優秀台"
                                     _rng2_img = _build_machine_img(
                                         _rng2_p, _base2, None,
+                                        no_bar=(store in _ART_ALL_NO_BAR_STORES),
                                         hq_scale=_art_hq_scale_for(f"{_make_safe_fn(_base2)}.jpg",
                                                                    store, len(_rng2_p)))
                                     _rng2_out = os.path.join(output_dir, f"{_make_safe_fn(_base2)}.jpg")
@@ -26587,6 +26608,11 @@ def show_auto_article_page() -> None:
                                        target_kb=(_ART_HQ_TARGET_KB if _art_hq_scale_for(
                                            _ART_JUG_FN, store, len(_arjcomb)) > 1.0 else 800))
                             _arj_regen_bans_e = [int(b) for b in _arjcomb["台番"].tolist()]
+                        elif store in _ART_ALL_NO_BAR_STORES:
+                            # ⑧📝も青バーなし（表の描き方だけ。掲載台の組み立ては従来どおり）
+                            _save_jpeg(_art_jug_regen_img(store, _arjcomb), _arjp,
+                                       target_kb=(_ART_HQ_TARGET_KB if _art_hq_scale_for(
+                                           _ART_JUG_FN, store, len(_arjcomb)) > 1.0 else 800))
                         else:
                             _save_jpeg(_build_machine_img(_arjcomb, _arjt, None), _arjp, target_kb=800)
                         _log(f"  ✅ ジャグラーシリーズ優秀台再生成: {len(_arjcomb)}台")
@@ -26763,17 +26789,22 @@ def show_auto_article_page() -> None:
                                     # 単一機種パネル（全幅）経路へ入れる（機種名は bans→ban2mac）。
                                     _pfn_sl = _art_osusume_panel_fn(
                                         _bare_sl, _bans_sl, _art_ban2mac_sl)
+                                    _nga_sl = _art_narabi_panel_args(
+                                        store, _bare_sl, _bans_sl, _art_ban2mac_sl)
                                     _t_img_sl, _mn_sl, _pok_sl = _apply_panel_to_table_img(
                                         _t_img_sl, _pfn_sl, _bans_sl,
                                         _art_ban2mac_sl, _art_ban2diff_sl,
                                         _show_mn_sl or _is_sue_sl or _is_multi_sl or _osu_multi_sl,
                                         _is_sue_sl,
                                         crop_bar=False,      # 記事用は元画像をcropしない
-                                        is_multi=_is_multi_sl or _osu_multi_sl,
+                                        is_multi=(_is_multi_sl or _osu_multi_sl
+                                                  or bool(_nga_sl and _nga_sl["is_multi"])),
                                         # 列仕掛けも並びと同じパネル選定ルールへ
                                         narabi_like=_art_is_narabi_fn(_bare_sl),
                                         max_panels=(4 if (_arj_regen_bans_e and _bare_sl == _ART_JUG_FN)
-                                                    else _art_panel_max(store, _bare_sl, _bans_sl, _art_ban2mac_sl)))
+                                                    else _nga_sl["max_panels"] if _nga_sl
+                                                    else _art_panel_max(store, _bare_sl, _bans_sl, _art_ban2mac_sl)),
+                                        panel_names=(_nga_sl["panel_names"] if _nga_sl else None))
                                     if _mn_sl is not None and not _pok_sl:
                                         _art_missing_panels.add(_mn_sl)
                                 # 高解像度対象（その他／ジャグラー統合）はスランプも2倍で描画
@@ -32304,6 +32335,20 @@ def _art_panel_max(store: str, bare_fn: str, bans: "list | None" = None,
             and len(_other_panel_macs(bans, ban2mac or {})) == 3):
         return 2
     return 4
+
+
+def _art_narabi_panel_args(store: str, bare_fn: str, bans: list,
+                           ban2mac: dict) -> "dict | None":
+    """記事用の並び・列で「その他」配下と同じパネル選定にするときの引数。対象外は None。
+
+    パネル登録のある機種が3機種以上 → 2×2グリッド（3機種は上限2・4機種以上は最大4）、
+    1〜2機種 → 登録済みの機種を横一列（未登録は繰り上げ）。_other_apply_panel() と同じ振り分け。"""
+    if store not in _ART_NARABI_GRID_STORES or not _art_is_narabi_fn(bare_fn):
+        return None
+    _regs = _other_panel_macs(bans, ban2mac)
+    if len(_regs) >= 3:
+        return {"is_multi": True, "max_panels": 2 if len(_regs) == 3 else 4, "panel_names": None}
+    return {"is_multi": False, "max_panels": 4, "panel_names": _regs}
 
 
 def _art_is_multi_machine(bare_fn: str, bans: list, ban2mac: dict) -> bool:

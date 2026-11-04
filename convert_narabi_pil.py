@@ -40,6 +40,8 @@ COL_SUFFIX = "(列仕掛け)"
 # （⑦プレビュー・結果テキストの列＝補正後差枚と一致させるため）。
 # 既定 False＝補正しない。並び画像は常に補正しない（従来どおり）。
 COL_CALC_D = False
+# 並び画像も同じ補正後差枚にするか（_patch_and_run_narabi(narabi_calc_d=True) のときだけ True。既定 False＝補正しない）。
+NARABI_CALC_D = False
 # __COL_CALC_D_INJECT__
 
 # 結果ポスト系の新デザイン（2026-09-10）。
@@ -423,7 +425,7 @@ for run_idx, (run, title, _dup_set) in enumerate(_JOBS):
     run_df_full = df.iloc[run].copy().reset_index(drop=True)
     diff_raw_s  = diff_raw.iloc[run].reset_index(drop=True)
     # 列画像だけ本体と同じ補正後差枚で表・ピンクバーを作る（並びは補正しない）
-    if COL_CALC_D and run_idx >= len(runs):
+    if COL_CALC_D and (run_idx >= len(runs) or NARABI_CALC_D):
         diff_raw_s = diff_raw_s.apply(_pipeline_calc_d)
         run_df_full["差枚数_disp"] = diff_raw_s.apply(fmt_diff)
 

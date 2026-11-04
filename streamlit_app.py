@@ -6565,6 +6565,29 @@ _ART_ALL_NO_BAR_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 # 「その他の優秀台」と同じ2×2（_build_variety_panel_grid）にする店舗。
 # 1〜2機種の並びは従来どおり _narabi_panel_names()。
 _ART_NARABI_GRID_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+# 記事用の並びの差枚を補正後（_pipeline_calc_d）にそろえる店舗。
+# ⑧の並び画像（表・ピンクバー）と WordPress の並び見出しの平均を、⑦プレビューと同じ補正後差枚にする。
+# 結果テキスト・記事コメント・他店舗の並びは従来どおり補正前のまま。
+_ART_NARABI_CALC_D_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
+def _art_nami_calc_d(nami: list, df) -> list:
+    """WordPress 用の並び（payload["nami"]）の avg_diff を補正後差枚（result["df"]["差枚"]）で出し直す。
+    平均の丸めは ⑦の _stat_from_diff と同じ int(round(平均))。df が無い・台が無い並びはそのまま。"""
+    if df is None or "台番" not in getattr(df, "columns", []) or "差枚" not in df.columns:
+        return nami
+    _out = []
+    for _x in (nami or []):
+        _y = dict(_x)
+        try:
+            _bs = {int(_b) for _b in (_x.get("bans") or [])}
+            _sub = df[df["台番"].apply(lambda _v: pd.notna(_v) and int(_v) in _bs)]
+            if len(_sub):
+                _y["avg_diff"] = int(round(_sub["差枚"].mean()))
+        except (TypeError, ValueError):
+            pass
+        _out.append(_y)
+    return _out
 
 
 def _art_sonota_no_bar(store: str) -> bool:
@@ -9532,6 +9555,7 @@ def _patch_and_run_narabi(
     hq_min_rows: int | None = None, theme_new: bool = False, yg_theme: bool = False,
     font_path: str | None = None, art_header: bool = False,
     art_sum_center: bool = False, art_line: bool = False,
+    narabi_calc_d: bool = False,
 ) -> tuple[bool, str, str]:
     """並びスクリプト専用: INPUT/SPLIT_DIR/RANGES を書き換えて実行する。
     no_bar=True のときは NO_BAR も書き換え、青タイトルバーなしで生成させる
@@ -9607,6 +9631,11 @@ def _patch_and_run_narabi(
         code = re.sub(r'^COL_RANGES\s*=\s*\[[^\]]*\]',
                       lambda m, _v=repr(list(col_ranges)): f'COL_RANGES = {_v}',
                       code, flags=re.MULTILINE)
+    # narabi_calc_d=True（新宿歌舞伎町の記事用）は並び画像も同じ補正後差枚にする（既定 False＝従来どおり）。
+    if narabi_calc_d:
+        code = re.sub(r'^NARABI_CALC_D\s*=\s*(True|False)', 'NARABI_CALC_D = True',
+                      code, flags=re.MULTILINE)
+    if col_ranges or narabi_calc_d:
         # 列画像の差枚を本体と同じ補正後にする（⑦プレビュー・結果テキストの列と一致）。
         # 補正式は独自に書かず、本体の _PIPELINE_KEEP_VALS と _pipeline_calc_d の
         # ソースをそのまま注入する。並び画像は補正しない（従来どおり）。
@@ -25898,6 +25927,8 @@ def show_auto_article_page() -> None:
                     art_sum_center=_art_summary_center(),
                     # ⑦プレビュー（draw_table_image）と⑧本番で表罫線の太さを一致させる
                     art_line=_art_table_line_new(),
+                    # 並び画像の差枚を⑦プレビューと同じ補正後にする（対象店舗だけ）
+                    narabi_calc_d=(store in _ART_NARABI_CALC_D_STORES),
                 )
                 narabi_result = {"ok": ok_n, "stdout": out_n, "stderr": err_n}
                 st.write(f"{'✅' if ok_n else '❌'} 並び画像{'完了' if ok_n else 'エラー'}")
@@ -27058,6 +27089,9 @@ def show_auto_article_page() -> None:
                     # ので、古い ジャグラーシリーズ優秀台.jpg が出力フォルダに残っていても
                     # plan / upload / 本文のどこにも入らない。
                     _art_wp_pl["juggler_section"] = store not in _ART_WP_NO_JUG_SECTION_STORES
+                    # 並び見出しの平均を⑦・⑧の並び画像と同じ補正後差枚にする（対象店舗だけ）
+                    if store in _ART_NARABI_CALC_D_STORES:
+                        _art_wp_pl["nami"] = _art_nami_calc_d(_art_wp_pl.get("nami"), result.get("df"))
                     # ③ 列画像を並び画像より先に掲載する店舗（⑦プレビューの順と一致させる）
                     if store in _ART_WP_RETSU_FIRST_STORES:
                         _art_wp_pl["retsu_first"] = True

@@ -7968,7 +7968,7 @@ _HONEY_POST_RESULT_STORES: "frozenset[str]" = frozenset({"新大久保", "モグ
 # → 他単品多数 → 総差枚・平均差枚・勝率。機種は台番一覧と同じ（優秀機種＝zen_dai_list、高配分＝high_ratio_list の
 # 画像あり）。勝ち台数は差枚 > 0 の台（±0は含めない）。0件の見出しは出さない。
 _MOGU_KABU_RESULT_TEXT_STORES: "frozenset[str]" = frozenset({"モグ玄・新宿歌舞伎町"})
-_MOGU_KABU_RESULT_TEXT_NAME = "エスパス 新宿 歌舞伎町"
+_MOGU_KABU_RESULT_TEXT_NAME = "エスパス 新宿 歌舞伎 町"
 
 
 def _mogu_kabu_report_text(date, zen_dai_list: list, high_ratio_list: list, nami_list: list,

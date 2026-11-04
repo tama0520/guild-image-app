@@ -6561,8 +6561,8 @@ _ART_SONOTA_NO_BAR_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 # 記事用で青タイトルバーを付けない店舗（上の「その他の優秀台」以外の残りの経路）：
 # 📝プレビュー後の🔄／⑧📝で作り直すジャグラー統合画像・②個別「台番範囲」2欄の画像。
 _ART_ALL_NO_BAR_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
-# 記事用の並び・列のパネルを「その他」配下と同じ選び方にする店舗
-# （パネル登録のある機種が3機種以上なら2×2グリッド・1〜2機種は登録済みの機種を横一列）。
+# 記事用の「並び」（列は対象外）のパネルを台ごとに出す店舗
+# （並びの台数ぶん、台番昇順に各台の機種のパネルを横一列。同じ機種でも台ごとに1枚）。
 _ART_NARABI_GRID_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 
 
@@ -32339,16 +32339,15 @@ def _art_panel_max(store: str, bare_fn: str, bans: "list | None" = None,
 
 def _art_narabi_panel_args(store: str, bare_fn: str, bans: list,
                            ban2mac: dict) -> "dict | None":
-    """記事用の並び・列で「その他」配下と同じパネル選定にするときの引数。対象外は None。
+    """記事用の「並び」で台ごとにパネルを出すときの引数。対象外（列・他店舗）は None。
 
-    パネル登録のある機種が3機種以上 → 2×2グリッド（3機種は上限2・4機種以上は最大4）、
-    1〜2機種 → 登録済みの機種を横一列（未登録は繰り上げ）。_other_apply_panel() と同じ振り分け。"""
-    if store not in _ART_NARABI_GRID_STORES or not _art_is_narabi_fn(bare_fn):
+    並びの各台（台番昇順）の機種名をそのまま並べる（同じ機種でも台ごとに1枚・間引かない）。
+    描画は既存 _build_panel_row（横一列・幅を等分）。パネル未登録の機種は既存どおりその1枚だけ出ない。"""
+    if store not in _ART_NARABI_GRID_STORES or not _ART_NARABI_FN_RE.search(bare_fn or ""):
         return None
-    _regs = _other_panel_macs(bans, ban2mac)
-    if len(_regs) >= 3:
-        return {"is_multi": True, "max_panels": 2 if len(_regs) == 3 else 4, "panel_names": None}
-    return {"is_multi": False, "max_panels": 4, "panel_names": _regs}
+    _names = [ban2mac[str(_b)] for _b in sorted(bans or [], key=lambda x: int(x))
+              if ban2mac.get(str(_b))]
+    return {"is_multi": False, "max_panels": 4, "panel_names": _names}
 
 
 def _art_is_multi_machine(bare_fn: str, bans: list, ban2mac: dict) -> bool:

@@ -20280,6 +20280,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                     for _pfn_c, _ in _auto_previews:
                         st.session_state.pop(_pv_ck_key(store, uploaded.name, _pfn_c), None)
                     st.session_state.pop(_pv_off_key(store, uploaded.name), None)
+                    if _mogu_kabu_slump_on():
+                        # モグ玄・新宿歌舞伎町のスランプ付きだけ：クリア後の⑧は通常処理へ戻す（📝の記入部分のみモードを解除）
+                        st.session_state.pop(f"_manual_preview_mode_{store}", None)
                     st.rerun()
 
     # ── ⑧ 実行ボタン（常に描画・ファイル未選択時は disabled）─────────

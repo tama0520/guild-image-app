@@ -20308,7 +20308,18 @@ def show_auto_page(with_slump: bool = False) -> None:
         if _rec_pickup_on(store):
             _s = load_store_settings(store)
             _s["rec_enabled"] = bool(st.session_state.get(f"rec_enabled_{store}", False))
-            if recommended_blocks:
+            if recommended_blocks and _mk_ui:
+                # モグ玄・新宿歌舞伎町のスランプ付き：⑤は画面のブロック1・6欄だけを保存する。
+                # タイトル・抽出条件・7〜9欄・ブロック2〜6の保存値は変えない（配列は9欄のまま）
+                _cur_m = list(_s.get("recommended_machines_1", [""] * 9))
+                _new_m = list(recommended_blocks[0]["machines"])
+                for _mi in range(len(_new_m)):
+                    if f"rec_m1_{_mi}_{store}" in st.session_state:
+                        while len(_cur_m) <= _mi:
+                            _cur_m.append("")
+                        _cur_m[_mi] = _new_m[_mi]
+                _s["recommended_machines_1"] = _cur_m
+            elif recommended_blocks:
                 for _bi, _bk in enumerate(["1","2","3","4","5","6"]):
                     _s[f"recommended_title_{_bk}"]    = recommended_blocks[_bi]["title"]
                     # 機種名は _save_rec_machines() と同じ方針:

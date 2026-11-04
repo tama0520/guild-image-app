@@ -33149,6 +33149,34 @@ def _mogu_kabu_lists(store: str, d, df, zen, high, nami, sue_map: dict, rec_map:
     pool = [_r for _r in pool if _r["name"] not in _rec_names] if pool_on else []
     if not blocks and not pool:
         return None, []
+    # 並びは機種名ごとの塊にまとめる（並び・台は変えず順番だけ）。1機種だけの並びは機種名で、
+    # 複数機種の並び（バラエティ等）はそれ単独で扱う。機種の位置＝最初に出た並びの位置、
+    # ジャグラーシリーズは最後に出た並びの位置（下段側へ寄せる）。同じ機種内は元の順（台番昇順）
+    _jser = set(get_store_config(store)["juggler_series"])
+    for _b in blocks:
+        if _b["kind"] == "nami":
+            _ks = [(_a[0]["name"] if len({_r["name"] for _r in _a}) == 1 else ("#", _i))
+                   for _i, _a in enumerate(_b["atoms"])]
+            _pos: dict = {}
+            for _i, _k in enumerate(_ks):
+                if _k not in _pos or _k in _jser:
+                    _pos[_k] = _i
+            _b["atoms"] = [_a for _, _, _a in sorted(
+                ((_pos[_k], _i, _a) for _i, (_k, _a) in enumerate(zip(_ks, _b["atoms"]))),
+                key=lambda _t: (_t[0], _t[1]))]
+    # ブロックの順：優秀機種→高配分→優秀列→並び→末尾→ジャグラーの末尾→⑤→ジャグラー→バラエティ→その他の追加→単品。
+    # 見出しは高配分・末尾・ジャグラーの末尾・⑤・ジャグラー・バラエティに「(優秀台)」を付ける（台番一覧・スランプ一覧で共通）
+    def _mk_rank(_b) -> int:
+        _k, _t = _b["kind"], str(_b["title"])
+        if _k == "sue":
+            return 5 if _t.startswith("ジャグラー") else 4
+        if _k == "extra":
+            return 8 if _t.startswith("バラエティ") else 9
+        return {"zen": 0, "high": 1, "retsu": 2, "nami": 3, "rec": 6, "jug": 7, "single": 10}.get(_k, 9)
+    blocks = sorted(blocks, key=_mk_rank)   # 同じ順位の中は元の順のまま（安定ソート）
+    for _b in blocks:
+        if _mk_rank(_b) in (1, 4, 5, 6, 7, 8) and "優秀台" not in str(_b["title"]):
+            _b["title"] = f"{_b['title']}(優秀台)"
     for _b in blocks:
         _b["color"] = _MOGU_KABU_KIND_COLORS.get(_b["kind"], _b["color"])
     # タイトルは「M/D　エスパス{店名}」だけ（「・台番一覧」は付けない）

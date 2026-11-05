@@ -1,0 +1,12 @@
+{
+  "_comment": "「スロバース用」配下の店舗設定（書式は _yg_stores.json と同じ）。読込時に「その他」と同じ店舗集合へ合流し _group: \"sloverse\" が付く（その他・YG用の一覧には出ない）。pision_hall_id は Pision の /api/v2/halls で確認した確定データ用の値（マルハン新宿東宝＝11。id 3514 は速報用で results が 404 のため使わない）。速報・slotterguild は使わない。image_types は暫定（④末尾のUI表示判定にだけ使われる）。side・panel は現行コードで参照されないため未設定（未確定事項）。",
+  "stores": {
+    "マルハン新宿東宝": {
+      "display_name": "マルハン新宿東宝",
+      "pision_hall_id": "11",
+      "slotterguild": false,
+      "realtime": false,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    }
+  }
+}

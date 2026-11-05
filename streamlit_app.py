@@ -607,6 +607,11 @@ _OTHER_STORES_PATH = os.path.join(BASE_DIR, "store_settings", "_other_stores.jso
 # スランプ付き結果（other_slump）の既存経路をそのまま使う（YG専用の取得処理は作らない）。
 _YG_STORES_PATH = os.path.join(BASE_DIR, "store_settings", "_yg_stores.json")
 _YG_GROUP = "yg"
+# 「スロバース用」配下の店舗設定（書式は _yg_stores.json と同じ）。YG用と同じく読込時に
+# 「その他」と同じ店舗集合へ合流させる（_group: "sloverse"）。「その他」・YG用の一覧には出ない。
+# 現時点では機種名変換の pisionチェックで選べるようにするためだけに読む（専用画面は未反映）。
+_SLOVERSE_STORES_PATH = os.path.join(BASE_DIR, "store_settings", "_sloverse_stores.json")
+_SLOVERSE_GROUP = "sloverse"
 
 
 def _read_store_json(path: str) -> dict:
@@ -636,6 +641,9 @@ def _load_other_stores() -> dict:
             _stores[_nm] = {**_cfg, "_group": _YG_GROUP}
         elif (_stores[_nm] or {}).get("_from_group") == _YG_GROUP:
             _stores[_nm] = {**_cfg, "_group": _YG_GROUP, "_also_other": True}
+    for _nm, _cfg in _read_store_json(_SLOVERSE_STORES_PATH).items():
+        if isinstance(_cfg, dict) and _nm not in _stores:
+            _stores[_nm] = {**_cfg, "_group": _SLOVERSE_GROUP}
     return {_k: _v for _k, _v in _stores.items()
             if not ((_v or {}).get("_from_group") and "_group" not in (_v or {}))}
 

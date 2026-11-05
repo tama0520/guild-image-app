@@ -24737,6 +24737,10 @@ def show_auto_article_page() -> None:
                                 if store in _ART_MANUAL_JUG_FIX_STORES:
                                     for _bl_kza in _art_kz_bans.values():
                                         _art_jg_exc |= {int(b) for b in (_bl_kza or [])}
+                                # ④末尾画像へ実際に掲載された台番も重複させない（その他の優秀台と同じ集合・新宿歌舞伎町だけ）
+                                if store in _ART_MANUAL_SUE_EXC_STORES:
+                                    for _sb_ja in _art_sue_ban.values():
+                                        _art_jg_exc |= {int(b) for b in (_sb_ja or [])}
                                 _art_jg_df = _manual_juggler_auto_extract(
                                     _apdf, _apdi, art_jug_extra_auto, _art_jg_cfg, _art_jg_exc)
                                 if _art_jg_df is not None and not _art_jg_df.empty:
@@ -26468,6 +26472,10 @@ def show_auto_article_page() -> None:
                         if store in _ART_MANUAL_JUG_FIX_STORES:
                             for _bl_kzm in _art_kz_bans_e.values():
                                 _jg_exc_m |= {int(b) for b in (_bl_kzm or [])}
+                        # ④末尾画像へ実際に掲載された台番も重複させない（⑦と同じ・新宿歌舞伎町だけ）
+                        if store in _ART_MANUAL_SUE_EXC_STORES:
+                            for _sb_jm in _art_sue_ban_e.values():
+                                _jg_exc_m |= {int(b) for b in (_sb_jm or [])}
                         _jg_df_m = _manual_juggler_auto_extract(
                             _mdf_e, _mdi_e, art_jug_extra_auto, get_store_config(store), _jg_exc_m)
                         if _jg_df_m is not None and not _jg_df_m.empty:

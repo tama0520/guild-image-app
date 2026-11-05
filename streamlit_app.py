@@ -666,6 +666,11 @@ def _other_slump_from_other(store: str) -> bool:
         return False
 
 
+def _is_sloverse_store(store: str) -> bool:
+    """「スロバース用」配下の店舗か（既存13店舗・その他・YG用は False）。"""
+    return _is_other_store(store) and _other_store_cfg(store).get("_group") == _SLOVERSE_GROUP
+
+
 def _is_yg_store(store: str) -> bool:
     """「YG用」配下の店舗か（既存13店舗・「その他」は False）。"""
     return _is_other_store(store) and _other_store_cfg(store).get("_group") == _YG_GROUP
@@ -961,6 +966,22 @@ def _yg_theme() -> bool:
         _st = st.session_state.get("selected_store")
         return (st.session_state.get("page") in _YG_THEME_PAGES
                 and _is_yg_store(_st) and not _other_slump_from_other(_st))
+    except Exception:
+        return False
+
+
+# ── スロバース用の機種別表画像（水色の近未来デザイン・sloverse_design.py）──────
+# 対象は「スロバース用」配下の店舗 × 結果ポスト用（auto）／スランプ付き結果（other_slump）だけ。
+# _build_machine_img() の入口で専用描画へ渡す（既存の描画処理・他店舗の画素は変えない）。
+_SLOVERSE_THEME_PAGES: frozenset[str] = frozenset({"auto", "other_slump"})
+
+
+def _sloverse_theme() -> bool:
+    """スロバース用の水色デザインで機種別表画像を描くか（page × store の AND・保存フラグなし）。
+    Streamlit 外（純粋テスト・subprocess）では False。"""
+    try:
+        return (st.session_state.get("page") in _SLOVERSE_THEME_PAGES
+                and _is_sloverse_store(st.session_state.get("selected_store")))
     except Exception:
         return False
 
@@ -3161,7 +3182,7 @@ def _navigate(page: str, store: str | None = None, itype: str | None = None,
     s = st.session_state.get("selected_store", "")
     t = st.session_state.get("selected_image_type", "")
     if page in ("image_type", "work", "auto", "auto_slump", "auto_slump2",
-                "other_slump", "rote", "auto_article") and s:
+                "other_slump", "rote", "auto_article", "sloverse_store") and s:
         params["store"] = s
     if page == "work" and t:
         params["type"] = t
@@ -4111,7 +4132,7 @@ _SP_MENU_BREAKPOINT = 640
 _TOP_MENU_ORDER: "tuple[str, ...]" = (
     "モグ玄・新宿歌舞伎町", "モグ玄・新大久保", "秋葉原", "上野本館", "上野新館", "渋谷新館",
     "赤坂見附", "稲毛", "西武新宿", "新大久保", "高田馬場", "新小岩",
-    "溝の口本館", "溝の口新館", "新宿歌舞伎町", "other", "osusume_top", "yg",
+    "溝の口本館", "溝の口新館", "新宿歌舞伎町", "other", "osusume_top", "yg", "sloverse",
 )
 # トップで当面使わない店舗ボタン：グレーで押せない（st.button の disabled）。店舗のページ・機能は残す。
 # 使えるように戻すときはこの集合から外すだけ（並びは _TOP_MENU_ORDER のまま）。
@@ -4173,6 +4194,8 @@ def _store_menu_go(target: str) -> None:
         _navigate("other")
     elif target == "yg":
         _navigate("yg")
+    elif target == "sloverse":
+        _navigate("sloverse")
     elif target == "osusume_top":
         _navigate("osusume_top")
     else:
@@ -4954,15 +4977,17 @@ def show_store_page() -> None:
     st.markdown("---")
     _has_other = bool(_other_group_stores(""))
     _has_yg = bool(_other_group_stores(_YG_GROUP))
+    _has_slv = bool(_other_group_stores(_SLOVERSE_GROUP))
 
     # トップの並び（_TOP_MENU_ORDER）。STORES にあって並びに無い店舗は「その他」の前へ。
     # 「その他」「YG用」は対象店舗があるときだけ出す（従来どおり）。
-    _menu = [_t for _t in _TOP_MENU_ORDER if _t in STORES or _t in ("other", "osusume_top", "yg")]
+    _menu = [_t for _t in _TOP_MENU_ORDER if _t in STORES or _t in ("other", "osusume_top", "yg", "sloverse")]
     _extra = [_s for _s in STORES if _s not in _menu]
     _menu[_menu.index("other"):_menu.index("other")] = _extra
-    _menu = [_t for _t in _menu if (_t != "other" or _has_other) and (_t != "yg" or _has_yg)]
+    _menu = [_t for _t in _menu if (_t != "other" or _has_other) and (_t != "yg" or _has_yg)
+             and (_t != "sloverse" or _has_slv)]
     _menu_lbl = {"other": ("その他", "store_other"), "osusume_top": ("おすすめ", "store_osusume_top"),
-                 "yg": ("YG用", "store_yg")}
+                 "yg": ("YG用", "store_yg"), "sloverse": ("スロバース用", "store_sloverse")}
 
     # ── PC／タブレット幅：4列（左上から _TOP_MENU_ORDER の順） ──
     with st.container(key="store_menu_pc"):
@@ -5077,6 +5102,55 @@ def show_yg_store_page() -> None:
     st.markdown("---")
     if st.button("← 店舗選択に戻る", key="back_to_store_from_yg"):
         _navigate("store")
+
+
+def show_sloverse_store_page() -> None:
+    """画面: 「スロバース用」配下の店舗選択（店舗ごとにボタン・YG用と同じ4列）。
+
+    対象店舗は store_settings/_sloverse_stores.json だけで管理する。
+    店舗を押すと機能選択（page=sloverse_store）へ進む。"""
+    st.markdown("## 【スロバース用】")
+    st.markdown("---")
+    _slvs = _other_group_stores(_SLOVERSE_GROUP)
+    if not _slvs:
+        st.warning("`store_settings/_sloverse_stores.json` に店舗が登録されていません。")
+    else:
+        _cols = st.columns(4)
+        for _i, _nm in enumerate(_slvs.keys()):
+            with _cols[_i % len(_cols)]:
+                if st.button(_other_display_name(_nm) or _nm, key=f"sloverse_store_{_nm}",
+                             use_container_width=True):
+                    _navigate("sloverse_store", store=_nm)
+
+    st.markdown("---")
+    if st.button("← 店舗選択に戻る", key="back_to_store_from_sloverse"):
+        _navigate("store")
+
+
+def show_sloverse_func_page() -> None:
+    """画面: 「スロバース用」店舗の機能選択（結果ポスト用 / スランプ付き結果ポスト用）。
+
+    結果ポスト用は既存 page=auto、スランプ付きは既存 page=other_slump をそのまま開く。"""
+    store = st.session_state.get("selected_store", "")
+    if not _is_sloverse_store(store):
+        # URL直アクセス等で店舗が不正なときはスロバース用一覧へ戻す（無限rerunにしない）
+        _navigate("sloverse")
+        return
+    st.markdown(f"## 【{_other_display_name(store) or store}】")
+    st.markdown("---")
+    _l, _r = st.columns(2)
+    with _l:
+        if st.button("⚡ 結果ポスト用", key="sloverse_auto_btn", type="primary",
+                     use_container_width=True):
+            _navigate("auto", store=store)
+    with _r:
+        if st.button("📊 スランプ付き結果ポスト用", key="sloverse_slump_btn", type="primary",
+                     use_container_width=True):
+            _navigate("other_slump", store=store)
+
+    st.markdown("---")
+    if st.button("← 戻る", key="back_to_sloverse"):
+        _navigate("sloverse")
 
 
 # 店舗の機能選択画面で「⚡ 結果ポスト用」ボタンだけを表示しない店舗。
@@ -6221,6 +6295,29 @@ def _zendai_total_stat(diff_raw) -> "dict | None":
 _TITLE_SUB_PARTS: tuple[str, ...] = ("（優秀台）",)
 
 
+def _build_sloverse_machine_img(df_m: pd.DataFrame, title: str) -> Image.Image:
+    """スロバース用の機種別表画像（水色フレーム・タイトル台座・表のみ・ピンクバーなし）。
+    列・表示値は _build_machine_img と同じ（台番・機種名・ゲーム数・BIG/REG/AT・合算確率・差枚数）。
+    タイトルの全角括弧は半角へそろえる（例「（優秀台）」→「(優秀台)」）。"""
+    import sloverse_design as _slv
+    df_d = _add_prob_col(df_m)
+    active = _active_sub_cols(df_d)
+    disp = ["台番", "機種名", "ゲーム数"] + active
+    if "合算確率" in df_d.columns:
+        disp.append("合算確率")
+    disp.append("差枚")
+    disp = [c for c in disp if c in df_d.columns]
+    _signs = None
+    if "差枚" in df_d.columns:
+        _signs = [(1 if v > 0 else (-1 if v < 0 else 0))
+                  for v in pd.to_numeric(df_d["差枚"], errors="coerce").fillna(0).tolist()]
+    df_f = _format_display_cols(df_d[disp])
+    headers = [_DISPLAY_RENAME.get(h, h) for h in df_f.columns]
+    rows = df_f.values.tolist()
+    _title = str(title).replace("（", "(").replace("）", ")")
+    return _slv.render_table(_title, headers, rows, _signs)
+
+
 def _build_machine_img(
     df_m: pd.DataFrame,
     title: str,
@@ -6235,6 +6332,11 @@ def _build_machine_img(
     半角括弧（例「(列仕掛け)」「(4台並び)」）は空きが4pxで自然なため補正しない。
     no_bar=True で青タイトルバー＋赤ラインを**描かずに**生成する（記事用の並び画像）。
     ピンクサマリーバーの有無・表の内容は no_bar でも変わらない。"""
+
+    # スロバース用（マルハン新宿東宝など）だけ水色デザインの専用描画へ渡す。
+    # ピンクサマリーバーは描かない（集計値 summary_stat は呼び出し側でそのまま使われる）。
+    if _sloverse_theme() and not no_bar:
+        return _build_sloverse_machine_img(df_m, title)
 
     # ── テーブル部分（タイトル・ピンクバーなし）─────────────────────
     df_d = _add_prob_col(df_m)
@@ -23198,6 +23300,8 @@ def show_auto_page(with_slump: bool = False) -> None:
     if st.button("← 戻る", key="auto_back"):
         if _other_slump_from_other(store):
             _navigate("other")   # YG店舗を「その他」から開いたときは「その他」へ戻る
+        elif _is_sloverse_store(store):
+            _navigate("sloverse_store")   # スロバース用は店舗の機能選択へ戻る
         elif _is_yg_store(store):
             _navigate("yg")
         else:
@@ -34903,6 +35007,10 @@ def main() -> None:
         elif page == "work":
             st.markdown(f"📍 **{st.session_state.selected_store}**")
             st.markdown(f"　→ **{st.session_state.selected_image_type}**")
+        elif page == "auto" and _is_sloverse_store(st.session_state.selected_store):
+            st.markdown("📍 **スロバース用**")
+            st.markdown(f"　→ **{st.session_state.selected_store}**")
+            st.markdown("　→ **⚡ 結果ポスト用**")
         elif page == "auto":
             st.markdown(f"📍 **{st.session_state.selected_store}**")
             st.markdown("　→ **⚡ 結果ポスト用**")
@@ -34917,11 +35025,20 @@ def main() -> None:
             st.markdown("📍 **その他**")
         elif page == "yg":
             st.markdown("📍 **YG用**")
+        elif page == "sloverse":
+            st.markdown("📍 **スロバース用**")
+        elif page == "sloverse_store":
+            st.markdown("📍 **スロバース用**")
+            st.markdown(f"　→ **{st.session_state.selected_store}**")
         elif page == "yg_list":
             st.markdown("📍 **YG用**")
             st.markdown("　→ **一覧**")
         elif page == "osusume_top":
             st.markdown("📍 **おすすめ**")
+        elif page == "other_slump" and _is_sloverse_store(st.session_state.selected_store):
+            st.markdown("📍 **スロバース用**")
+            st.markdown(f"　→ **{st.session_state.selected_store}**")
+            st.markdown("　→ **📊 スランプ付き結果ポスト用**")
         elif page == "other_slump":
             st.markdown("📍 **YG用**" if (_is_yg_store(st.session_state.selected_store)
                                           and not _other_slump_from_other(st.session_state.selected_store))
@@ -34966,6 +35083,10 @@ def main() -> None:
         show_other_store_page()
     elif st.session_state.page == "yg":
         show_yg_store_page()
+    elif st.session_state.page == "sloverse":
+        show_sloverse_store_page()
+    elif st.session_state.page == "sloverse_store":
+        show_sloverse_func_page()
     elif st.session_state.page == "yg_list":
         show_yg_list_page()
     elif st.session_state.page == "osusume_top":

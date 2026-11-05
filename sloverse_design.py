@@ -209,8 +209,9 @@ def render_table(title: str, headers: list[str], rows: list[list[str]],
     d = ImageDraw.Draw(canvas)
 
     # ── タイトル（台座の中央・長いときだけ縮小）──
-    # 1行で 44px まで縮小、それでも入らなければ2行（台座の高さ 72px に収める）
-    t_lines, tf = _layout_fit(d, title, TITLE_MAX_W, 72, SZ_TITLE, 44, 32, 18)
+    # 1行で 30px まで縮小、それでも入らなければ2行（台座の高さ 72px に収める）。
+    # 「その他のジャグラーシリーズの優秀台」程度の長さは1行のまま収める（語の途中で改行しない）。
+    t_lines, tf = _layout_fit(d, title, TITLE_MAX_W, 72, SZ_TITLE, 30, 30, 18)
     glow = Image.new("L", canvas.size, 0)
     _draw_lines(ImageDraw.Draw(glow), W / 2, TITLE_CY, t_lines, tf, 255)
     glow = glow.filter(ImageFilter.GaussianBlur(6))

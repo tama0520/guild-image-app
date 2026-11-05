@@ -1310,6 +1310,10 @@ def plan_blocks(payload: dict) -> list[dict]:
             if payload.get("sue_h3"):
                 _sue_st = (payload.get("sue_h3_stats") or {}).get(fn)
                 _sue_nm = os.path.splitext(fn)[0]
+                # 通常末尾の優秀台（`末尾N番台の優秀台`）だけ、見出しから「の優秀台」を外す（2026-11-05）。
+                # ゾロ目・ジャグラー末尾・プラス台・全台は従来どおりファイル名のまま。画像・ファイル名は不変。
+                if re.fullmatch(r"末尾\d+番台の優秀台", _sue_nm):
+                    _sue_nm = _sue_nm[:-len("の優秀台")]
                 plan.append({"type": "h3", "text": (
                     h3_sue({"name": _sue_nm, **_sue_st}, _h3_cnt)
                     if _sue_st else _sue_nm)})

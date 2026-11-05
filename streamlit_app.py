@@ -2526,6 +2526,19 @@ def draw_table_image(
                 tx = x + col_w[ci] - tw - _cell_pad - tb[0]
                 draw.text((tx, ty_c), cell, fill=color, font=fn_data)
 
+            elif cell == "――" and str(headers[ci]) == "合算確率" and _art_table_header_new():
+                # 記事用（新宿歌舞伎町 × auto_article）だけ：表示不能の合算確率は文字の「――」ではなく、
+                # 「―――」3本分の長さの1本の横線（太さは「―」の線幅）をセルの上下左右中央に描く
+                # 線の太さは「―」を実際に描いたときのインクの高さ（textbbox は字面の枠で太くなるため使わない）
+                _dm = Image.new("L", (_font_sz * 3, _font_sz * 3), 0)
+                ImageDraw.Draw(_dm).text((_font_sz, _font_sz), "―", fill=255, font=fn_data)
+                _dk = _dm.point(lambda v: 255 if v >= 128 else 0).getbbox()
+                _dt = max(1, (_dk[3] - _dk[1]) if _dk else 1)
+                _dw = min(_text_w(draw, "―――", fn_data), col_w[ci] - _cell_pad * 2)
+                _dx = x + (col_w[ci] - _dw) // 2
+                _dy = y + (_row_h - _dt) // 2
+                draw.rectangle([(_dx, _dy), (_dx + _dw - 1, _dy + _dt - 1)], fill=_data_fg)
+
             else:
                 # 差枚以外はすべてセンタリング
                 tx = x + (col_w[ci] - tw) // 2 - tb[0]

@@ -8095,7 +8095,7 @@ _MOGU_KABU_RESULT_TEXT_NAME = "エスパス 新宿 歌舞伎 町"
 
 
 def _mogu_kabu_report_text(date, zen_dai_list: list, high_ratio_list: list, nami_list: list,
-                           suebangai_data, jug_sue_data, diff_raw, df=None) -> str:
+                           suebangai_data, jug_sue_data, diff_raw, df=None, retsu_list=None) -> str:
     """モグ玄・新宿歌舞伎町 スランプ付き結果ポスト用の結果テキスト（⑧・⑧📝で共通）。
     平均・勝ち台数・台数・台番範囲は既存の項目の値（all_avg_diff／_high_avg_of／count・total、
     並びの ban_range・avg_diff、末尾の avg_diff・win_count・total）をそのまま使う。"""
@@ -8117,18 +8117,25 @@ def _mogu_kabu_report_text(date, zen_dai_list: list, high_ratio_list: list, nami
     # 平均はその並びの台番（bans）の差枚を、総差枚と同じ diff_raw から int(round(平均)) で出す
     # （通常⑧の nami_list.avg_diff は補正前の差枚なので使わない。⑧📝と同じ値になる）。
     # bans・df が無いときだけ既存の avg_diff。
-    _nami = []
-    for _it in nami_list or []:
-        _m = _it.get("machine") or str(_it.get("title", "")).split("(")[0]
-        _br = _it.get("ban_range")
-        _avg = int(_it["avg_diff"])
-        if _it.get("bans") and df is not None and diff_raw is not None and "台番" in df.columns:
-            _bs = {int(_b) for _b in _it["bans"]}
-            _idx = df.index[df["台番"].apply(lambda _x: pd.notna(_x) and int(_x) in _bs)]
-            if len(_idx):
-                _avg = int(round(diff_raw.loc[_idx].mean()))
-        _nami.append(f"〇{_m}({_br})　平均{_fmt_diff(_avg)}" if _br
-                     else f"〇{_it.get('title', _m)}　平均{_fmt_diff(_avg)}")
+    def _grp_rows(items) -> list[str]:
+        _rows = []
+        for _it in items or []:
+            _m = _it.get("machine") or str(_it.get("title", "")).split("(")[0]
+            _br = _it.get("ban_range")
+            _avg = int(_it["avg_diff"])
+            if _it.get("bans") and df is not None and diff_raw is not None and "台番" in df.columns:
+                _bs = {int(_b) for _b in _it["bans"]}
+                _idx = df.index[df["台番"].apply(lambda _x: pd.notna(_x) and int(_x) in _bs)]
+                if len(_idx):
+                    _avg = int(round(diff_raw.loc[_idx].mean()))
+            _rows.append(f"〇{_m}({_br})　平均{_fmt_diff(_avg)}" if _br
+                         else f"〇{_it.get('title', _m)}　平均{_fmt_diff(_avg)}")
+        return _rows
+
+    _nami = _grp_rows(nami_list)
+    # 列：1入力＝1かたまり＝1行（_build_retsu_report_items の戻り値）。並びと同じ書式・同じ平均の出し方
+    # （かたまりの全台＝マイナス・±0も含む差枚を diff_raw から平均）。順は台番一覧と同じく最小台番の昇順
+    _retsu = _grp_rows(sorted(retsu_list or [], key=lambda _it: min(_it.get("bans") or [0])))
     # 末尾：結果テキストの既存表記（末尾⑤番台・末尾ゾロ目の台／ジャグラーの末尾…）・平均・勝ち台数/対象台数
     _circ = dict(zip("0123456789", "⓪①②③④⑤⑥⑦⑧⑨"))
     _sue = [f"〇{'末尾ゾロ目の台' if _it['tail'] == 'ゾロ目' else '末尾' + _circ.get(_it['tail'], _it['tail']) + '番台'}"
@@ -8137,7 +8144,8 @@ def _mogu_kabu_report_text(date, zen_dai_list: list, high_ratio_list: list, nami
     _sue += [f"〇{'ジャグラーの末尾ゾロ目番台' if _it['tail'] == 'ゾロ目' else 'ジャグラーの末尾' + _circ.get(_it['tail'], _it['tail']) + '番台'}"
              f"　平均{_fmt_diff(int(_it['avg_diff']))}　{_it['win_count']}/{_it['total']}"
              for _it in jug_sue_data or []]
-    for _head, _rows in (("☆優秀機種", _zen), ("🔴高配分機種", _high), ("♦並び", _nami), ("🟨末尾", _sue)):
+    for _head, _rows in (("☆優秀機種", _zen), ("🔴高配分機種", _high), ("♦列", _retsu), ("♦並び", _nami),
+                         ("🟨末尾", _sue)):
         if _rows:
             out += [_head] + _rows + [""]
     _st = _zendai_total_stat(diff_raw)
@@ -9164,7 +9172,7 @@ def generate_report_text(
         return "\n".join([header, store_display, "", "", "", "", "", _yg_body])
     if store_name in _MOGU_KABU_RESULT_TEXT_STORES:
         return _mogu_kabu_report_text(date, zen_dai_list, high_ratio_list, nami_list,
-                                      suebangai_data, jug_sue_data, diff_raw, df)
+                                      suebangai_data, jug_sue_data, diff_raw, df, retsu_list=retsu_list)
     if store_name in _HONEY_POST_RESULT_STORES:
         # 固定構成：見出し → 🍯機種名×画像を作った機種数 → 📍×3
         #          → 画像を作った機種の結果 → 💬 → 空行2 → 🔍。

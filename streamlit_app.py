@@ -146,6 +146,9 @@ STORE_RESULT_TRANSFORMS: dict[str, list[tuple[str, str]]] = {
         ("👑その他の優秀台", "👑その他の優秀台👑"),
         ("→", "➡"),
     ],
+    # モグ玄2店舗：結果テキスト（⑧・⑧📝）の「♦」をすべて「🔶」に（記号だけ。文字・改行・数値は不変）
+    "モグ玄・新宿歌舞伎町": [("♦", "🔶")],
+    "モグ玄・新大久保":     [("♦", "🔶")],
 }
 
 # ローテ結果テキストの絵文字設定 {store: (機種名囲み絵文字, 枚数ティア絵文字)}
@@ -28166,7 +28169,7 @@ def _generate_rote_result_text(
             # 見出しは期間＋ポスター＋日数の1行（機種名の列挙は出さない）
             lines = [f"{date_obj.month}月{date_obj.day}日（{dow}）", "",
                      "【 エスパス新宿歌舞伎町 】", "", "",
-                     f"♦{week_str}ポスター {day_num}日目♦"]
+                     f"🔶{week_str}ポスター {day_num}日目🔶"]
     else:
         weekday = date_obj.weekday()          # 0=月
         day_num = weekday + 1
@@ -28188,7 +28191,7 @@ def _generate_rote_result_text(
             # モグ玄・新大久保だけ冒頭を差し替える。day_num は上の既存計算のまま（期間の表記は出さない）
             lines = [f"{date_obj.month}月{date_obj.day}日（{dow}）", "",
                      "【 エスパス新大久保 】", "", "",
-                     f"♦オススメポスター{day_num}日目♦"]
+                     f"🔶オススメポスター{day_num}日目🔶"]
 
     _re, _te = ROTE_EMOJI_CONFIG.get(store, ("🌌", "🔥"))
     _be = ROTE_BAN_EMOJI_CONFIG.get(store, "💫")

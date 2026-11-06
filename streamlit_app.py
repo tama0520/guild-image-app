@@ -19131,6 +19131,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                             for _mbi, _blk in enumerate(recommended_blocks):
                                 _mbt = _blk["title"].strip() or "オススメ機種"
                                 _mbm = [m.strip() for m in _blk["machines"] if m.strip()]
+                                # モグ玄・新宿歌舞伎町のスランプ付きだけ：📝の優秀機種・高配分に載せた機種を機種単位で外す（🔍・⑧と同じ）
+                                _mbm = _mogu_kabu_rec_valid_manual(_mbm, _df_m, _manual_ban_map, _bl_kind_m)
                                 if not _mbm:
                                     continue
                                 for _mthr in _blk.get("thresholds", [1]):
@@ -20975,6 +20977,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                         for _mbi_e, _blk_e in enumerate(recommended_blocks):
                             _mbt_e = _blk_e["title"].strip() or "オススメ機種"
                             _mbm_e = [m.strip() for m in _blk_e["machines"] if m.strip()]
+                            # モグ玄・新宿歌舞伎町のスランプ付きだけ：📝と同じく優秀機種・高配分に載せた機種を機種単位で外す
+                            _mbm_e = _mogu_kabu_rec_valid_manual(_mbm_e, _df_exec_m, _m_exec_ban_map_e, _bl_kind_e)
                             if not _mbm_e:
                                 continue
                             for _mthr_e in _blk_e.get("thresholds", [1]):
@@ -33300,6 +33304,24 @@ def _mogu_kabu_rec_exc_bans(narabi_bans, retsu_ranges, sue_map) -> "set[int]":
         except (TypeError, ValueError):
             continue
     return _out
+
+
+def _mogu_kabu_rec_valid_manual(machines: list, df, ban_map: dict, kinds: dict) -> list:
+    """📝・⑧📝の⑤：🔍・⑧と同じく、優秀機種・高配分に採用した機種を⑤から**機種単位**で外す
+    （モグ玄・新宿歌舞伎町のスランプ付きだけ。他は machines をそのまま返す＝従来どおり）。
+    採用した機種＝📝で実際に載せた台（kind zen／high）の df の機種名（②の「・2F」等も台番から元の機種名にそろう）。
+    判定は🔍・⑧と同じ filter_recommended_machines()。"""
+    if not _mogu_kabu_slump_on() or df is None or "台番" not in df.columns:
+        return machines
+
+    def _names(kind: str) -> "set[str]":
+        _bs = {int(_b) for _f, _k in kinds.items() if _k == kind for _b in (ban_map.get(_f) or [])}
+        if not _bs:
+            return set()
+        return set(df[df["台番"].apply(lambda _x: pd.notna(_x) and int(_x) in _bs)]["機種名"].astype(str))
+
+    _valid, _ = filter_recommended_machines(machines, df, _names("zen"), _names("high"))
+    return _valid
 
 
 def _mogu_kabu_lists(store: str, d, df, zen, high, nami, sue_map: dict, rec_map: dict, jug, col_map: dict,

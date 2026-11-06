@@ -7672,8 +7672,8 @@
   },
   "20261105_新宿歌舞伎町_20S.xlsx": {
     "art_kojin_enabled": true,
-    "art_narabi_enabled": false,
-    "art_narabi_ranges_input": "",
+    "art_narabi_enabled": true,
+    "art_narabi_ranges_input": "605-608",
     "art_retsu_enabled": true,
     "art_retsu_ranges_input": "・モンキーターンV　721-727\n・戦国乙女5　636-641",
     "art_suebangai_enabled": false,

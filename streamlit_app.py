@@ -4245,6 +4245,9 @@ _WP_PRE_PREV_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町", "秋葉
 # どちらも開始日以降のときだけ有効（11/1 7:00 より前・それ以前の作業日の表示は従来どおり）。
 _WP_PRE_PREV_STORES_LATER: "frozenset[str]" = frozenset({"渋谷新館", "上野新館", "上野本館", "新大久保"})
 _WP_PRE_PREV_LATER_FROM: "tuple[int, int, int]" = (2026, 11, 1)
+# 上の前日印方式で、前日に同じ区分の印が無いときだけ「前日の同じ店舗の別の区分の印の人」で補う店舗
+# （渋谷新館は 11/9 から ⑤⑥ → ④ に変わり、11/8 に ④ の印が無いため）。他店舗は従来どおり担当者不明。
+_WP_PRE_PREV_OTHER_CAT_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
 # 「何の日」を作る（店舗, 区分）→ 前日が空欄のときの代わりの（店舗, 区分）。
 # 何の日は対象日の前日に作り、担当は事前と同じ（前日の秋葉原② → 空欄なら前日の新宿歌舞伎町①）。
 _WP_NANNOHI: "dict[tuple[str, str], tuple[str, str]]" = {("秋葉原", "②"): ("新宿歌舞伎町", "①")}
@@ -4592,6 +4595,11 @@ def _wp_tasks_for(work_date) -> dict:
                         _person = _WP_UNKNOWN_PERSON
                     else:
                         _p = [w for c, w, rr in _assign.get((_s, _prev), []) if c == _cat]
+                        if not _p and _s in _WP_PRE_PREV_OTHER_CAT_STORES:
+                            # 前日に同じ区分の印が無い（区分が切り替わった初日など）ときだけ、
+                            # 前日の同じ店舗の別の区分の印の人（行の上から最初）にする
+                            _p = [w for c, w, rr in sorted(_assign.get((_s, _prev), []),
+                                                           key=lambda t: t[2])]
                         _person = _p[0] if _p else _WP_UNKNOWN_PERSON
                 _key = "|".join([work_date.isoformat(), _d.isoformat(), _s, _cat, _kind, _person])
                 _tasks.append({"work_date": work_date, "target_date": _d, "store": _s,

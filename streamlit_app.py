@@ -33188,7 +33188,7 @@ def _mogu_kabu_slump_sheet(store: str, d, blocks: list, by_uid: "dict | None") -
         _rows = [_r for _a in _b["atoms"] for _r in _a]
         if not _rows:
             continue
-        # 優秀機種・通常末尾の全台モードは全台（マイナス・±0も）、それ以外はプラス台だけ（_mogu_kabu_lists が印を付ける）
+        # 優秀機種・列・並び・通常末尾の全台モードは全台（マイナス・±0も）、それ以外はプラス台だけ（_mogu_kabu_lists が印を付ける）
         _plus = list(_rows) if _b.get("sheet_all") else [_r for _r in _rows if _r["diff"] > 0]
         _cards = []
         for _r in _plus:
@@ -33393,9 +33393,9 @@ def _mogu_kabu_lists(store: str, d, df, zen, high, nami, sue_map: dict, rec_map:
     # 「(優秀台)」を付け、全台（接尾辞なし）は付けない
     _sue_y = {_ban_list_sue_title(_f) for _f in (sue_map or {})
               if os.path.splitext(_f)[0].endswith(("のプラス台", "の優秀台"))}
-    # スランプ一覧を全台（マイナス・±0も）にするブロック：優秀機種と、通常末尾の全台モード（ジャグラー末尾は対象外）
+    # スランプ一覧を全台（マイナス・±0も）にするブロック：優秀機種・列・並びと、通常末尾の全台モード（ジャグラー末尾は対象外）
     for _b in blocks:
-        if _b["kind"] == "zen" or (_b["kind"] == "sue" and _b["title"] not in _sue_y
+        if _b["kind"] in ("zen", "retsu", "nami") or (_b["kind"] == "sue" and _b["title"] not in _sue_y
                                    and not str(_b["title"]).startswith("ジャグラー")):
             _b["sheet_all"] = True
     for _b in blocks:

@@ -989,6 +989,17 @@ def _sloverse_theme() -> bool:
         return False
 
 
+def _sloverse_slump_on() -> bool:
+    """スロバース用のスランプ（sloverse_design のカード・3列まとめ・横版）で描くか。
+    対象は「スロバース用」配下の店舗 × スランプ付き結果（page=other_slump）だけ。
+    結果ポスト用（auto）・他店舗・YG・モグ玄・記事用は False。Streamlit 外でも False。"""
+    try:
+        return (st.session_state.get("page") == "other_slump"
+                and _is_sloverse_store(st.session_state.get("selected_store")))
+    except Exception:
+        return False
+
+
 def _bar_crop_h(width: int) -> int:
     """機種別画像の上部（青タイトルバー＋赤ライン）の合計高さ。
 
@@ -18698,7 +18709,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                 _gap_meta_pv[_fn_pv]["fillable"] = _fillable_pv
                                                 if _fillable_pv:
                                                     _gap_base_pv[_fn_pv] = {"table": _img_pv, "graphs": list(_g_imgs_pv), "side": False}
-                                            _merged_pv.append((_fn_pv, _attach_slump_to_table(_img_pv, _g_imgs_pv, _ig_bbb_pv, _gap_img_pv)))
+                                            _merged_pv.append((_fn_pv, _attach_slump_to_table(_img_pv, _g_imgs_pv, _ig_bbb_pv, _gap_img_pv,
+                                                                                              sv_name=_bare_pv, sv_bans=_bans_pv)))
                                         if len(_g_imgs_pv) >= 16 and store != "秋葉原":
                                             try:
                                                 _side_fn_pv = os.path.splitext(_fn_pv)[0] + "_side.jpg"
@@ -20399,7 +20411,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             _gap_img_u2 = _resolve_gap_screen(_gp_u2, _gsel_u2)
                                         else:
                                             _gap_img_u2 = None
-                                        _new_prev[_ui] = (_ufn, _attach_slump_to_table(_uimg, _g_imgs_u2, _upd_bbb, _gap_img_u2))
+                                        _new_prev[_ui] = (_ufn, _attach_slump_to_table(_uimg, _g_imgs_u2, _upd_bbb, _gap_img_u2,
+                                                                                       sv_name=re.sub(r"^\d{2}_", "", _ufn), sv_bans=_bans_u2))
                                     if len(_g_imgs_u2) >= 16 and store != "秋葉原":
                                         try:
                                             _side_ufn = os.path.splitext(_ufn)[0] + "_side.jpg"
@@ -22679,6 +22692,22 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _log(f"  🗑️ 前回の画像を削除: {_f_js}")
                             except OSError:
                                 pass
+                # スロバース用 × other_slump：今回同じ名前の画像を作ったときは、前回の `NN_{名前}`
+                # （スランプ合成済み）とその横版 `(NN_){名前}_side.jpg` を先に消す。
+                # 消さないと下の連番外しで前回分が今回分を上書きし、スランプが二重に合成される。
+                if with_slump and _sloverse_slump_on():
+                    _now_sv = set(os.listdir(output_dir))
+                    for _f_sv in sorted(_now_sv):
+                        _m_sv = re.fullmatch(r"(?:\d{2}_)?(.+)_side\.jpg", _f_sv)
+                        _p_sv = re.fullmatch(r"\d{2}_(.+\.(?:jpg|png))", _f_sv)
+                        if (((_m_sv and f"{_m_sv.group(1)}.jpg" in _now_sv)
+                             or (_p_sv and _p_sv.group(1) in _now_sv))
+                                and os.path.isfile(os.path.join(output_dir, _f_sv))):
+                            try:
+                                os.remove(os.path.join(output_dir, _f_sv))
+                                _log(f"  🗑️ 前回の画像を削除: {_f_sv}")
+                            except OSError:
+                                pass
                 # 再実行時に前回の連番プレフィックスが残っていると衝突するため、先に剥がしておく
                 for _ef in os.listdir(output_dir):
                     _pm = re.match(r"^\d{2}_(.+)$", _ef)
@@ -23003,7 +23032,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                 _gap_img_exec = _resolve_gap_screen(_gp_exec, _gsel_exec)
                                             else:
                                                 _gap_img_exec = None
-                                            _combined_exec = _attach_slump_to_table(_t_img_exec, _g_imgs_exec, _ig_bbb_exec, _gap_img_exec)
+                                            _combined_exec = _attach_slump_to_table(_t_img_exec, _g_imgs_exec, _ig_bbb_exec, _gap_img_exec,
+                                                                                    sv_name=_bare_exec, sv_bans=_bans_exec)
                                             _cbuf_exec = io.BytesIO()
                                             _combined_exec.save(_cbuf_exec, format="JPEG", quality=92)
                                             _ig_composite.append((_lfn_exec, _cbuf_exec.getvalue()))
@@ -33032,7 +33062,8 @@ def _composite_slump_onto_images(
                 _gap_img_m = _resolve_gap_screen(_gp_m, _gsel_m)
             else:
                 _gap_img_m = None
-            _merged.append((_fn, _attach_slump_to_table(_img, _g_imgs, _bbb, _gap_img_m)))
+            _merged.append((_fn, _attach_slump_to_table(_img, _g_imgs, _bbb, _gap_img_m,
+                                                        sv_name=_bare, sv_bans=_bans)))
         if len(_g_imgs) >= 16 and store != "秋葉原":
             try:
                 _side_fn = os.path.splitext(_fn)[0] + "_side.jpg"
@@ -33541,6 +33572,18 @@ def draw_slump_graph(
     # モグ玄・新宿歌舞伎町 × auto_slump2 だけ横長カード（games は他店舗では使わない）
     if _mogu_kabu_slump_on():
         return _mogu_slump_card(unit_id, display_name, points, diff, games, show_diff)
+    # スロバース用 × other_slump だけ水色のカード（機種名・台番・差枚・グラフの4要素・G数なし）。
+    # 差枚の値と表示可否（show_diff）は既存カードと同じ（_pipeline_calc_d → _fmt_diff）。
+    if _sloverse_slump_on():
+        import sloverse_design as _slv
+        _sv_txt, _sv_sign = None, 0
+        if points and show_diff:
+            _sv_v = _pipeline_calc_d(diff if diff is not None else points[-1]["y"])
+            _sv_txt = _fmt_diff(_sv_v)
+            _sv_sign = 1 if _sv_v > 0 else (-1 if _sv_v < 0 else 0)
+        _sv_card = _slv.render_slump_card(str(unit_id), display_name, points, _sv_txt, _sv_sign)
+        _sv_card.info["sv_unit"] = str(unit_id)   # 表を左右2ブロックに分けるときの振り分け用
+        return _sv_card
     SCALE     = 3
     X_START   = 24
     X_END     = 364
@@ -33866,6 +33909,9 @@ def _attach_slump_to_table_side(
     gap_screen_img=None,
 ) -> "Image.Image":
     """表画像（左）＋スランプグラフ4列（右）の横レイアウト合成（16台以上用）。"""
+    if _sloverse_slump_on():   # スロバース用 × other_slump：同じ水色の枠のパネル（4列）
+        import sloverse_design as _slv
+        return _slv.attach_slumps_side(table_img, graph_imgs, cols=4)
     COLS = _MOGU_SL_COLS if _mogu_kabu_slump_on() else 4   # モグ玄・新宿歌舞伎町だけ7列
     PAD  = 12
     GAP  = 8
@@ -34317,6 +34363,10 @@ def _resolve_gap_screen(screen_paths: list, sel_idx: int) -> "Image.Image | None
         return None
 
 
+_SV_SPLIT_FN  = "その他の優秀台ピックアップ.jpg"   # スロバース用で左右2ブロックにする画像（この1種類だけ）
+_SV_SPLIT_MIN = 40                                # 表の掲載台数がこれ以上のときだけ
+
+
 def _attach_slump_to_table(
     table_img: "Image.Image",
     graph_imgs: "list[Image.Image]",
@@ -34325,6 +34375,8 @@ def _attach_slump_to_table(
     hq_scale: float = 1.0,
     bg_color=None,
     cols: int = 3,
+    sv_name: "str | None" = None,
+    sv_bans=None,
 ) -> "Image.Image":
     """表画像の下にスランプグラフを指定列数で並べて合成する。
 
@@ -34334,6 +34386,16 @@ def _attach_slump_to_table(
     * cols の既定は 3 ＝従来動作。カード数が多い記事用だけ 4 を渡して
       縦長を抑える（列数以外のレイアウト・順序・サイズは変更しない）。
     """
+    if _sloverse_slump_on():   # スロバース用 × other_slump：表と同じ水色の枠の中に3列（左→右・左詰め）
+        import sloverse_design as _slv
+        # 「その他の優秀台ピックアップ」で掲載40台以上のときだけ、表を前半・後半に分けて左右2ブロック
+        # （各ブロックは表→その表の台だけのスランプ）。sv_name / sv_bans は ⑦・🔄・⑧ の3経路だけが渡す。
+        if (sv_name == _SV_SPLIT_FN and sv_bans is not None
+                and len(sv_bans) >= _SV_SPLIT_MIN and graph_imgs):
+            _sv_sp = _slv.attach_slumps_split(table_img, graph_imgs, [str(b) for b in sv_bans])
+            if _sv_sp is not None:
+                return _sv_sp
+        return _slv.attach_slumps(table_img, graph_imgs, cols=3)
     COLS = max(1, int(cols or 3))
     if _mogu_kabu_slump_on():
         COLS = _MOGU_SL_COLS   # モグ玄・新宿歌舞伎町 × auto_slump2 だけ1行7台

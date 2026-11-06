@@ -277,3 +277,266 @@ def render_table(title: str, headers: list[str], rows: list[list[str]],
         d.line([(xs[i], HEADER_Y1), (xs[i], table_y1 - 1)], fill=C_VLINE_A, width=1)
         d.line([(xs[i] + 1, HEADER_Y1), (xs[i] + 1, table_y1 - 1)], fill=C_VLINE_B, width=1)
     return canvas
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# スランプグラフ（スロバース用 × スランプ付き結果 other_slump だけ・2026-11-06 試作）
+#   streamlit_app.py の draw_slump_graph() / _attach_slump_to_table() /
+#   _attach_slump_to_table_side() が _sloverse_slump_on() のときだけ呼ぶ。
+#   カードの中身は「機種名・台番・差枚・スランプグラフ」の4要素だけ（G数は入れない）。
+# ═══════════════════════════════════════════════════════════════════════════
+SL_S = 2                                  # カードは 2 倍解像度で描き、並べるときに縮小する
+SL_CARD_W, SL_CARD_H = 466, 330           # 1 倍換算のカード寸法（3 列で表の内幅に収まる）
+SL_NAME_H = 52                            # 機種名の帯
+SL_INFO_H = 50                            # 台番・差枚の行
+SL_RADIUS = 10
+SL_GAP = 22                               # カードの間隔・表との間隔
+SL_TAIL_H = 120                           # render_table の下端から下の枠（frame_bottom の表下端以降）
+SL_BASE_RANGE = 3000                      # 縦軸の基本レンジ ±3,000（超える台だけ 1,000 単位で広げる）
+
+C_SL_FRAME    = (58, 206, 238)            # カード外枠：シアン（見出しバーの区切りと同じ）
+C_SL_NAME_T   = (22, 104, 176)            # 機種名の帯：上
+C_SL_NAME_B   = (6, 38, 92)               # 機種名の帯：下
+C_SL_GRAPH_BG = (6, 22, 56)               # グラフ地：ネイビー
+C_SL_GRID     = (34, 78, 128)             # 補助線
+C_SL_ZERO     = (120, 205, 245)           # 0 ライン
+C_SL_LABEL    = (150, 200, 232)           # 目盛文字
+C_SL_LINE     = (57, 255, 20)             # 折れ線：蛍光グリーン
+C_SL_AREA_BG  = (226, 241, 252)           # カードを並べる領域の地（表のセルより少し濃い水色）
+
+
+def _sl_range(points: list) -> int:
+    m = max((abs(float(p.get("y", 0))) for p in points), default=0)
+    # ±3,000（目盛 1,000 刻み）が基本。超える台だけ ±6,000 / ±9,000 … に広げ、目盛は常に片側 3 本
+    r = SL_BASE_RANGE
+    while m > r:
+        r += SL_BASE_RANGE
+    return r
+
+
+def render_slump_card(unit_id: str, machine_name: str, points: list,
+                      diff_text: str | None, diff_sign: int = 0) -> Image.Image:
+    """スランプカード1枚（2 倍解像度 932×660）。
+
+    diff_text が None のときは差枚を出さない（既存の show_diff=False と同じ扱い）。
+    縦軸は ±3,000 が基本。差枚がそれを超える台だけ 1,000 単位で広げ、線を枠外へ出さない。"""
+    S = SL_S
+    W_, H_ = SL_CARD_W * S, SL_CARD_H * S
+    card = Image.new("RGB", (W_, H_), C_SL_AREA_BG)
+    mask = Image.new("L", (W_, H_), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, W_ - 1, H_ - 1], radius=SL_RADIUS * S, fill=255)
+    body = Image.new("RGB", (W_, H_), C_SL_GRAPH_BG)
+    d = ImageDraw.Draw(body)
+
+    # ── 機種名の帯（上→下のグラデーション・白文字）──
+    nh, ih = SL_NAME_H * S, SL_INFO_H * S
+    for y in range(nh):
+        t = y / max(1, nh - 1)
+        d.line([(0, y), (W_, y)], fill=tuple(round(C_SL_NAME_T[i] + (C_SL_NAME_B[i] - C_SL_NAME_T[i]) * t) for i in range(3)))
+    n_lines, nf = _layout_fit(d, str(machine_name), W_ - 28 * S, nh - 6 * S, 30 * S, 20 * S, 20 * S, 14 * S)
+    _draw_lines(d, W_ / 2, nh / 2, n_lines, nf, (255, 255, 255))
+
+    # ── 台番・差枚の行（表のセルと同じ地・緑三角＋台番／右に差枚）──
+    y0, y1 = nh, nh + ih
+    d.rectangle([(0, y0), (W_, y1 - 1)], fill=C_ROW_BG)
+    d.line([(0, y0), (W_, y0)], fill=C_SL_FRAME, width=2 * S)
+    d.line([(0, y1 - 2 * S), (W_, y1 - 2 * S)], fill=C_SL_FRAME, width=2 * S)
+    tri = 26 * S
+    tx, ty = 14 * S, y0 + (ih - tri) // 2
+    d.polygon([(tx, ty), (tx + tri, ty), (tx, ty + tri)], fill=C_TRI)
+    bf = _font(32 * S)
+    _draw_text(d, (0, y0, W_, y1), f"{unit_id}番台", bf, C_TEXT, "left", left_x=tx + tri + 12 * S)
+    if diff_text:
+        df_ = _fit_font(d, diff_text, 34 * S, W_ // 2)
+        fill = C_PLUS if diff_sign > 0 else (C_MINUS if diff_sign < 0 else C_TEXT)
+        _draw_text(d, (0, y0, W_, y1), diff_text, df_, fill, "right", right_pad=16 * S)
+
+    # ── グラフ（ネイビー地・補助線・0 ライン・蛍光グリーンの折れ線）──
+    gx0, gx1 = 82 * S, W_ - 18 * S
+    gy0, gy1 = y1 + 16 * S, H_ - 16 * S
+    rng = _sl_range(points or [])
+    step = rng // 3
+    lf = _font(16 * S)
+    def _y(v: float) -> float:
+        return gy0 + (rng - v) / (2 * rng) * (gy1 - gy0)
+    v = -rng
+    while v <= rng:
+        yy = _y(v)
+        if v == 0:
+            d.line([(gx0, yy), (gx1, yy)], fill=C_SL_ZERO, width=2 * S)
+        else:
+            d.line([(gx0, yy), (gx1, yy)], fill=C_SL_GRID, width=1 * S)
+        lab = "0" if v == 0 else f"{v:+,}"
+        bb = d.textbbox((0, 0), lab, font=lf)
+        d.text((gx0 - 8 * S - bb[2], round(yy - (bb[1] + bb[3]) / 2)), lab, font=lf, fill=C_SL_LABEL)
+        v += step
+    d.line([(gx0, gy0), (gx0, gy1)], fill=C_SL_GRID, width=1 * S)
+
+    pts = points or []
+    if len(pts) >= 2:
+        max_x = max(float(p.get("x", 0)) for p in pts)
+        if max_x > 0:
+            xy = [(gx0 + float(p["x"]) / max_x * (gx1 - gx0), _y(float(p["y"]))) for p in pts]
+            glow = Image.new("L", (W_, H_), 0)
+            ImageDraw.Draw(glow).line(xy, fill=255, width=10 * S, joint="curve")
+            glow = glow.filter(ImageFilter.GaussianBlur(5 * S))
+            body.paste(Image.new("RGB", (W_, H_), C_SL_LINE), (0, 0), glow.point(lambda a: int(a * 0.45)))
+            d = ImageDraw.Draw(body)
+            d.line(xy, fill=C_SL_LINE, width=4 * S, joint="curve")
+
+    card.paste(body, (0, 0), mask)
+    ImageDraw.Draw(card).rounded_rectangle([1, 1, W_ - 2, H_ - 2], radius=SL_RADIUS * S,
+                                           outline=C_SL_FRAME, width=3 * S)
+    return card
+
+
+def _sl_grid(cards: list, cols: int, area_w: int) -> tuple[Image.Image, int]:
+    """カードを cols 列・左詰めで並べた領域（地は C_SL_AREA_BG）。戻り値: (画像, 高さ)。"""
+    cell_w = (area_w - SL_GAP * (cols - 1)) // cols
+    sc = [c.resize((cell_w, max(1, round(c.height * cell_w / c.width))), Image.LANCZOS) for c in cards]
+    row_h = max(c.height for c in sc)
+    rows = -(-len(sc) // cols)
+    h = SL_GAP + rows * row_h + (rows - 1) * SL_GAP + SL_GAP
+    area = Image.new("RGB", (area_w, h), C_SL_AREA_BG)
+    x_off = (area_w - (cell_w * cols + SL_GAP * (cols - 1))) // 2
+    for i, c in enumerate(sc):
+        r, k = divmod(i, cols)                           # 左→右、次の行も左→右（Z 型）・最後の行は左詰め
+        area.paste(c, (x_off + k * (cell_w + SL_GAP), SL_GAP + r * (row_h + SL_GAP)))
+    return area, h
+
+
+def _sl_frame_panel(area: Image.Image, top_cap: Image.Image, tail: Image.Image) -> Image.Image:
+    """area を水色の枠（左右の帯＋上下の枠）で囲んだパネル。幅は W 固定。"""
+    mid = Image.open(os.path.join(ASSET_DIR, "frame_mid.png")).convert("RGB")
+    h = top_cap.height + area.height + tail.height
+    out = Image.new("RGB", (W, h), (12, 61, 111))
+    out.paste(top_cap, (0, 0))
+    out.paste(mid.resize((W, area.height), Image.BICUBIC), (0, top_cap.height))
+    out.paste(area, (TABLE_X0, top_cap.height))
+    out.paste(tail, (0, top_cap.height + area.height))
+    return out
+
+
+def attach_slumps(table_img: Image.Image, cards: list, cols: int = 3) -> Image.Image:
+    """表画像（render_table の出力）の下へ、同じ枠の中でスランプを cols 列に並べる。
+
+    表の下端（下の枠の直前）で切り、左右の帯を伸ばした中にカードを置いて、下の枠を付け直す。
+    幅が W でない画像（スロバース表ではない画像）は、表の下へ同じデザインのパネルを足す。"""
+    if not cards:
+        return table_img.copy()
+    tw, th = table_img.size
+    area, ah = _sl_grid(cards, cols, TABLE_X1 - TABLE_X0)
+    if tw == W and th > SL_TAIL_H:
+        head = table_img.crop((0, 0, W, th - SL_TAIL_H))
+        tail = table_img.crop((0, th - SL_TAIL_H, W, th))
+        mid = Image.open(os.path.join(ASSET_DIR, "frame_mid.png")).convert("RGB")
+        out = Image.new("RGB", (W, head.height + ah + SL_TAIL_H), (12, 61, 111))
+        out.paste(head, (0, 0))
+        out.paste(mid.resize((W, ah), Image.BICUBIC), (0, head.height))
+        out.paste(area, (TABLE_X0, head.height))
+        ImageDraw.Draw(out).line([(TABLE_X0, head.height), (TABLE_X1 - 1, head.height)], fill=C_SL_FRAME, width=3)
+        out.paste(tail, (0, head.height + ah))
+        return out
+    bottom = Image.open(os.path.join(ASSET_DIR, "frame_bottom.png")).convert("RGB")
+    tail = bottom.crop((0, BOTTOM_OVERLAP, W, bottom.height))
+    panel = _sl_frame_panel(area, tail.transpose(Image.FLIP_TOP_BOTTOM), tail)
+    panel = panel.resize((tw, max(1, round(panel.height * tw / W))), Image.LANCZOS)
+    out = Image.new("RGB", (tw, th + panel.height), (255, 255, 255))
+    out.paste(table_img, (0, 0))
+    out.paste(panel, (0, th))
+    return out
+
+
+def attach_slumps_side(table_img: Image.Image, cards: list, cols: int = 4) -> Image.Image:
+    """16 台以上の横版：左に表、右に同じ枠のスランプパネル（cols 列）。高さは高いほうに合わせる。"""
+    if not cards:
+        return table_img.copy()
+    tw, th = table_img.size
+    bottom = Image.open(os.path.join(ASSET_DIR, "frame_bottom.png")).convert("RGB")
+    tail = bottom.crop((0, BOTTOM_OVERLAP, W, bottom.height))
+    cap = tail.transpose(Image.FLIP_TOP_BOTTOM)
+    area, ah = _sl_grid(cards, cols, TABLE_X1 - TABLE_X0)
+    panel_h = cap.height + ah + tail.height
+    total_h = max(th, panel_h)
+    if total_h > ah + cap.height + tail.height:                   # 表のほうが高い：地を伸ばして上下中央
+        pad = total_h - panel_h
+        big = Image.new("RGB", (TABLE_X1 - TABLE_X0, ah + pad), C_SL_AREA_BG)
+        big.paste(area, (0, pad // 2))
+        area = big
+    panel = _sl_frame_panel(area, cap, tail)
+    if th < total_h:                                               # パネルのほうが高い：表を縦横比維持で拡大
+        table_img = table_img.resize((max(1, round(tw * total_h / th)), total_h), Image.LANCZOS)
+    out = Image.new("RGB", (table_img.width + W, total_h), (12, 61, 111))
+    out.paste(table_img, (0, 0))
+    out.paste(panel, (table_img.width, 0))
+    return out
+
+
+SL_SPLIT_COLS = 8                         # 40台以上の分割画像：下部の共通スランプ領域の列数
+SL_SPLIT_TGAP = 24                        # 分割画像：左右の表の間隔（2倍キャンバス上の px）
+
+
+def attach_slumps_split(table_img: Image.Image, cards: list, row_bans: list, cols: int = SL_SPLIT_COLS):
+    """40台以上の「その他の優秀台ピックアップ」：3段構成の1枚（幅 W）。
+
+      上段：共通のタイトルバー（画像全体の中央に1つ）
+      中段：表を前半・後半に分けて左右に並べる（右の表にも同じ列見出しバー）
+      下段：全台のスランプを1つの共通領域に cols 列（左→右、次の行も左→右・最後の行は左詰め）
+
+    幅 2W のキャンバスで組み、最後に W へ縮小する。外枠（上の枠・左右の帯・下の枠）は
+    表画像と同じ素材を 2 倍にして使うので、縮小後は通常のスロバース画像と同じ太さになる。
+    スランプの並びは表と同じ順（row_bans の順＝台番の若い順）。前半は ceil(行数/2) 行。
+    行数と row_bans の数が合わない・台番の無いカード・表に無い台のカードがあるときは None
+    （呼び出し側で従来の1ブロック）。"""
+    tw, th = table_img.size
+    if tw != W or th <= SL_TAIL_H or not cards:
+        return None
+    table_y1 = th - SL_TAIL_H
+    n = round((table_y1 - HEADER_Y1) / ROW_PITCH)
+    if n != len(row_bans) or HEADER_Y1 + round(n * ROW_PITCH) != table_y1:
+        return None
+    order = {str(b): i for i, b in enumerate(row_bans)}
+    units = [c.info.get("sv_unit") for c in cards]
+    if any(u is None or str(u) not in order for u in units):
+        return None
+    cards = [c for _, c in sorted(zip(units, cards), key=lambda t: order[str(t[0])])]
+    k = -(-n // 2)
+    y_k = HEADER_Y1 + round(k * ROW_PITCH)
+
+    S2 = 2
+    WW = W * S2
+    fx0, fx1 = TABLE_X0 * S2, WW - (W - TABLE_X1) * S2           # 2倍キャンバスでの内側の左右端
+    inner_w = fx1 - fx0
+    # 上段：表画像の上端〜見出しバーの直前（タイトル台座と上の枠）を 2 倍に
+    top = table_img.crop((0, 0, W, HEADER_Y0)).resize((WW, HEADER_Y0 * S2), Image.LANCZOS)
+    tail = table_img.crop((0, table_y1, W, th)).resize((WW, SL_TAIL_H * S2), Image.LANCZOS)
+    # 中段：左＝見出し＋前半の行、右＝同じ見出し＋後半の行（左右の帯は除いた内側だけ）
+    hdr = table_img.crop((TABLE_X0, HEADER_Y0, TABLE_X1, HEADER_Y1))
+    l_rows = table_img.crop((TABLE_X0, HEADER_Y1, TABLE_X1, y_k))
+    r_rows = table_img.crop((TABLE_X0, y_k, TABLE_X1, table_y1))
+    def _stack(a, b):
+        im = Image.new("RGB", (a.width, a.height + b.height), C_SL_AREA_BG)
+        im.paste(a, (0, 0)); im.paste(b, (0, a.height))
+        return im
+    t_w = (inner_w - SL_SPLIT_TGAP) // 2
+    l_tbl = _stack(hdr, l_rows); r_tbl = _stack(hdr, r_rows)
+    l_tbl = l_tbl.resize((t_w, max(1, round(l_tbl.height * t_w / l_tbl.width))), Image.LANCZOS)
+    r_tbl = r_tbl.resize((t_w, max(1, round(r_tbl.height * t_w / r_tbl.width))), Image.LANCZOS)
+    tables_h = max(l_tbl.height, r_tbl.height)
+    # 下段：全台のスランプを cols 列で
+    area, ah = _sl_grid(cards, cols, inner_w)
+
+    body_h = tables_h + ah
+    H2 = top.height + body_h + tail.height
+    mid = Image.open(os.path.join(ASSET_DIR, "frame_mid.png")).convert("RGB")
+    out = Image.new("RGB", (WW, H2), (12, 61, 111))
+    out.paste(top, (0, 0))
+    out.paste(mid.resize((WW, body_h), Image.BICUBIC), (0, top.height))
+    out.paste(Image.new("RGB", (inner_w, body_h), C_SL_AREA_BG), (fx0, top.height))
+    out.paste(l_tbl, (fx0, top.height))
+    out.paste(r_tbl, (fx1 - t_w, top.height))
+    y_area = top.height + tables_h
+    out.paste(area, (fx0, y_area))
+    ImageDraw.Draw(out).line([(fx0, y_area), (fx1 - 1, y_area)], fill=C_SL_FRAME, width=3 * S2)
+    out.paste(tail, (0, top.height + body_h))
+    return out.resize((W, max(1, round(H2 * W / WW))), Image.LANCZOS)

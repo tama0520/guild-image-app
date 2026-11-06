@@ -9956,6 +9956,11 @@ def _persistent_keys(store: str) -> set[str]:
     # 別日を初めて取得したら空欄で始まり、同じ日付を再取得したときだけ
     # auto_page_inputs.json の保存値から復元する（永続ファイルは参照しない）。
     # variety_range_* は従来どおり店舗単位で永続する。
+    # モグ玄・新宿歌舞伎町（スランプ付き結果ポスト用）の⑥バラエティの優秀台の台番テキストも
+    # ②と同じく日付（Excel）単位で扱う：同日の再取得は auto_page_inputs.json から復元し、
+    # 別日を取得したら空欄で始める（店舗単位の永続ファイルからは戻さない）。
+    if store in _MOGU_SL_STORES:
+        return set()
     if store in _KOJIN_DATE_SCOPED_STORES:
         return {f"variety_range_{store}"}
     return ({f"kojin_y_{i}_{store}" for i in range(48)}
@@ -16563,6 +16568,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 st.error(f"❌ データ取得失敗: {e}")
                 if not _tb_fetched:
                     st.session_state[_tb_bytes_key] = None
+                    if _mogu_kabu_slump_on():
+                        # 下の st.rerun() は⑥を描く前に止まり、台番テキストが session_state から消える。
+                        # 取得失敗では入力済みの内容を残す（④プレビュー後の b24554a と同じ入れ直し）
+                        _vr_keep = f"variety_range_{store}"
+                        if _vr_keep in st.session_state:
+                            st.session_state[_vr_keep] = st.session_state[_vr_keep]
                 else:
                     _tb_rows = [
                         {

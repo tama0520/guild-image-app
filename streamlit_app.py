@@ -18347,6 +18347,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             store, force_1k=(with_slump and store == "秋葉原"))
                                     st.session_state[_aprev_pub_bans_key] = _pv_pub_bans
                                 _sfx_map  = {1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
+                                # モグ玄・新宿歌舞伎町のスランプ付きだけ：並びに加えて列・末尾の台番も⑤から台番単位で外す（他店舗は並びのまま）
+                                _rec_nb_pv = _prev_narabi_bans | _mogu_kabu_rec_exc_bans(
+                                    set(), retsu_ranges if retsu_ok else [], _sue_ban_all_pv)
                                 _rec_fn_map = _rec_block_fn_map(recommended_blocks)
                                 for _bi, _block in enumerate(recommended_blocks):
                                     _bt = _block["title"].strip()
@@ -18360,7 +18363,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         continue
                                     for _thr in _block.get("thresholds", [1]):
                                         _rec_img = generate_recommended_block_image(
-                                            _bt, _valid, _pv_df, _pv_diff, _prev_narabi_bans,
+                                            _bt, _valid, _pv_df, _pv_diff, _rec_nb_pv,
                                             min_diff=_thr, exclude_bans=_pv_pub_bans
                                         )
                                         if _rec_img is None:
@@ -18372,8 +18375,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _rec_bans: list[int] = []
                                         for _rvm in _valid:
                                             _rgrp = _pv_df[_pv_df["機種名"] == _rvm].copy()
-                                            if _prev_narabi_bans:
-                                                _rgrp = _rgrp[~_rgrp["台番"].isin(_prev_narabi_bans)]
+                                            if _rec_nb_pv:
+                                                _rgrp = _rgrp[~_rgrp["台番"].isin(_rec_nb_pv)]
                                             if _pv_pub_bans:
                                                 _rgrp = _rgrp[~_rgrp["台番"].isin(_pv_pub_bans)]
                                             if _rgrp.empty:
@@ -19120,6 +19123,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                         if recommended_blocks:
                             _ms_sfx ={1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
                             _ms_fn_map = _rec_block_fn_map(recommended_blocks)
+                            # モグ玄・新宿歌舞伎町のスランプ付きだけ：📝で採用した並び・列・末尾の台番を⑤から台番単位で外す（他店舗は空集合＝従来どおり）
+                            _rec_nb_m = _mogu_kabu_rec_exc_bans(
+                                [_b for _f, _k in _bl_kind_m.items() if _k == "nami" for _b in _manual_ban_map.get(_f, [])],
+                                retsu_ranges if retsu_ok else [],
+                                {_f: _manual_ban_map.get(_f, []) for _f, _k in _bl_kind_m.items() if _k == "sue"})
                             for _mbi, _blk in enumerate(recommended_blocks):
                                 _mbt = _blk["title"].strip() or "オススメ機種"
                                 _mbm = [m.strip() for m in _blk["machines"] if m.strip()]
@@ -19127,7 +19135,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     continue
                                 for _mthr in _blk.get("thresholds", [1]):
                                     _mrimg = generate_recommended_block_image(
-                                        _mbt, _mbm, _df_m, _diff_m, set(),
+                                        _mbt, _mbm, _df_m, _diff_m, _rec_nb_m,
                                         min_diff=_mthr,
                                     )
                                     if _mrimg is None:
@@ -19138,6 +19146,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _rec_bans_m: list[int] = []
                                     for _rvm in _mbm:
                                         _rg = _df_m[_df_m["機種名"] == _rvm].copy()
+                                        if _rec_nb_m:
+                                            _rg = _rg[~_rg["台番"].isin(_rec_nb_m)]
                                         if _rg.empty:
                                             continue
                                         _rd = _diff_m.loc[_rg.index]
@@ -20957,13 +20967,18 @@ def show_auto_page(with_slump: bool = False) -> None:
                     if recommended_blocks:
                         _ms_sfx_e ={1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
                         _ms_fn_map_e = _rec_block_fn_map(recommended_blocks)
+                        # モグ玄・新宿歌舞伎町のスランプ付きだけ：📝と同じく並び・列・末尾の台番を⑤から台番単位で外す（他店舗は空集合＝従来どおり）
+                        _rec_nb_e = _mogu_kabu_rec_exc_bans(
+                            [_b for _f, _k in _bl_kind_e.items() if _k == "nami" for _b in _m_exec_ban_map_e.get(_f, [])],
+                            retsu_ranges if retsu_ok else [],
+                            {_f: _m_exec_ban_map_e.get(_f, []) for _f, _k in _bl_kind_e.items() if _k == "sue"})
                         for _mbi_e, _blk_e in enumerate(recommended_blocks):
                             _mbt_e = _blk_e["title"].strip() or "オススメ機種"
                             _mbm_e = [m.strip() for m in _blk_e["machines"] if m.strip()]
                             if not _mbm_e:
                                 continue
                             for _mthr_e in _blk_e.get("thresholds", [1]):
-                                _mrimg_e = generate_recommended_block_image(_mbt_e, _mbm_e, _df_exec_m, _diff_exec_m, set(), min_diff=_mthr_e)
+                                _mrimg_e = generate_recommended_block_image(_mbt_e, _mbm_e, _df_exec_m, _diff_exec_m, _rec_nb_e, min_diff=_mthr_e)
                                 if _mrimg_e is None:
                                     continue
                                 _ms_sfxv_e = _ms_sfx_e.get(_mthr_e, str(_mthr_e))
@@ -20975,6 +20990,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _rec_bans_e: list[int] = []
                                 for _rvm_e in _mbm_e:
                                     _rg_e = _df_exec_m[_df_exec_m["機種名"] == _rvm_e].copy()
+                                    if _rec_nb_e:
+                                        _rg_e = _rg_e[~_rg_e["台番"].isin(_rec_nb_e)]
                                     if _rg_e.empty:
                                         continue
                                     _rd_e = _diff_exec_m.loc[_rg_e.index]
@@ -22202,6 +22219,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 df_pipe, diff_pipe, kojin_zentai_machines, kojin_yushu_machines,
                                 store, force_1k=(with_slump and store == "秋葉原"))
                     _rec_fn_map_exec = _rec_block_fn_map(recommended_blocks)
+                    # モグ玄・新宿歌舞伎町のスランプ付きだけ：並びに加えて列・末尾の台番も⑤から台番単位で外す（🔍と同じ。他店舗は並びのまま）
+                    _rec_nb_exec = set(narabi_bans or set()) | _mogu_kabu_rec_exc_bans(
+                        set(), retsu_ranges if retsu_ok else [], _sue_ban_run)
                     for _bi_exec, block in enumerate(recommended_blocks):
                         b_title    = block["title"].strip()
                         b_machines = block["machines"]
@@ -22221,7 +22241,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _threshold_suffix = {1: "プラス台", 1000: "1000枚以上", 2000: "2000枚以上"}
                         for _thr in block.get("thresholds", [1]):
                             img = generate_recommended_block_image(
-                                b_title, valid, df_pipe, diff_pipe, narabi_bans,
+                                b_title, valid, df_pipe, diff_pipe, _rec_nb_exec,
                                 min_diff=_thr, exclude_bans=_exec_pub_bans
                             )
                             if img is None:
@@ -22237,8 +22257,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _exec_bans: list[int] = []
                             for _rvm in valid:
                                 _rgrp = df_pipe[df_pipe["機種名"] == _rvm].copy()
-                                if narabi_bans:
-                                    _rgrp = _rgrp[~_rgrp["台番"].isin(narabi_bans)]
+                                if _rec_nb_exec:
+                                    _rgrp = _rgrp[~_rgrp["台番"].isin(_rec_nb_exec)]
                                 if _exec_pub_bans:
                                     _rgrp = _rgrp[~_rgrp["台番"].isin(_exec_pub_bans)]
                                 if _rgrp.empty:
@@ -33266,6 +33286,22 @@ def _mogu_kabu_split_extra(ban_map: dict, col_map: dict, skip) -> "tuple[list, d
 _MOGU_KABU_KIND_COLORS: "dict[str, str]" = {"rec": "#D65A8A"}
 
 
+def _mogu_kabu_rec_exc_bans(narabi_bans, retsu_ranges, sue_map) -> "set[int]":
+    """⑤オススメ機種の優秀台候補から外す台番（モグ玄・新宿歌舞伎町のスランプ付きだけ。他は空集合＝従来どおり）。
+    並び・列・末尾（ジャグラーの末尾を含む）に採用した台番を**台番単位**で外す（機種単位では外さない）。
+    台番は int に揃える（"641"・641.0 などの表記・型の違いで漏れないように）。"""
+    if not _mogu_kabu_slump_on():
+        return set()
+    _out: set[int] = set()
+    for _b in list(narabi_bans or []) + list(ranges_to_bans(retsu_ranges or []) or []) \
+            + [_x for _v in (sue_map or {}).values() for _x in (_v or [])]:
+        try:
+            _out.add(int(float(_b)))
+        except (TypeError, ValueError):
+            continue
+    return _out
+
+
 def _mogu_kabu_lists(store: str, d, df, zen, high, nami, sue_map: dict, rec_map: dict, jug, col_map: dict,
                      extra_map: dict, single_bans, pool_on: bool, by_uid,
                      recommended_blocks=None) -> "tuple":
@@ -33273,11 +33309,13 @@ def _mogu_kabu_lists(store: str, d, df, zen, high, nami, sue_map: dict, rec_map:
     blocks, pool = _ban_list_blocks_from(df, zen, high, nami, sue_map, rec_map, jug_bans=jug,
                                          retsu_map=col_map, extra_map=extra_map, single_bans=single_bans)
     # 列仕掛けは並びと同じく見出し「列」の1ブロックにまとめる（機種ごとの「〜(列仕掛け)」ブロックにしない）。
-    # 1入力＝1かたまり・入力の順のまま・かたまりの間に区切り線（並びと同じ sep="group"）。台番一覧・スランプ一覧で共通
+    # 1入力＝1かたまり・かたまりの間に区切り線（並びと同じ sep="group"）。台番一覧・スランプ一覧で共通
+    # かたまりの順は高配分・並びと同じく台番の若い順（各かたまりの最小台番の昇順。かたまり内は台番昇順のまま）
     _rt_blks = [_b for _b in blocks if _b["kind"] == "retsu"]
     if _rt_blks:
         _rt_blks[0].update(title="列", sep="group",
-                           atoms=[_a for _b in _rt_blks for _a in _b["atoms"]])
+                           atoms=sorted((_a for _b in _rt_blks for _a in _b["atoms"]),
+                                        key=lambda _a: min(_r["ban"] for _r in _a)))
         blocks = [_b for _b in blocks if _b["kind"] != "retsu" or _b is _rt_blks[0]]
     # 優秀機種・高配分・ジャグラーは同じ機種を1つの塊にまとめる（台番が離れていても分けない）。
     # 機種の順＝台番昇順で最初に出た順、機種内は台番昇順のまま（台番一覧・スランプ一覧で共通）

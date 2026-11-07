@@ -2185,3 +2185,50 @@ _SIDEBAR_CRUMB_HIDE_PAGES: "frozenset[str]" = frozenset({
 - 渋谷新館：11/9 以降は④（事前 D−1・結果 D＋1）、旧⑤⑥との二重表示なし
 - PC（担当カード6列）・スマホ 390px（開閉式）とも崩れなし（.git なし複製 8503 で確認）
 - `work_progress.json`・完了キーの形式は変更なし。11/8〜11/9 の渋谷新館の完了履歴は無く、外れる履歴は無い
+
+## 【運用記録】トップ「📋 本日の仕事」：GITHUB_TOKEN 期限切れによる HTTP 401 と復旧手順（2026-11-07・コード変更なし）
+
+### A. 症状
+
+- 「📋 本日の仕事」に次の2つが表示され、完了チェックを保存できなくなった
+  - `❌ 保存できませんでした（最新の取得に失敗: 取得失敗: HTTP Error 401: Unauthorized）`
+  - `⚠️ GitHubの最新を取得できませんでした（取得失敗: HTTP Error 401: Unauthorized）。手元のファイルを表示しています。…この状態では保存できません。`
+- 画面は手元の `work_progress.json` を表示するだけになり、保存は止まる（上の `477350d` の節の「最新取得→1キー→最新SHA」の取得段階で止まる。既存の完了履歴は壊れない）
+
+### B. 原因
+
+- **ローカルの `.env` の `GITHUB_TOKEN`（Fine-grained personal access token）の有効期限切れ**
+- GitHub 画面（Settings → Developer settings → Personal access tokens → Fine-grained tokens）で **Expired** と表示されていることをユーザーが確認
+- GitHub API は期限切れ・失効したトークンに **HTTP 401（`Bad credentials`）** を返す。アプリはこれを「取得失敗: HTTP Error 401」と表示する
+- 調査時、同じトークンで `GET /user` と `GET /repos/tama0520/guild-image-app/contents/work_progress.json` の読み取りだけを試し、どちらも 401 だった
+- GitHub の履歴では 11/7 12:48 のローカル保存（`d80d256`）と 13:42 の Cloud 保存（`7201403`/`2f7be9c`）は成功しており、その後に失敗が始まった
+- **git コマンド経由の自動 push（`_git_auto_push()` など）は別の認証（Git の資格情報）を使うため影響を受けなかった**（11/7 16:01 の `fde3bb7` は push 成功）。「画像生成後の設定保存は通るのに、本日の仕事だけ 401」はこの経路の違いによる
+
+### C. 影響を受ける機能（`GITHUB_TOKEN` を使う GitHub API 経路）
+
+- 本日の仕事の完了状態の取得・保存（`work_progress.json`）
+- Cloud からの GitHub 同期（機種名変換・機種画像など、`get_secret_value("GITHUB_TOKEN")` を使う経路）
+
+### D. 復旧手順（今回実施した内容）
+
+1. GitHub の Fine-grained tokens 一覧で該当トークンが Expired であることを確認
+2. トークンを再生成（対象リポジトリ `tama0520/guild-image-app`・Contents の Read and write）
+3. **ローカル**：`C:\Users\23-3\Desktop\画像作成\.env` の `GITHUB_TOKEN=` の行を新しい値に更新（`.env` は Git 管理外）
+4. **Cloud**：Streamlit Cloud の Secrets の `GITHUB_TOKEN` を同じ値に更新
+5. ローカル 8501 を再起動（`.env` は起動時に読むため）し、本日の仕事の「🔄 最新を読み込む」でエラーが消えることを確認
+6. ユーザーがローカル・Cloud の双方で正常動作を確認（11/7）
+
+- **今回の復旧にコードの変更は不要だった**（`streamlit_app.py`・`work_progress.json`・`store_settings` は変更なし）
+
+### E. 予防（有効期限の確認方法）
+
+- GitHub → Settings → Developer settings → Personal access tokens → **Fine-grained tokens** の一覧で、各トークンの **Expires on（有効期限）** を確認できる。期限切れは **Expired** と表示される
+- GitHub は期限の数日前に登録メールアドレスへ期限切れ予告のメールを送る。届いたら上の D の 2〜5 を前もって行う
+- 有効なトークンで GitHub API を呼ぶと、レスポンスヘッダー `github-authentication-token-expiration` に有効期限の日時が入る（確認するときはトークンの値を画面・ログに出さない）
+- トークンを更新するときは **ローカル `.env` と Cloud Secrets の両方**を同じ値に揃える。片方だけ更新すると、もう片方だけ 401 になる
+
+### F. 禁止事項・保全
+
+- トークンの実値・旧値・一部分を、コード・Git 管理ファイル・ドキュメント・ログ・報告に書かない（`477350d` の節の I-5 と同じ）
+- 401 が出ても、コードの変更・`work_progress.json` の手修正・自動マージで回避しない。まずトークンの期限を確認する
+- 「401＝トークンの期限切れ・失効」、「409＝SHA 競合（再送しない）」は別の原因。混同しない

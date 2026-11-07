@@ -205,7 +205,7 @@ Excel 1ファイルから3ステップで全画像を生成する：
 | ファイル | 対象 |
 |---|---|
 | [`docs/specs/cloud_infra.md`](docs/specs/cloud_infra.md) | Cloud↔GitHub同期・store_settings運用・機種画像/機種名変換の同期・packages.txt・未知pageの無限rerun |
-| [`docs/specs/top_ui_tools.md`](docs/specs/top_ui_tools.md) | ページ遷移・トップ／スマホメニュー・おすすめ・本日の仕事・機能選択ボタン・サイドバー・機種名変換 |
+| [`docs/specs/top_ui_tools.md`](docs/specs/top_ui_tools.md) | ページ遷移・トップ／スマホメニュー・おすすめ・本日の仕事（GITHUB_TOKEN期限切れの401と復旧手順を含む）・機能選択ボタン・サイドバー・機種名変換 |
 | [`docs/specs/input_persistence.md`](docs/specs/input_persistence.md) | auto_page_inputs.json・②個別画像の日付単位保存・⑤オススメの永続化・初期値の受け渡し・同日再取得 |
 | [`docs/specs/result_extraction.md`](docs/specs/result_extraction.md) | 判定条件・旧スクリプト・②全台除外・📝記入部分のみ・🎯掲載台を選ぶ・その他／ジャグラーの再振り分け・_dedup_previews |
 | [`docs/specs/narabi_retsu.md`](docs/specs/narabi_retsu.md) | 列画像・列仕掛けの表記と除外・並び記入枠・⑧列画像の補正後差枚 |

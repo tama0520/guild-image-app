@@ -1939,6 +1939,16 @@
           false,
           false,
           false
+        ],
+        "2026-11-07": [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
         ]
       },
       "blank_date_checks": {
@@ -1947,7 +1957,8 @@
         "2026-11-03": false,
         "2026-11-04": false,
         "2026-11-05": false,
-        "2026-11-06": false
+        "2026-11-06": false,
+        "2026-11-07": false
       },
       "blank_days": [
         false,

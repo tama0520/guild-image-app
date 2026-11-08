@@ -1921,9 +1921,9 @@
         ],
         "2026-11-08": [
           true,
+          true,
           false,
-          false,
-          false,
+          true,
           false,
           false,
           false,

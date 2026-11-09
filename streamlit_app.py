@@ -10719,11 +10719,13 @@ _SLV_HALF_MIN_AVG = 400
 _SLV_HEAD_INPUTS_VISIBLE = False   # ✅・💥の入力欄を画面に出すか（簡略版では出さない・保存値は維持）
 
 
-# ── スロバース用：X投稿用の画像結合（最大4枚・試験実装は蒲田7のみ・2026-11-09）──────────
+# ── スロバース用：X投稿用の画像結合（最大4枚・スロバース用11店舗・2026-11-09）──────────
 # ⑥プレビューの素材を「■1枚目〜■4枚目」へドラッグ＆ドロップで配置し、⑧で
 # 001.jpg〜004.jpg（使った枠を詰めた連番）＋ 結果テキストだけを出力する。素材は _tmp_xpost/ に保持（Git管理外）。
 # 配置計算・結合・保存は xpost_layout.py、操作画面は components/xpost_editor/index.html。
-_XPOST_TRIAL_STORES = {"マルハンメガシティ2000蒲田7"}
+# 2026-11-09：蒲田7での試験（34beee3）を経て、スロバース用の全店舗（_is_sloverse_store）へ展開。
+# 店舗は内部キーで判定するので、YG用と同名の3店舗（楽園渋谷駅前／楽園渋谷道玄坂／大山オーシャン）は
+# 「〇〇（スロバース）」だけが対象で、YG用の店舗には出ない（配置・素材・出力も内部キー単位で分かれる）。
 _XPOST_OUT_RE = re.compile(r"^\d{3}\.jpg$")               # 出力する結合画像（001.jpg〜004.jpg）
 _XPOST_OLD_OUT_RE = re.compile(r"^X投稿用_\d+\.jpg$")     # 旧名（2026-11-09 の 34beee3）。再実行時に置き換える
 
@@ -10739,8 +10741,8 @@ def _xpost_is_out(fn: str) -> bool:
 
 
 def _xpost_on(store: str) -> bool:
-    """X投稿用の画像結合を使う店舗か（試験実装：スロバース用の蒲田7だけ）。"""
-    return store in _XPOST_TRIAL_STORES and _is_sloverse_store(store)
+    """X投稿用の画像結合を使う店舗か（スロバース用の全店舗。YG・モグ玄・記事用・エスパス各店舗は対象外）。"""
+    return _is_sloverse_store(store)
 
 
 def _xpost_mode(store: str, with_slump: bool) -> str:
@@ -21021,7 +21023,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         st.session_state.pop(f"_manual_preview_mode_{store}", None)
                     st.rerun()
 
-    # スロバース用（試験：蒲田7）：⑥の素材を X投稿用の最大4枚へまとめるエディター
+    # スロバース用：⑥の素材を X投稿用の最大4枚へまとめるエディター
     if uploaded is not None and _xpost_on(store):
         _xpost_editor(store, uploaded.name, with_slump)
 
@@ -23680,7 +23682,7 @@ def show_auto_page(with_slump: bool = False) -> None:
             for _msg in recommended_exclusion_logs:
                 st.info(f"ℹ️ {_msg}")
 
-        # スロバース用（試験：蒲田7）：確定した配置で 001.jpg〜004.jpg を作り、素材は内部へ移す
+        # スロバース用：確定した配置で 001.jpg〜004.jpg を作り、素材は内部へ移す
         if result.get("ok") and _xpost_on(store) and os.path.isdir(output_dir):
             _xpost_finalize(store, output_dir, uploaded.name, with_slump)
 

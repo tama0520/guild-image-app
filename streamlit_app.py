@@ -8865,19 +8865,26 @@ def generate_report_text(
             [f"{_item_emoji}【{_p['ban']}番台】{_p['name']}→{_fmt_diff(_p['diff'])}"
              for _p in variety_excellent])
 
-    def excellent_section() -> str:
+    def excellent_section(extra_names: "frozenset | set" = frozenset(), keep_sue: bool = False,
+                          extra_src: "list | None" = None) -> str:
+        # keep_sue：スロバース用だけ True。簡略版の🏆末尾は台ごとの行を出さないため、末尾の+1,000枚台も単品欄の対象に残す。
+        # extra_src：スロバース用だけが渡す「末尾一覧の+1,000枚台」（画像側で excellent_list から外された末尾台）。
+        #   既に載っている台番とは重複させず、全台系機種は除き、下の既存の掲載基準（差枚・高配分・ポスター除外）で絞る。
+        # extra_names：スロバース用だけが渡す「ハーフ系の表示条件(+400枚)で外れた高配分機種」。
+        # 降格(1/2台)機種と同じ扱いで +2,000枚以上の台をその他の優秀台に含める（既定は空＝従来どおり）。
         # 2026-09-11: 👑その他の優秀台 の行頭 🚩 は「・」で出す。
         # 店舗固有の item_emoji（🚩 以外を設定している店舗）はそのまま維持する。
         _item_emoji = STORE_REC_CONFIG.get(store_name, {}).get("item_emoji", "🚩").replace("🚩", "・")
         # 降格した(1/2台)機種は除外対象から外し、その+2,000枚以上の台をその他の優秀台に含める
-        high_ratio_names = ({item["name"] for item in high_ratio_list} - _demoted_names) | (_demoted_names & _zen_dai_names)
+        _rescue = set(_demoted_names) | set(extra_names)
+        high_ratio_names = ({item["name"] for item in high_ratio_list} - _rescue) | (_rescue & _zen_dai_names)
         # poster_new（渋谷新館の結果ポスト用）は【北斗シリーズ】を出さないので、北斗転生2も
         # その他の優秀台の通常条件で扱う。記事用（旧形式の北斗欄あり）は従来どおり除外する。
         _poster_ex = set() if poster_new else get_store_config(store_name).get("poster_extra_exclude", set())
         _ex_src = list(excellent_list)
-        if _demoted_names and df is not None and diff_raw is not None:
+        if _rescue and df is not None and diff_raw is not None:
             _seen = {(x["name"], x.get("ban")) for x in _ex_src}
-            for _nm in _demoted_names:
+            for _nm in list(_demoted_names) + sorted(set(extra_names) - set(_demoted_names)):
                 # 全台系濃厚に残っている機種はその他の優秀台へ回さない（二重掲載防止）
                 if _nm in _zen_dai_names:
                     continue
@@ -8889,8 +8896,18 @@ def generate_report_text(
                     if _d >= 2000 and (_nm, _ban) not in _seen:
                         _ex_src.append({"name": _nm, "ban": _ban, "diff": _d})
                         _seen.add((_nm, _ban))
+        # 救済機種（extra_names）の台は +2,000枚以上だけ（その他の自動抽出の閾値が低い日でも 2,000 未満は載せない）
+        _ex_only = set(extra_names) - set(_demoted_names)
+        if extra_src:
+            _seen_b = {int(x["ban"]) for x in _ex_src if x.get("ban") is not None}
+            for _x in extra_src:
+                if _x["name"] in _zen_dai_names or int(_x["ban"]) in _seen_b:
+                    continue
+                _ex_src.append({"name": _x["name"], "ban": int(_x["ban"]), "diff": int(_x["diff"])})
+                _seen_b.add(int(_x["ban"]))
         filtered = [x for x in _ex_src if x["diff"] >= excellent_min_diff and x["name"] not in high_ratio_names and x["name"] not in _poster_ex
-                    and (x.get("ban") is None or int(x["ban"]) not in _sue_plus_bans)]
+                    and (x["name"] not in _ex_only or x["diff"] >= 2000)
+                    and (keep_sue or x.get("ban") is None or int(x["ban"]) not in _sue_plus_bans)]
         if not filtered:
             return "（なし）"
         sorted_items = sorted(filtered, key=lambda x: x["diff"], reverse=True)
@@ -9189,85 +9206,85 @@ def generate_report_text(
             f"💎{over_1k}台が+1,000枚オーバー！",
         ])
 
-    def _slv_unit_lines(item: dict, bans_key: str) -> "list[str] | None":
-        """💎の機種：item[bans_key] の台のうち +1,000枚以上を「NNNN番台 +N枚」で差枚降順（同差枚は台番昇順）。
-        既存の diffs（+1,000枚以上の差枚）と台数・値が一致しないときは None（従来の差枚行へ戻す）。"""
-        if df is None or diff_raw is None or not item.get(bans_key):
-            return None
-        _bs = {int(b) for b in item[bans_key]}
-        _sub = df[df["台番"].apply(lambda b: str(b).split(".")[0].lstrip("-").isdigit()
-                                    and int(str(b).split(".")[0]) in _bs)]
-        _rows = sorted(((int(str(_sub.loc[i, "台番"]).split(".")[0]), int(diff_raw.loc[i]))
-                        for i in _sub.index if int(diff_raw.loc[i]) >= 1000),
-                       key=lambda t: (-t[1], t[0]))
-        if sorted((d for _, d in _rows), reverse=True) != sorted(item.get("diffs") or [], reverse=True):
-            return None
-        return [f"{b}番台 {_fmt_diff(d)}" for b, d in _rows]
-
-    def _slv_machine_block(item: dict, avg: int, bans_key: "str | None") -> str:
-        _avg_s = f"→平均{_fmt_diff(avg)}" if (avg > _avg_show_thr or item.get("always_show_avg")) else ""
-        _units = _slv_unit_lines(item, bans_key) if bans_key else None
-        if _units is None:
-            # 画像なし（・）は既存の書式のまま（・機種名(N/M台)→平均 ＋ 差枚の行）
-            return "\n".join(_result_summary_lines(item, avg, _avg_show_thr))
-        return "\n".join([f"💎{item['name']}({item['count']}/{item['total']}台){_avg_s}"] + _units)
-
     def _slv_report_text() -> str:
+        """スロバース用の結果テキスト（簡略版・2026-11-09）。抽出・対象台・集計は既存のまま、
+        見出しと1項目1行の書式だけを変える。冒頭の✅・💥は出力しない（入力欄と保存値は残す）。"""
         _wd = weekday_jp[date.weekday()] if date is not None else ""
         _L = [f"{date.month:02d}/{date.day:02d}({_wd})"] if date is not None else []
         _L.append(f"【{store_display}】")
-        _ok, _hit = _slv_head_comments(store_name)
-        if _ok or _hit:
-            _L.append("")
-            _L += [f"✅{t}" for t in _ok]
-            if _ok and _hit:
-                _L.append("")
-            _L += [f"💥{t}" for t in _hit]
-        # 🏆全台（既存 zen_dai_section と同じ対象・並び順。全台系は全台が画像に載る）
+
+        def _avg_s(item: dict, avg: int) -> str:
+            # 平均差枚の表示条件は既存どおり（プラスの機種・always_show_avg）
+            return f"→平均{_fmt_diff(avg)}" if (avg > _avg_show_thr or item.get("always_show_avg")) else ""
+
+        # 🏆全台（既存 zen_dai_section と同じ対象・平均差枚の高い順・1機種1行）
         _zd = sorted([it for it in zen_dai_list if it.get("name") not in _hide_sum],
                      key=lambda x: x.get("all_avg_diff", 0), reverse=True)
-        _zb = [_slv_machine_block(it, int(it.get("all_avg_diff", 0)), "bans") for it in _zd]
-        # 🏆ハーフ系（既存 high_ratio_section と同じ対象・並び順。画像ありは💎＋台番、画像なしは・）
+        _zl = [f"💎{it['name']}({it['count']}/{it['total']}台)"
+               f"{_avg_s(it, int(it.get('all_avg_diff', 0)))}" for it in _zd]
+        # 🏆ハーフ系（既存 high_ratio_section と同じ対象・並び順。平均差枚 +400枚以上だけ・1機種1行）
         _hr = sorted([it for it in high_ratio_list
                       if it["name"] not in _demoted_names and it["name"] not in _hide_sum],
                      key=lambda x: x["all_avg_diff"] if "all_avg_diff" in x
                      else (int(round(sum(x["diffs"]) / len(x["diffs"]))) if x["diffs"] else 0),
                      reverse=True)
-        _hb = [_slv_machine_block(it, _high_avg_of(it),
-                                  "bans" if it.get("has_image") is True else None) for it in _hr]
-        _L += ["", "🏆全台", "\n\n".join(_zb) if _zb else "（なし）",
-               "", "🏆ハーフ系", "\n\n".join(_hb) if _hb else "（なし）",
-               "", "🏆並び仕掛け", nami_section(), ""]
-        if retsu_list:
-            _L += ["🏆列仕掛け", retsu_section(), ""]
-        # 🏆優秀末尾（既存 suebangai_section と同じ抽出・勝率・平均・掲載台）。
-        # 書式：グループ先頭「💎末尾①番台(N/M台)→平均」、個別台「NNNN番台 機種名→+N枚」（・／【】なし）。
-        # 個別台は差枚の大きい順（同じ差枚は既存の並び順のまま）。末尾グループの間に空行。
+        _hl = [f"💎{it['name']}({it['count']}/{it['total']}台)→平均{_fmt_diff(_high_avg_of(it))}"
+               for it in _hr if _high_avg_of(it) >= _SLV_HALF_MIN_AVG]
+        # +400枚未満で外れた高配分機種（画像の分類は変えない）。+2,000枚以上の台は単品欄へ回す
+        _half_out = {it["name"] for it in _hr if _high_avg_of(it) < _SLV_HALF_MIN_AVG}
+        # 🏆並び（既存の並びデータ・1グループ1行：機種名(台番範囲番台)→平均）
+        def _grp_lines(items) -> list[str]:
+            # 並び・列：1グループ1行（機種名(台番範囲番台)→平均）。機種名/範囲がない旧データはタイトル
+            return [(f"{it['machine']}({it['ban_range']}番台)→平均{_fmt_diff(it['avg_diff'])}"
+                     if it.get("machine") and it.get("ban_range")
+                     else f"{it['title']}→平均{_fmt_diff(it['avg_diff'])}")
+                    for it in (items or [])]
+        _nl = _grp_lines(nami_list)
+        _L += ["", "🏆全台", "\n".join(_zl) if _zl else "（なし）",
+               "", "🏆ハーフ系", "\n".join(_hl) if _hl else "（なし）",
+               "", "🏆並び", "\n".join(_nl) if _nl else "（なし）", ""]
+        _rl = _grp_lines(retsu_list)
+        if _rl:
+            _L += ["🏆列仕掛け", "\n".join(_rl), ""]
+        # 🏆末尾（既存 suebangai_data の勝率・平均・1グループ1行。個別台は載せない）
         _cm = {"0": "⓪", "1": "①", "2": "②", "3": "③", "4": "④",
                "5": "⑤", "6": "⑥", "7": "⑦", "8": "⑧", "9": "⑨"}
-
-        def _sue_groups(data, zoro_label: str) -> list[str]:
-            _g = []
-            for _it in (data or []):
-                _t = _it["tail"]
-                _lb = zoro_label if _t == "ゾロ目" else f"末尾{_cm.get(_t, _t)}番台"
-                _ps = sorted(_it.get("plus1000", []), key=lambda p: -int(p["diff"]))
-                _g.append("\n".join(
-                    [f"💎{_lb}({_it['win_count']}/{_it['total']}台)→平均{_fmt_diff(_it['avg_diff'])}"]
-                    + [f"{_p['ban']}番台 {_p['name']}→{_fmt_diff(_p['diff'])}" for _p in _ps]))
-            return _g
-        _sg = _sue_groups(suebangai_data, "末尾ゾロ目の台")
-        if _sg:
-            _L += ["🏆優秀末尾", "\n\n".join(_sg), ""]
-        _jg = _sue_groups(jug_sue_data, "末尾ゾロ目番台")
+        def _tail_lines(items) -> list[str]:
+            return [f"💎{'ゾロ目' if _it['tail'] == 'ゾロ目' else _cm.get(_it['tail'], _it['tail']) + '番台'}"
+                    f"({_it['win_count']}/{_it['total']}台)→平均{_fmt_diff(_it['avg_diff'])}"
+                    for _it in (items or [])]
+        _sl = _tail_lines(suebangai_data)
+        if _sl:
+            _L += ["🏆末尾", "\n".join(_sl), ""]
+        # 🏆ジャグラーの優秀末尾（既存のデータ生成条件のまま・1グループ1行。個別台は載せない）
+        _jg = _tail_lines(jug_sue_data)
         if _jg:
-            _L += ["🏆ジャグラーの優秀末尾", "\n\n".join(_jg), ""]
-        _vs = variety_section()
-        if _vs:
-            # 見出しだけ 🏆 に（台の行は既存のまま）
-            _L += [_vs.replace("👑バラエティの優秀台", "🏆バラエティの優秀台", 1), ""]
-        _L += ["🏆その他の優秀台", excellent_section()]
-        # 📝全体データ📝（既存 summary_section と同じ集計）
+            _L += ["🏆ジャグラーの優秀末尾", "\n".join(_jg), ""]
+        # 🏆バラエティの優秀台（既存 variety_excellent の対象・順番のまま・機種名(NNNN番台)→差枚）
+        if variety_excellent:
+            _L += ["🏆バラエティの優秀台"]
+            _L += [f"{_p['name']}({_p['ban']}番台)→{_fmt_diff(_p['diff'])}" for _p in variety_excellent]
+            _L += [""]
+        # 🏆その他の単品優秀台（既存 excellent_section の対象・順番のまま、行の書式だけ変える）
+        # 末尾一覧の+1,000枚台（画像側では「その他」から外されている）を単品欄の候補へ戻す。
+        # 並び・列の台は既存どおり外す。ジャグラーシリーズは単品欄に既に載っている機種（台数不足で
+        # その他へ回った機種）だけ。差枚・高配分・全台系・重複の判定は excellent_section の既存基準。
+        _jug_ser = set(get_store_config(store_name).get("juggler_series", set()))
+        _ex_names = {x["name"] for x in excellent_list}
+        _nr_bans = {int(b) for it in list(nami_list or []) + list(retsu_list or []) for b in it.get("bans", [])}
+        _tail_src = [{"name": _p["name"], "ban": int(_p["ban"]), "diff": int(_p["diff"])}
+                     for _d in list(suebangai_data or []) + list(jug_sue_data or [])
+                     for _p in _d.get("plus1000", [])
+                     if int(_p["ban"]) not in _nr_bans
+                     and (_p["name"] not in _jug_ser or _p["name"] in _ex_names)]
+        _ex = excellent_section(_half_out, keep_sue=True, extra_src=_tail_src)
+        if _ex != "（なし）":
+            _ex = "\n".join(
+                re.sub(r"^・【(\d+)番台】(.+)→([+-][\d,]+枚)$", r"\2(\1番台)→\3", _ln)
+                if _ln.startswith("・【") else (_ln[1:] if _ln.startswith("・") else _ln)
+                for _ln in _ex.split("\n"))
+        _L += ["🏆その他の単品優秀台", _ex]
+        # 📝全体データ📝（既存 summary_section と同じ集計・実績行は👑のまま）
         if diff_raw is not None:
             _ds = _zendai_diff_list(diff_raw)
             _zs = _zendai_total_stat(diff_raw)
@@ -10697,6 +10714,9 @@ def _manual_jug_title(kojin_machines, cfg: dict) -> str:
 # 入力欄は絵文字なしで入力し、出力時に ✅／💥 を付ける。保存は auto_page_inputs.json の
 # Excel（＝日付・店舗キー）単位のエントリ（_auto_input_keys に追加・既存の保存/復元処理のまま）。
 _SLV_HEAD_MARKS: "tuple[str, ...]" = ("✅", "✅", "💥", "💥")
+# スロバース用 結果テキストの🏆ハーフ系に載せる最低平均差枚（テキスト表示だけの条件。画像の高配分は不変）
+_SLV_HALF_MIN_AVG = 400
+_SLV_HEAD_INPUTS_VISIBLE = False   # ✅・💥の入力欄を画面に出すか（簡略版では出さない・保存値は維持）
 
 
 def _slv_head_keys(store: str) -> list[str]:
@@ -17017,7 +17037,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                 _render_df_markdown(_view_df)
 
     # ── スロバース用：結果テキスト冒頭の ✅2行・💥2行（店舗・日付別に保存）─────────
-    if _is_sloverse_store(store):
+    # 2026-11-09：簡略版の結果テキストでは出力しないため画面から非表示（_SLV_HEAD_INPUTS_VISIBLE）。
+    # slv_head_0〜3_{店舗} のキー・auto_page_inputs.json の保存値・復元は従来どおり残す。
+    if _is_sloverse_store(store) and _SLV_HEAD_INPUTS_VISIBLE:
         st.markdown("**📝 結果テキストの冒頭コメント（絵文字は自動で付きます・空欄の行は出しません）**")
         _slv_lbl = ("✅ 1行目", "✅ 2行目", "💥 1行目", "💥 2行目")
         _slv_c1, _slv_c2 = st.columns(2)

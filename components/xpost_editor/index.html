@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>X投稿用 画像結合エディター</title>
+<style>
+  :root{--bd:#c9cdd6;--fr:#5b2fb3;--pool:#f4f5f8;--sel:#ff7a00;--txt:#222;--sub:#666}
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;font-family:"Meiryo","Hiragino Sans",sans-serif;color:var(--txt);background:transparent;font-size:13px}
+  .bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:2px 0 8px}
+  .bar .hint{color:var(--sub);font-size:12px;flex:1 1 220px}
+  button{font:inherit;border:1px solid var(--bd);background:#fff;border-radius:6px;padding:3px 8px;cursor:pointer;touch-action:manipulation}
+  button:hover{background:#eef}
+  button.on{background:var(--fr);color:#fff;border-color:var(--fr)}
+  button:disabled{opacity:.4;cursor:default}
+  .sec{border:1px solid var(--bd);border-radius:8px;padding:6px;margin-bottom:10px;background:#fff}
+  .sec h4{margin:0 0 6px;font-size:14px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .sec h4 .cnt{font-weight:normal;color:var(--sub);font-size:12px}
+  .pool{background:var(--pool)}
+  .zone{min-height:64px;border:2px dashed transparent;border-radius:6px;padding:3px;transition:background .1s}
+  .zone.over{border-color:var(--sel);background:#fff4e8}
+  .pool .zone{display:flex;flex-wrap:wrap;gap:6px}
+  .pool .card{width:104px}
+  .cols{display:grid;gap:6px}
+  .col{border:1px solid #e3e5ea;border-radius:6px;background:#fafbfc;display:flex;flex-direction:column;min-width:0}
+  .colh{display:flex;flex-wrap:wrap;gap:3px;align-items:center;padding:3px;border-bottom:1px solid #e3e5ea;font-size:11px;color:var(--sub)}
+  .colh button{padding:1px 6px;font-size:11px}
+  .colh .wl{flex:1;text-align:center;min-width:40px}
+  .col .zone{flex:1;display:flex;flex-direction:column;gap:4px;align-items:center}
+  .col .card{width:100%;max-width:150px}
+  .col .card img{max-height:220px;object-fit:contain}
+  .col .mk{width:100%}
+  .card{position:relative;border:1px solid var(--bd);border-radius:6px;background:#fff;padding:3px;user-select:none;-webkit-user-select:none;cursor:grab}
+  .card img{display:block;width:100%;height:auto;border-radius:3px;pointer-events:none;background:#eee}
+  .card .lb{font-size:11px;line-height:1.25;margin-top:2px;word-break:break-all}
+  .card .tg{display:inline-block;font-size:10px;padding:0 4px;border-radius:3px;color:#fff;margin-right:3px}
+  .tg.zen{background:#c0392b}.tg.high{background:#d35400}.tg.side{background:#2c7be5}.tg.etc{background:#7f8c8d}
+  .card .ops{display:flex;gap:3px;margin-top:3px;flex-wrap:wrap}
+  .card .ops button{padding:1px 6px;font-size:11px}
+  .card .hdl{position:absolute;top:3px;right:3px;width:28px;height:28px;border-radius:6px;background:rgba(91,47,179,.85);color:#fff;
+             display:flex;align-items:center;justify-content:center;font-size:16px;touch-action:none;cursor:grab}
+  .card.sel{outline:3px solid var(--sel)}
+  .card.dragging{opacity:.35}
+  .ghost{position:fixed;z-index:9999;width:110px;pointer-events:none;opacity:.9;box-shadow:0 6px 18px rgba(0,0,0,.3);transform:rotate(2deg)}
+  .mk{height:4px;background:var(--sel);border-radius:2px;margin:1px 0}
+  .here{border:2px dashed var(--sel);color:var(--sel);background:#fff;width:100%;padding:6px;border-radius:6px}
+  .pool .here{width:104px;min-height:60px}
+  .empty{color:#aaa;font-size:12px;text-align:center;padding:14px 4px}
+  .warn{color:#b00020}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+"use strict";
+// ── Streamlit コンポーネントの通信（公式 JS ライブラリなしの最小実装）─────────
+function send(type, data){ window.parent.postMessage(Object.assign({isStreamlitMessage:true, type:type}, data||{}), "*"); }
+let MAT = {}, ORDER = [], L = null, REV = null, HIST = [], SEL = null, DRAGGING = false;
+const NF = 4, MC = 4;
+
+window.addEventListener("message", function(ev){
+  const d = ev.data;
+  if(!d || d.type !== "streamlit:render") return;
+  const a = d.args || {};
+  MAT = {}; ORDER = [];
+  (a.materials || []).forEach(function(m){ MAT[m.id] = m; ORDER.push(m.id); });
+  if(a.rev !== REV || !L){ REV = a.rev; L = norm(a.layout); HIST = []; SEL = null; }
+  else { L = norm(L); }
+  if(!DRAGGING) render();
+});
+send("streamlit:componentReady", {apiVersion:1});
+
+function commit(){ send("streamlit:setComponentValue", {value:{layout:L, rev:REV}, dataType:"json"}); }
+// 高さは中身（#app）だけで測る。iframe 自身の高さを含む scrollHeight を使うと、
+// 高さを送る→iframe が伸びる→また伸びた高さを送る、の繰り返しで無限に伸びる。
+let LAST_H = -1;
+function setH(){
+  const a = document.getElementById("app"); if(!a) return;
+  const h = Math.ceil(a.getBoundingClientRect().height) + 8;
+  if(h !== LAST_H){ LAST_H = h; send("streamlit:setFrameHeight", {height: h}); }
+}
+new ResizeObserver(setH).observe(document.getElementById("app"));
+
+// ── 配置データ ─────────────────────────────────────────────
+function norm(lay){
+  const seen = new Set(); const fr = [];
+  const src = (lay && lay.frames) || [];
+  for(let f=0; f<NF; f++){
+    const cols = [];
+    ((src[f] && src[f].cols) || []).slice(0, MC).forEach(function(c){
+      const it = (c.items || []).filter(function(i){ if(!(i in MAT) || seen.has(i)) return false; seen.add(i); return true; });
+      cols.push({items: it, pad: (typeof c.pad === "number" && c.pad > 0) ? Math.min(2000, Math.round(c.pad)) : 0});
+    });
+    fr.push({cols: cols.length ? cols : [{items: [], pad: 0}]});
+  }
+  return {frames: fr};
+}
+function placed(){ const s = new Set(); L.frames.forEach(function(f){ f.cols.forEach(function(c){ c.items.forEach(function(i){ s.add(i); }); }); }); return s; }
+function poolIds(){ const s = placed(); return ORDER.filter(function(i){ return !s.has(i); }); }
+function snap(){ HIST.push(JSON.stringify(L)); if(HIST.length > 80) HIST.shift(); }
+function change(fn){ snap(); fn(); render(); commit(); }
+function findItem(id){
+  for(let f=0; f<NF; f++) for(let c=0; c<L.frames[f].cols.length; c++){
+    const k = L.frames[f].cols[c].items.indexOf(id); if(k >= 0) return {f:f, c:c, k:k};
+  }
+  return null;
+}
+function moveTo(id, zone, idx){
+  change(function(){
+    const src = findItem(id);
+    if(src) L.frames[src.f].cols[src.c].items.splice(src.k, 1);
+    if(zone === "pool") return;
+    const m = /^f(\d)c(\d)$/.exec(zone);
+    const col = L.frames[+m[1]].cols[+m[2]];
+    if(src && src.f === +m[1] && src.c === +m[2] && idx != null && src.k < idx) idx--;
+    if(idx == null || idx > col.items.length) idx = col.items.length;
+    col.items.splice(idx, 0, id);
+  });
+}
+function setCols(f, k){
+  change(function(){
+    const cols = L.frames[f].cols;
+    while(cols.length < k) cols.push({items: [], pad: 0});
+    while(cols.length > k){ const rm = cols.pop(); cols[cols.length-1].items = cols[cols.length-1].items.concat(rm.items); }
+  });
+}
+function shiftCol(f, c, d){
+  change(function(){ const cols = L.frames[f].cols; const t = c + d; if(t < 0 || t >= cols.length) return; const x = cols[c]; cols[c] = cols[t]; cols[t] = x; });
+}
+// 列の余白（px）を増減する。素材の大きさは変えない（列の幅だけが広がり、素材は列の中央）
+function padAdj(f, c, d){
+  change(function(){ const col = L.frames[f].cols[c]; col.pad = Math.max(0, Math.min(2000, (col.pad || 0) + d)); });
+}
+function resetPad(f){ change(function(){ L.frames[f].cols.forEach(function(c){ c.pad = 0; }); }); }
+function colWidth(c){ return c.items.reduce(function(m, i){ return Math.max(m, (MAT[i] && MAT[i].w) || 0); }, 0); }
+function clearFrame(f){ change(function(){ L.frames[f].cols.forEach(function(c){ c.items = []; }); }); }
+function stepItem(id, d){
+  change(function(){ const p = findItem(id); if(!p) return; const it = L.frames[p.f].cols[p.c].items; const t = p.k + d; if(t < 0 || t >= it.length) return; it[p.k] = it[t]; it[t] = id; });
+}
+function undo(){ if(!HIST.length) return; L = norm(JSON.parse(HIST.pop())); SEL = null; render(); commit(); }
+
+// ── 描画 ─────────────────────────────────────────────────
+function el(t, a){
+  const e = document.createElement(t); a = a || {};
+  for(const k in a){
+    if(k === "class") e.className = a[k];
+    else if(k === "text") e.textContent = a[k];
+    else if(k.slice(0,2) === "on") e.addEventListener(k.slice(2), a[k]);
+    else e.setAttribute(k, a[k]);
+  }
+  for(let i=2; i<arguments.length; i++){ const x = arguments[i]; if(x == null) continue; if(Array.isArray(x)) x.forEach(function(y){ if(y) e.append(y); }); else e.append(x); }
+  return e;
+}
+function btn(label, fn, cls, title){
+  const b = el("button", {class: cls || "", type: "button", title: title || label, text: label});
+  b.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
+  b.addEventListener("click", function(e){ e.stopPropagation(); fn(); });
+  return b;
+}
+function card(id, inCol){
+  const m = MAT[id];
+  const c = el("div", {class: "card" + (SEL === id ? " sel" : ""), "data-id": id});
+  c.append(el("img", {src: m.thumb, alt: m.label, draggable: "false"}));
+  const tg = el("span", {class: "tg " + (m.cat || "etc"), text: m.tag || ""});
+  c.append(el("div", {class: "lb"}, m.tag ? tg : null, document.createTextNode(m.label)));
+  c.append(el("div", {class: "hdl", title: "ドラッグで移動"}, "✥"));
+  if(inCol){
+    c.append(el("div", {class: "ops"},
+      btn("↑", function(){ stepItem(id, -1); }, "", "上へ"),
+      btn("↓", function(){ stepItem(id, 1); }, "", "下へ"),
+      btn("×", function(){ moveTo(id, "pool"); }, "", "未配置へ戻す")));
+  }
+  c.addEventListener("pointerdown", function(e){ startDrag(e, id, c); });
+  return c;
+}
+function hereBtn(zone){
+  return btn("＋ここへ", function(){ const id = SEL; SEL = null; moveTo(id, zone, null); }, "here", "選択中の素材をここへ移動");
+}
+function render(){
+  const app = document.getElementById("app"); app.innerHTML = "";
+  app.append(el("div", {class: "bar"},
+    btn("↩ 元に戻す", undo, "", "直前の操作を取り消す"),
+    el("span", {class: "hint", text: SEL ? "選択中：「＋ここへ」を押すと移動します（もう一度タップで解除）"
+      : "素材をドラッグして枠へ入れます（スマホは右上の ✥ をドラッグ、またはタップで選択→「＋ここへ」）"})));
+  const ids = poolIds();
+  const pz = el("div", {class: "zone", "data-zone": "pool"});
+  ids.forEach(function(i){ pz.append(card(i, false)); });
+  if(SEL && !ids.includes(SEL)) pz.append(hereBtn("pool"));
+  if(!ids.length && !SEL) pz.append(el("div", {class: "empty", text: "未配置の素材はありません"}));
+  app.append(el("div", {class: "sec pool"}, el("h4", {}, "未配置の素材", el("span", {class: "cnt", text: ids.length + "件"})), pz));
+  for(let f=0; f<NF; f++){
+    const fr = L.frames[f]; const k = fr.cols.length;
+    const n = fr.cols.reduce(function(s, c){ return s + c.items.length; }, 0);
+    const h = el("h4", {}, "■" + (f+1) + "枚目", el("span", {class: "cnt", text: n ? n + "件・横" + k + "列" : "（未使用）"}));
+    for(let j=1; j<=MC; j++) h.append(btn(j + "列", (function(jj){ return function(){ setCols(f, jj); }; })(j), j === k ? "on" : ""));
+    h.append(btn("余白をリセット", function(){ resetPad(f); }, "", "列に足した余白をすべて0に戻す"));
+    h.append(btn("空にする", function(){ clearFrame(f); }, "", "この枠の素材を未配置へ戻す"));
+    const grid = el("div", {class: "cols"}); grid.style.gridTemplateColumns = "repeat(" + k + ", minmax(0,1fr))";
+    fr.cols.forEach(function(c, ci){
+      const cw = colWidth(c);
+      const wl = cw ? (cw + (c.pad || 0)) + "px" + (c.pad ? "（余白+" + c.pad + "）" : "") : "―";
+      const ch = el("div", {class: "colh"},
+        btn("◀", function(){ shiftCol(f, ci, -1); }, "", "列を左へ"),
+        btn("−", function(){ padAdj(f, ci, -100); }, "", "列の余白を100px減らす（素材の大きさは変わりません）"),
+        el("span", {class: "wl", text: "列" + (ci+1) + " " + wl}),
+        btn("＋", function(){ padAdj(f, ci, 100); }, "", "列の余白を100px増やす（素材の大きさは変わりません）"),
+        btn("▶", function(){ shiftCol(f, ci, 1); }, "", "列を右へ"));
+      const z = el("div", {class: "zone", "data-zone": "f" + f + "c" + ci});
+      c.items.forEach(function(i){ z.append(card(i, true)); });
+      if(SEL) z.append(hereBtn("f" + f + "c" + ci));
+      else if(!c.items.length) z.append(el("div", {class: "empty", text: "ここへドロップ"}));
+      grid.append(el("div", {class: "col"}, ch, z));
+    });
+    app.append(el("div", {class: "sec"}, h, grid));
+  }
+  setH();
+}
+
+// ── ドラッグ（マウス・タッチ共通の Pointer Events）────────────────────
+function scroller(){
+  try{
+    const pd = window.parent.document;
+    return pd.querySelector('[data-testid="stMain"]') || pd.querySelector('[data-testid="stAppViewContainer"]') || pd.scrollingElement;
+  }catch(e){ return null; }
+}
+function autoScroll(y){
+  try{
+    const r = window.frameElement.getBoundingClientRect();
+    const vh = window.parent.innerHeight; const yy = r.top + y;
+    const s = scroller(); if(!s) return;
+    if(yy < 70) s.scrollBy(0, -18); else if(yy > vh - 70) s.scrollBy(0, 18);
+  }catch(e){}
+}
+function hit(x, y){
+  const zs = document.querySelectorAll("[data-zone]");
+  let best = null, bd = 1e9;
+  zs.forEach(function(z){
+    const r = z.getBoundingClientRect();
+    const dx = Math.max(r.left - x, 0, x - r.right), dy = Math.max(r.top - y, 0, y - r.bottom);
+    const d = Math.hypot(dx, dy); if(d < bd){ bd = d; best = z; }
+  });
+  if(!best || bd > 40) return null;
+  const zone = best.getAttribute("data-zone");
+  if(zone === "pool") return {el: best, zone: zone, idx: null};
+  const cards = Array.prototype.filter.call(best.querySelectorAll(":scope > .card"), function(c){ return !c.classList.contains("dragging"); });
+  let idx = 0;
+  cards.forEach(function(c){ const r = c.getBoundingClientRect(); if(y > r.top + r.height / 2) idx++; });
+  // ドラッグ中の元カードを含めた並びでの位置へ直す
+  const all = Array.prototype.slice.call(best.querySelectorAll(":scope > .card"));
+  const realIdx = (function(){ let n = 0, k = 0; for(const c of all){ if(c.classList.contains("dragging")){ k++; continue; } if(n === idx) break; n++; k++; } return k; })();
+  return {el: best, zone: zone, idx: realIdx, cards: cards, vis: idx};
+}
+let MK = null;
+function showMark(t){
+  document.querySelectorAll(".zone.over").forEach(function(z){ z.classList.remove("over"); });
+  if(MK){ MK.remove(); MK = null; }
+  if(!t) return;
+  t.el.classList.add("over");
+  if(t.zone !== "pool"){
+    MK = el("div", {class: "mk"});
+    const ref = t.cards[t.vis];
+    if(ref) t.el.insertBefore(MK, ref); else t.el.append(MK);
+  }
+}
+function startDrag(e, id, c){
+  if(e.button !== undefined && e.button !== 0) return;
+  const touch = e.pointerType && e.pointerType !== "mouse";
+  if(touch && !e.target.closest(".hdl")){ return; }   // タッチはつまみ（✥）だけでドラッグ（画面のスクロールを妨げない）
+  const sx = e.clientX, sy = e.clientY; let ghost = null;
+  if(touch) e.preventDefault();
+  function mv(ev){
+    if(!ghost){
+      if(Math.hypot(ev.clientX - sx, ev.clientY - sy) < 6) return;
+      ghost = c.cloneNode(true); ghost.classList.add("ghost"); ghost.classList.remove("sel");
+      document.body.append(ghost); c.classList.add("dragging"); DRAGGING = true;
+    }
+    ev.preventDefault();
+    ghost.style.left = (ev.clientX - 40) + "px"; ghost.style.top = (ev.clientY - 24) + "px";
+    showMark(hit(ev.clientX, ev.clientY)); autoScroll(ev.clientY);
+  }
+  function up(ev){
+    window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up);
+    if(ghost){
+      const t = (ev.type === "pointercancel") ? null : hit(ev.clientX, ev.clientY);
+      ghost.remove(); c.classList.remove("dragging"); showMark(null); DRAGGING = false;
+      if(t) moveTo(id, t.zone, t.idx); else render();
+    } else if(!touch || e.target.closest(".hdl")){
+      SEL = (SEL === id) ? null : id; render();
+    }
+  }
+  window.addEventListener("pointermove", mv, {passive: false});
+  window.addEventListener("pointerup", up); window.addEventListener("pointercancel", up);
+}
+// タッチ：つまみ以外のタップで選択（スクロールと区別するため click で判定）
+document.addEventListener("click", function(e){
+  const c = e.target.closest && e.target.closest(".card");
+  if(!c || e.target.closest("button") || e.target.closest(".hdl")) return;
+  if(e.pointerType === "mouse") return;
+  if(window.matchMedia("(pointer: coarse)").matches){ const id = c.getAttribute("data-id"); SEL = (SEL === id) ? null : id; render(); }
+});
+</script>
+</body>
+</html>

@@ -10719,6 +10719,373 @@ _SLV_HALF_MIN_AVG = 400
 _SLV_HEAD_INPUTS_VISIBLE = False   # ✅・💥の入力欄を画面に出すか（簡略版では出さない・保存値は維持）
 
 
+# ── スロバース用：X投稿用の画像結合（最大4枚・試験実装は蒲田7のみ・2026-11-09）──────────
+# ⑥プレビューの素材を「■1枚目〜■4枚目」へドラッグ＆ドロップで配置し、⑧で
+# X投稿用_1〜4.jpg ＋ 結果テキストだけを出力する。素材は _tmp_xpost/ に保持（Git管理外）。
+# 配置計算・結合・保存は xpost_layout.py、操作画面は components/xpost_editor/index.html。
+_XPOST_TRIAL_STORES = {"マルハンメガシティ2000蒲田7"}
+_XPOST_OUT_RE = re.compile(r"^X投稿用_\d+\.jpg$")
+
+
+def _xpost_on(store: str) -> bool:
+    """X投稿用の画像結合を使う店舗か（試験実装：スロバース用の蒲田7だけ）。"""
+    return store in _XPOST_TRIAL_STORES and _is_sloverse_store(store)
+
+
+def _xpost_mode(store: str, with_slump: bool) -> str:
+    """配置を分けて保存する単位（結果ポスト用／スランプ付き × 通常／📝記入部分のみ）。"""
+    _m = "slump" if with_slump else "auto"
+    return _m + ("_manual" if st.session_state.get(f"_manual_preview_mode_{store}") else "")
+
+
+def _xpost_key(store: str, excel_name: str, with_slump: bool) -> str:
+    return f"{store}|{os.path.splitext(excel_name)[0]}|{_xpost_mode(store, with_slump)}"
+
+
+def _xpost_confirmed(store: str, excel_name: str, with_slump: bool) -> bool:
+    """この店舗・Excel・モードの配置が「✅ この配置で確定」済みか（⑧の実行前に使う）。"""
+    import xpost_layout as _xl
+    rec = _xl.load_record(BASE_DIR, _xpost_key(store, excel_name, with_slump))
+    if not rec:
+        return False
+    lay = _xl.normalize_layout(rec.get("layout"), rec.get("materials") or [])
+    sizes = {i: tuple(v) for i, v in (rec.get("sizes") or {}).items()}
+    return bool(_xl.placed_ids(lay)) and rec.get("confirmed") == _xl.layout_hash(lay, sizes)
+
+
+def _xpost_component():
+    return components.declare_component(
+        "xpost_editor", path=os.path.join(BASE_DIR, "components", "xpost_editor"))
+
+
+def _xpost_materials(store: str, excel_name: str, with_slump: bool):
+    """⑥プレビューの素材（チェックONだけ）を、全台系→高配分（各平均差枚の降順）→その他の順で返す。
+
+    戻り値: (並び順の素材ID, {ID: PIL画像}, {ID: 表示情報}, 取得元)
+    プレビューが無いときは、前回⑧で内部へ保持した素材を使う（再編集用）。"""
+    import xpost_layout as _xl
+    imgs: dict = {}
+    for _fn, _im in (st.session_state.get(f"auto_preview_imgs_{store}") or []):
+        if _im is None or not _pv_is_on(store, excel_name, _fn):
+            continue
+        _b = _xl.bare(_fn)
+        if _b in imgs:
+            continue
+        if isinstance(_im, (bytes, bytearray)):
+            _im = Image.open(io.BytesIO(_im))
+        imgs[_b] = _im
+    src = "preview"
+    if not imgs:
+        _md = _xl.materials_dir(BASE_DIR, os.path.splitext(excel_name)[0].replace("_20S", ""),
+                                _xpost_mode(store, with_slump))
+        if os.path.isdir(_md):
+            for _f in sorted(os.listdir(_md)):
+                if _f.lower().endswith((".jpg", ".jpeg", ".png")):
+                    with Image.open(os.path.join(_md, _f)) as _im:
+                        _im.load()
+                        imgs.setdefault(_xl.bare(_f), _im.copy())
+            src = "stored"
+    zen_map = st.session_state.get(f"auto_preview_zen_{store}") or {}
+    hr_map = st.session_state.get(f"auto_preview_hr_{store}") or {}
+    avg = st.session_state.get(f"auto_preview_avg_{store}") or {}
+    pre = [i for i in imgs if not i.endswith("_side.jpg")]
+    # 平均差枚の降順（同じ値は⑥の順番のまま＝安定ソート）
+    zen = sorted([i for i in pre if i in zen_map], key=lambda i: -avg.get(i, 0))
+    high = sorted([i for i in pre if i in hr_map and i not in zen_map], key=lambda i: -avg.get(i, 0))
+    rest = [i for i in pre if i not in zen_map and i not in hr_map]
+    order: list = []
+    for _i in zen + high + rest:
+        order.append(_i)
+        _sd = _i[:-4] + "_side.jpg"
+        if _sd in imgs:
+            order.append(_sd)
+    order += [i for i in imgs if i not in order]      # 元の表が無い _side
+    meta: dict = {}
+    for _i in order:
+        _nm = _i[:-4] if _i.lower().endswith(".jpg") else os.path.splitext(_i)[0]
+        if _i in zen_map:
+            _cat, _tag, _lb = "zen", "全台", zen_map[_i]
+        elif _i in hr_map:
+            _cat, _tag, _lb = "high", "高配分", hr_map[_i]
+        elif _i.endswith("_side.jpg"):
+            _cat, _tag, _lb = "side", "横版", _nm[:-5]
+        else:
+            _cat, _tag, _lb = "etc", "", _nm
+        if _i in avg:
+            _lb = f"{_lb} 平均{_fmt_diff(int(avg[_i]))}"
+        meta[_i] = {"cat": _cat, "tag": _tag, "label": _lb}
+    return order, imgs, meta, src
+
+
+def _xpost_auto_order(order: list, imgs: dict) -> list:
+    """自動配置に使う素材：表と横版（_side）が両方あるときは表だけ（横版は未配置の候補に残す）。"""
+    return [i for i in order if not (i.endswith("_side.jpg") and (i[:-9] + ".jpg") in imgs)]
+
+
+def _xpost_unplaced_warn(order: list, imgs: dict, layout: dict) -> list:
+    """未配置の素材のうち警告するもの（表／横版のどちらかが配置済みなら、もう一方は数えない）。"""
+    import xpost_layout as _xl
+    used = set(_xl.placed_ids(layout))
+    out = []
+    for _i in order:
+        if _i in used:
+            continue
+        _pair = (_i[:-9] + ".jpg") if _i.endswith("_side.jpg") else (_i[:-4] + "_side.jpg")
+        if _pair in imgs and _pair in used:
+            continue
+        out.append(_i)
+    return out
+
+
+@st.fragment
+def _xpost_editor(store: str, excel_name: str, with_slump: bool) -> None:
+    """⑥〜⑧の間に出す「X投稿用の画像（最大4枚）」エディター（fragment：操作でページ全体を再実行しない）。"""
+    import xpost_layout as _xl
+    import base64
+    key = _xpost_key(store, excel_name, with_slump)
+    st.markdown("### 🧩 X投稿用の画像（最大4枚）")
+    order, imgs, meta, src = _xpost_materials(store, excel_name, with_slump)
+    if not order:
+        st.info("⑥でプレビューを作成すると、ここで素材を最大4枚の画像にまとめられます。")
+        return
+    if src == "stored":
+        st.caption("📦 ⑥のプレビューが無いため、前回⑧で保持した素材を表示しています。")
+    sizes = {i: tuple(imgs[i].size) for i in order}
+    rev_key = f"_xpost_rev_{key}"
+    if rev_key not in st.session_state:
+        st.session_state[rev_key] = 0
+    rec = _xl.load_record(BASE_DIR, key)
+    if rec is None:
+        rec = {"layout": _xl.auto_layout(_xpost_auto_order(order, imgs), sizes),
+               "materials": order, "sizes": {i: list(sizes[i]) for i in order}, "confirmed": None}
+        _xl.save_record(BASE_DIR, key, rec)
+        st.caption("🪄 初回のため自動配置しました（全台系→高配分の平均差枚の高い順を基本）。")
+    layout = _xl.normalize_layout(rec.get("layout"), order)
+    _gone = [i for i in _xl.placed_ids(_xl.normalize_layout(rec.get("layout"), rec.get("materials") or []))
+             if i not in sizes]
+    _new = [i for i in order if i not in (rec.get("materials") or [])]
+    _resized = [i for i in _xl.placed_ids(layout)
+                if tuple((rec.get("sizes") or {}).get(i, sizes[i])) != sizes[i]]
+    if _gone:
+        st.warning("⚠️ 前回の配置にあった素材が今回はありません（配置から外しました）：" + "、".join(_gone))
+    if _new:
+        st.info("ℹ️ 前回の配置に無い素材があります（未配置に入れました）：" + "、".join(_new))
+    if _resized:
+        st.warning("⚠️ 前回から寸法が変わった素材があります（配置は維持・確定し直してください）：" + "、".join(_resized))
+
+    thumbs = st.session_state.setdefault(f"_xpost_thumbs_{store}", {})
+    mats = []
+    for _i in order:
+        _sig = (id(imgs[_i]), sizes[_i])
+        if thumbs.get(_i, (None,))[0] != _sig:
+            thumbs[_i] = (_sig, _xl.thumb_data_url(imgs[_i]))
+        mats.append({"id": _i, "thumb": thumbs[_i][1], "w": sizes[_i][0], "h": sizes[_i][1], **meta[_i]})
+    _ek = "xpost_ed_" + hashlib.md5(key.encode("utf-8")).hexdigest()[:10]
+    # 操作結果（コンポーネントの値）は、部品を描く前に反映して保存する
+    # （描く引数を最新にしておかないと、部品の再読み込みで1つ前の配置に戻るため）
+    val = st.session_state.get(_ek)
+    if isinstance(val, dict) and val.get("rev") == st.session_state[rev_key]:
+        _nl = _xl.normalize_layout(val.get("layout"), order)
+        if _nl != layout:
+            layout = _nl
+
+    def _save(lay, confirmed=None, keep_conf=True):
+        _r = {"layout": lay, "materials": order, "sizes": {i: list(sizes[i]) for i in order},
+              "confirmed": (rec.get("confirmed") if keep_conf else confirmed)}
+        _xl.save_record(BASE_DIR, key, _r)
+        return _r
+    if layout != _xl.normalize_layout(rec.get("layout"), order) or set(rec.get("materials") or []) != set(order):
+        rec = _save(layout)
+    _xpost_component()(materials=mats, layout=layout, rev=st.session_state[rev_key], key=_ek, default=None)
+
+    _b1, _b2, _b3 = st.columns(3)
+    with _b1:
+        if st.button("🪄 自動配置", key=f"{_ek}_auto", use_container_width=True,
+                     help="素材の枚数・縦横比から余白の少ない配置を提案します（今の配置は置き換わります・↩で戻せません）"):
+            rec = _save(_xl.auto_layout(_xpost_auto_order(order, imgs), sizes), keep_conf=False)
+            st.session_state[rev_key] += 1
+            st.rerun(scope="fragment")
+    with _b2:
+        if st.button("↩ すべて未配置に戻す", key=f"{_ek}_reset", use_container_width=True):
+            rec = _save(_xl.empty_layout(), keep_conf=False)
+            st.session_state[rev_key] += 1
+            st.rerun(scope="fragment")
+    _h = _xl.layout_hash(layout, sizes)
+    _used = _xl.placed_ids(layout)
+    with _b3:
+        if st.button("✅ この配置で確定", key=f"{_ek}_conf", type="primary", use_container_width=True,
+                     disabled=not _used):
+            rec = _save(layout, confirmed=_h, keep_conf=False)
+    if _used and rec.get("confirmed") == _h:
+        st.success("✅ 配置は確定済みです。⑧で X投稿用_1〜4.jpg と結果テキストだけを出力します。")
+    elif _used:
+        st.warning("⚠️ 配置が未確定です。⑧の前に「✅ この配置で確定」を押してください"
+                   "（未確定のままでは⑧は実行されず、出力フォルダも変わりません）。")
+    _both = [i for i in _used if i.endswith("_side.jpg") and (i[:-9] + ".jpg") in _used]
+    if _both:
+        st.warning("⚠️ 同じ内容の表と横版（_side）を両方配置しています（内容が重複します）："
+                   + "、".join(i[:-9] for i in _both))
+    _un = _xpost_unplaced_warn(order, imgs, layout)
+    if _un and _used:
+        st.warning("⚠️ 未配置の素材があります（⑧では出力されません）：" + "、".join(meta[i]["label"] for i in _un))
+
+    # 完成プレビュー（⑧と同じ計算・同じ結合・同じJPEG設定）
+    # 素材は等倍で並べる。画面では「完成画像全体」を同じ倍率で縮小表示するか、出力画像の100%で見る。
+    _vm = st.radio("完成プレビューの表示", ["画面に合わせる（全体を同じ倍率で縮小表示）", "100%（出力画像の等倍・スクロール）"],
+                   horizontal=True, key=f"{_ek}_view")
+    _full = _vm.startswith("100%")
+    cache = st.session_state.setdefault(f"_xpost_render_{store}", {})
+    _sig_all = tuple((i, id(imgs[i])) for i in _used)
+    _frames = [(_fi, _fr, _xl.plan_frame(_fr["cols"], sizes)) for _fi, _fr in enumerate(layout["frames"])]
+    _frames = [(_fi, _fr, _g) for _fi, _fr, _g in _frames if _g is not None]
+    _pick = None
+    if _full and _frames:
+        _pick = st.selectbox("100%で見る画像", [f"X投稿用_{n}.jpg" for n in range(1, len(_frames) + 1)],
+                             key=f"{_ek}_pick")
+    for _n, (_fi, _fr, _g) in enumerate(_frames, 1):
+        _ck = (json.dumps(_fr, ensure_ascii=False, sort_keys=True), _sig_all,
+               getattr(_xl, "RENDER_VERSION", ""))
+        if _ck not in cache:
+            _img = _xl.render_frame(_g, imgs)
+            if len(cache) > 12:
+                cache.clear()
+            cache[_ck] = _xl.encode_jpeg(_img)
+        _data, _q = cache[_ck]
+        _s = _xl.frame_summary(_g)
+        _ncol = len([c for c in _fr["cols"] if c["items"]])
+        st.markdown(f"**X投稿用_{_n}.jpg**（■{_fi + 1}枚目・横{_ncol}列）")
+        if _full:
+            if _pick == f"X投稿用_{_n}.jpg":
+                _b64 = base64.b64encode(_data).decode("ascii")
+                st.markdown(
+                    f'<div style="overflow:auto;max-height:78vh;border:1px solid #ccd;background:#fff">'
+                    f'<img src="data:image/jpeg;base64,{_b64}" style="display:block;width:{_s["width"]}px;'
+                    f'max-width:none;height:auto"></div>', unsafe_allow_html=True)
+                st.caption("画面表示：出力画像の100%（1px＝1px）")
+        else:
+            st.image(_data, use_container_width=True)
+            st.caption("画面表示：画面の幅に合わせて完成画像全体を同じ倍率で縮小（出力の倍率とは別）")
+        _f = _s["downscale"]
+        _out = (f"出力の倍率：素材はすべて100%（等倍のまま）" if _f >= 0.9995 else
+                f"出力の倍率：完成画像全体を{_f * 100:.1f}%に一括縮小（素材ごとの倍率はすべて同じ{_f * 100:.1f}%）")
+        st.caption(f"等倍で結合 {_s['native_w']}×{_s['native_h']}px → 出力 {_s['width']}×{_s['height']}px"
+                   f"（縦横比 1:{_s['ratio']:.2f}）・{_out}・余白{_s['blank'] * 100:.1f}%・"
+                   f"JPEG {len(_data) / 1_000_000:.2f}MB（品質{_q}）")
+        if _f < 0.9995:
+            st.warning(f"⚠️ 長辺が{_xl.MAX_LONG}pxを超えるため、完成画像全体を{_f * 100:.1f}%に縮小して出力します"
+                       + ("（50%未満：文字が小さくなります。列を減らすか、別の枚に分けてください）" if _f < _xl.WARN_SCALE else "")
+                       + "。")
+
+
+def _xpost_finalize(store: str, output_dir: str, excel_name: str, with_slump: bool) -> "list | None":
+    """⑧の最後：確定した配置で X投稿用_N.jpg を作り、素材画像を内部フォルダへ移す。
+
+    配置が無い・未確定・素材が足りない・寸法が確定時と違う、のどれかなら何もしない
+    （従来どおり素材画像を出力したまま）。失敗しても既存の出力は壊さない。"""
+    import shutil
+    import xpost_layout as _xl
+    key = _xpost_key(store, excel_name, with_slump)
+    rec = _xl.load_record(BASE_DIR, key)
+    lay = _xl.normalize_layout((rec or {}).get("layout"), (rec or {}).get("materials") or [])
+    used = _xl.placed_ids(lay)
+    if not rec or not used:
+        st.warning("⚠️ X投稿用：配置が無いため、従来どおり素材画像を出力しました。")
+        return None
+    if rec.get("confirmed") != _xl.layout_hash(lay, {i: tuple(v) for i, v in (rec.get("sizes") or {}).items()}):
+        _old_x = sorted(_f for _f in os.listdir(output_dir) if _XPOST_OUT_RE.match(_f))
+        st.warning("⚠️ X投稿用：配置が未確定のため、従来どおり素材画像を出力しました（🧩で「✅ この配置で確定」）。"
+                   + (f"　前回の {'・'.join(_old_x)} はそのまま残っています（今回の内容ではありません）。" if _old_x else ""))
+        return None
+    # 素材ID（連番なし）→ ファイル。同じIDが連番違いで複数あるとき（前回の残り）は、
+    # 確定時と同じ寸法のものを今回の素材とみなす（⑧は既存ファイルの更新時刻も変えるため時刻では選ばない）
+    _rs = {i: tuple(v) for i, v in (rec.get("sizes") or {}).items()}
+    _cands: dict = {}
+    for _f in sorted(os.listdir(output_dir)):
+        _p = os.path.join(output_dir, _f)
+        if not os.path.isfile(_p) or not _f.lower().endswith((".jpg", ".jpeg", ".png")) or _XPOST_OUT_RE.match(_f):
+            continue
+        _cands.setdefault(_xl.bare(_f), []).append(_p)
+    files: dict = {}
+    for _b, _ps in _cands.items():
+        _hit = None
+        for _p in _ps:
+            try:
+                with Image.open(_p) as _im:
+                    if tuple(_im.size) == _rs.get(_b):
+                        _hit = _p
+            except Exception:
+                pass
+        files[_b] = _hit or _ps[-1]
+    miss = [i for i in used if i not in files]
+    if miss:
+        st.warning("⚠️ X投稿用：⑧で作られなかった素材があるため、X投稿用画像は作りませんでした：" + "、".join(miss))
+        return None
+    imgs, sizes = {}, {}
+    for _i in used:
+        with Image.open(files[_i]) as _im:
+            _im.load()
+            imgs[_i] = _im.copy()
+        sizes[_i] = tuple(imgs[_i].size)
+    diff = [i for i in used if tuple((rec.get("sizes") or {}).get(i, ())) != sizes[i]]
+    if diff:
+        st.warning("⚠️ X投稿用：確定時と寸法が違う素材があるため、X投稿用画像は作りませんでした"
+                   "（⑥を作り直して配置を確定してください）：" + "、".join(diff))
+        return None
+    tmp_paths = []
+    try:
+        _n = 0
+        for _fr in lay["frames"]:
+            _g = _xl.plan_frame(_fr["cols"], sizes)
+            if _g is None:
+                continue
+            _n += 1
+            _data, _q = _xl.encode_jpeg(_xl.render_frame(_g, imgs))
+            _tp = os.path.join(output_dir, f"_xpost_tmp_{_n}.jpg")
+            with open(_tp, "wb") as _fh:
+                _fh.write(_data)
+            tmp_paths.append(_tp)
+    except Exception as _e:
+        for _tp in tmp_paths:
+            try:
+                os.remove(_tp)
+            except Exception:
+                pass
+        st.warning(f"⚠️ X投稿用画像の作成に失敗しました（素材画像はそのまま残しています）：{_e}")
+        return None
+    # ここから先は成功：前回の X投稿用_N.jpg を置き換え、素材を内部フォルダへ移す
+    for _f in os.listdir(output_dir):
+        if _XPOST_OUT_RE.match(_f):
+            os.remove(os.path.join(output_dir, _f))
+    outs = []
+    for _n, _tp in enumerate(tmp_paths, 1):
+        _fn = f"X投稿用_{_n}.jpg"
+        os.replace(_tp, os.path.join(output_dir, _fn))
+        outs.append(_fn)
+    _md = _xl.materials_dir(BASE_DIR, os.path.basename(output_dir), _xpost_mode(store, with_slump))
+    if os.path.isdir(_md):
+        shutil.rmtree(_md)          # 前回分の内部素材（このアプリが作った _tmp_xpost 配下だけ）
+    os.makedirs(_md, exist_ok=True)
+    # 今回の素材（⑥の素材一覧にある名前・同名が複数なら上で選んだ1枚）は内部フォルダへ、
+    # それ以外の画像（前回以前の残り・未確定で実行したときの素材など）は「_前回以前」へ移す（消さない）
+    _cur = set(rec.get("materials") or [])
+    _keep = {os.path.normcase(files[_b]) for _b in files if _b in _cur}
+    _old_dir = os.path.join(_md, "_前回以前")
+    for _f in os.listdir(output_dir):
+        _p = os.path.join(output_dir, _f)
+        if _XPOST_OUT_RE.match(_f) or _f.lower().endswith(".txt"):
+            continue
+        if os.path.isfile(_p) and _f.lower().endswith((".jpg", ".jpeg", ".png")):
+            if os.path.normcase(_p) in _keep:
+                shutil.move(_p, os.path.join(_md, _f))
+            else:
+                os.makedirs(_old_dir, exist_ok=True)
+                shutil.move(_p, os.path.join(_old_dir, _f))
+        elif os.path.isdir(_p) and _f == "並び画像":
+            shutil.move(_p, os.path.join(_md, _f))
+    st.success("✅ X投稿用：" + "・".join(outs) + " を出力しました（素材画像は内部に保持）。")
+    return outs
+
+
 def _slv_head_keys(store: str) -> list[str]:
     """スロバース用 冒頭コメント4欄の session_state キー（0,1＝✅ ／ 2,3＝💥）。"""
     _ns = _kojin_ns(store)
@@ -18950,6 +19317,14 @@ def show_auto_page(with_slump: bool = False) -> None:
                         f"{_make_safe_fn(item['name'])}.jpg": item["name"]
                         for item in _prev_result.get("zen_dai_list", [])
                     }
+                    if _xpost_on(store):
+                        # X投稿用の素材一覧の並び順に使う（全台系＝all_avg_diff・高配分＝_high_avg_of）
+                        st.session_state[f"auto_preview_avg_{store}"] = {
+                            **{f"{_make_safe_fn(_it['name'])}.jpg": int(_it.get("all_avg_diff", 0))
+                               for _it in _prev_result.get("zen_dai_list", [])},
+                            **{f"{_make_safe_fn(_it['name'])}_高配分.jpg": int(_high_avg_of(_it))
+                               for _it in _prev_result.get("high_ratio_list", [])},
+                        }
                     st.session_state[_aprev_jug_ex_key]   = _prev_result.get("jug_excellent_list", [])
                     st.session_state[_aprev_jug_pool_key] = _prev_result.get("jug_pool_df")
                     st.session_state[_aprev_jug_ov_key]   = _prev_result.get("jug_overflow_df")
@@ -20635,6 +21010,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                         st.session_state.pop(f"_manual_preview_mode_{store}", None)
                     st.rerun()
 
+    # スロバース用（試験：蒲田7）：⑥の素材を X投稿用の最大4枚へまとめるエディター
+    if uploaded is not None and _xpost_on(store):
+        _xpost_editor(store, uploaded.name, with_slump)
+
     # ── ⑧ 実行ボタン（常に描画・ファイル未選択時は disabled）─────────
     st.markdown(f"### {_sec_num()} 実行")
     # 新宿歌舞伎町（かぶぱ）×スマホ幅（≤640px）のみ：プレビュー前は「自動処理を開始」を
@@ -20666,6 +21045,11 @@ def show_auto_page(with_slump: bool = False) -> None:
     elif run_clicked:
         # 実行時に必ず保存（on_changeが発火しなかった場合のフォールバック）
         _save_auto_inputs(store)
+        if _xpost_on(store) and not _xpost_confirmed(store, uploaded.name, with_slump):
+            # X投稿用の試験店舗：配置が未確定なら⑧を実行しない（出力フォルダを変更しない）
+            st.warning("⚠️ X投稿用：配置が未確定のため⑧を実行しませんでした。🧩の「✅ この配置で確定」を押してから、"
+                       "もう一度⑧を実行してください（出力フォルダは変更していません）。")
+            st.stop()
         # オススメ機種設定をJSON保存（次回起動時に復元する）
         if _rec_pickup_on(store):
             _s = load_store_settings(store)
@@ -21561,6 +21945,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                     st.error(f"❌ エラー: {_me}")
                     with st.expander("詳細"):
                         st.code(traceback.format_exc())
+            if _xpost_on(store) and os.path.isdir(output_dir):
+                _xpost_finalize(store, output_dir, uploaded.name, with_slump)
             st.markdown("### 生成されたファイル")
             if not _IS_CLOUD:
                 st.info(f"📁 `{output_dir}`")
@@ -23282,6 +23668,10 @@ def show_auto_page(with_slump: bool = False) -> None:
             st.markdown("### オススメ機種 除外ログ")
             for _msg in recommended_exclusion_logs:
                 st.info(f"ℹ️ {_msg}")
+
+        # スロバース用（試験：蒲田7）：確定した配置で X投稿用_N.jpg を作り、素材は内部へ移す
+        if result.get("ok") and _xpost_on(store) and os.path.isdir(output_dir):
+            _xpost_finalize(store, output_dir, uploaded.name, with_slump)
 
         # ── 生成ファイル一覧 ──────────────────────────────────────────
         st.markdown("### 生成されたファイル")

@@ -210,7 +210,7 @@ Excel 1ファイルから3ステップで全画像を生成する：
 | [`docs/specs/result_extraction.md`](docs/specs/result_extraction.md) | 判定条件・旧スクリプト・②全台除外・📝記入部分のみ・🎯掲載台を選ぶ・その他／ジャグラーの再振り分け・_dedup_previews |
 | [`docs/specs/narabi_retsu.md`](docs/specs/narabi_retsu.md) | 列画像・列仕掛けの表記と除外・並び記入枠・⑧列画像の補正後差枚 |
 | [`docs/specs/result_images.md`](docs/specs/result_images.md) | 表画像デザイン・スランプグラフ・液晶はめ込み／停止・#FFFFCB背景・side画像・青タイトルバー・パネル対象・手入力画像のスランプ・スロバース用スランプ |
-| [`docs/specs/result_text.md`](docs/specs/result_text.md) | 結果テキストの記号・表記・新小岩⑤・新大久保はにぃポスト・渋谷新館オススメポスター |
+| [`docs/specs/result_text.md`](docs/specs/result_text.md) | 結果テキストの記号・表記・新小岩⑤・新大久保はにぃポスト・渋谷新館オススメポスター・スロバース用結果テキスト |
 | [`docs/specs/result_post_stores.md`](docs/specs/result_post_stores.md) | 新宿歌舞伎町3系統・新小岩⑤ジャグラー・稲毛/新小岩/3店舗のslotterguild取得・gap猫撤去・マイジャグVI・ジャグラー閾値記憶 |
 | [`docs/specs/rote.md`](docs/specs/rote.md) | ローテ画像・ランキング・週間／月間オススメ表・ローテ結果テキスト・渋谷新館／新宿歌舞伎町ローテ |
 | [`docs/specs/article_common.md`](docs/specs/article_common.md) | 記事用の共通処理・HQ化・⑧再実行・日付切替保存（B2）・2F/3F・高配分と末尾の重複・記事コメント同期 |

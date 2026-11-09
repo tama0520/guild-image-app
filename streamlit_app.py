@@ -10721,10 +10721,21 @@ _SLV_HEAD_INPUTS_VISIBLE = False   # ✅・💥の入力欄を画面に出すか
 
 # ── スロバース用：X投稿用の画像結合（最大4枚・試験実装は蒲田7のみ・2026-11-09）──────────
 # ⑥プレビューの素材を「■1枚目〜■4枚目」へドラッグ＆ドロップで配置し、⑧で
-# X投稿用_1〜4.jpg ＋ 結果テキストだけを出力する。素材は _tmp_xpost/ に保持（Git管理外）。
+# 001.jpg〜004.jpg（使った枠を詰めた連番）＋ 結果テキストだけを出力する。素材は _tmp_xpost/ に保持（Git管理外）。
 # 配置計算・結合・保存は xpost_layout.py、操作画面は components/xpost_editor/index.html。
 _XPOST_TRIAL_STORES = {"マルハンメガシティ2000蒲田7"}
-_XPOST_OUT_RE = re.compile(r"^X投稿用_\d+\.jpg$")
+_XPOST_OUT_RE = re.compile(r"^\d{3}\.jpg$")               # 出力する結合画像（001.jpg〜004.jpg）
+_XPOST_OLD_OUT_RE = re.compile(r"^X投稿用_\d+\.jpg$")     # 旧名（2026-11-09 の 34beee3）。再実行時に置き換える
+
+
+def _xpost_out_name(n: int) -> str:
+    """結合画像の出力ファイル名（使った枠を詰めた連番：1→001.jpg）。"""
+    return f"{n:03d}.jpg"
+
+
+def _xpost_is_out(fn: str) -> bool:
+    """出力した結合画像（新名・旧名）か。素材とみなさず、再実行時は置き換える。"""
+    return bool(_XPOST_OUT_RE.match(fn) or _XPOST_OLD_OUT_RE.match(fn))
 
 
 def _xpost_on(store: str) -> bool:
@@ -10917,7 +10928,7 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool) -> None:
                      disabled=not _used):
             rec = _save(layout, confirmed=_h, keep_conf=False)
     if _used and rec.get("confirmed") == _h:
-        st.success("✅ 配置は確定済みです。⑧で X投稿用_1〜4.jpg と結果テキストだけを出力します。")
+        st.success("✅ 配置は確定済みです。⑧で 001〜004.jpg と結果テキストだけを出力します。")
     elif _used:
         st.warning("⚠️ 配置が未確定です。⑧の前に「✅ この配置で確定」を押してください"
                    "（未確定のままでは⑧は実行されず、出力フォルダも変わりません）。")
@@ -10940,7 +10951,7 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool) -> None:
     _frames = [(_fi, _fr, _g) for _fi, _fr, _g in _frames if _g is not None]
     _pick = None
     if _full and _frames:
-        _pick = st.selectbox("100%で見る画像", [f"X投稿用_{n}.jpg" for n in range(1, len(_frames) + 1)],
+        _pick = st.selectbox("100%で見る画像", [_xpost_out_name(n) for n in range(1, len(_frames) + 1)],
                              key=f"{_ek}_pick")
     for _n, (_fi, _fr, _g) in enumerate(_frames, 1):
         _ck = (json.dumps(_fr, ensure_ascii=False, sort_keys=True), _sig_all,
@@ -10953,9 +10964,9 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool) -> None:
         _data, _q = cache[_ck]
         _s = _xl.frame_summary(_g)
         _ncol = len([c for c in _fr["cols"] if c["items"]])
-        st.markdown(f"**X投稿用_{_n}.jpg**（■{_fi + 1}枚目・横{_ncol}列）")
+        st.markdown(f"**{_xpost_out_name(_n)}**（■{_fi + 1}枚目・横{_ncol}列）")
         if _full:
-            if _pick == f"X投稿用_{_n}.jpg":
+            if _pick == _xpost_out_name(_n):
                 _b64 = base64.b64encode(_data).decode("ascii")
                 st.markdown(
                     f'<div style="overflow:auto;max-height:78vh;border:1px solid #ccd;background:#fff">'
@@ -10978,7 +10989,7 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool) -> None:
 
 
 def _xpost_finalize(store: str, output_dir: str, excel_name: str, with_slump: bool) -> "list | None":
-    """⑧の最後：確定した配置で X投稿用_N.jpg を作り、素材画像を内部フォルダへ移す。
+    """⑧の最後：確定した配置で 001.jpg〜004.jpg を作り、素材画像を内部フォルダへ移す。
 
     配置が無い・未確定・素材が足りない・寸法が確定時と違う、のどれかなら何もしない
     （従来どおり素材画像を出力したまま）。失敗しても既存の出力は壊さない。"""
@@ -10992,7 +11003,7 @@ def _xpost_finalize(store: str, output_dir: str, excel_name: str, with_slump: bo
         st.warning("⚠️ X投稿用：配置が無いため、従来どおり素材画像を出力しました。")
         return None
     if rec.get("confirmed") != _xl.layout_hash(lay, {i: tuple(v) for i, v in (rec.get("sizes") or {}).items()}):
-        _old_x = sorted(_f for _f in os.listdir(output_dir) if _XPOST_OUT_RE.match(_f))
+        _old_x = sorted(_f for _f in os.listdir(output_dir) if _xpost_is_out(_f))
         st.warning("⚠️ X投稿用：配置が未確定のため、従来どおり素材画像を出力しました（🧩で「✅ この配置で確定」）。"
                    + (f"　前回の {'・'.join(_old_x)} はそのまま残っています（今回の内容ではありません）。" if _old_x else ""))
         return None
@@ -11002,7 +11013,7 @@ def _xpost_finalize(store: str, output_dir: str, excel_name: str, with_slump: bo
     _cands: dict = {}
     for _f in sorted(os.listdir(output_dir)):
         _p = os.path.join(output_dir, _f)
-        if not os.path.isfile(_p) or not _f.lower().endswith((".jpg", ".jpeg", ".png")) or _XPOST_OUT_RE.match(_f):
+        if not os.path.isfile(_p) or not _f.lower().endswith((".jpg", ".jpeg", ".png")) or _xpost_is_out(_f):
             continue
         _cands.setdefault(_xl.bare(_f), []).append(_p)
     files: dict = {}
@@ -11052,13 +11063,13 @@ def _xpost_finalize(store: str, output_dir: str, excel_name: str, with_slump: bo
                 pass
         st.warning(f"⚠️ X投稿用画像の作成に失敗しました（素材画像はそのまま残しています）：{_e}")
         return None
-    # ここから先は成功：前回の X投稿用_N.jpg を置き換え、素材を内部フォルダへ移す
+    # ここから先は成功：前回の結合画像（001.jpg〜・旧名 X投稿用_N.jpg）を置き換え、素材を内部フォルダへ移す
     for _f in os.listdir(output_dir):
-        if _XPOST_OUT_RE.match(_f):
+        if _xpost_is_out(_f):
             os.remove(os.path.join(output_dir, _f))
     outs = []
     for _n, _tp in enumerate(tmp_paths, 1):
-        _fn = f"X投稿用_{_n}.jpg"
+        _fn = _xpost_out_name(_n)
         os.replace(_tp, os.path.join(output_dir, _fn))
         outs.append(_fn)
     _md = _xl.materials_dir(BASE_DIR, os.path.basename(output_dir), _xpost_mode(store, with_slump))
@@ -11072,7 +11083,7 @@ def _xpost_finalize(store: str, output_dir: str, excel_name: str, with_slump: bo
     _old_dir = os.path.join(_md, "_前回以前")
     for _f in os.listdir(output_dir):
         _p = os.path.join(output_dir, _f)
-        if _XPOST_OUT_RE.match(_f) or _f.lower().endswith(".txt"):
+        if _xpost_is_out(_f) or _f.lower().endswith(".txt"):
             continue
         if os.path.isfile(_p) and _f.lower().endswith((".jpg", ".jpeg", ".png")):
             if os.path.normcase(_p) in _keep:
@@ -23669,7 +23680,7 @@ def show_auto_page(with_slump: bool = False) -> None:
             for _msg in recommended_exclusion_logs:
                 st.info(f"ℹ️ {_msg}")
 
-        # スロバース用（試験：蒲田7）：確定した配置で X投稿用_N.jpg を作り、素材は内部へ移す
+        # スロバース用（試験：蒲田7）：確定した配置で 001.jpg〜004.jpg を作り、素材は内部へ移す
         if result.get("ok") and _xpost_on(store) and os.path.isdir(output_dir):
             _xpost_finalize(store, output_dir, uploaded.name, with_slump)
 

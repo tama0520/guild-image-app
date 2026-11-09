@@ -36361,11 +36361,11 @@
     "narabi_ranges_input": "",
     "retsu_enabled": false,
     "retsu_ranges_input": "",
-    "suebangai_enabled": false,
-    "suebangai_tail_input_1": "",
-    "suebangai_tail_input_2": "",
+    "suebangai_enabled": true,
+    "suebangai_tail_input_1": "1",
+    "suebangai_tail_input_2": "ゾロ目",
     "suebangai_tail_input_3": "",
-    "suebangai_mode": "",
+    "suebangai_mode": "優秀台（ピンクバー付き）",
     "jug_sue_enabled": false,
     "jug_sue_tail_input_1": "",
     "jug_sue_tail_input_2": "",
@@ -36447,7 +36447,11 @@
     "kojin_pick_title_1_マルハンメガシティ2000蒲田1": "",
     "kojin_pick_bans_1_マルハンメガシティ2000蒲田1": "",
     "kojin_pick_title_2_マルハンメガシティ2000蒲田1": "",
-    "kojin_pick_bans_2_マルハンメガシティ2000蒲田1": ""
+    "kojin_pick_bans_2_マルハンメガシティ2000蒲田1": "",
+    "slv_head_0_マルハンメガシティ2000蒲田1": "",
+    "slv_head_1_マルハンメガシティ2000蒲田1": "",
+    "slv_head_2_マルハンメガシティ2000蒲田1": "",
+    "slv_head_3_マルハンメガシティ2000蒲田1": ""
   },
   "20261104_マルハンメガシティ2000蒲田7_20S.xlsx": {
     "kojin_enabled": false,
@@ -36541,6 +36545,10 @@
     "kojin_pick_title_1_マルハンメガシティ2000蒲田7": "",
     "kojin_pick_bans_1_マルハンメガシティ2000蒲田7": "",
     "kojin_pick_title_2_マルハンメガシティ2000蒲田7": "",
-    "kojin_pick_bans_2_マルハンメガシティ2000蒲田7": ""
+    "kojin_pick_bans_2_マルハンメガシティ2000蒲田7": "",
+    "slv_head_0_マルハンメガシティ2000蒲田7": "",
+    "slv_head_1_マルハンメガシティ2000蒲田7": "",
+    "slv_head_2_マルハンメガシティ2000蒲田7": "",
+    "slv_head_3_マルハンメガシティ2000蒲田7": ""
   }
 }

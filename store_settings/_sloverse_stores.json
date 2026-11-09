@@ -14,6 +14,69 @@
       "slotterguild": false,
       "realtime": false,
       "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "マルハンメガシティ2000蒲田1": {
+      "display_name": "マルハンメガシティ2000蒲田1",
+      "pision_hall_id": "1111",
+      "slotterguild": false,
+      "realtime": false,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "マルハンメガシティ2000蒲田7": {
+      "display_name": "マルハンメガシティ2000蒲田7",
+      "pision_hall_id": "3640",
+      "slotterguild": false,
+      "realtime": false,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "マルハン昭島": {
+      "display_name": "マルハン昭島",
+      "pision_hall_id": "1113",
+      "slotterguild": false,
+      "realtime": false,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "楽園ハッピーロード大山": {
+      "display_name": "楽園ハッピーロード大山",
+      "pision_hall_id": "1202",
+      "slotterguild": false,
+      "realtime": false,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "エクスアリーナ東京": {
+      "display_name": "エクスアリーナ東京",
+      "pision_hall_id": "8",
+      "slotterguild": false,
+      "realtime": false,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "ARROW池上": {
+      "display_name": "ARROW池上",
+      "pision_hall_id": "154",
+      "slotterguild": false,
+      "realtime": false,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "楽園渋谷駅前（スロバース）": {
+      "display_name": "楽園渋谷駅前",
+      "pision_hall_id": "1217",
+      "slotterguild": false,
+      "realtime": false,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "楽園渋谷道玄坂（スロバース）": {
+      "display_name": "楽園渋谷道玄坂",
+      "pision_hall_id": "1201",
+      "slotterguild": false,
+      "realtime": false,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "大山オーシャン（スロバース）": {
+      "display_name": "大山オーシャン",
+      "pision_hall_id": "270",
+      "slotterguild": false,
+      "realtime": false,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
     }
   }
 }

@@ -674,6 +674,18 @@ def _is_sloverse_store(store: str) -> bool:
     return _is_other_store(store) and _other_store_cfg(store).get("_group") == _SLOVERSE_GROUP
 
 
+def _sloverse_label(store: str) -> str:
+    """画面の見出し・サイドバー現在地に出す店舗名。スロバース用の店舗だけ display_name
+    （内部キー「〇〇（スロバース）」の店舗は正式名）を返し、それ以外の店舗は store のまま。
+    保存キー・URL・出力フォルダ・Excel名には使わない（内部キーのまま）。"""
+    try:
+        if _is_sloverse_store(store):
+            return _other_display_name(store) or store
+    except Exception:
+        pass
+    return store
+
+
 def _is_yg_store(store: str) -> bool:
     """「YG用」配下の店舗か（既存13店舗・「その他」は False）。"""
     return _is_other_store(store) and _other_store_cfg(store).get("_group") == _YG_GROUP
@@ -16340,9 +16352,9 @@ def show_auto_page(with_slump: bool = False) -> None:
         _sonota_extra_thrs.append((3000, "その他の優秀台+3,000枚以上.jpg"))
     if with_slump:
         _slump_label = "かぶぱポストの結果" if _is_kabupa_pg else "スランプ付き結果ポスト用"
-        st.markdown(f"## 【{store}】{_slump_label}")
+        st.markdown(f"## 【{_sloverse_label(store)}】{_slump_label}")
     else:
-        st.markdown(f"## 【{store}】結果ポスト用")
+        st.markdown(f"## 【{_sloverse_label(store)}】結果ポスト用")
     st.caption("全台系・ジャグラー優秀台・その他の優秀台を一括生成します。")
     st.markdown("---")
 
@@ -16350,7 +16362,7 @@ def show_auto_page(with_slump: bool = False) -> None:
     _tb_uploaded = None
     _is_other = _is_other_store(store)
     if store in STORES or _is_other:
-        st.markdown(f"### 📈 日付からデータを自動取得（{store}）")
+        st.markdown(f"### 📈 日付からデータを自動取得（{_sloverse_label(store)}）")
         api_key = _get_pision_api_key()
         if not api_key:
             st.caption("⚠️ PISION_API_KEY が未設定のため利用できません。①から手動でアップロードしてください。")
@@ -35177,7 +35189,7 @@ def main() -> None:
             st.markdown(f"　→ **{st.session_state.selected_image_type}**")
         elif page == "auto" and _is_sloverse_store(st.session_state.selected_store):
             st.markdown("📍 **スロバース用**")
-            st.markdown(f"　→ **{st.session_state.selected_store}**")
+            st.markdown(f"　→ **{_sloverse_label(st.session_state.selected_store)}**")
             st.markdown("　→ **⚡ 結果ポスト用**")
         elif page == "auto":
             st.markdown(f"📍 **{st.session_state.selected_store}**")
@@ -35197,7 +35209,7 @@ def main() -> None:
             st.markdown("📍 **スロバース用**")
         elif page == "sloverse_store":
             st.markdown("📍 **スロバース用**")
-            st.markdown(f"　→ **{st.session_state.selected_store}**")
+            st.markdown(f"　→ **{_sloverse_label(st.session_state.selected_store)}**")
         elif page == "yg_list":
             st.markdown("📍 **YG用**")
             st.markdown("　→ **一覧**")
@@ -35205,7 +35217,7 @@ def main() -> None:
             st.markdown("📍 **おすすめ**")
         elif page == "other_slump" and _is_sloverse_store(st.session_state.selected_store):
             st.markdown("📍 **スロバース用**")
-            st.markdown(f"　→ **{st.session_state.selected_store}**")
+            st.markdown(f"　→ **{_sloverse_label(st.session_state.selected_store)}**")
             st.markdown("　→ **📊 スランプ付き結果ポスト用**")
         elif page == "other_slump":
             st.markdown("📍 **YG用**" if (_is_yg_store(st.session_state.selected_store)

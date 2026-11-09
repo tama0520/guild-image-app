@@ -26011,45 +26011,54 @@ def show_auto_article_page() -> None:
                 if _cmt_empty:
                     _ck_cands = {_k: ([None] * len(_v) if _k != "S" else _v)
                                  for _k, _v in _ck_cands.items()}
-                st.caption("候補は当日の実データから自動生成しています（AIは使っていません）。"
-                           "**チェックした候補だけ**が WordPress 本文へ入ります"
-                           "（同じカテゴリで複数チェックしたときは ①→②→③ の順）。")
-                _ck_out: "dict[str, str]" = {}
-                for _sec, _sec_name in _ART_CMT_CK_SECTIONS:
-                    _cs = _ck_cands[_sec]
-                    _lb = _ART_CMT_CK_LABELS[_sec]
-                    _use: "list[str]" = []
-                    with st.expander(f"📝 {_sec_name}", expanded=True):
-                        for _i, _lab in enumerate(_lb, start=1):
-                            _txt = _cs[_i - 1]
-                            if not _txt:
-                                st.checkbox(f"{_lab}：対象データなし", value=False,
-                                            disabled=True,
-                                            key=f"_art_ck_na_{store}_{_sec}_{_i}")
-                                continue
-                            if _sec in _ART_CMT_CK_FIXED:
-                                st.checkbox(f"{_lab}（常に掲載）", value=True, disabled=True,
-                                            key=f"_art_ck_fix_{store}_{_sec}_{_i}")
-                                _on = True
-                            else:
-                                _on = _art_chk(_lab, _art_cmt_ck_logical(_sec, _i, store),
-                                               default=False)
-                            st.text(_txt)
-                            if _on:
-                                _use.append(_txt)
-                    if _use:
-                        _ck_out[_ART_CMT_WP_KEYS[_sec]] = "\n".join(_use)
-                st.session_state[f"_art_cmt_ck_out_{store}"] = _ck_out
-                with st.expander("📄 WordPress掲載予定の文章（チェック済みの候補）", expanded=False):
+                # ★チェック操作の高速化（2026-11-09）：候補チェック欄だけを st.fragment にする。
+                #   チェック時は**この欄だけ**を再実行し、⑦プレビュー画像の再表示など
+                #   ページ全体の再実行を走らせない（全体再実行の約7割が画像の再表示だった）。
+                #   保存（on_change → _save_article_inputs）と `_art_cmt_ck_out_{store}` の
+                #   更新はチェック時に即時のまま。候補 _ck_cands は全体実行で作ったものを
+                #   引数で受け取る（候補の中身・順序・本文・保存キーは不変）。
+                @st.fragment
+                def _art_cmt_ck_frag(_ck_cands):
+                    st.caption("候補は当日の実データから自動生成しています（AIは使っていません）。"
+                               "**チェックした候補だけ**が WordPress 本文へ入ります"
+                               "（同じカテゴリで複数チェックしたときは ①→②→③ の順）。")
+                    _ck_out: "dict[str, str]" = {}
                     for _sec, _sec_name in _ART_CMT_CK_SECTIONS:
-                        _t = _ck_out.get(_ART_CMT_WP_KEYS[_sec])
-                        if _t:
-                            st.markdown(f"**{_sec_name}：掲載**")
-                            st.text(_t)
-                        else:
-                            st.caption(f"{_sec_name}：チェックが無いため掲載されません")
-                    st.caption(f"掲載予定 {len(_ck_out)} / {len(_ART_CMT_CK_SECTIONS)} カテゴリ。"
-                               "該当カテゴリの画像がその日に無い場合は文章も挿入されません。")
+                        _cs = _ck_cands[_sec]
+                        _lb = _ART_CMT_CK_LABELS[_sec]
+                        _use: "list[str]" = []
+                        with st.expander(f"📝 {_sec_name}", expanded=True):
+                            for _i, _lab in enumerate(_lb, start=1):
+                                _txt = _cs[_i - 1]
+                                if not _txt:
+                                    st.checkbox(f"{_lab}：対象データなし", value=False,
+                                                disabled=True,
+                                                key=f"_art_ck_na_{store}_{_sec}_{_i}")
+                                    continue
+                                if _sec in _ART_CMT_CK_FIXED:
+                                    st.checkbox(f"{_lab}（常に掲載）", value=True, disabled=True,
+                                                key=f"_art_ck_fix_{store}_{_sec}_{_i}")
+                                    _on = True
+                                else:
+                                    _on = _art_chk(_lab, _art_cmt_ck_logical(_sec, _i, store),
+                                                   default=False)
+                                st.text(_txt)
+                                if _on:
+                                    _use.append(_txt)
+                        if _use:
+                            _ck_out[_ART_CMT_WP_KEYS[_sec]] = "\n".join(_use)
+                    st.session_state[f"_art_cmt_ck_out_{store}"] = _ck_out
+                    with st.expander("📄 WordPress掲載予定の文章（チェック済みの候補）", expanded=False):
+                        for _sec, _sec_name in _ART_CMT_CK_SECTIONS:
+                            _t = _ck_out.get(_ART_CMT_WP_KEYS[_sec])
+                            if _t:
+                                st.markdown(f"**{_sec_name}：掲載**")
+                                st.text(_t)
+                            else:
+                                st.caption(f"{_sec_name}：チェックが無いため掲載されません")
+                        st.caption(f"掲載予定 {len(_ck_out)} / {len(_ART_CMT_CK_SECTIONS)} カテゴリ。"
+                                   "該当カテゴリの画像がその日に無い場合は文章も挿入されません。")
+                _art_cmt_ck_frag(_ck_cands)
             else:
                 st.caption("候補は公開記事の書き方ルールと当日の実データから自動生成しています"
                            "（AIは使っていません）。★おすすめは目安で、**選ぶまでは未確定**です。"

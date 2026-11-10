@@ -10827,19 +10827,32 @@ def _xpost_unplaced_warn(order: list, imgs: dict, layout: dict) -> list:
     return out
 
 
-# ── スロバース用：AI文章（⑧の結果テキストから・押したときだけ生成）─────────────
+# ── スロバース用：AI文章（⑧の結果テキスト＋取得済み台別データから・押したときだけ生成）──────
 def _slv_ai_set_source(store: str, excel_name: str, report_text: str,
-                       txt_name: str, manual: bool) -> None:
-    """⑧／⑧📝で保存した結果テキストを、AI文章の元として覚える（スロバース店舗だけ）。
-    結果テキストが前回と変わったら、前回のAI文章は消す（別の結果の文章を残さない）。"""
+                       txt_name: str, manual: bool, df=None, date=None) -> None:
+    """⑧／⑧📝で保存した結果テキストと、⑧で使った台別データ（Pision取得済み・補正後差枚）から
+    AI用データを作って覚える（スロバース店舗だけ）。Pision へは再取得しない。
+    結果テキストまたは台別データが前回と変わったら、前回のAI文章は消す。"""
     if not _is_sloverse_store(store) or not report_text:
         return
     import hashlib
-    _sha = hashlib.sha1(report_text.encode("utf-8")).hexdigest()
+    import ai_text as _ai
+    try:
+        _jug = get_store_config(store).get("juggler_series", [])
+    except Exception:
+        _jug = []
+    try:
+        _ctx = _ai.build_context(df, report_text, store_key=store, store_label=_sloverse_label(store),
+                                 date=date, excel_name=excel_name, jug_series=_jug)
+    except Exception as _e:
+        _ctx = _ai.AIContext(ok=False, error=f"AI用データの作成に失敗しました（{type(_e).__name__}）。")
+    _sha = hashlib.sha1((report_text + "\n" + (_ctx.text or "")).encode("utf-8")).hexdigest()
     _prev = st.session_state.get(f"_slv_ai_src_{store}") or {}
     st.session_state[f"_slv_ai_src_{store}"] = {
         "text": report_text, "excel": excel_name, "txt_name": txt_name,
         "manual": bool(manual), "sha": _sha,
+        "ctx_ok": _ctx.ok, "ctx_error": _ctx.error, "ctx_text": _ctx.text, "checks": _ctx.checks,
+        "stats": _ctx.stats, "ban_map": _ctx.ban_map, "machines": _ctx.machines,
     }
     if _prev.get("sha") != _sha:
         for _k in (f"slv_ai_out_{store}", f"_slv_ai_meta_{store}", f"_slv_ai_n_{store}"):
@@ -10862,10 +10875,14 @@ def _slv_ai_run(store: str) -> None:
     """「🤖 AI文章を生成」「🔄 再生成」の on_click。モックなら API を呼ばない。"""
     import ai_text as _ai
     _src = st.session_state.get(f"_slv_ai_src_{store}") or {}
+    if not _src.get("ctx_ok"):
+        st.session_state[f"_slv_ai_meta_{store}"] = {"error": _src.get("ctx_error") or "AI用データがありません。"}
+        return
+    _data = _src.get("ctx_text", "")
     _cfg = _slv_ai_settings(store)
     _n = int(st.session_state.get(f"_slv_ai_n_{store}", 0))
     if _cfg["mode"] != "api":
-        _res = _ai.mock_generate(_src.get("text", ""), variant=_n, model=_cfg["model"], style=_cfg["style"])
+        _res = _ai.mock_generate(_data, variant=_n, model=_cfg["model"], style=_cfg["style"])
     else:
         _calls = int(st.session_state.get("_slv_ai_calls", 0))
         if _calls >= _cfg["max_calls"]:
@@ -10873,7 +10890,7 @@ def _slv_ai_run(store: str) -> None:
                 "error": f"このセッションの上限（{_cfg['max_calls']}回）に達しました。ページを読み込み直すと戻ります。"}
             return
         st.session_state["_slv_ai_calls"] = _calls + 1
-        _res = _ai.api_generate(_src.get("text", ""), _cfg, get_secret_value(_ai.API_KEY_NAME))
+        _res = _ai.api_generate(_data, _cfg, get_secret_value(_ai.API_KEY_NAME))
     _meta = {"error": _res.error, "warning": _res.warning, "model": _res.model, "mock": _res.mock,
              "in": _res.input_tokens, "out": _res.output_tokens, "usd": _res.cost_usd,
              "stop": _res.stop_reason, "style": _cfg["style"]}
@@ -10895,9 +10912,27 @@ def _slv_ai_section(store: str, excel_name: str) -> None:
     _mock = _cfg["mode"] != "api"
     st.markdown("---")
     st.markdown("### 🤖 AI文章（X投稿用の下書き）")
-    st.caption(f"元にするのは⑧で保存した {_src['txt_name']}"
-               f"{'（📝記入部分のみ）' if _src.get('manual') else ''} だけです。"
+    st.caption(f"⑧で保存した {_src['txt_name']}{'（📝記入部分のみ）' if _src.get('manual') else ''} と、"
+               "⑧で使った台別データ（取得済み・補正後差枚）から Python で集計した数値を送ります。"
                "ボタンを押したときだけ生成し、ファイル保存や投稿はしません。")
+    if not _src.get("ctx_ok"):
+        st.error("❌ " + (_src.get("ctx_error") or "AI用データを作れませんでした。"))
+        return
+    _est = _ai.estimate_request(_src["ctx_text"], _cfg)
+    _stt = _src.get("stats") or {}
+    with st.expander(f"📦 AIに送るデータ（約{_est['chars']:,}字・推定 約{_est['tokens']:,}トークン・"
+                     f"1回の概算 {_est['total_usd']:.3f}ドル）", expanded=False):
+        st.caption(f"対象：{_stt.get('date', '')}／{_sloverse_label(store)}／{_stt.get('units', 0)}台・"
+                   f"{_stt.get('machines', 0)}機種（2台以上 {_stt.get('multi', 0)}・1台設置 {_stt.get('single', 0)}・"
+                   f"ジャグラー {_stt.get('jug_machines', 0)}）")
+        for _nm, _ok, _tx in (_src.get("checks") or []):
+            st.caption(f"{'✅' if _ok == 'OK' else '⚠️'} {_nm}：{_tx}")
+        for _nt in (_stt.get("notes") or []):
+            st.caption(f"✂️ {_nt}")
+        st.caption(f"入力の概算：{_est['tokens']:,}トークン×{_ai.AI_MODELS[_cfg['model']]['in']:.2f}ドル/100万＝"
+                   f"{_est['in_usd']:.4f}ドル（出力は{_ai.STYLES[_cfg['style']]['label']}で約{_est['out_tokens_guess']:,}トークンと仮定）。"
+                   "実際の値は生成後に表示します。")
+        st.code(_src["ctx_text"], language=None, wrap_lines=True)
     with st.expander("⚙️ AI設定", expanded=False):
         _models = list(_ai.AI_MODELS)
         st.selectbox("モデル", _models, index=_models.index(_cfg["model"]),
@@ -10912,7 +10947,7 @@ def _slv_ai_section(store: str, excel_name: str) -> None:
                    "SLV_AI_MAX_CALLS・SLV_AI_EFFORT・SLV_AI_STYLE で変更できます。")
     _disabled = False
     if _mock:
-        st.info("🧪 モックモード：Claude API は呼びません（料金はかかりません）。文章は結果テキストの行を並べた見本です。")
+        st.info("🧪 モックモード：Claude API は呼びません（料金はかかりません）。文章はAI用データの行を並べた見本です。")
     else:
         _calls = int(st.session_state.get("_slv_ai_calls", 0))
         if not get_secret_value(_ai.API_KEY_NAME):
@@ -10926,7 +10961,7 @@ def _slv_ai_section(store: str, excel_name: str) -> None:
             st.caption(f"実API：このセッションの残り {_cfg['max_calls'] - _calls}回")
     _styles = list(_ai.STYLES)
     st.radio("文章スタイル", _styles, index=_styles.index(_cfg["style"]), horizontal=True,
-             format_func=lambda k: f"{_ai.STYLES[k]['label']}（全角{_ai.STYLES[k]['chars']}字程度）",
+             format_func=lambda k: f"{_ai.STYLES[k]['label']}（{_ai.STYLES[k]['guide']}）",
              key=f"slv_ai_style_{store}")
     _out_key = f"slv_ai_out_{store}"
     _has = bool(st.session_state.get(_out_key))
@@ -10943,20 +10978,29 @@ def _slv_ai_section(store: str, excel_name: str) -> None:
     if _meta and not _meta.get("mock") and _meta.get("model"):
         st.caption(f"モデル {_meta['model']}／入力 {_meta['in']:,}・出力 {_meta['out']:,}トークン"
                    f"／概算 {_meta['usd']:.4f}ドル")
-    st.text_area("文章（自由に編集できます）", key=_out_key, height=260)
+    st.text_area("文章（自由に編集できます）", key=_out_key, height=320)
     _cur = st.session_state.get(_out_key, "")
     _xc = _ai.x_check(_cur)
     _gen_sty = _ai.STYLES.get(_meta.get("style", ""), {})
-    st.caption(f"{_xc['chars']}字（改行・絵文字を含む）／X換算 {_xc['weight']}/{_xc['max']}"
-               f"（全角換算 {_xc['zen']:g}字）"
-               + (f"／生成時のスタイル：{_gen_sty['label']}（目安 全角{_gen_sty['chars']}字）" if _gen_sty else ""))
-    if _xc["over"]:
-        st.warning(f"⚠️ X の投稿上限（{_xc['max']}・全角140字相当）を超えています（{_xc['weight']}）。"
-                   "無料アカウントでは投稿できない可能性があります。自動では短縮しないので、編集して調整してください。")
-    _bad = _ai.unverified_tokens(_cur, _src["text"])
+    st.caption(f"{_xc['chars']}字（改行・絵文字を含む）／X換算 {_xc['weight']}（全角換算 {_xc['zen']:g}字）"
+               + (f"／生成時のスタイル：{_gen_sty['label']}（{_gen_sty['guide']}）" if _gen_sty else ""))
+    _source = _src["text"] + "\n" + _src.get("ctx_text", "")
+    _bad = _ai.unverified_tokens(_cur, _source)
     if _bad:
-        st.warning("⚠️ 結果テキストに無い台番・数値があります。投稿前に確認してください："
-                   + "、".join(_bad))
+        st.warning("⚠️ 送ったデータに無い台番・数値があります。投稿前に確認してください：" + "、".join(_bad))
+    _mis = _ai.ban_machine_mismatches(_cur, _src.get("ban_map") or {}, _src.get("machines") or [])
+    if _mis:
+        st.warning("⚠️ 台番と機種名の組み合わせが台別データと違う可能性があります：" + "、".join(_mis))
+    _set, _intp = _ai.speculative_notes(_cur)
+    if _set:
+        st.warning("⚠️ 設定に関わる表現があります（データでは確認できません）：" + " ／ ".join(_set))
+    if _intp:
+        st.info("ℹ️ 解釈・見立て・因果を含む表現です（数値の根拠を確認してください）：" + " ／ ".join(_intp))
+    _vg, _ty = _ai.vague_and_typo_notes(_cur, _source)
+    if _vg:
+        st.info("ℹ️ 数値をぼかす表現があります（数値で書けるか確認してください）：" + " ／ ".join(_vg))
+    if _ty:
+        st.warning("⚠️ 表記ミスの可能性があります：" + " ／ ".join(_ty))
     st.caption("コピー用（右上のアイコンでコピー）")
     st.code(_cur, language=None, wrap_lines=True)
 
@@ -22170,7 +22214,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _txt_name_m = (f"{_m_date.month:02d}{_m_date.day:02d}_結果.txt" if _m_date else "結果.txt")
                         with open(os.path.join(output_dir, _txt_name_m), "w", encoding="utf-8") as _f_rt:
                             _f_rt.write(_m_report_text)
-                        _slv_ai_set_source(store, uploaded.name, _m_report_text, _txt_name_m, True)
+                        _slv_ai_set_source(store, uploaded.name, _m_report_text, _txt_name_m, True,
+                                           df=_df_exec_m, date=_m_date)
                     except Exception as _rte:
                         _m_log(f"  ⚠️ 結果テキスト生成エラー: {_rte}")
                         import traceback as _tbe
@@ -24108,7 +24153,8 @@ def show_auto_page(with_slump: bool = False) -> None:
             try:
                 with open(_txt_path, "w", encoding="utf-8") as _f:
                     _f.write(report_text)
-                _slv_ai_set_source(store, uploaded.name, report_text, _txt_name, False)
+                _slv_ai_set_source(store, uploaded.name, report_text, _txt_name, False,
+                                   df=result.get("df"), date=result.get("date"))
                 if _IS_CLOUD:
                     st.caption(f"📄 {_txt_name} をZIPに含めます")
                 else:

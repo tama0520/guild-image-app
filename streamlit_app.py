@@ -10827,6 +10827,140 @@ def _xpost_unplaced_warn(order: list, imgs: dict, layout: dict) -> list:
     return out
 
 
+# ── スロバース用：AI文章（⑧の結果テキストから・押したときだけ生成）─────────────
+def _slv_ai_set_source(store: str, excel_name: str, report_text: str,
+                       txt_name: str, manual: bool) -> None:
+    """⑧／⑧📝で保存した結果テキストを、AI文章の元として覚える（スロバース店舗だけ）。
+    結果テキストが前回と変わったら、前回のAI文章は消す（別の結果の文章を残さない）。"""
+    if not _is_sloverse_store(store) or not report_text:
+        return
+    import hashlib
+    _sha = hashlib.sha1(report_text.encode("utf-8")).hexdigest()
+    _prev = st.session_state.get(f"_slv_ai_src_{store}") or {}
+    st.session_state[f"_slv_ai_src_{store}"] = {
+        "text": report_text, "excel": excel_name, "txt_name": txt_name,
+        "manual": bool(manual), "sha": _sha,
+    }
+    if _prev.get("sha") != _sha:
+        for _k in (f"slv_ai_out_{store}", f"_slv_ai_meta_{store}", f"_slv_ai_n_{store}"):
+            st.session_state.pop(_k, None)
+
+
+def _slv_ai_settings(store: str) -> dict:
+    import ai_text as _ai
+    _cfg = _ai.load_settings(get_secret_value)
+    _sel = st.session_state.get(f"slv_ai_model_{store}")
+    if _sel in _ai.AI_MODELS:
+        _cfg["model"] = _sel
+    _sty = st.session_state.get(f"slv_ai_style_{store}")
+    if _sty in _ai.STYLES:
+        _cfg["style"] = _sty
+    return _cfg
+
+
+def _slv_ai_run(store: str) -> None:
+    """「🤖 AI文章を生成」「🔄 再生成」の on_click。モックなら API を呼ばない。"""
+    import ai_text as _ai
+    _src = st.session_state.get(f"_slv_ai_src_{store}") or {}
+    _cfg = _slv_ai_settings(store)
+    _n = int(st.session_state.get(f"_slv_ai_n_{store}", 0))
+    if _cfg["mode"] != "api":
+        _res = _ai.mock_generate(_src.get("text", ""), variant=_n, model=_cfg["model"], style=_cfg["style"])
+    else:
+        _calls = int(st.session_state.get("_slv_ai_calls", 0))
+        if _calls >= _cfg["max_calls"]:
+            st.session_state[f"_slv_ai_meta_{store}"] = {
+                "error": f"このセッションの上限（{_cfg['max_calls']}回）に達しました。ページを読み込み直すと戻ります。"}
+            return
+        st.session_state["_slv_ai_calls"] = _calls + 1
+        _res = _ai.api_generate(_src.get("text", ""), _cfg, get_secret_value(_ai.API_KEY_NAME))
+    _meta = {"error": _res.error, "warning": _res.warning, "model": _res.model, "mock": _res.mock,
+             "in": _res.input_tokens, "out": _res.output_tokens, "usd": _res.cost_usd,
+             "stop": _res.stop_reason, "style": _cfg["style"]}
+    st.session_state[f"_slv_ai_meta_{store}"] = _meta
+    if _res.ok:
+        st.session_state[f"slv_ai_out_{store}"] = _res.text
+        st.session_state[f"_slv_ai_n_{store}"] = _n + 1
+
+
+@st.fragment
+def _slv_ai_section(store: str, excel_name: str) -> None:
+    """⑧の後に出す「🤖 AI文章」欄（fragment：操作でページ全体を再実行しない）。
+    保存・投稿はしない。編集とコピーだけ。"""
+    import ai_text as _ai
+    _src = st.session_state.get(f"_slv_ai_src_{store}")
+    if not _src or _src.get("excel") != excel_name:
+        return
+    _cfg = _slv_ai_settings(store)
+    _mock = _cfg["mode"] != "api"
+    st.markdown("---")
+    st.markdown("### 🤖 AI文章（X投稿用の下書き）")
+    st.caption(f"元にするのは⑧で保存した {_src['txt_name']}"
+               f"{'（📝記入部分のみ）' if _src.get('manual') else ''} だけです。"
+               "ボタンを押したときだけ生成し、ファイル保存や投稿はしません。")
+    with st.expander("⚙️ AI設定", expanded=False):
+        _models = list(_ai.AI_MODELS)
+        st.selectbox("モデル", _models, index=_models.index(_cfg["model"]),
+                     format_func=lambda m: f"{_ai.AI_MODELS[m]['label']}（{m}）",
+                     key=f"slv_ai_model_{store}")
+        _p = _ai.AI_MODELS[_cfg["model"]]
+        st.caption(f"動作：{'モック（APIを呼ばない）' if _mock else '実API'}／出力上限 {_cfg['max_tokens']:,}トークン／"
+                   f"effort {_cfg['effort']}／再試行 {_ai.SDK_MAX_RETRIES}回・fallbacks なし／"
+                   f"呼び出し上限 {_cfg['max_calls']}回（1セッション）／"
+                   f"料金 入力 {_p['in']:.2f}ドル・出力 {_p['out']:.2f}ドル（100万トークンあたり）")
+        st.caption("既定値は secrets.toml / .env の SLV_AI_MODE・SLV_AI_MODEL・SLV_AI_MAX_TOKENS・"
+                   "SLV_AI_MAX_CALLS・SLV_AI_EFFORT・SLV_AI_STYLE で変更できます。")
+    _disabled = False
+    if _mock:
+        st.info("🧪 モックモード：Claude API は呼びません（料金はかかりません）。文章は結果テキストの行を並べた見本です。")
+    else:
+        _calls = int(st.session_state.get("_slv_ai_calls", 0))
+        if not get_secret_value(_ai.API_KEY_NAME):
+            st.warning(f"APIキー（{_ai.API_KEY_NAME}）が設定されていません。ローカルは .streamlit/secrets.toml、"
+                       "Cloud は Streamlit Cloud の Secrets に登録してください。")
+            _disabled = True
+        elif _calls >= _cfg["max_calls"]:
+            st.warning(f"このセッションの呼び出し上限（{_cfg['max_calls']}回）に達しました。")
+            _disabled = True
+        else:
+            st.caption(f"実API：このセッションの残り {_cfg['max_calls'] - _calls}回")
+    _styles = list(_ai.STYLES)
+    st.radio("文章スタイル", _styles, index=_styles.index(_cfg["style"]), horizontal=True,
+             format_func=lambda k: f"{_ai.STYLES[k]['label']}（全角{_ai.STYLES[k]['chars']}字程度）",
+             key=f"slv_ai_style_{store}")
+    _out_key = f"slv_ai_out_{store}"
+    _has = bool(st.session_state.get(_out_key))
+    st.button("🔄 再生成" if _has else "🤖 AI文章を生成", key=f"slv_ai_btn_{store}",
+              on_click=_slv_ai_run, args=(store,), disabled=_disabled,
+              type=("secondary" if _has else "primary"))
+    _meta = st.session_state.get(f"_slv_ai_meta_{store}") or {}
+    if _meta.get("error"):
+        st.error("❌ " + _meta["error"])
+    if _meta.get("warning"):
+        st.warning("⚠️ " + _meta["warning"])
+    if not _has:
+        return
+    if _meta and not _meta.get("mock") and _meta.get("model"):
+        st.caption(f"モデル {_meta['model']}／入力 {_meta['in']:,}・出力 {_meta['out']:,}トークン"
+                   f"／概算 {_meta['usd']:.4f}ドル")
+    st.text_area("文章（自由に編集できます）", key=_out_key, height=260)
+    _cur = st.session_state.get(_out_key, "")
+    _xc = _ai.x_check(_cur)
+    _gen_sty = _ai.STYLES.get(_meta.get("style", ""), {})
+    st.caption(f"{_xc['chars']}字（改行・絵文字を含む）／X換算 {_xc['weight']}/{_xc['max']}"
+               f"（全角換算 {_xc['zen']:g}字）"
+               + (f"／生成時のスタイル：{_gen_sty['label']}（目安 全角{_gen_sty['chars']}字）" if _gen_sty else ""))
+    if _xc["over"]:
+        st.warning(f"⚠️ X の投稿上限（{_xc['max']}・全角140字相当）を超えています（{_xc['weight']}）。"
+                   "無料アカウントでは投稿できない可能性があります。自動では短縮しないので、編集して調整してください。")
+    _bad = _ai.unverified_tokens(_cur, _src["text"])
+    if _bad:
+        st.warning("⚠️ 結果テキストに無い台番・数値があります。投稿前に確認してください："
+                   + "、".join(_bad))
+    st.caption("コピー用（右上のアイコンでコピー）")
+    st.code(_cur, language=None, wrap_lines=True)
+
+
 @st.fragment
 def _xpost_editor(store: str, excel_name: str, with_slump: bool) -> None:
     """⑥〜⑧の間に出す「X投稿用の画像（最大4枚）」エディター（fragment：操作でページ全体を再実行しない）。"""
@@ -22036,6 +22170,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _txt_name_m = (f"{_m_date.month:02d}{_m_date.day:02d}_結果.txt" if _m_date else "結果.txt")
                         with open(os.path.join(output_dir, _txt_name_m), "w", encoding="utf-8") as _f_rt:
                             _f_rt.write(_m_report_text)
+                        _slv_ai_set_source(store, uploaded.name, _m_report_text, _txt_name_m, True)
                     except Exception as _rte:
                         _m_log(f"  ⚠️ 結果テキスト生成エラー: {_rte}")
                         import traceback as _tbe
@@ -23973,6 +24108,7 @@ def show_auto_page(with_slump: bool = False) -> None:
             try:
                 with open(_txt_path, "w", encoding="utf-8") as _f:
                     _f.write(report_text)
+                _slv_ai_set_source(store, uploaded.name, report_text, _txt_name, False)
                 if _IS_CLOUD:
                     st.caption(f"📄 {_txt_name} をZIPに含めます")
                 else:
@@ -24043,6 +24179,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                 key="auto_zip_dl",
                 type="primary",
             )
+
+    # スロバース用：⑧の結果テキストから AI 文章（押したときだけ生成）
+    if uploaded is not None and _is_sloverse_store(store):
+        _slv_ai_section(store, uploaded.name)
 
     # ── 戻るボタン（常に末尾に1つだけ描画）──────────────────────────
     st.markdown("---")

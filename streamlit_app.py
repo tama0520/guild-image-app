@@ -11451,7 +11451,9 @@ def _art_osu_settings(store: str) -> dict:
         _machines.append([(str(_mv[_i]) if _i < len(_mv) and isinstance(_mv[_i], str) else "")
                           for _i in range(_cnt)])
         _fv = _f_raw[_n] if _n < len(_f_raw) else ""
-        _filters.append(_fv if _fv in _ART_OSU_F_OPTS else _ART_OSU_F_DEFAULT)
+        _filters.append(_fv if (_fv in _ART_OSU_F_OPTS
+                                or (_fv == _ART_KB_OSU_F_NONE and _art_kb_ui(store)))
+                        else _ART_OSU_F_DEFAULT)
     return {"titles": _titles, "machines": _machines, "filters": _filters}
 
 
@@ -11474,6 +11476,104 @@ def _art_osu_f_index(store: str, n: int) -> int:
 
 # 記事用②個別画像の予測候補を当日設置機種だけへ絞る店舗（候補表示だけ・判定や保存値は不変）
 _ART_KOJIN_CAND_TODAY_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+# ── 記事用の②⑤⑥の入力欄を「モグ玄・新宿歌舞伎町」スランプ付き結果ポスト用（_mk_ui）と
+#    同じ構成にする店舗（2026-11-10）。対象は auto_article × この店舗だけ。
+#   ②：常にON・全台12／優秀台12→「ページを広げる」で48。「並び台番範囲 優秀台」以下は出さない
+#       （保存値は消さない。単品ピックアップ・ジャグラーの閾値は⑥で選ぶ）
+#   ⑤：機種名6欄（欄n＝ブロックnの1枠目）＋各欄の下に 全台／+1,000／+2,000 のチェック
+#       （1つだけON・全部OFF＝その欄を使わない。「全台」は既存の「プラス台」条件）。
+#       ブロックのタイトル・2枠目以降の保存値は消さずにそのまま（2枠目以降は使わない）
+#   ⑥：差枚数ランキング欄の代わりに「その他」（単品ピックアップ／ジャグラーの優秀台／
+#       バラエティの優秀台の台番テキスト）。ランキング画像は従来から生成しない（_ART_RANK_OFF_STORES）
+_ART_KB_UI_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+_ART_KB_KY_MAX = 48                      # ②優秀台の最大枠数（初期表示は12）
+_ART_KB_OSU_F_NONE = "なし"              # ⑤のチェックが全部OFF＝その欄を使わない
+_ART_KB_OSU_CK_OPTS: "tuple[tuple[str, str], ...]" = (   # (表示名, 保存値＝既存の抽出条件)
+    ("全台", "プラス台"), ("+1,000枚以上", "+1,000枚以上"), ("+2,000枚以上", "+2,000枚以上"))
+
+
+def _art_kb_ui(store: str) -> bool:
+    """記事用の②⑤⑥をモグ玄・新宿歌舞伎町のスランプ付きと同じ構成にするか。"""
+    return store in _ART_KB_UI_STORES
+
+
+def _art_kb_variety_key(store: str) -> str:
+    """⑥バラエティの優秀台の台番テキスト（article_page_inputs.json・日付単位）。"""
+    return f"art_kb_variety_text_{store}"
+
+
+def _art_osu_fsess_key(store: str, n: int) -> str:
+    """⑤ブロック n の抽出条件を持つ session_state キー。
+
+    _ART_KB_UI_STORES はチェック欄で選ぶので、従来のラジオの widget キー（art_osu_f_*）とは
+    別の通常キーにする（同じセッションに残ったラジオの状態と混ざらない）。他店舗は従来のキー。
+    保存先（store_settings の art_osusume_filters）は共通で変わらない。"""
+    return f"art_osu_kbf_{n}_{store}" if _art_kb_ui(store) else _art_osu_f_key(store, n)
+
+
+def _on_art_kb_osu_ck(store: str, n: int, opt: str) -> None:
+    """⑤の機種ごとの抽出条件チェック：1つだけON（他は外す）・全部OFF は「なし」。保存は既存の _save_art_osusume。"""
+    _fk = _art_osu_fsess_key(store, n)
+    if st.session_state.get(f"{_fk}__ck_{opt}"):
+        st.session_state[_fk] = opt
+    elif st.session_state.get(_fk) == opt:
+        st.session_state[_fk] = _ART_KB_OSU_F_NONE
+    for _lab, _o in _ART_KB_OSU_CK_OPTS:
+        if _o != opt:
+            st.session_state[f"{_fk}__ck_{_o}"] = False
+    _save_art_osusume(store)
+
+
+def _art_kb_osusume_ui(store: str, cands, saved: dict) -> None:
+    """⑤：太字「オススメ機種」＋機種名6欄（3列×2段）。各欄の直下に 全台／+1,000／+2,000 のチェック。"""
+    st.markdown("**オススメ機種**")
+    _rows = [st.columns(3) for _ in range(2)]
+    for _n, _col in enumerate([c for r in _rows for c in r][:_ART_OSUSUME_BLOCKS]):
+        with _col:
+            # 初期値は必ず value= でブラウザまで渡す（⑤ 39f1f1e の正式仕様）
+            render_machine_autocomplete_input(
+                str(_n + 1), _art_osu_mac_key(store, _n, 0), cands,
+                default=saved["machines"][_n][0],
+                on_change=_save_art_osusume, on_change_args=(store,))
+            _fk = _art_osu_fsess_key(store, _n)
+            if _fk not in st.session_state:
+                st.session_state[_fk] = saved["filters"][_n]
+            _cur = st.session_state.get(_fk)
+            for _lab, _o in _ART_KB_OSU_CK_OPTS:
+                st.session_state[f"{_fk}__ck_{_o}"] = (_cur == _o)
+                st.checkbox(_lab, key=f"{_fk}__ck_{_o}",
+                            on_change=_on_art_kb_osu_ck, args=(store, _n, _o))
+
+
+def _on_art_kb_thr(mem_key: str, logical_key: str, opt: str, opts: list,
+                   field, label: str, store: str) -> None:
+    """⑥「その他」の閾値チェック：1つだけON・全部OFFは「なし」。記憶はラジオと同じ _save_jug_auto_mem。"""
+    if st.session_state.get(f"{mem_key}__ck_{opt}"):
+        st.session_state[mem_key] = opt
+    elif st.session_state.get(mem_key) == opt:
+        st.session_state[mem_key] = "なし"
+    for _o in opts:
+        if _o not in ("なし", opt):
+            st.session_state[f"{mem_key}__ck_{_o}"] = False
+    st.session_state[logical_key] = st.session_state.get(mem_key, "なし")
+    if field:
+        _save_jug_auto_mem(store, field, mem_key, opts=opts, label=label)
+
+
+def _art_kb_thr_row(title: str, mem_key: str, logical_key: str, opts: list,
+                    field, label: str, store: str) -> None:
+    """⑥「その他」の1行：太字の見出し＋その横に閾値のチェック欄（_mk_thr_row と同じ並び）。"""
+    _cur = st.session_state.get(mem_key, "なし")
+    _ch = [_o for _o in opts if _o != "なし"]
+    _cols = st.columns([1.6] + [1] * len(_ch))
+    with _cols[0]:
+        st.markdown(f"**{title}**")
+    for _c, _o in zip(_cols[1:], _ch):
+        st.session_state[f"{mem_key}__ck_{_o}"] = (_cur == _o)
+        with _c:
+            st.checkbox(_o, key=f"{mem_key}__ck_{_o}", on_change=_on_art_kb_thr,
+                        args=(mem_key, logical_key, _o, opts, field, label, store))
 
 
 def _art_today_candidates(store: str, candidates, view_df) -> "list[str]":
@@ -11602,9 +11702,11 @@ def _save_art_osusume(store: str) -> None:
             _row.append(st.session_state[_mk] if _mk in st.session_state
                         else _cur["machines"][_n][_i])
         _machines.append(_row)
-        _fk = _art_osu_f_key(store, _n)
+        _fk = _art_osu_fsess_key(store, _n)
         _fv = st.session_state.get(_fk) if _fk in st.session_state else _cur["filters"][_n]
-        _filters.append(_fv if _fv in _ART_OSU_F_OPTS else _ART_OSU_F_DEFAULT)
+        _filters.append(_fv if (_fv in _ART_OSU_F_OPTS
+                                or (_fv == _ART_KB_OSU_F_NONE and _art_kb_ui(store)))
+                        else _ART_OSU_F_DEFAULT)
     _prev[_ART_OSU_TITLES_KEY]   = _titles
     _prev[_ART_OSU_MACHINES_KEY] = _machines
     _prev[_ART_OSU_FILTERS_KEY]  = _filters
@@ -13165,6 +13267,10 @@ def _article_input_keys(store: str) -> list[str]:
         keys += [f"art_suebangai_tail_input_{i}", f"art_jug_sue_tail_input_{i}"]
     for i in range(12):
         keys += [f"art_kojin_z_{i}_{store}", f"art_kojin_y_{i}_{store}"]
+    # ②優秀台の13〜48枠目と⑥バラエティの台番テキスト（_ART_KB_UI_STORES だけ・日付単位）
+    if store in _ART_KB_UI_STORES:
+        keys += [f"art_kojin_y_{i}_{store}" for i in range(12, _ART_KB_KY_MAX)]
+        keys += [_art_kb_variety_key(store)]
     keys += [
         f"art_kojin_narabi_range_{store}", f"art_kojin_narabi_title_{store}",
         f"art_kojin_narabi2_range_{store}", f"art_kojin_narabi2_title_{store}",
@@ -16260,8 +16366,15 @@ def _art_osusume_collect(store: str) -> list[dict]:
             _mv = (st.session_state.get(_mk) if _mk in st.session_state
                    else _saved["machines"][_n][_i])
             _macs.append((str(_mv or "")).strip())
-        _fk = _art_osu_f_key(store, _n)
+        _fk = _art_osu_fsess_key(store, _n)
         _fv = st.session_state.get(_fk) if _fk in st.session_state else _saved["filters"][_n]
+        if _art_kb_ui(store):
+            # 画面の6欄＝各ブロックの1枠目だけを使う（2枠目以降の保存値は残すが使わない）。
+            # チェックが全部OFF（なし）の欄は使わない。
+            _use = bool(_macs) and _fv != _ART_KB_OSU_F_NONE
+            _macs = [(_macs[0] if _use else "")] + [""] * (len(_macs) - 1)
+            if _fv == _ART_KB_OSU_F_NONE:
+                _fv = _ART_OSU_F_DEFAULT
         _blocks.append({
             "title": (str(_title or "")).strip(),
             "machines": _macs,
@@ -24708,11 +24821,13 @@ def show_auto_article_page() -> None:
     # ②チェックボックスの on_change は従来どおり _save_article_enabled（機種名を
     # 巻き込まない専用コールバック・0e7dc4c）。widget キーだけ日付スコープ化する。
     _kj_en_wk = _art_widget_key(_art_excel_w, "art_kojin_enabled")
-    kojin_enabled = st.checkbox(
+    _art_kb = _art_kb_ui(store)
+    # モグ玄・新宿歌舞伎町のスランプ付きと同じく常にON（チェック欄なし）
+    kojin_enabled = (True if _art_kb else st.checkbox(
         "個別画像も生成する", key=_kj_en_wk,
         value=bool(_art_saved_value(_art_excel_w, store, "art_kojin_enabled", False)),
         on_change=_on_article_kojin_enabled,
-        args=(store, "art_kojin_enabled", _kj_en_wk, _art_excel_w))
+        args=(store, "art_kojin_enabled", _kj_en_wk, _art_excel_w)))
     st.session_state["art_kojin_enabled"] = kojin_enabled
     if kojin_enabled:
         _kojin_candidates = load_machine_candidates()
@@ -24737,7 +24852,8 @@ def show_auto_article_page() -> None:
                  if uploaded is not None
                  and st.session_state.get(f"_art_view_df_fn_{store}") == uploaded.name
                  else None))
-        st.caption("指定した機種の個別画像を生成します。ここに入力した機種はその他の優秀台ピックアップから除外されます。")
+        if not _art_kb:
+            st.caption("指定した機種の個別画像を生成します。ここに入力した機種はその他の優秀台ピックアップから除外されます。")
         # 未描画 run を挟んだ後の初回描画でブラウザへ初期値を届けるための保存値参照用
         _art_kojin_excel = st.session_state.get("art_current_excel")
         col_kz, col_ky = st.columns(2, gap="large")
@@ -24750,102 +24866,152 @@ def show_auto_article_page() -> None:
             kojin_zentai_machines = [st.session_state.get(f"art_kojin_z_{_i}_{store}", "") for _i in range(12)]
         with col_ky:
             st.markdown("**優秀台**")
-            _ky_rows = [st.columns(3) for _ in range(4)]
-            for _i, _col in enumerate([c for row in _ky_rows for c in row]):
+            # 対象店舗は基本12個表示。13個目以降に入力があるか「ページを広げる」を押すと
+            # 最大48個まで表示する（モグ玄・新宿歌舞伎町のスランプ付きと同じ）。
+            _ky_count = _ART_KB_KY_MAX if _art_kb else 12
+            if _art_kb:
+                _ky_expand_key = f"art_kojin_y_expand_{store}"
+                _has_extra_ky = any(st.session_state.get(f"art_kojin_y_{_i}_{store}", "")
+                                    for _i in range(12, _ky_count))
+                _ky_expanded = st.session_state.get(_ky_expand_key, False) or _has_extra_ky
+                _ky_shown = _ky_count if _ky_expanded else 12
+            else:
+                _ky_expanded = True
+                _ky_shown = _ky_count
+            _ky_rows = [st.columns(3) for _ in range((_ky_shown + 2) // 3)]
+            for _i, _col in enumerate([c for row in _ky_rows for c in row][:_ky_shown]):
                 with _col:
                     _art_mac(str(_i + 1), f"art_kojin_y_{_i}_{store}", _kojin_candidates)
-            kojin_yushu_machines = [st.session_state.get(f"art_kojin_y_{_i}_{store}", "") for _i in range(12)]
-        st.markdown("**並び台番範囲 優秀台**")
-        _col_nr, _col_nt = st.columns([2, 3])
-        with _col_nr:
-            _art_txt("台番範囲（例: 409-413）　ピンクバーあり",
-                     f"art_kojin_narabi_range_{store}",
-                     placeholder="例: 409-413", skip_kojin=False)
-        with _col_nt:
-            _art_txt("タイトル（省略時は台番範囲をそのまま使用）",
-                     f"art_kojin_narabi_title_{store}",
-                     placeholder="例: 4・5列目の優秀台", skip_kojin=False)
-        _col_nr2, _col_nt2 = st.columns([2, 3])
-        with _col_nr2:
-            _art_txt("台番範囲（例: 409-413）　ピンクバーなし",
-                     f"art_kojin_narabi2_range_{store}",
-                     placeholder="例: 409-413", skip_kojin=False)
-        with _col_nt2:
-            _art_txt("タイトル（省略時は台番範囲をそのまま使用）",
-                     f"art_kojin_narabi2_title_{store}",
-                     placeholder="例: 4・5列目の優秀台", skip_kojin=False)
-        kojin_narabi_ranges_text  = st.session_state.get(f"art_kojin_narabi_range_{store}", "")
-        kojin_narabi_title        = st.session_state.get(f"art_kojin_narabi_title_{store}", "")
-        kojin_narabi2_ranges_text = st.session_state.get(f"art_kojin_narabi2_range_{store}", "")
-        kojin_narabi2_title       = st.session_state.get(f"art_kojin_narabi2_title_{store}", "")
-
-        st.markdown("**個別機種の優秀台ピックアップ**")
-        st.caption("タイトルと台番を指定した機種は、貼った台番だけの画像を作り、自動高配分画像は生成しません。")
-        for _pi in range(_KOJIN_PICK_COUNT):
-            _col_apt, _col_apb = st.columns([2, 3])
-            with _col_apt:
-                _art_txt("タイトル", f"art_kojin_pick_title_{_pi}_{store}",
-                         placeholder="例: マイジャグV", skip_kojin=False)
-            with _col_apb:
-                _art_txt("台番テキスト（台番を含むテキストをそのまま貼り付け）",
-                         f"art_kojin_pick_bans_{_pi}_{store}",
-                         area=True, height=68, skip_kojin=False)
-
-        st.markdown("**その他の優秀台ピックアップ**")
-        _col_aset, _col_aseb = st.columns([2, 3])
-        with _col_aset:
-            _art_txt("タイトル", f"art_sonota_extra_title_{store}",
-                     placeholder="例: その他の優秀台ピックアップ",
-                     empty_default="その他の優秀台ピックアップ", skip_kojin=False)
-        with _col_aseb:
-            _art_txt("台番テキスト（台番を含むテキストをそのまま貼り付け）",
-                     f"art_sonota_extra_text_{store}",
-                     area=True, height=80, skip_kojin=False)
-        _ase_mem = _sonota_auto_mem_field(store)
-        if _ase_mem:
-            # ジャグラーと同じく日付スコープではない店舗単位のキーで描き、記憶値を毎回表示値にする。
-            # 抽出側が読む logical key（art_sonota_extra_auto_{store}）へも同じ値を入れる。
+            if _art_kb and not _ky_expanded:
+                def _expand_art_ky(_k=_ky_expand_key):
+                    st.session_state[_k] = True
+                st.button("▼ ページを広げる（最大48個まで入力）",
+                          key=f"art_kojin_y_expand_btn_{store}",
+                          on_click=_expand_art_ky, use_container_width=True)
+            kojin_yushu_machines = [st.session_state.get(f"art_kojin_y_{_i}_{store}", "") for _i in range(_ky_count)]
+        if _art_kb:
+            # 「並び台番範囲 優秀台」以下（台番範囲・個別機種の優秀台ピックアップ・
+            # その他の優秀台ピックアップ・抽出条件）は表示しない（モグ玄のスランプ付きと同じ）。
+            # 保存値は消さない。単品ピックアップ・ジャグラーの優秀台の閾値は⑥「その他」の
+            # チェック欄で選ぶ。ここでは記憶値の復元だけ（従来のラジオと同じ記憶先）。
             _ase_key = f"art_sonota_extra_auto_mem_{store}"
-            st.session_state[_ase_key] = _jug_auto_mem_resolve(
-                store, _ase_mem, st.session_state.get(f"art_sonota_extra_auto_{store}"),
-                opts=_SONOTA_AUTO_OPTS)
-            st.radio(
-                "台番テキストが空欄のとき、下記の閾値で「その他の優秀台ピックアップ」を自動抽出（📝記入部分のみモード）",
-                _SONOTA_AUTO_OPTS, key=_ase_key, horizontal=True,
-                on_change=_save_jug_auto_mem, args=(store, _ase_mem, _ase_key),
-                kwargs={"opts": _SONOTA_AUTO_OPTS, "label": "その他の優秀台 抽出閾値"})
+            _ase_mem = _sonota_auto_mem_field(store)
+            st.session_state[_ase_key] = (
+                _jug_auto_mem_resolve(store, _ase_mem,
+                                      st.session_state.get(f"art_sonota_extra_auto_{store}"),
+                                      opts=_SONOTA_AUTO_OPTS)
+                if _ase_mem else
+                (st.session_state.get(f"art_sonota_extra_auto_{store}")
+                 if st.session_state.get(f"art_sonota_extra_auto_{store}") in _SONOTA_AUTO_OPTS
+                 else "なし"))
             st.session_state[f"art_sonota_extra_auto_{store}"] = st.session_state[_ase_key]
-        else:
-            # 未保存・未知の値は options[0] ではなく **正式既定「なし」**へ落とす。
-            _art_choice(
-                "台番テキストが空欄のとき、下記の閾値で「その他の優秀台ピックアップ」を自動抽出（📝記入部分のみモード）",
-                f"art_sonota_extra_auto_{store}",
-                ["なし", "+1,000枚以上", "+2,000枚以上", "+3,000枚以上"],
-                default="なし", horizontal=True, skip_kojin=False)
-        # ジャグラーシリーズ優秀台（📝記入部分のみモード）。通常ページと同じ考え方。
-        _ajg_mem = _jug_auto_mem_field(store)
-        if _ajg_mem:
-            # 日付スコープではない店舗単位のキーで描き、記憶値を毎回表示値にする。
-            # 抽出側が読む logical key（art_jug_extra_auto_{store}）へも同じ値を入れる。
             _ajg_key = f"art_jug_extra_auto_mem_{store}"
-            st.session_state[_ajg_key] = _jug_auto_mem_resolve(
-                store, _ajg_mem, st.session_state.get(f"art_jug_extra_auto_{store}"))
-            st.radio(
-                "下記の条件で「ジャグラーシリーズ優秀台」を自動抽出（📝記入部分のみモード）",
-                _JUG_AUTO_OPTS, key=_ajg_key, horizontal=True,
-                on_change=_save_jug_auto_mem, args=(store, _ajg_mem, _ajg_key))
+            _ajg_mem = _jug_auto_mem_field(store)
+            st.session_state[_ajg_key] = (
+                _jug_auto_mem_resolve(store, _ajg_mem,
+                                      st.session_state.get(f"art_jug_extra_auto_{store}"),
+                                      opts=_MOGU_JUG_AUTO_OPTS)
+                if _ajg_mem else
+                (st.session_state.get(f"art_jug_extra_auto_{store}")
+                 if st.session_state.get(f"art_jug_extra_auto_{store}") in _MOGU_JUG_AUTO_OPTS
+                 else "なし"))
             st.session_state[f"art_jug_extra_auto_{store}"] = st.session_state[_ajg_key]
         else:
-            _art_choice(
-                "下記の条件で「ジャグラーシリーズ優秀台」を自動抽出（📝記入部分のみモード）",
-                f"art_jug_extra_auto_{store}", _JUG_AUTO_OPTS,
-                default="なし", horizontal=True, skip_kojin=False)
+            st.markdown("**並び台番範囲 優秀台**")
+            _col_nr, _col_nt = st.columns([2, 3])
+            with _col_nr:
+                _art_txt("台番範囲（例: 409-413）　ピンクバーあり",
+                         f"art_kojin_narabi_range_{store}",
+                         placeholder="例: 409-413", skip_kojin=False)
+            with _col_nt:
+                _art_txt("タイトル（省略時は台番範囲をそのまま使用）",
+                         f"art_kojin_narabi_title_{store}",
+                         placeholder="例: 4・5列目の優秀台", skip_kojin=False)
+            _col_nr2, _col_nt2 = st.columns([2, 3])
+            with _col_nr2:
+                _art_txt("台番範囲（例: 409-413）　ピンクバーなし",
+                         f"art_kojin_narabi2_range_{store}",
+                         placeholder="例: 409-413", skip_kojin=False)
+            with _col_nt2:
+                _art_txt("タイトル（省略時は台番範囲をそのまま使用）",
+                         f"art_kojin_narabi2_title_{store}",
+                         placeholder="例: 4・5列目の優秀台", skip_kojin=False)
+            kojin_narabi_ranges_text  = st.session_state.get(f"art_kojin_narabi_range_{store}", "")
+            kojin_narabi_title        = st.session_state.get(f"art_kojin_narabi_title_{store}", "")
+            kojin_narabi2_ranges_text = st.session_state.get(f"art_kojin_narabi2_range_{store}", "")
+            kojin_narabi2_title       = st.session_state.get(f"art_kojin_narabi2_title_{store}", "")
+
+            st.markdown("**個別機種の優秀台ピックアップ**")
+            st.caption("タイトルと台番を指定した機種は、貼った台番だけの画像を作り、自動高配分画像は生成しません。")
+            for _pi in range(_KOJIN_PICK_COUNT):
+                _col_apt, _col_apb = st.columns([2, 3])
+                with _col_apt:
+                    _art_txt("タイトル", f"art_kojin_pick_title_{_pi}_{store}",
+                             placeholder="例: マイジャグV", skip_kojin=False)
+                with _col_apb:
+                    _art_txt("台番テキスト（台番を含むテキストをそのまま貼り付け）",
+                             f"art_kojin_pick_bans_{_pi}_{store}",
+                             area=True, height=68, skip_kojin=False)
+
+            st.markdown("**その他の優秀台ピックアップ**")
+            _col_aset, _col_aseb = st.columns([2, 3])
+            with _col_aset:
+                _art_txt("タイトル", f"art_sonota_extra_title_{store}",
+                         placeholder="例: その他の優秀台ピックアップ",
+                         empty_default="その他の優秀台ピックアップ", skip_kojin=False)
+            with _col_aseb:
+                _art_txt("台番テキスト（台番を含むテキストをそのまま貼り付け）",
+                         f"art_sonota_extra_text_{store}",
+                         area=True, height=80, skip_kojin=False)
+            _ase_mem = _sonota_auto_mem_field(store)
+            if _ase_mem:
+                # ジャグラーと同じく日付スコープではない店舗単位のキーで描き、記憶値を毎回表示値にする。
+                # 抽出側が読む logical key（art_sonota_extra_auto_{store}）へも同じ値を入れる。
+                _ase_key = f"art_sonota_extra_auto_mem_{store}"
+                st.session_state[_ase_key] = _jug_auto_mem_resolve(
+                    store, _ase_mem, st.session_state.get(f"art_sonota_extra_auto_{store}"),
+                    opts=_SONOTA_AUTO_OPTS)
+                st.radio(
+                    "台番テキストが空欄のとき、下記の閾値で「その他の優秀台ピックアップ」を自動抽出（📝記入部分のみモード）",
+                    _SONOTA_AUTO_OPTS, key=_ase_key, horizontal=True,
+                    on_change=_save_jug_auto_mem, args=(store, _ase_mem, _ase_key),
+                    kwargs={"opts": _SONOTA_AUTO_OPTS, "label": "その他の優秀台 抽出閾値"})
+                st.session_state[f"art_sonota_extra_auto_{store}"] = st.session_state[_ase_key]
+            else:
+                # 未保存・未知の値は options[0] ではなく **正式既定「なし」**へ落とす。
+                _art_choice(
+                    "台番テキストが空欄のとき、下記の閾値で「その他の優秀台ピックアップ」を自動抽出（📝記入部分のみモード）",
+                    f"art_sonota_extra_auto_{store}",
+                    ["なし", "+1,000枚以上", "+2,000枚以上", "+3,000枚以上"],
+                    default="なし", horizontal=True, skip_kojin=False)
+            # ジャグラーシリーズ優秀台（📝記入部分のみモード）。通常ページと同じ考え方。
+            _ajg_mem = _jug_auto_mem_field(store)
+            if _ajg_mem:
+                # 日付スコープではない店舗単位のキーで描き、記憶値を毎回表示値にする。
+                # 抽出側が読む logical key（art_jug_extra_auto_{store}）へも同じ値を入れる。
+                _ajg_key = f"art_jug_extra_auto_mem_{store}"
+                st.session_state[_ajg_key] = _jug_auto_mem_resolve(
+                    store, _ajg_mem, st.session_state.get(f"art_jug_extra_auto_{store}"))
+                st.radio(
+                    "下記の条件で「ジャグラーシリーズ優秀台」を自動抽出（📝記入部分のみモード）",
+                    _JUG_AUTO_OPTS, key=_ajg_key, horizontal=True,
+                    on_change=_save_jug_auto_mem, args=(store, _ajg_mem, _ajg_key))
+                st.session_state[f"art_jug_extra_auto_{store}"] = st.session_state[_ajg_key]
+            else:
+                _art_choice(
+                    "下記の条件で「ジャグラーシリーズ優秀台」を自動抽出（📝記入部分のみモード）",
+                    f"art_jug_extra_auto_{store}", _JUG_AUTO_OPTS,
+                    default="なし", horizontal=True, skip_kojin=False)
         art_sonota_extra_title = st.session_state.get(f"art_sonota_extra_title_{store}", "")
         art_sonota_extra_text  = st.session_state.get(f"art_sonota_extra_text_{store}", "")
         art_sonota_extra_auto  = st.session_state.get(f"art_sonota_extra_auto_{store}", "なし")
         art_jug_extra_auto     = st.session_state.get(f"art_jug_extra_auto_{store}", "なし")
-        if art_jug_extra_auto not in _JUG_AUTO_OPTS:
+        if art_jug_extra_auto not in (_MOGU_JUG_AUTO_OPTS if _art_kb else _JUG_AUTO_OPTS):
             art_jug_extra_auto = "なし"
+        if _art_kb:
+            # その他の優秀台は閾値だけ（タイトル・台番テキストの保存値は使わない）
+            art_sonota_extra_title = ""
+            art_sonota_extra_text  = ""
 
     # ── ③ 並び画像オプション ─────────────────────────────────────────
     narabi_ok     = False
@@ -25030,13 +25196,17 @@ def show_auto_article_page() -> None:
     art_osusume_machines: list[str] = []
     if _art_v2 and store in _ART_OSUSUME_STORES:
         st.markdown(f"### {_sec_num()} オススメ機種の優秀台")
-        st.caption("高配分で掲載された機種は自動で除外します。"
-                   "　ブロックタイトルは画像には描かれません（記事の小見出し用）。"
-                   "　この設定は店舗単位で保存され、日付を変えても保持されます。")
+        if not _art_kb_ui(store):
+            st.caption("高配分で掲載された機種は自動で除外します。"
+                       "　ブロックタイトルは画像には描かれません（記事の小見出し用）。"
+                       "　この設定は店舗単位で保存され、日付を変えても保持されます。")
         _osu_cands = load_machine_candidates()
         _osu_saved = _art_osu_settings(store)     # store_settings の保存値（初期値用）
+        if _art_kb_ui(store):
+            # モグ玄・新宿歌舞伎町のスランプ付きと同じ6欄＋各欄の下に抽出条件チェック
+            _art_kb_osusume_ui(store, _osu_cands, _osu_saved)
         # 2列 × 3段でブロックを並べる（ブロック1・2／3・4／5・6）
-        for _row_top in range(0, _ART_OSUSUME_BLOCKS, 2):
+        for _row_top in (() if _art_kb_ui(store) else range(0, _ART_OSUSUME_BLOCKS, 2)):
             _bcols = st.columns(2, gap="large")
             for _bi, _bcol in enumerate(_bcols):
                 _n = _row_top + _bi
@@ -25073,7 +25243,24 @@ def show_auto_article_page() -> None:
     # ★「その他の優秀台」は独立見出しを表示しない。
     #   その他の優秀台ピックアップ.jpg は run_step3_other() が自動生成する
     #   （設定UI・ON/OFFなし。該当0台なら画像なし）。
-    if _art_v2:
+    if _art_v2 and _art_kb_ui(store):
+        # ⑥「その他」（モグ玄・新宿歌舞伎町のスランプ付きの⑥と同じ構成）。
+        # 単品ピックアップ・ジャグラーの優秀台の閾値（1つだけON・全部OFF＝なし）と、
+        # バラエティの優秀台の台番テキスト（全台モード・空欄なら生成しない）。
+        # 差枚数ランキングはこの店舗では従来から生成しない（_ART_RANK_OFF_STORES）。保存値は消さない。
+        st.markdown(f"### {_sec_num()} その他")
+        _art_kb_thr_row("単品ピックアップ", f"art_sonota_extra_auto_mem_{store}",
+                        f"art_sonota_extra_auto_{store}", _SONOTA_AUTO_OPTS,
+                        _sonota_auto_mem_field(store), "その他の優秀台 抽出閾値", store)
+        _art_kb_thr_row("ジャグラーの優秀台", f"art_jug_extra_auto_mem_{store}",
+                        f"art_jug_extra_auto_{store}", _MOGU_JUG_AUTO_OPTS,
+                        _jug_auto_mem_field(store), "ジャグラー抽出条件", store)
+        st.markdown("**バラエティの優秀台**")
+        art_variety_ranges_text = _art_txt("台番テキスト（台番を含むテキストをそのまま貼り付け）",
+                                           _art_kb_variety_key(store), area=True, height=80) or ""
+        art_variety_enabled = bool(art_variety_ranges_text.strip())
+        art_variety_mode = "全台"
+    elif _art_v2:
         # 島図を出さない店舗では見出しからも「島図」を消す
         # （渋谷新館は _ARTICLE_SHIMAZU_STORES に入るので従来表記のまま）。
         st.markdown(f"### {_sec_num()} "

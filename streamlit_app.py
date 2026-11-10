@@ -5204,6 +5204,7 @@ _ITYPE_BTN_HIDE: "frozenset[tuple[str, str]]" = frozenset({
     ("新宿歌舞伎町", "rote_mode_btn"),      # 📋 ローテ用
     ("新宿歌舞伎町", "auto_slump_btn"),     # 📊 かぶぱポストの結果用
     ("秋葉原", "auto_article_btn"),         # 📰 記事用
+    ("稲毛", "auto_slump_btn"),             # 📊 スランプ付き結果ポスト用（2026-11-10 追加）
 })
 
 
@@ -5557,25 +5558,12 @@ def show_image_type_page() -> None:
                 ):
                     _navigate("auto_slump")
             else:
-                _col_l, _col_r = st.columns(2)
                 # 新小岩はスランプ付きを左（スマホでは先頭）に置く。キー・遷移先・色は同じ
-                _col_auto, _col_slump = ((_col_r, _col_l) if store in _SLUMP_FIRST_STORES
-                                         else (_col_l, _col_r))
-                with _col_auto:
-                    if st.button(
-                        "⚡ 結果ポスト用",
-                        key="auto_mode_btn",
-                        type="primary",
-                        use_container_width=True,
-                    ):
-                        _navigate("auto")
-                with _col_slump:
-                    if st.button(
-                        "📊 スランプ付き結果ポスト用",
-                        key="auto_slump_btn",
-                        use_container_width=True,
-                    ):
-                        _navigate("auto_slump")
+                # 稲毛のスランプ付きは _ITYPE_BTN_HIDE で非表示（2026-11-10・ページ/処理は残す）
+                _auto_b = ("⚡ 結果ポスト用", "auto_mode_btn", "auto", True)
+                _slump_b = ("📊 スランプ付き結果ポスト用", "auto_slump_btn", "auto_slump", False)
+                _itype_btn_grid(store, [_slump_b, _auto_b] if store in _SLUMP_FIRST_STORES
+                                else [_auto_b, _slump_b])
         elif store == "秋葉原":
             # 秋葉原：スランプ付き結果ポスト（左）＋ 記事用（右）
             st.markdown(

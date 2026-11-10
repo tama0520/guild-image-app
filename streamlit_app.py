@@ -5195,6 +5195,40 @@ _AUTO_BTN_HIDE_STORES: "frozenset[str]" = frozenset({"上野本館", "上野新�
 # 表示を消すだけで、記事用ページ（page=auto_article）・処理・保存データは残す（URLからは従来どおり開ける）。
 _ARTICLE_BTN_HIDE_STORES: "frozenset[str]" = frozenset({"渋谷新館"})
 
+# 店舗の機能選択画面で、(店舗名, ボタンkey) を指定して個別に表示しないボタン（2026-11-10）。
+# 表示を消すだけで、遷移先ページ（page=rote / auto_slump / auto_article）・処理・保存データ・URLは残す。
+# 戻すときはこの集合から該当の (店舗名, ボタンkey) を外すだけ（修正前と同じ2列の並びに戻る）。
+_ITYPE_BTN_HIDE: "frozenset[tuple[str, str]]" = frozenset({
+    ("渋谷新館", "rote_mode_btn"),          # 📋 ローテ用
+    ("モグ玄・新大久保", "rote_mode_btn"),  # 📋 ローテ用（通常の「新大久保」は表示のまま）
+    ("新宿歌舞伎町", "rote_mode_btn"),      # 📋 ローテ用
+    ("新宿歌舞伎町", "auto_slump_btn"),     # 📊 かぶぱポストの結果用
+    ("秋葉原", "auto_article_btn"),         # 📰 記事用
+})
+
+
+def _itype_btn_grid(store: str, btns: "list[tuple[str, str, str, bool]]") -> None:
+    """機能選択ボタンを表示順に2つずつ st.columns(2) で並べる（修正前と同じ配置）。
+    btns: [(ラベル, key, 遷移先page, type="primary"か)]。(store, key) が _ITYPE_BTN_HIDE にあるものは描画しない。
+    非表示で余った1つ（奇数の最後）は全幅で出す。"""
+    vis = [b for b in btns if (store, b[1]) not in _ITYPE_BTN_HIDE]
+
+    def _one(label: str, key: str, page: str, primary: bool) -> None:
+        if st.button(label, key=key, use_container_width=True,
+                     **({"type": "primary"} if primary else {})):
+            _navigate(page)
+
+    for i in range(0, len(vis), 2):
+        pair = vis[i:i + 2]
+        if len(pair) == 2:
+            _c_l, _c_r = st.columns(2)
+            with _c_l:
+                _one(*pair[0])
+            with _c_r:
+                _one(*pair[1])
+        else:
+            _one(*pair[0])
+
 # 「📊 スランプ付き結果ポスト用」を「⚡ 結果ポスト用」より先（PCは左・スマホは上）に置く店舗。
 _SLUMP_FIRST_STORES: "frozenset[str]" = frozenset({"新小岩"})
 
@@ -5443,40 +5477,16 @@ def show_image_type_page() -> None:
             )
             # 表示順（2026-10-09）：スランプ付き結果 → ローテ用 → 記事用 → かぶぱポストの結果。
             # 並べ替えただけで、各ボタンのキー・遷移先・色・page は変えない。
-            _col_l, _col_r = st.columns(2)
-            with _col_l:
-                if st.button(
-                    "📈 スランプ付き結果ポスト用",
-                    key="auto_slump2_btn",
-                    use_container_width=True,
-                ):
-                    _navigate("auto_slump2")
-            with _col_r:
-                if st.button(
-                    "📋 ローテ用",
-                    key="rote_mode_btn",
-                    use_container_width=True,
-                ):
-                    _navigate("rote")
             # ④記事用を追加（2026-09-16）。開くのは既存の show_auto_article_page()。
             # ①かぶぱ(auto_slump)・②スランプ付き結果(auto_slump2)・③ローテ(rote)は
             # **別 page のまま一切変更しない**。記事用は auto_article として追加するだけ。
-            _col_rt, _col_ar = st.columns(2)
-            with _col_rt:
-                if st.button(
-                    "📰 記事用",
-                    key="auto_article_btn",
-                    use_container_width=True,
-                ):
-                    _navigate("auto_article")
-            with _col_ar:
-                if st.button(
-                    "📊 かぶぱポストの結果用",
-                    key="auto_slump_btn",
-                    type="primary",
-                    use_container_width=True,
-                ):
-                    _navigate("auto_slump")
+            # ローテ用・かぶぱポストの結果用は _ITYPE_BTN_HIDE で非表示（2026-11-10・ページ/処理は残す）。
+            _itype_btn_grid(store, [
+                ("📈 スランプ付き結果ポスト用", "auto_slump2_btn", "auto_slump2", False),
+                ("📋 ローテ用", "rote_mode_btn", "rote", False),
+                ("📰 記事用", "auto_article_btn", "auto_article", False),
+                ("📊 かぶぱポストの結果用", "auto_slump_btn", "auto_slump", True),
+            ])
         elif store in ("溝の口本館", "溝の口新館", "西武新宿", "渋谷新館", "新大久保", "モグ玄・新大久保"):
             # ローテあり：2列横並び
             st.markdown(
@@ -5493,22 +5503,11 @@ def show_image_type_page() -> None:
                 </style>""",
                 unsafe_allow_html=True,
             )
-            _col_l, _col_r = st.columns(2)
-            with _col_l:
-                if st.button(
-                    "⚡ 結果ポスト用",
-                    key="auto_mode_btn",
-                    type="primary",
-                    use_container_width=True,
-                ):
-                    _navigate("auto")
-            with _col_r:
-                if st.button(
-                    "📋 ローテ用",
-                    key="rote_mode_btn",
-                    use_container_width=True,
-                ):
-                    _navigate("rote")
+            # 渋谷新館・モグ玄・新大久保のローテ用は _ITYPE_BTN_HIDE で非表示（2026-11-10・ページ/処理は残す）
+            _itype_btn_grid(store, [
+                ("⚡ 結果ポスト用", "auto_mode_btn", "auto", True),
+                ("📋 ローテ用", "rote_mode_btn", "rote", False),
+            ])
             if store == "渋谷新館" and store not in _ARTICLE_BTN_HIDE_STORES:
                 # 渋谷新館のみ記事用の入口を追加する（同じブランチの他4店舗には出さない）。
                 # 開くのは既存の show_auto_article_page()。記事の構成・抽出・WordPress は
@@ -5602,21 +5601,11 @@ def show_image_type_page() -> None:
                 </style>""",
                 unsafe_allow_html=True,
             )
-            _col_l, _col_r = st.columns(2)
-            with _col_l:
-                if st.button(
-                    "📊 スランプ付き結果ポスト",
-                    key="auto_slump_btn",
-                    use_container_width=True,
-                ):
-                    _navigate("auto_slump")
-            with _col_r:
-                if st.button(
-                    "📰 記事用",
-                    key="auto_article_btn",
-                    use_container_width=True,
-                ):
-                    _navigate("auto_article")
+            # 記事用は _ITYPE_BTN_HIDE で非表示（2026-11-10・ページ/処理は残す）
+            _itype_btn_grid(store, [
+                ("📊 スランプ付き結果ポスト", "auto_slump_btn", "auto_slump", False),
+                ("📰 記事用", "auto_article_btn", "auto_article", False),
+            ])
         else:
             # ローテなし：結果ポスト用のみ
             if st.button(

@@ -10827,15 +10827,15 @@ def _xpost_unplaced_warn(order: list, imgs: dict, layout: dict) -> list:
     return out
 
 
-# ── スロバース用：AI文章（⑧の結果テキスト＋取得済み台別データから・押したときだけ生成）──────
+# ── スロバース用：AI文章（⑥の配置確定後・⑧と同じ処理を一時フォルダで実行して作るデータから）─────
 def _slv_ai_set_source(store: str, excel_name: str, report_text: str,
                        txt_name: str, manual: bool, df=None, date=None) -> None:
-    """⑧／⑧📝で保存した結果テキストと、⑧で使った台別データ（Pision取得済み・補正後差枚）から
-    AI用データを作って覚える（スロバース店舗だけ）。Pision へは再取得しない。
-    結果テキストまたは台別データが前回と変わったら、前回のAI文章は消す。"""
+    """⑧と同じ処理（一時フォルダ・保存/出力なし）で作った結果テキストと台別データ（補正後差枚）から、
+    AI用データと連結部分（🏆全台〜🏆その他の単品優秀台）を作って覚える。Pision へは再取得しない。
+    AI文章（編集中の文章）には触れない。"""
     if not _is_sloverse_store(store) or not report_text:
         return
-    import hashlib
+    import datetime as _dtm
     import ai_text as _ai
     try:
         _jug = get_store_config(store).get("juggler_series", [])
@@ -10846,17 +10846,117 @@ def _slv_ai_set_source(store: str, excel_name: str, report_text: str,
                                  date=date, excel_name=excel_name, jug_series=_jug)
     except Exception as _e:
         _ctx = _ai.AIContext(ok=False, error=f"AI用データの作成に失敗しました（{type(_e).__name__}）。")
-    _sha = hashlib.sha1((report_text + "\n" + (_ctx.text or "")).encode("utf-8")).hexdigest()
-    _prev = st.session_state.get(f"_slv_ai_src_{store}") or {}
+    _app, _app_err = _ai.extract_append(report_text)
     st.session_state[f"_slv_ai_src_{store}"] = {
-        "text": report_text, "excel": excel_name, "txt_name": txt_name,
-        "manual": bool(manual), "sha": _sha,
-        "ctx_ok": _ctx.ok, "ctx_error": _ctx.error, "ctx_text": _ctx.text, "checks": _ctx.checks,
-        "stats": _ctx.stats, "ban_map": _ctx.ban_map, "machines": _ctx.machines,
+        "text": report_text, "excel": excel_name, "txt_name": txt_name, "manual": bool(manual),
+        "xmode": ("_manual" if manual else ""),
+        "prev_id": id(st.session_state.get(f"auto_preview_imgs_{store}")),
+        "at": _dtm.datetime.now().strftime("%H:%M:%S"),
+        "ctx_ok": _ctx.ok and not _app_err, "ctx_error": _ctx.error or _app_err, "ctx_text": _ctx.text,
+        "checks": _ctx.checks, "stats": _ctx.stats, "ban_map": _ctx.ban_map, "machines": _ctx.machines,
+        "append": _app,
+        "sig": st.session_state.get(f"_slv_sig_{store}"),
     }
-    if _prev.get("sha") != _sha:
-        for _k in (f"slv_ai_out_{store}", f"_slv_ai_meta_{store}", f"_slv_ai_n_{store}"):
-            st.session_state.pop(_k, None)
+
+
+# AI用データの準備（ドライラン）で描かない／保存しない／取りに行かない関数。判定・集計のコードには触れない。
+_SLV_FAST_IMG_FUNCS = ("_build_machine_img", "_build_sloverse_machine_img", "_yg_zen_img", "draw_table_image",
+                       "draw_slump_graph", "_attach_slump_to_table", "_attach_slump_to_table_side",
+                       "_build_slump_title_img")
+
+
+_SLV_FAST_ORIG: dict = {}   # 差し替え中の元の関数（_slv_fast_restore で戻す）
+
+
+def _slv_fast_restore() -> None:
+    """_slv_fast_stubs で差し替えた関数を元に戻す（差し替えていなければ何もしない）。
+    ドライランの終了時・⑧ブロックの直後・X投稿エディター／AI欄の描画前に呼ぶ（例外で途中終了した場合の保険）。"""
+    g = globals()
+    while _SLV_FAST_ORIG:
+        _n, _f = _SLV_FAST_ORIG.popitem()
+        g[_n] = _f
+
+
+def _slv_fast_stubs() -> None:
+    """ドライランの実行中だけ、画像の描画・JPEG保存・スランプ合成・スランプ用のPision取得を軽い代替にする。
+    差し替えはこのスクリプト実行のモジュールだけ（Streamlit は実行ごとにスクリプトを読み直す）で、
+    元の関数は _SLV_FAST_ORIG に保存し、ドライランの終了・⑧ブロックの直後・次の描画で必ず戻す。
+    抽出・判定・集計（run_auto_pipeline・末尾・チェック外しの振り分け・結果テキスト）は置き換えない。"""
+    g = globals()
+    _slv_fast_restore()
+    _tiny_img = Image.new("RGB", (8, 8), "white")
+    _buf = io.BytesIO()
+    _tiny_img.save(_buf, format="JPEG", quality=50)
+    _tiny_jpg = _buf.getvalue()
+
+    def _tiny(*_a, **_k):
+        return _tiny_img.copy()
+
+    def _save_tiny(img, path, target_kb=250):
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "wb") as _fh:
+            _fh.write(_tiny_jpg)
+
+    _repl = {_n: _tiny for _n in _SLV_FAST_IMG_FUNCS if _n in g}
+    _repl["_save_jpeg"] = _save_tiny
+    _repl["_composite_slump_onto_images"] = lambda img_list, *_a, **_k: img_list
+    _repl["_get_pision_api_key"] = lambda: None   # スランプ用の再取得をしない（結果テキストには使わない）
+    for _n, _f in _repl.items():
+        _SLV_FAST_ORIG[_n] = g[_n]
+        g[_n] = _f
+
+
+# 署名に入れないセッションキー（AI欄・X投稿エディター・⑧/ドライランが書く作業用の値・ZIPなど）
+_SLV_SIG_SKIP = ("_slv_", "slv_ai_", "_xpost_", "xpost_ed_", "FormSubmitter", "$$", "_auto_zip_",
+                 "_inagawa_", "_rl", "auto_run", "auto_zip_dl")
+
+
+def _slv_input_sig(store: str, uploaded, with_slump: bool) -> str:
+    """AI用データの条件（店舗・Excel内容・モード・⑥の選択状態・入力設定）を表す署名。
+    同じ署名なら前回作ったAI用データを使い、違えば作り直す（古いデータを使わない）。"""
+    import hashlib as _hl
+    _h = _hl.sha1()
+    _h.update(f"{store}|{bool(with_slump)}|{getattr(uploaded, 'name', '')}".encode("utf-8"))
+    try:
+        _h.update(_hl.sha1(uploaded.getvalue()).digest())
+    except Exception:
+        pass
+    _h.update(str(id(st.session_state.get(f"auto_preview_imgs_{store}"))).encode())
+    _items = []
+    for _k in sorted(list(st.session_state.keys()), key=str):
+        _ks = str(_k)
+        if _ks.startswith(_SLV_SIG_SKIP):
+            continue
+        _v = st.session_state.get(_k)
+        if _v is None or _v is False:
+            continue                  # 未描画のボタン・未チェックは「無し」と同じ扱い（描画順による揺れを除く）
+        if isinstance(_v, (str, int, float, bool)):
+            _items.append((_ks, repr(_v)))
+        elif isinstance(_v, (bytes, bytearray)):
+            _items.append((_ks, _hl.sha1(_v).hexdigest()))
+        elif isinstance(_v, (list, tuple, set, frozenset, dict)):
+            try:
+                _items.append((_ks, json.dumps(_v, ensure_ascii=False, sort_keys=True, default=str)))
+            except Exception:
+                _items.append((_ks, str(type(_v))))
+    _h.update(json.dumps(_items, ensure_ascii=False).encode("utf-8"))
+    return _h.hexdigest()
+
+
+def _slv_dry_finish(store: str, tmpdir: str) -> None:
+    """ドライランの後片付け：一時フォルダを消して画面を描き直す（ZIP・素材移動・push・保存の前に止める）。"""
+    import shutil as _sh
+    import time as _slv_time
+    _slv_fast_restore()
+    _t0 = st.session_state.pop("_slv_t0", None)
+    if _t0 is not None:
+        st.session_state[f"_slv_dry_secs_{store}"] = round(_slv_time.perf_counter() - _t0, 2)
+    try:
+        _sh.rmtree(tmpdir, ignore_errors=True)
+    except Exception:
+        pass
+    st.session_state[f"_slv_dry_done_{store}"] = True
+    st.rerun()
 
 
 def _slv_ai_settings(store: str) -> dict:
@@ -10871,8 +10971,22 @@ def _slv_ai_settings(store: str) -> dict:
     return _cfg
 
 
-def _slv_ai_run(store: str) -> None:
-    """「🤖 AI文章を生成」「🔄 再生成」の on_click。モックなら API を呼ばない。"""
+def _slv_ai_src_state(store: str, excel_name: str, with_slump: bool) -> "tuple[dict | None, str]":
+    """(使えるAI用データ or None, 使えない理由)。Excel・📝モード・⑥プレビューが作成時と同じときだけ使う。"""
+    _src = st.session_state.get(f"_slv_ai_src_{store}")
+    if not _src:
+        return None, ""
+    _xm = "_manual" if st.session_state.get(f"_manual_preview_mode_{store}") else ""
+    if _src.get("excel") != excel_name or _src.get("xmode") != _xm:
+        return None, "Excel または📝記入部分のみの切り替えが変わったため、データを作り直します。"
+    if _src.get("sig") != st.session_state.get(f"_slv_sig_{store}"):
+        return None, "⑥のプレビュー・チェック・入力設定・Excel のいずれかが変わったため、データを作り直します。"
+    return _src, ""
+
+
+def _slv_ai_generate(store: str) -> None:
+    """AI部分だけを作り、後ろに結果テキストの連結部分を付けて編集欄へ入れる（モックなら API を呼ばない）。
+    ボタンを押したとき（または、その続きのデータ作成直後）だけ呼ぶ。"""
     import ai_text as _ai
     _src = st.session_state.get(f"_slv_ai_src_{store}") or {}
     if not _src.get("ctx_ok"):
@@ -10891,48 +11005,58 @@ def _slv_ai_run(store: str) -> None:
             return
         st.session_state["_slv_ai_calls"] = _calls + 1
         _res = _ai.api_generate(_data, _cfg, get_secret_value(_ai.API_KEY_NAME))
-    _meta = {"error": _res.error, "warning": _res.warning, "model": _res.model, "mock": _res.mock,
-             "in": _res.input_tokens, "out": _res.output_tokens, "usd": _res.cost_usd,
-             "stop": _res.stop_reason, "style": _cfg["style"]}
-    st.session_state[f"_slv_ai_meta_{store}"] = _meta
+    st.session_state[f"_slv_ai_meta_{store}"] = {
+        "error": _res.error, "warning": _res.warning, "model": _res.model, "mock": _res.mock,
+        "in": _res.input_tokens, "out": _res.output_tokens, "usd": _res.cost_usd,
+        "stop": _res.stop_reason, "style": _cfg["style"]}
     if _res.ok:
-        st.session_state[f"slv_ai_out_{store}"] = _res.text
+        _full = _ai.compose_full(_res.text, _src.get("append", ""))
+        st.session_state[f"_slv_ai_text_{store}"] = _full
+        st.session_state[f"slv_ai_out_{store}"] = _full
+        st.session_state[f"_slv_ai_lastgen_{store}"] = _full
         st.session_state[f"_slv_ai_n_{store}"] = _n + 1
 
 
-@st.fragment
-def _slv_ai_section(store: str, excel_name: str) -> None:
-    """⑧の後に出す「🤖 AI文章」欄（fragment：操作でページ全体を再実行しない）。
-    保存・投稿はしない。編集とコピーだけ。"""
+def _slv_ai_keep_text(store: str) -> None:
+    st.session_state[f"_slv_ai_text_{store}"] = st.session_state.get(f"slv_ai_out_{store}", "")
+
+
+def _slv_ai_panel(store: str, excel_name: str, with_slump: bool) -> None:
+    """X投稿用の配置を「✅ この配置で確定」した直後に出す「🤖 AI文章」欄（スロバース店舗だけ）。
+    配置の確定ではAPIを呼ばない。生成ボタンを押したときだけ、必要なら⑧と同じ処理を一時フォルダで
+    実行して結果テキストとAI用データを作り（保存・出力・pushなし）、AI部分を作る。
+    文章は保存も投稿もしない。編集中の文章は配置のやり直しや再確定で消さない。"""
     import ai_text as _ai
-    _src = st.session_state.get(f"_slv_ai_src_{store}")
-    if not _src or _src.get("excel") != excel_name:
-        return
     _cfg = _slv_ai_settings(store)
     _mock = _cfg["mode"] != "api"
+    _src, _why = _slv_ai_src_state(store, excel_name, with_slump)
     st.markdown("---")
     st.markdown("### 🤖 AI文章（X投稿用の下書き）")
-    st.caption(f"⑧で保存した {_src['txt_name']}{'（📝記入部分のみ）' if _src.get('manual') else ''} と、"
-               "⑧で使った台別データ（取得済み・補正後差枚）から Python で集計した数値を送ります。"
-               "ボタンを押したときだけ生成し、ファイル保存や投稿はしません。")
-    if not _src.get("ctx_ok"):
+    st.caption("AIの分析文の後ろに、結果テキストの「🏆全台」〜「🏆その他の単品優秀台」をそのまま付けます。"
+               "ボタンを押したときだけ作り、ファイル保存・ZIP・投稿はしません（⑧の出力とは別です）。")
+    if _src is None:
+        st.info("ℹ️ 生成を押すと、まず⑧と同じ集計を行って結果テキストとAI用データを作ります"
+                "（画像は描かず数秒・デスクトップ保存・ZIP・自動pushはしません）。" + (f"\n\n{_why}" if _why else ""))
+    elif not _src.get("ctx_ok"):
         st.error("❌ " + (_src.get("ctx_error") or "AI用データを作れませんでした。"))
-        return
-    _est = _ai.estimate_request(_src["ctx_text"], _cfg)
-    _stt = _src.get("stats") or {}
-    with st.expander(f"📦 AIに送るデータ（約{_est['chars']:,}字・推定 約{_est['tokens']:,}トークン・"
-                     f"1回の概算 {_est['total_usd']:.3f}ドル）", expanded=False):
-        st.caption(f"対象：{_stt.get('date', '')}／{_sloverse_label(store)}／{_stt.get('units', 0)}台・"
-                   f"{_stt.get('machines', 0)}機種（2台以上 {_stt.get('multi', 0)}・1台設置 {_stt.get('single', 0)}・"
-                   f"ジャグラー {_stt.get('jug_machines', 0)}）")
-        for _nm, _ok, _tx in (_src.get("checks") or []):
-            st.caption(f"{'✅' if _ok == 'OK' else '⚠️'} {_nm}：{_tx}")
-        for _nt in (_stt.get("notes") or []):
-            st.caption(f"✂️ {_nt}")
-        st.caption(f"入力の概算：{_est['tokens']:,}トークン×{_ai.AI_MODELS[_cfg['model']]['in']:.2f}ドル/100万＝"
-                   f"{_est['in_usd']:.4f}ドル（出力は{_ai.STYLES[_cfg['style']]['label']}で約{_est['out_tokens_guess']:,}トークンと仮定）。"
-                   "実際の値は生成後に表示します。")
-        st.code(_src["ctx_text"], language=None, wrap_lines=True)
+    else:
+        _est = _ai.estimate_request(_src["ctx_text"], _cfg)
+        _stt = _src.get("stats") or {}
+        with st.expander(f"📦 AIに送るデータ（{_src.get('at', '')}作成・約{_est['chars']:,}字・推定 約{_est['tokens']:,}トークン・"
+                         f"1回の概算 {_est['total_usd']:.3f}ドル）", expanded=False):
+            st.caption(f"対象：{_stt.get('date', '')}／{_sloverse_label(store)}／{_stt.get('units', 0)}台・"
+                       f"{_stt.get('machines', 0)}機種（2台以上 {_stt.get('multi', 0)}・1台設置 {_stt.get('single', 0)}・"
+                       f"ジャグラー {_stt.get('jug_machines', 0)}）"
+                       + ("・📝記入部分のみ" if _src.get("manual") else ""))
+            for _nm, _ok, _tx in (_src.get("checks") or []):
+                st.caption(f"{'✅' if _ok == 'OK' else '⚠️'} {_nm}：{_tx}")
+            for _nt in (_stt.get("notes") or []):
+                st.caption(f"✂️ {_nt}")
+            _secs = st.session_state.get(f"_slv_dry_secs_{store}")
+            if _secs is not None:
+                st.caption(f"⏱ データ準備（⑧と同じ集計・画像は描かない）：{_secs}秒")
+            st.caption("同じ条件なら作り直しません。⑥の設定・チェック・Excel が変わると自動で作り直します。")
+            st.code(_src["ctx_text"], language=None, wrap_lines=True)
     with st.expander("⚙️ AI設定", expanded=False):
         _models = list(_ai.AI_MODELS)
         st.selectbox("モデル", _models, index=_models.index(_cfg["model"]),
@@ -10947,7 +11071,7 @@ def _slv_ai_section(store: str, excel_name: str) -> None:
                    "SLV_AI_MAX_CALLS・SLV_AI_EFFORT・SLV_AI_STYLE で変更できます。")
     _disabled = False
     if _mock:
-        st.info("🧪 モックモード：Claude API は呼びません（料金はかかりません）。文章はAI用データの行を並べた見本です。")
+        st.info("🧪 モックモード：Claude API は呼びません（料金はかかりません）。AI部分はAI用データの行を並べた見本です。")
     else:
         _calls = int(st.session_state.get("_slv_ai_calls", 0))
         if not get_secret_value(_ai.API_KEY_NAME):
@@ -10963,11 +11087,40 @@ def _slv_ai_section(store: str, excel_name: str) -> None:
     st.radio("文章スタイル", _styles, index=_styles.index(_cfg["style"]), horizontal=True,
              format_func=lambda k: f"{_ai.STYLES[k]['label']}（{_ai.STYLES[k]['guide']}）",
              key=f"slv_ai_style_{store}")
+    # データ作成（ドライラン）直後の続き：押した「生成」をここで1回だけ実行する
+    if _src is not None and _src.get("ctx_ok") and st.session_state.pop(f"_slv_ai_pending_{store}", False):
+        if not _disabled:
+            _slv_ai_generate(store)
     _out_key = f"slv_ai_out_{store}"
-    _has = bool(st.session_state.get(_out_key))
-    st.button("🔄 再生成" if _has else "🤖 AI文章を生成", key=f"slv_ai_btn_{store}",
-              on_click=_slv_ai_run, args=(store,), disabled=_disabled,
-              type=("secondary" if _has else "primary"))
+    _txt_key = f"_slv_ai_text_{store}"
+    _has = bool(st.session_state.get(_txt_key))
+    _last = st.session_state.get(f"_slv_ai_lastgen_{store}")
+    _edited = _has and _last is not None and st.session_state.get(_txt_key) != _last
+    _ok_discard = True
+    if _edited:
+        _ok_discard = st.checkbox("✏️ 手動で編集した内容を破棄して再生成する（再生成はAI部分を作り直し、"
+                                  "後ろの結果テキストも元に戻します）", key=f"slv_ai_discard_{store}")
+    _c1, _c2 = st.columns([3, 2])
+    with _c1:
+        _gen = st.button("🔄 AI部分を再生成" if _has else "🤖 AI文章を生成", key=f"slv_ai_btn_{store}",
+                         disabled=_disabled or not _ok_discard, use_container_width=True,
+                         type=("secondary" if _has else "primary"))
+    with _c2:
+        _rebuild = st.button("🔄 データを作り直す", key=f"slv_ai_rebuild_{store}", use_container_width=True,
+                             disabled=_src is None and not _why,
+                             help="⑥の設定やチェックを変えたあとに押します（⑧と同じ処理を一時フォルダで実行・保存なし）")
+    if _gen:
+        st.session_state.pop(f"slv_ai_discard_{store}", None)
+        if _src is not None and _src.get("ctx_ok"):
+            _slv_ai_generate(store)
+            st.rerun(scope="fragment")
+        else:
+            st.session_state[f"_slv_dry_req_{store}"] = True
+            st.session_state[f"_slv_ai_pending_{store}"] = True
+            st.rerun(scope="app")
+    if _rebuild:
+        st.session_state[f"_slv_dry_req_{store}"] = True
+        st.rerun(scope="app")
     _meta = st.session_state.get(f"_slv_ai_meta_{store}") or {}
     if _meta.get("error"):
         st.error("❌ " + _meta["error"])
@@ -10978,36 +11131,43 @@ def _slv_ai_section(store: str, excel_name: str) -> None:
     if _meta and not _meta.get("mock") and _meta.get("model"):
         st.caption(f"モデル {_meta['model']}／入力 {_meta['in']:,}・出力 {_meta['out']:,}トークン"
                    f"／概算 {_meta['usd']:.4f}ドル")
-    st.text_area("文章（自由に編集できます）", key=_out_key, height=320)
+    if _out_key not in st.session_state:
+        st.session_state[_out_key] = st.session_state.get(_txt_key, "")
+    st.text_area("文章（AI分析＋結果テキスト・自由に編集できます）", key=_out_key, height=420,
+                  on_change=_slv_ai_keep_text, args=(store,))
     _cur = st.session_state.get(_out_key, "")
     _xc = _ai.x_check(_cur)
     _gen_sty = _ai.STYLES.get(_meta.get("style", ""), {})
     st.caption(f"{_xc['chars']}字（改行・絵文字を含む）／X換算 {_xc['weight']}（全角換算 {_xc['zen']:g}字）"
                + (f"／生成時のスタイル：{_gen_sty['label']}（{_gen_sty['guide']}）" if _gen_sty else ""))
-    _source = _src["text"] + "\n" + _src.get("ctx_text", "")
-    _bad = _ai.unverified_tokens(_cur, _source)
-    if _bad:
-        st.warning("⚠️ 送ったデータに無い台番・数値があります。投稿前に確認してください：" + "、".join(_bad))
-    _mis = _ai.ban_machine_mismatches(_cur, _src.get("ban_map") or {}, _src.get("machines") or [])
-    if _mis:
-        st.warning("⚠️ 台番と機種名の組み合わせが台別データと違う可能性があります：" + "、".join(_mis))
+    _source = (_src or {}).get("text", "") + "\n" + (_src or {}).get("ctx_text", "")
+    if _src:
+        _bad = _ai.unverified_tokens(_cur, _source)
+        if _bad:
+            st.warning("⚠️ 送ったデータに無い台番・数値があります。投稿前に確認してください：" + "、".join(_bad))
+        _mis = _ai.ban_machine_mismatches(_cur, _src.get("ban_map") or {}, _src.get("machines") or [])
+        if _mis:
+            st.warning("⚠️ 台番と機種名の組み合わせが台別データと違う可能性があります：" + "、".join(_mis))
+        _vg, _ty = _ai.vague_and_typo_notes(_cur, _source)
+        if _vg:
+            st.info("ℹ️ 数値をぼかす表現があります（数値で書けるか確認してください）：" + " ／ ".join(_vg))
+        if _ty:
+            st.warning("⚠️ 表記ミスの可能性があります：" + " ／ ".join(_ty))
+        if _src.get("append") and _src["append"] not in _cur:
+            st.caption("ℹ️ 後ろの結果テキスト部分が元の内容と違います（手動で編集した場合はそのままで構いません）。")
     _set, _intp = _ai.speculative_notes(_cur)
     if _set:
         st.warning("⚠️ 設定に関わる表現があります（データでは確認できません）：" + " ／ ".join(_set))
     if _intp:
         st.info("ℹ️ 解釈・見立て・因果を含む表現です（数値の根拠を確認してください）：" + " ／ ".join(_intp))
-    _vg, _ty = _ai.vague_and_typo_notes(_cur, _source)
-    if _vg:
-        st.info("ℹ️ 数値をぼかす表現があります（数値で書けるか確認してください）：" + " ／ ".join(_vg))
-    if _ty:
-        st.warning("⚠️ 表記ミスの可能性があります：" + " ／ ".join(_ty))
-    st.caption("コピー用（右上のアイコンでコピー）")
+    st.caption("コピー用（右上のアイコンで全文をコピー）")
     st.code(_cur, language=None, wrap_lines=True)
 
 
 @st.fragment
 def _xpost_editor(store: str, excel_name: str, with_slump: bool) -> None:
     """⑥〜⑧の間に出す「X投稿用の画像（最大4枚）」エディター（fragment：操作でページ全体を再実行しない）。"""
+    _slv_fast_restore()
     import xpost_layout as _xl
     import base64
     key = _xpost_key(store, excel_name, with_slump)
@@ -11086,6 +11246,8 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool) -> None:
             rec = _save(layout, confirmed=_h, keep_conf=False)
     if _used and rec.get("confirmed") == _h:
         st.success("✅ 配置は確定済みです。⑧で 001〜004.jpg と結果テキストだけを出力します。")
+        if _is_sloverse_store(store):
+            _slv_ai_panel(store, excel_name, with_slump)
     elif _used:
         st.warning("⚠️ 配置が未確定です。⑧の前に「✅ この配置で確定」を押してください"
                    "（未確定のままでは⑧は実行されず、出力フォルダも変わりません）。")
@@ -21293,6 +21455,8 @@ def show_auto_page(with_slump: bool = False) -> None:
 
     # スロバース用：⑥の素材を X投稿用の最大4枚へまとめるエディター
     if uploaded is not None and _xpost_on(store):
+        if _is_sloverse_store(store):
+            st.session_state[f"_slv_sig_{store}"] = _slv_input_sig(store, uploaded, with_slump)
         _xpost_editor(store, uploaded.name, with_slump)
 
     # ── ⑧ 実行ボタン（常に描画・ファイル未選択時は disabled）─────────
@@ -21321,18 +21485,28 @@ def show_auto_page(with_slump: bool = False) -> None:
     # Cloud のみ：ボタン直下にZIPダウンロード用スロットを確保
     _auto_zip_slot = st.empty() if _IS_CLOUD else None
 
+    # スロバース用AI欄（⑥）からの依頼：⑧と同じ処理を一時フォルダで実行して結果テキストとAI用データだけを作る
+    # （入力の保存・⑤設定の保存・デスクトップ出力・X投稿素材の移動・ZIP・自動pushはしない）
+    _slv_dry = (uploaded is not None and not run_clicked and _is_sloverse_store(store)
+                and bool(st.session_state.pop(f"_slv_dry_req_{store}", False)))
+    if _slv_dry:
+        st.info("🤖 AI用データを作成中：⑧と同じ集計を行っています（画像は描かず、保存・出力・ZIP・pushはしません）。")
+        _slv_fast_stubs()
+        import time as _slv_time
+        st.session_state["_slv_t0"] = _slv_time.perf_counter()
     if uploaded is None:
         st.info("⬆️ まずExcelをアップロードしてください。")
-    elif run_clicked:
+    elif run_clicked or _slv_dry:
         # 実行時に必ず保存（on_changeが発火しなかった場合のフォールバック）
-        _save_auto_inputs(store)
+        if not _slv_dry:
+            _save_auto_inputs(store)
         if _xpost_on(store) and not _xpost_confirmed(store, uploaded.name, with_slump):
             # X投稿用の試験店舗：配置が未確定なら⑧を実行しない（出力フォルダを変更しない）
             st.warning("⚠️ X投稿用：配置が未確定のため⑧を実行しませんでした。🧩の「✅ この配置で確定」を押してから、"
                        "もう一度⑧を実行してください（出力フォルダは変更していません）。")
             st.stop()
         # オススメ機種設定をJSON保存（次回起動時に復元する）
-        if _rec_pickup_on(store):
+        if _rec_pickup_on(store) and not _slv_dry:
             _s = load_store_settings(store)
             _s["rec_enabled"] = bool(st.session_state.get(f"rec_enabled_{store}", False))
             if recommended_blocks and _mk_ui:
@@ -21375,6 +21549,8 @@ def show_auto_page(with_slump: bool = False) -> None:
             _run_tmpdir = tempfile.mkdtemp()
             excel_path  = os.path.join(_run_tmpdir, uploaded.name)
             output_dir  = os.path.join(_DESKTOP, dir_stem)
+        if _slv_dry:
+            output_dir = os.path.join(_run_tmpdir, dir_stem)   # ドライラン：デスクトップへは出さない
         narabi_dir = os.path.join(output_dir, "並び画像")
         narabi_bans = ranges_to_bans(narabi_ranges) if narabi_ok else set()
         if kojin_enabled and kojin_narabi_ranges_text.strip():
@@ -22214,8 +22390,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _txt_name_m = (f"{_m_date.month:02d}{_m_date.day:02d}_結果.txt" if _m_date else "結果.txt")
                         with open(os.path.join(output_dir, _txt_name_m), "w", encoding="utf-8") as _f_rt:
                             _f_rt.write(_m_report_text)
-                        _slv_ai_set_source(store, uploaded.name, _m_report_text, _txt_name_m, True,
-                                           df=_df_exec_m, date=_m_date)
+                        if _slv_dry:
+                            _slv_ai_set_source(store, uploaded.name, _m_report_text, _txt_name_m, True,
+                                               df=_df_exec_m, date=_m_date)
                     except Exception as _rte:
                         _m_log(f"  ⚠️ 結果テキスト生成エラー: {_rte}")
                         import traceback as _tbe
@@ -22228,6 +22405,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                     st.error(f"❌ エラー: {_me}")
                     with st.expander("詳細"):
                         st.code(traceback.format_exc())
+            if _slv_dry:
+                _slv_dry_finish(store, _run_tmpdir)
             if _xpost_on(store) and os.path.isdir(output_dir):
                 _xpost_finalize(store, output_dir, uploaded.name, with_slump)
             st.markdown("### 生成されたファイル")
@@ -23953,7 +24132,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 st.info(f"ℹ️ {_msg}")
 
         # スロバース用：確定した配置で 001.jpg〜004.jpg を作り、素材は内部へ移す
-        if result.get("ok") and _xpost_on(store) and os.path.isdir(output_dir):
+        if result.get("ok") and _xpost_on(store) and os.path.isdir(output_dir) and not _slv_dry:
             _xpost_finalize(store, output_dir, uploaded.name, with_slump)
 
         # ── 生成ファイル一覧 ──────────────────────────────────────────
@@ -24153,14 +24332,17 @@ def show_auto_page(with_slump: bool = False) -> None:
             try:
                 with open(_txt_path, "w", encoding="utf-8") as _f:
                     _f.write(report_text)
-                _slv_ai_set_source(store, uploaded.name, report_text, _txt_name, False,
-                                   df=result.get("df"), date=result.get("date"))
+                if _slv_dry:
+                    _slv_ai_set_source(store, uploaded.name, report_text, _txt_name, False,
+                                       df=result.get("df"), date=result.get("date"))
                 if _IS_CLOUD:
                     st.caption(f"📄 {_txt_name} をZIPに含めます")
                 else:
                     st.caption(f"📄 {_txt_name} を保存しました")
             except Exception as _e:
                 st.warning(f"結果.txt の保存に失敗: {_e}")
+            if _slv_dry:
+                _slv_dry_finish(store, _run_tmpdir)
 
             # ── ZIPデータをセッションに保存（ボタン直下スロットへ後で表示）──
             if os.path.isdir(output_dir):
@@ -24213,6 +24395,8 @@ def show_auto_page(with_slump: bool = False) -> None:
             >{_safe}</textarea>
             """, height=_h)
 
+    if _slv_dry:
+        _slv_fast_restore()   # ドライランが途中で止まった場合も、ここで元の関数に戻す
     # ── ボタン直下スロットにZIPダウンロードボタンを表示（Cloud のみ）──
     if _IS_CLOUD and _auto_zip_slot is not None and st.session_state.get(f"_auto_zip_data_{store}"):
         with _auto_zip_slot.container():
@@ -24225,10 +24409,6 @@ def show_auto_page(with_slump: bool = False) -> None:
                 key="auto_zip_dl",
                 type="primary",
             )
-
-    # スロバース用：⑧の結果テキストから AI 文章（押したときだけ生成）
-    if uploaded is not None and _is_sloverse_store(store):
-        _slv_ai_section(store, uploaded.name)
 
     # ── 戻るボタン（常に末尾に1つだけ描画）──────────────────────────
     st.markdown("---")

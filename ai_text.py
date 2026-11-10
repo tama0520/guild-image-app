@@ -26,12 +26,12 @@ DEFAULT_MODEL = "claude-sonnet-5-5"
 
 # 文章スタイル（画面で切り替え・既定は短文）。guide は長さの目安（上限ではない）。
 STYLES: "dict[str, dict]" = {
-    "short": {"label": "短文", "guide": "全角120字程度",
-              "focus": "その日のいちばんの特徴を1〜2点に絞って簡潔に紹介する"},
-    "standard": {"label": "標準", "guide": "全角250〜350字程度",
-                 "focus": "全体の特徴に加え、注目ポイントを3〜4点（機種単位の配分・勝率、高差枚の台、ジャグラー／バラエティ、並び・末尾などから、その日に目立ったもの）を選んで分析する"},
+    "short": {"label": "短文", "guide": "全角120〜180字程度",
+              "focus": "全体は1〜2文、目立った機種は1〜2機種に絞り、仕掛けは該当時に1文だけ"},
+    "standard": {"label": "標準", "guide": "全角250〜400字程度",
+                 "focus": "全体の特徴を2〜3文、目立った機種は3機種程度（必要なら優秀台にも触れる）、仕掛けは該当時に要点だけ"},
     "detail": {"label": "詳細", "guide": "全角600〜1,200字程度（データに見どころが多ければ超えてよい）",
-               "focus": "全体傾向 → 機種別の配分・勝率 → 高差枚の個別台 → ジャグラー・バラエティ → 並び・末尾 → 総合まとめ、の順で、取得データを使って詳しく考察する。短い見出し（絵文字付き）で区切ってよい"},
+               "focus": "全体の結果・考察を詳しく（設置台数別・ジャグラー全体・バラエティも使ってよい）、目立った機種は機種単位の配分・勝率や優秀台まで考察し、仕掛けは該当時に判定結果の数値を使って紹介する"},
 }
 DEFAULT_STYLE = "short"
 
@@ -279,7 +279,10 @@ def build_context(df, report_text: str, *, store_key: str, store_label: str, dat
     unit_lines += [_unit_line(r) for _, r in top.iterrows()]
     unit_lines += ["", f"【差枚下位{len(bottom)}台】"] + [_unit_line(r) for _, r in bottom.iterrows()] + [""]
 
-    tail = ["【既存の集計結果（結果テキスト・全台系／ハーフ系／並び／末尾／単品優秀台など）】", report_text.strip()]
+    _sk = shikake_lines(report_text)
+    shikake = (["【仕掛けの判定結果（既存処理の判定・これ以外を仕掛けとして扱わない）】"]
+               + (_sk if _sk else ["該当なし"]) + [""])
+    tail = shikake + ["【既存の集計結果（結果テキスト・全台系／ハーフ系／並び／末尾／単品優秀台など）】", report_text.strip()]
     body = "\n".join(L + single_lines + unit_lines + tail)
     notes = []
     if len(body) > CONTEXT_SOFT_LIMIT:
@@ -322,8 +325,14 @@ SYSTEM_PROMPT = """あなたは、パチスロ店の営業結果を X（旧Twitt
 - 機種同士を比べるときは、比べる両方の機種名と根拠の数値を書く。「同系統」「同シリーズ」などの括りも、両方の機種名と数値を挙げられるときだけ使う。
 - 実績（<data> の数値）と考察を書き分ける。考察は、直前に書いた数値を根拠にした短い文にし、断定的な予想や推測（「狙い目」「次回も」など）は書かない。
 
+## 構成（この順番で書く。各部の頭に絵文字付きの短い見出しを付けてよい）
+- 1行目：日付と店名（結果テキストの1・2行目の表記どおり。例「11/04(水) 【店名】」）。
+- ① 全体の結果・考察：店舗全体の総差枚・平均差枚・勝率などを踏まえ、その日の全体的な特徴を文章で紹介する（数値の羅列にしない）。
+- ② 目立った機種：全台系・ハーフ系（高配分）・平均差枚・勝率などから、その日の注目機種を紹介する。必要に応じて優秀な個別台にも触れる。
+- ③ 並び・末尾などの仕掛け：<data> の【仕掛けの判定結果】に該当があるときだけ紹介する。「該当なし」のときは、この部分を見出しごと書かない。判定結果にない並び・末尾・列などを、台番や差枚から推測して書かない。
+- この文章の後ろには、結果テキストの「🏆全台」〜「🏆その他の単品優秀台」がそのまま付く。その一覧を書き写したり、全機種・全台を並べたりしない（重要なものだけを文章で紹介する）。
+
 ## 書き方
-- 1行目に日付と店名（結果テキストの1・2行目の表記どおり。例「11/04(水) 【店名】」）。
 - 結果テキストの言い換えや数値の羅列ではなく、データからその日の特徴を読み取って自然な文章で伝える。全項目を並べず、その日に重要なものを選ぶ。
 - 機種別の紹介は注目機種を優先して絞り、数値を並べるだけでなく、何が目立ったのかを説明する。
 - 個別台を並べるとき、G数を書くなら並べる全台に書く。揃えられない場合はG数を書かない。
@@ -444,6 +453,59 @@ def check_input(data_text: str) -> str:
     return ""
 
 
+# ── 結果テキストの連結部分（🏆全台〜🏆その他の単品優秀台）────────────────
+APPEND_START = "🏆全台"
+APPEND_STOP = "📝全体データ📝"
+
+
+def extract_append(report_text: str) -> "tuple[str, str]":
+    """結果テキストから「🏆全台」の行〜「📝全体データ📝」の直前（＝🏆その他の単品優秀台の最後の行）を
+    そのまま取り出す（行の内容・順番・表記は変えない。前後の空行だけ除く）。
+    戻り値：(連結する文字列, エラー文)。見つからなければ ("", 理由)。"""
+    lines = (report_text or "").replace("\r\n", "\n").split("\n")
+    try:
+        i0 = next(i for i, l in enumerate(lines) if l.strip() == APPEND_START)
+    except StopIteration:
+        return "", "結果テキストに「🏆全台」がありません。"
+    i1 = next((i for i, l in enumerate(lines) if i > i0 and l.strip().startswith(APPEND_STOP)), len(lines))
+    part = lines[i0:i1]
+    while part and not part[-1].strip():
+        part.pop()
+    return "\n".join(part), ""
+
+
+def shikake_lines(report_text: str) -> "list[str]":
+    """結果テキストの並び・列・末尾・ジャグラー末尾の見出しと中身（既存処理の判定結果）。（なし）の項目は含めない。"""
+    lines = (report_text or "").splitlines()
+    out: list[str] = []
+    cur = None
+    buf: list[str] = []
+    keys = ("🏆並び", "🏆列", "🏆末尾", "🏆ジャグラーの優秀末尾")
+
+    def _flush():
+        if cur and buf and not all(b.strip() in ("（なし）", "(なし)") for b in buf):
+            out.append(cur)
+            out.extend(buf)
+
+    for l in lines:
+        t = l.strip()
+        if t.startswith("🏆") or t.startswith(APPEND_STOP):
+            _flush()
+            cur = t if t.startswith(keys) else None
+            buf = []
+            continue
+        if cur and t:
+            buf.append(t)
+    _flush()
+    return out
+
+
+def compose_full(ai_part: str, append: str) -> str:
+    """AI文章の後ろに空行1行を空けて結果テキストの連結部分を付ける。"""
+    a = (ai_part or "").rstrip()
+    return (a + "\n\n" + append) if append else a
+
+
 # ── モック（APIを呼ばない）───────────────────────────────────────────
 _MOCK_OPENERS = ("📊結果分析", "🔍本日の傾向", "📝データまとめ", "✨ハイライト")
 
@@ -463,21 +525,24 @@ def mock_generate(data_text: str, variant: int = 0, model: str = DEFAULT_MODEL,
     units = [ln for ln in sec.get("差枚上位", [])[1:] if "｜" in ln]
     jug = (sec.get("ジャグラー全体") or [""])[0]
     var = [ln for ln in sec.get("設置台数別", []) if "バラエティ" in ln]
-    n = {"short": 1, "standard": 3, "detail": 6}[style]
+    shk = [ln for ln in sec.get("仕掛けの判定結果", []) if ln != "該当なし"]
+    n = {"short": 1, "standard": 3, "detail": 5}[style]
     k = variant % max(1, len(mach))
-    body = [head, f"【モック#{variant + 1}・{STYLES[style]['label']}】{_MOCK_OPENERS[variant % 4]}",
-            f"・全体：{whole}"]
-    body += [f"・機種：{ln}" for ln in (mach[k:] + mach[:k])[:n]]
-    body += [f"・台：{ln}" for ln in (units[k:] + units[:k])[:n]]
+    body = [head, "", f"📊全体の結果・考察（モック#{variant + 1}・{STYLES[style]['label']}）", f"・{whole}"]
     if style != "short" and jug:
-        body.append(f"・ジャグラー：{jug}")
+        body.append(f"・ジャグラー全体：{jug}")
     if style == "detail" and var:
         body.append(f"・{var[0]}")
+    body += ["", "🎰目立った機種"] + [f"・{ln}" for ln in (mach[k:] + mach[:k])[:n]]
+    if style != "short":
+        body += [f"・{ln}" for ln in (units[k:] + units[:k])[:n]]
+    if shk:
+        body += ["", "🔢並び・末尾などの仕掛け"] + [f"・{ln}" for ln in shk[:{"short": 2, "standard": 4, "detail": 8}[style]]]
     return AIResult(ok=True, text="\n".join(body).strip(), model=model, mock=True, stop_reason="mock")
 
 
 _SECTION_KEYS = ("基本情報", "店舗全体", "設置台数別", "ジャグラー全体", "機種別集計", "1台設置",
-                 "差枚上位", "差枚下位", "既存の集計結果")
+                 "差枚上位", "差枚下位", "仕掛けの判定結果", "既存の集計結果")
 
 
 def _sections(text: str) -> dict:

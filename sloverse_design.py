@@ -508,7 +508,8 @@ SL_TAIL_H = 120                           # render_table の下端から下の�
 # 縦軸は固定目盛り（2026-11-11）：+5,000〜-1,000 を 1,000 枚ごとに 7 本。表記は +5,000 と 0 だけ・0 だけ実線。
 # 台ごとの自動拡大はしない（他店舗のスランプと同じく 1,000 枚あたりの高さは固定）。
 SL_Y_TOP, SL_Y_BOT, SL_Y_STEP = 5000, -1000, 1000
-SL_Y_LABELS = {5000: "+5,000", 0: "0"}
+SL_Y_LABELS = {5000: "+5,000"}            # 表記は +5,000 だけ（最上段の点線の上・縦軸から左寄せ）。0 の文字は出さない
+SL_GX0 = 20                               # 縦軸の位置（1 倍）。目盛り文字を軸の左に置かないぶん描画域を左へ広げる
 SL_GRID_PAD_T = 44                        # 台番行の下端〜+5,000 の線（上へはみ出す線の余白・1 倍）
 SL_GRID_PAD_B = 30                        # -1,000 の線〜カード下端（下へはみ出す線の余白・1 倍）
 SL_DASH = (7, 5)                          # 点線：線・すき間（1 倍）
@@ -606,7 +607,7 @@ def render_slump_card(unit_id: str, machine_name: str, points: list,
         _draw_text(d, (0, y0, W_, y1), diff_text, df_, fill, "right", right_pad=16 * S)
 
     # ── グラフ（ネイビー地・固定目盛り 7 本・0 ラインだけ実線・蛍光グリーンの折れ線）──
-    gx0, gx1 = 82 * S, W_ - 18 * S
+    gx0, gx1 = SL_GX0 * S, W_ - 18 * S
     gy0, gy1 = y1 + SL_GRID_PAD_T * S, H_ - SL_GRID_PAD_B * S     # +5,000 の線 / -1,000 の線
     lf = _font(16 * S)
     def _y(v: float) -> float:
@@ -627,8 +628,9 @@ def render_slump_card(unit_id: str, machine_name: str, points: list,
             _sl_dash(d, gx0, gx1, yy, C_SL_GRID, 2 * S, SL_DASH[0] * S, SL_DASH[1] * S)
         lab = SL_Y_LABELS.get(v)
         if lab:
+            # 他店舗のスランプと同じく、線の上に置く（縦軸の位置から左寄せ・文字の下端を線の 4px 上）
             bb = d.textbbox((0, 0), lab, font=lf)
-            d.text((gx0 - 8 * S - bb[2], round(yy - (bb[1] + bb[3]) / 2)), lab, font=lf, fill=C_SL_LABEL)
+            d.text((gx0 - bb[0], round(yy - 4 * S - bb[3])), lab, font=lf, fill=C_SL_LABEL)
     d.line([(gx0, gy0), (gx0, gy1)], fill=C_SL_GRID, width=1 * S)
 
     pts = points or []

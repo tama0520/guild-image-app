@@ -380,8 +380,9 @@ def best_frame(seg: list, sizes: dict) -> tuple[float, list]:
     return best
 
 
-def auto_layout(order: list, sizes: dict) -> dict:
-    """優先順（order）を崩さずに、最大4枚・各1〜4列へ分ける。
+def auto_layout(order: list, sizes: dict, max_frames: int = N_FRAMES) -> dict:
+    """優先順（order）を崩さずに、最大4枚（max_frames 枚）・各1〜4列へ分ける。
+    max_frames を減らすと前から max_frames 枚だけを使う（残りの枠は空）。既定は従来どおり 4 枚。
 
     1枚の中は「左の列の上から順に → 次の列」の順。枚数・列数・列ごとの枚数は
     余白・縮小率・縦横比のコストが最小になる組み合わせを選ぶ（動的計画法）。"""
@@ -396,10 +397,11 @@ def auto_layout(order: list, sizes: dict) -> dict:
             cache[(a, b)] = best_frame(order[a:b], sizes)
         return cache[(a, b)]
 
-    best = [[(INF, None)] * (N_FRAMES + 1) for _ in range(n + 1)]
+    F = max(1, min(N_FRAMES, int(max_frames)))
+    best = [[(INF, None)] * (F + 1) for _ in range(n + 1)]
     best[0][0] = (0.0, None)
     for i in range(1, n + 1):
-        for f in range(1, N_FRAMES + 1):
+        for f in range(1, F + 1):
             for a in range(max(0, i - SEG_MAX), i):
                 if best[a][f - 1][0] == INF:
                     continue
@@ -407,9 +409,9 @@ def auto_layout(order: list, sizes: dict) -> dict:
                 tot = best[a][f - 1][0] + c
                 if tot < best[i][f][0]:
                     best[i][f] = (tot, a)
-    f_best = min(range(1, N_FRAMES + 1), key=lambda f: best[n][f][0])
-    if best[n][f_best][0] == INF:          # 4枚に入りきらない（素材が多すぎる）
-        per = math.ceil(n / N_FRAMES)
+    f_best = min(range(1, F + 1), key=lambda f: best[n][f][0])
+    if best[n][f_best][0] == INF:          # 4枚（F 枚）に入りきらない（素材が多すぎる）
+        per = math.ceil(n / F)
         segs = [(s, min(n, s + per)) for s in range(0, n, per)]
     else:
         segs, i, f = [], n, f_best
@@ -419,7 +421,7 @@ def auto_layout(order: list, sizes: dict) -> dict:
             i, f = a, f - 1
         segs.reverse()
     lay = empty_layout()
-    for fi, (a, b) in enumerate(segs[:N_FRAMES]):
+    for fi, (a, b) in enumerate(segs[:F]):
         if b - a <= SEG_MAX:
             lay["frames"][fi]["cols"] = seg_cost(a, b)[1]
         else:

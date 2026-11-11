@@ -270,7 +270,7 @@ function pvPane(){
   const vw = el("div", {class: "pvtabs"});
   vw.append(btn("全体", function(){ FIT = "fit"; render(); }, FIT === "fit" ? "on" : "", "完成画像全体を枠の中に収めて表示（縦横比そのまま）"));
   vw.append(btn("幅に合わせる", function(){ FIT = "wide"; render(); }, FIT === "wide" ? "on" : "", "枠の幅いっぱいに表示して、枠の中を縦にスクロール"));
-  pane.append(el("h4", {}, "5枠目：完成プレビュー"), tabs, vw);
+  pane.append(el("h4", {}, "完成画像プレビュー"), tabs, vw);
   const p = PV.filter(function(x){ return x.frame === f; })[0];
   const stale = JSON.stringify(L) !== PVLAY;
   const body = el("div", {class: "pvbody " + FIT + (stale ? " stale" : "")});

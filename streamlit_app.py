@@ -10916,6 +10916,27 @@ def _xpost_auto_order(order: list, imgs: dict) -> list:
     return [i for i in order if not (i.endswith("_side.jpg") and (i[:-9] + ".jpg") in imgs)]
 
 
+# 自動配置（初回・🪄）で4枚目に優先して置く素材。4枚目は固定枠ではなく、手動では自由に入れ替えられる。
+_XPOST_LAST_FRAME_FN = "その他の優秀台ピックアップ.jpg"
+
+
+def _xpost_auto_layout(order: list, imgs: dict, sizes: dict) -> dict:
+    """自動配置（初回の自動配置と「🪄 自動配置」だけが使う）。
+    「その他の優秀台ピックアップ」があれば4枚目に1枚だけ置き、残りは1〜3枚目に従来の方法で自動配置する
+    （入りきらない素材は従来どおりの扱い）。表と横版（_side）の選び方は _xpost_auto_order のまま
+    （表があれば表・横版は未配置の候補。表が無く横版だけのときは横版）。対象が無ければ従来どおり4枚で自動配置。
+    保存済み配置の復元・手動の編集には使わない。"""
+    import xpost_layout as _xl
+    auto = _xpost_auto_order(order, imgs)
+    _side = _XPOST_LAST_FRAME_FN[:-4] + "_side.jpg"
+    tgt = next((t for t in (_XPOST_LAST_FRAME_FN, _side) if t in auto), None)
+    if tgt is None:
+        return _xl.auto_layout(auto, sizes)
+    lay = _xl.auto_layout([i for i in auto if i != tgt], sizes, max_frames=_xl.N_FRAMES - 1)
+    lay["frames"][_xl.N_FRAMES - 1] = {"cols": [{"items": [tgt], "pad": 0}]}
+    return _xl.normalize_layout(lay, order)
+
+
 def _xpost_unplaced_warn(order: list, imgs: dict, layout: dict) -> list:
     """未配置の素材のうち警告するもの（表／横版のどちらかが配置済みなら、もう一方は数えない）。"""
     import xpost_layout as _xl
@@ -11288,10 +11309,10 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool) -> None:
         st.session_state[rev_key] = 0
     rec = _xl.load_record(BASE_DIR, key)
     if rec is None:
-        rec = {"layout": _xl.auto_layout(_xpost_auto_order(order, imgs), sizes),
+        rec = {"layout": _xpost_auto_layout(order, imgs, sizes),
                "materials": order, "sizes": {i: list(sizes[i]) for i in order}, "confirmed": None}
         _xl.save_record(BASE_DIR, key, rec)
-        st.caption("🪄 初回のため自動配置しました（全台系→高配分の平均差枚の高い順を基本）。")
+        st.caption("🪄 初回のため自動配置しました（全台系→高配分の平均差枚の高い順を基本・その他の優秀台は4枚目）。")
     layout = _xl.normalize_layout(rec.get("layout"), order)
     _gone = [i for i in _xl.placed_ids(_xl.normalize_layout(rec.get("layout"), rec.get("materials") or []))
              if i not in sizes]
@@ -11349,8 +11370,8 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool) -> None:
     _b1, _b2, _b3 = st.columns(3)
     with _b1:
         if st.button("🪄 自動配置", key=f"{_ek}_auto", use_container_width=True,
-                     help="素材の枚数・縦横比から余白の少ない配置を提案します（今の配置は置き換わります・↩で戻せません）"):
-            rec = _save(_xl.auto_layout(_xpost_auto_order(order, imgs), sizes), keep_conf=False)
+                     help="素材の枚数・縦横比から余白の少ない配置を提案します（その他の優秀台は4枚目・今の配置は置き換わります・↩で戻せません）"):
+            rec = _save(_xpost_auto_layout(order, imgs, sizes), keep_conf=False)
             st.session_state[rev_key] += 1
             st.rerun(scope="fragment")
     with _b2:

@@ -524,6 +524,40 @@ C_SL_LINE     = (57, 255, 20)             # 折れ線：蛍光グリーン
 C_SL_AREA_BG  = (226, 241, 252)           # カードを並べる領域の地（表のセルより少し濃い水色）
 
 
+SL_AURORA_A = 0.62                        # オーロラの最大の濃さ（折れ線のすぐ下・0〜1）
+SL_AURORA_L = 34                          # 折れ線から下へ明るさが減る距離（1 倍・指数減衰）
+SL_AURORA_BLUR = 3                        # 柔らかさ（1 倍）
+
+
+def _sl_aurora(body, xy: list, y_top: int, y_zero: int, S: int) -> None:
+    """折れ線の下〜0 ラインの間（プラス域だけ）に、折れ線に近いほど明るく下へ向かって透明になる緑の光を重ねる。
+    0 ラインより下（マイナス域）とグラフ地より上（台番行）には出さない。折れ線の座標は変えない。"""
+    import numpy as np
+    W_, H_ = body.size
+    xs = np.array([float(p[0]) for p in xy])
+    ys = np.array([float(p[1]) for p in xy])
+    order = np.argsort(xs, kind="stable")
+    xs, ys = xs[order], ys[order]
+    c0, c1 = max(0, int(np.ceil(xs[0]))), min(W_ - 1, int(np.floor(xs[-1])))
+    if c1 <= c0 or y_zero <= y_top:
+        return
+    cols = np.arange(c0, c1 + 1)
+    ly = np.maximum(np.interp(cols, xs, ys), y_top)            # 上へはみ出した部分はグラフ地の上端から
+    yy = np.arange(H_, dtype=float)[:, None]
+    dist = yy - ly[None, :]                                    # 折れ線からの下向きの距離
+    span = np.maximum(y_zero - ly, 1.0)[None, :]               # 折れ線〜0 ラインの距離
+    t = np.clip(dist / span, 0.0, 1.0)
+    a = SL_AURORA_A * (0.6 * np.exp(-dist / (SL_AURORA_L * S)) + 0.4 * (1.0 - t) ** 1.6)
+    inside = (dist >= 0) & (yy < y_zero) & (yy >= y_top)
+    alpha = np.zeros((H_, W_), dtype=float)
+    alpha[:, c0:c1 + 1] = np.where(inside, a, 0.0)
+    m = Image.fromarray(np.clip(alpha * 255, 0, 255).astype("uint8"), "L")
+    m = m.filter(ImageFilter.GaussianBlur(SL_AURORA_BLUR * S))
+    clip = Image.new("L", (W_, H_), 0)                         # ぼかしで 0 ラインの下・台番行へ漏らさない
+    ImageDraw.Draw(clip).rectangle([0, y_top, W_, y_zero - 1], fill=255)
+    body.paste(Image.new("RGB", (W_, H_), C_SL_LINE), (0, 0), ImageChops.multiply(m, clip))
+
+
 def _sl_dash(d, x0: float, x1: float, y: float, fill, width: int, dash: int, gap: int) -> None:
     """横の点線（x0→x1）。"""
     x = x0
@@ -577,6 +611,14 @@ def render_slump_card(unit_id: str, machine_name: str, points: list,
     lf = _font(16 * S)
     def _y(v: float) -> float:
         return gy0 + (SL_Y_TOP - v) / (SL_Y_TOP - SL_Y_BOT) * (gy1 - gy0)
+    # オーロラ（折れ線の下・プラス域だけ）は罫線より先に敷く＝点線・0 ライン・目盛りは光の上に見える
+    _pts0 = points or []
+    if len(_pts0) >= 2:
+        _mx0 = max(float(p.get("x", 0)) for p in _pts0)
+        if _mx0 > 0:
+            _sl_aurora(body, [(gx0 + float(p["x"]) / _mx0 * (gx1 - gx0), _y(float(p["y"]))) for p in _pts0],
+                       y1, round(_y(0)), S)
+            d = ImageDraw.Draw(body)
     for v in range(SL_Y_TOP, SL_Y_BOT - 1, -SL_Y_STEP):
         yy = _y(v)
         if v == 0:

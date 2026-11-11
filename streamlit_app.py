@@ -11517,6 +11517,43 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool) -> None:
                        + "。")
 
 
+# X投稿用の内部素材（⑧で 001〜004.jpg を作った元の個別画像）を残す日数。
+# 最後の⑧からこの日数たった「日付_店舗」フォルダを、次に⑧を実行したときに片付ける（X投稿後はほぼ使わないため）。
+_XPOST_MATERIALS_KEEP_DAYS = 3
+
+
+def _xpost_cleanup_materials(keep_dir: "str | None" = None, keep_days: int = _XPOST_MATERIALS_KEEP_DAYS) -> list:
+    """_tmp_xpost/materials の中の「YYYYMMDD_…」フォルダのうち、中身の最終更新（＝最後の⑧）から keep_days 日以上
+    たったものを削除する。keep_dir（今回の⑧のフォルダ）・配置の保存JSON・バックアップには触れない。
+    戻り値: 削除したフォルダ名のリスト。失敗しても⑧は止めない。"""
+    import shutil
+    import time
+    import xpost_layout as _xl
+    root = os.path.join(_xl.store_root(BASE_DIR), "materials")
+    if not os.path.isdir(root):
+        return []
+    cutoff = time.time() - keep_days * 86400
+    keep = os.path.normcase(os.path.abspath(keep_dir)) if keep_dir else None
+    removed = []
+    for name in sorted(os.listdir(root)):
+        p = os.path.join(root, name)
+        if not os.path.isdir(p) or not re.match(r"^\d{8}_", name):
+            continue
+        if keep and keep.startswith(os.path.normcase(os.path.abspath(p)) + os.sep):
+            continue
+        try:
+            newest = os.path.getmtime(p)
+            for _r, _ds, _fs in os.walk(p):
+                for _x in _ds + _fs:
+                    newest = max(newest, os.path.getmtime(os.path.join(_r, _x)))
+            if newest < cutoff:
+                shutil.rmtree(p)
+                removed.append(name)
+        except Exception:
+            pass
+    return removed
+
+
 def _xpost_finalize(store: str, output_dir: str, excel_name: str, with_slump: bool) -> "list | None":
     """⑧の最後：確定した配置で 001.jpg〜004.jpg を作り、素材画像を内部フォルダへ移す。
 
@@ -11623,6 +11660,9 @@ def _xpost_finalize(store: str, output_dir: str, excel_name: str, with_slump: bo
         elif os.path.isdir(_p) and _f == "並び画像":
             shutil.move(_p, os.path.join(_md, _f))
     st.success("✅ X投稿用：" + "・".join(outs) + " を出力しました（素材画像は内部に保持）。")
+    _cl = _xpost_cleanup_materials(keep_dir=_md)
+    if _cl:
+        st.caption(f"🧹 最後の⑧から{_XPOST_MATERIALS_KEEP_DAYS}日以上たったX投稿用の内部素材を片付けました：" + "、".join(_cl))
     return outs
 
 

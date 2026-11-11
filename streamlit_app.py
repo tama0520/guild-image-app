@@ -6387,7 +6387,8 @@ def _build_sloverse_machine_img(df_m: pd.DataFrame, title: str,
         _summary = {
             "total": fmt_diff(_s["total_diff"]),
             "avg": fmt_diff(_s["avg_diff"]),
-            "rate": f"{_rate:.1f}%",
+            # 勝率100%（全台プラス）のときだけ「100%」（小数点以下なし）。それ以外は従来どおり小数1桁（表記のみ・計算は不変）
+            "rate": ("100%" if 0 < _s["total_count"] == _s["win_count"] else f"{_rate:.1f}%"),
             "count": (f"({_s['total_count']}台中{_s['win_count']}台+)" if _s.get("count_style") == "of_plus"
                       else f"({_s['win_count']}/{_s['total_count']}台)"),
         }

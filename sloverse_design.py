@@ -181,19 +181,22 @@ def _draw_lines(draw, cx: float, cy: float, lines: list[str], font, fill):
 
 
 def render_table(title: str, headers: list[str], rows: list[list[str]],
-                 diff_signs: list[int] | None = None) -> Image.Image:
+                 diff_signs: list[int] | None = None, summary: dict | None = None) -> Image.Image:
     """水色デザインの表画像を返す。
 
     headers : 表示列名（例 ["台番","機種名","ゲーム数","BIG","REG","合算確率","差枚数"]）
     rows    : 表示用文字列の行（既存 _format_display_cols と同じ書式を想定）
     diff_signs : 差枚の符号（+1/0/-1）。差枚列の色分けに使う。
+    summary : 集計バーの表示文字列（render_summary_band 参照）。None なら従来どおりバーなし。
+              バーは表の最終行の直下（下の枠の手前）に入り、画像の高さだけが SV_BAR_BAND_H 増える。
     """
     n = len(rows)
     if n == 0:
         raise ValueError("出力するデータが 0 件です。")
     table_y1 = HEADER_Y1 + round(n * ROW_PITCH)          # 表の下端（見本の 764 に相当）
+    band_h = SV_BAR_BAND_H if summary else 0              # 集計バーの帯（表の下端〜下の枠）
     bottom = Image.open(os.path.join(ASSET_DIR, "frame_bottom.png")).convert("RGB")
-    bottom_y = table_y1 - BOTTOM_OVERLAP
+    bottom_y = table_y1 + band_h - BOTTOM_OVERLAP
     H = bottom_y + bottom.height
 
     canvas = Image.new("RGB", (W, H), (12, 61, 111))
@@ -276,7 +279,184 @@ def render_table(title: str, headers: list[str], rows: list[list[str]],
     for i in range(1, len(headers)):
         d.line([(xs[i], HEADER_Y1), (xs[i], table_y1 - 1)], fill=C_VLINE_A, width=1)
         d.line([(xs[i] + 1, HEADER_Y1), (xs[i] + 1, table_y1 - 1)], fill=C_VLINE_B, width=1)
+    if summary:
+        canvas.paste(render_summary_band(summary, TABLE_X1 - TABLE_X0), (TABLE_X0, table_y1))
     return canvas
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 集計バー（総差枚・平均・勝率）：スロバース専用（2026-11-11 見本「新鬼武者3(優秀台)」）
+#   既存の他店舗でピンクサマリーバーが付く画像（summary_stat あり）にだけ、表の最終行の直下へ入れる。
+#   値の文字列は呼び出し側（streamlit_app）が既存の集計値・fmt_diff で作ったものをそのまま描く。
+# ═══════════════════════════════════════════════════════════════════════════
+SV_BAR_BAND_H = 104                       # 帯の高さ（1 倍）。表の下端から下の枠まで
+SV_BAR_S = 2                              # 2 倍で描いて縮小（斜めの縁・発光をなめらかに）
+SV_BAR_Y0, SV_BAR_Y1 = 20, 86             # 帯の中のバー本体（上下）
+SV_BAR_SLANT = 30                         # 左右の斜めカット（上辺が下辺より左右に長い）
+SV_BAR_INSET = 34                         # 帯の左右端からバー上辺までの距離（外に緑の斜線を置く）
+
+C_SVB_BAND_T  = (10, 44, 96)              # 帯の地：上（表の下の濃紺）
+C_SVB_BAND_B  = (4, 18, 52)               # 帯の地：下
+C_SVB_CYAN    = (58, 206, 238)            # シアンの発光線（表・スランプの枠と同じ）
+C_SVB_FILL_C  = (84, 8, 50)               # バーの中央：黒〜濃いワイン
+C_SVB_FILL_E  = (226, 24, 138)            # バーの上下端：マゼンタ
+C_SVB_EDGE    = (255, 64, 178)            # ネオンピンクの縁
+C_SVB_GREEN   = (40, 236, 96)             # 両端の斜線：グリーン
+C_SVB_ICON    = (176, 238, 248)           # アイコン：白〜シアン
+C_SVB_LABEL   = (255, 255, 255)           # 見出し「総差枚：」など
+C_SVB_VALUE   = (255, 240, 250)           # 数値：白（ピンクの発光を重ねる）
+C_SVB_GLOW    = (255, 40, 170)            # 数値の発光：ピンク
+SZ_SVB_LABEL, SZ_SVB_VALUE, SZ_SVB_SUB = 30, 46, 28
+SZ_SVB_ICON = 34
+
+
+def _svb_lerp(a, b, t):
+    return tuple(round(a[i] + (b[i] - a[i]) * t) for i in range(3))
+
+
+def _svb_icon(d, kind: str, x: float, cy: float, sz: float, col):
+    """白〜シアンの簡易アイコン（棒グラフ・人＋棒・ターゲット）。左端 x・縦中心 cy・一辺 sz。"""
+    top, bot = cy - sz / 2, cy + sz / 2
+    if kind == "bars":
+        bw, gp = sz * 0.19, sz * 0.08
+        for k, hr in enumerate((0.32, 0.5, 0.74, 1.0)):
+            x0 = x + k * (bw + gp)
+            d.rectangle([x0, bot - sz * hr, x0 + bw, bot], fill=col)
+    elif kind == "avg":
+        r = sz * 0.13
+        d.ellipse([x + sz * 0.05, top + sz * 0.02, x + sz * 0.05 + 2 * r, top + sz * 0.02 + 2 * r], fill=col)
+        d.rounded_rectangle([x, top + sz * 0.34, x + sz * 0.36, bot], radius=sz * 0.1, fill=col)
+        bw, gp = sz * 0.17, sz * 0.07
+        for k, hr in enumerate((0.55, 0.85)):
+            x0 = x + sz * 0.44 + k * (bw + gp)
+            d.rectangle([x0, bot - sz * hr, x0 + bw, bot], fill=col)
+    else:  # target
+        cx = x + sz / 2
+        w_ = max(2, round(sz * 0.09))
+        for rr in (0.5, 0.31):
+            d.ellipse([cx - sz * rr, cy - sz * rr, cx + sz * rr, cy + sz * rr], outline=col, width=w_)
+        d.ellipse([cx - sz * 0.11, cy - sz * 0.11, cx + sz * 0.11, cy + sz * 0.11], fill=col)
+        d.line([(cx, cy), (cx + sz * 0.5, cy - sz * 0.5)], fill=col, width=w_)
+        d.polygon([(cx + sz * 0.5, cy - sz * 0.5), (cx + sz * 0.26, cy - sz * 0.5), (cx + sz * 0.5, cy - sz * 0.26)], fill=col)
+    return sz
+
+
+def render_summary_band(summary: dict, width: int) -> Image.Image:
+    """集計バーの帯（幅 width・高さ SV_BAR_BAND_H）を返す。
+
+    summary = {"total": "+22,050枚", "avg": "+7,350枚", "rate": "100.0%", "count": "(3/3台)"}
+    文字は省略・改行せず、収まらないときだけ全体を同じ比率で縮小する（装飾より数値の読みやすさを優先）。"""
+    S = SV_BAR_S
+    Wd, Hd = width * S, SV_BAR_BAND_H * S
+    band = Image.new("RGB", (Wd, Hd), C_SVB_BAND_B)
+    d = ImageDraw.Draw(band)
+    for y in range(Hd):
+        d.line([(0, y), (Wd, y)], fill=_svb_lerp(C_SVB_BAND_T, C_SVB_BAND_B, y / max(1, Hd - 1)))
+
+    def _glow(draw_fn, color, radius, strength):
+        """draw_fn(ImageDraw) で描いた形をぼかして color で重ねる（発光）。"""
+        m = Image.new("L", (Wd, Hd), 0)
+        draw_fn(ImageDraw.Draw(m))
+        m = m.filter(ImageFilter.GaussianBlur(radius)).point(lambda v: min(255, int(v * strength)))
+        band.paste(Image.new("RGB", (Wd, Hd), color), (0, 0), m)
+
+    # 上下のシアン発光線（表の下・スランプ領域の上と同じ色）
+    _glow(lambda g: (g.line([(0, 2 * S), (Wd, 2 * S)], fill=255, width=4 * S),
+                     g.line([(60 * S, Hd - 7 * S), (Wd - 60 * S, Hd - 7 * S)], fill=255, width=3 * S)),
+          C_SVB_CYAN, 4 * S, 1.3)
+    d = ImageDraw.Draw(band)
+    d.line([(0, 1 * S), (Wd, 1 * S)], fill=C_SVB_CYAN, width=3 * S)
+    d.line([(90 * S, Hd - 7 * S), (Wd - 90 * S, Hd - 7 * S)], fill=(150, 236, 250), width=1 * S)
+
+    y0, y1 = SV_BAR_Y0 * S, SV_BAR_Y1 * S
+    xl, xr = SV_BAR_INSET * S, Wd - SV_BAR_INSET * S
+    sl = SV_BAR_SLANT * S
+    poly = [(xl, y0), (xr, y0), (xr - sl, y1), (xl + sl, y1)]
+
+    # 両端の外側：緑〜シアンの斜線 3 本（見本の左下・右下）
+    for k in range(3):
+        for side in (-1, 1):
+            off = (k * 15 + 8) * S
+            if side < 0:
+                bx = xl + sl * 0.15 - off
+                pts = [(bx - 9 * S, y0 + 22 * S), (bx, y0 + 22 * S), (bx + 26 * S, y1 + 8 * S), (bx + 17 * S, y1 + 8 * S)]
+            else:
+                bx = xr - sl * 0.15 + off
+                pts = [(bx + 9 * S, y0 + 22 * S), (bx, y0 + 22 * S), (bx - 26 * S, y1 + 8 * S), (bx - 17 * S, y1 + 8 * S)]
+            col = _svb_lerp(C_SVB_GREEN, C_SVB_CYAN, k / 2)
+            _glow(lambda g, pts=pts: g.polygon(pts, fill=255), col, 3 * S, 0.9)
+            ImageDraw.Draw(band).polygon(pts, fill=col)
+
+    # バー本体：上下端マゼンタ → 中央の黒〜ワインのグラデーション
+    fill = Image.new("RGB", (Wd, Hd))
+    fd = ImageDraw.Draw(fill)
+    for y in range(y0, y1 + 1):
+        t = abs((y - y0) / max(1, y1 - y0) * 2 - 1)          # 中央 0 → 上下端 1
+        fd.line([(0, y), (Wd, y)], fill=_svb_lerp(C_SVB_FILL_C, C_SVB_FILL_E, t ** 1.8))
+    m = Image.new("L", (Wd, Hd), 0)
+    ImageDraw.Draw(m).polygon(poly, fill=255)
+    _glow(lambda g: g.polygon(poly, outline=255, width=5 * S), C_SVB_EDGE, 7 * S, 1.2)   # 外側の発光
+    band.paste(fill, (0, 0), m)
+    d = ImageDraw.Draw(band)
+    d.polygon(poly, outline=C_SVB_EDGE, width=2 * S)
+    # 左上・右上の小さなピンクの切り欠き装飾
+    d.polygon([(xl - 6 * S, y0 - 7 * S), (xl + 46 * S, y0 - 7 * S), (xl + 40 * S, y0 - 2 * S), (xl - 1 * S, y0 - 2 * S)], fill=C_SVB_EDGE)
+    d.polygon([(xr + 6 * S, y0 - 7 * S), (xr - 46 * S, y0 - 7 * S), (xr - 40 * S, y0 - 2 * S), (xr + 1 * S, y0 - 2 * S)], fill=C_SVB_EDGE)
+
+    # ── 3 区画の文字（アイコン＋見出し＋数値）──
+    secs = [("bars", "総差枚：", str(summary.get("total", "")), ""),
+            ("avg", "平均：", str(summary.get("avg", "")), ""),
+            ("target", "勝率：", str(summary.get("rate", "")), str(summary.get("count", "")))]
+    in_x0, in_x1 = xl + sl + 14 * S, xr - sl - 14 * S        # 斜めカットの内側
+    sep_w = 40 * S                                            # 区切り（斜線）に最低限とる幅
+
+    def _measure(k):
+        lf, vf, sf = _font(round(SZ_SVB_LABEL * S * k)), _font(round(SZ_SVB_VALUE * S * k)), _font(round(SZ_SVB_SUB * S * k))
+        isz, igap = SZ_SVB_ICON * S * k, 10 * S * k
+        ws = []
+        for _ic, lab, val, sub in secs:
+            w_ = isz + igap + d.textlength(lab, font=lf) + d.textlength(val, font=vf)
+            if sub:
+                w_ += 8 * S * k + d.textlength(sub, font=sf)
+            ws.append(w_)
+        return lf, vf, sf, isz, igap, ws
+
+    k = 1.0
+    lf, vf, sf, isz, igap, ws = _measure(k)
+    while sum(ws) + sep_w * 2 > (in_x1 - in_x0) and k > 0.5:
+        k -= 0.02
+        lf, vf, sf, isz, igap, ws = _measure(k)
+    free = (in_x1 - in_x0) - sum(ws)
+    gap = free / 3                                           # 両端に gap/2・区画の間に gap
+    cy = (y0 + y1) / 2
+    vb = d.textbbox((0, 0), "0", font=vf)                    # 数字の高さで上下中央
+    x = in_x0 + gap / 2
+    text_layer = []
+    for i, ((ic, lab, val, sub), w_) in enumerate(zip(secs, ws)):
+        _svb_icon(d, ic, x, cy, isz, C_SVB_ICON)
+        tx = x + isz + igap
+        lb = d.textbbox((0, 0), "0", font=lf)
+        d.text((tx, cy - (lb[1] + lb[3]) / 2), lab, font=lf, fill=C_SVB_LABEL)
+        tx += d.textlength(lab, font=lf)
+        text_layer.append((tx, cy - (vb[1] + vb[3]) / 2, val))
+        tx += d.textlength(val, font=vf)
+        if sub:
+            sb = d.textbbox((0, 0), "0", font=sf)
+            d.text((tx + 8 * S * k, cy - (sb[1] + sb[3]) / 2), sub, font=sf, fill=C_SVB_LABEL)
+        x += w_
+        if i < 2:                                           # 区切り：ピンクの細い斜線
+            sx = x + gap / 2
+            seg = [(sx + 12 * S, y0 + 10 * S), (sx - 12 * S, y1 - 10 * S)]
+            _glow(lambda g, seg=seg: g.line(seg, fill=255, width=4 * S), C_SVB_EDGE, 3 * S, 1.0)
+            d = ImageDraw.Draw(band)
+            d.line(seg, fill=(255, 120, 200), width=1 * S + 1)
+            x += gap
+    # 数値：ピンクの発光 → 白文字
+    _glow(lambda g: [g.text((tx_, ty_), v_, font=vf, fill=255) for tx_, ty_, v_ in text_layer], C_SVB_GLOW, 5 * S, 1.6)
+    d = ImageDraw.Draw(band)
+    for tx_, ty_, v_ in text_layer:
+        d.text((tx_, ty_), v_, font=vf, fill=C_SVB_VALUE)
+    return band.resize((width, SV_BAR_BAND_H), Image.LANCZOS)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

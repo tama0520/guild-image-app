@@ -6304,10 +6304,66 @@ def _zendai_total_stat(diff_raw) -> "dict | None":
 _TITLE_SUB_PARTS: tuple[str, ...] = ("（優秀台）",)
 
 
-def _build_sloverse_machine_img(df_m: pd.DataFrame, title: str) -> Image.Image:
-    """スロバース用の機種別表画像（水色フレーム・タイトル台座・表のみ・ピンクバーなし）。
+def _narabi_safe_fn(name: str) -> str:
+    """並びスクリプト（convert_narabi_pil.make_safe）と同じファイル名の置き換え。
+    ⑧の並び画像の後処理（チェックを外した画像の削除・並び順）がこの名前を前提にしているため合わせる。"""
+    return (name.replace("/", "／").replace("\\", "＼").replace(":", "：")
+                .replace("*", "＊").replace("?", "？").replace('"', '”')
+                .replace("<", "＜").replace(">", "＞").replace("|", "｜"))
+
+
+def _sloverse_narabi_images(df: "pd.DataFrame | None", narabi_ranges: list, out_dir: str) -> list:
+    """スロバース用の⑧並び画像を、⑥プレビュー（③並び画像）と同じ手順・同じ描画で out_dir へ保存する。
+    台の集め方・重複タイトルの「（開始～終了）」・集計値（summary_stat）・_build_machine_img は⑥と同じ。
+    外部の並びスクリプト（convert_narabi_pil.py）は使わない。戻り値: 保存したファイル名のリスト。"""
+    saved: list = []
+    if df is None or not narabi_ranges:
+        return saved
+    _ban_map = {int(row["台番"]): i for i, row in df.iterrows()}
+
+    def _make_ntit(nms, nn):
+        if len(nms) == 1:
+            return f"{nms[0]}({nn}台並び)"
+        elif len(nms) == 2:
+            return f"{nms[0]}+{nms[1]}({nn}台並び)"
+        return f"{nms[0]}～{nms[-1]}({nn}台並び)"
+
+    _infos = []
+    for _bans in narabi_ranges:
+        _idxs = [_ban_map[b] for b in _bans if b in _ban_map]
+        if not _idxs:
+            continue
+        _grp = df.loc[_idxs].copy().reset_index(drop=True)
+        _nms = list(dict.fromkeys(str(m) for m in _grp["機種名"]))
+        _infos.append((_grp, _make_ntit(_nms, len(_grp))))
+    from collections import Counter as _Ctr
+    _dups = {t for t, c in _Ctr(i[1] for i in _infos).items() if c > 1}
+    for _grp, _ntit in _infos:
+        _ds = _grp["差枚"]
+        if _ntit in _dups:
+            _file_tit = f"{_ntit}（{int(_grp.iloc[0]['台番'])}～{int(_grp.iloc[-1]['台番'])}）"
+        else:
+            _file_tit = _ntit
+        _stat = {
+            "total_diff":  int(_ds.sum()),
+            "avg_diff":    int(round(_ds.mean())),
+            "win_count":   int((_ds > 0).sum()),
+            "total_count": len(_grp),
+        }
+        _fn = f"{_narabi_safe_fn(_file_tit)}.jpg"
+        _save_jpeg(_build_machine_img(_grp, _ntit, _stat), os.path.join(out_dir, _fn))
+        saved.append(_fn)
+    return saved
+
+
+def _build_sloverse_machine_img(df_m: pd.DataFrame, title: str,
+                                summary_stat: dict | None = None) -> Image.Image:
+    """スロバース用の機種別表画像（水色フレーム・タイトル台座・表）。
     列・表示値は _build_machine_img と同じ（台番・機種名・ゲーム数・BIG/REG/AT・合算確率・差枚数）。
-    タイトルの全角括弧は半角へそろえる（例「（優秀台）」→「(優秀台)」）。"""
+    タイトルの全角括弧は半角へそろえる（例「（優秀台）」→「(優秀台)」）。
+    summary_stat があるとき（＝他店舗ならピンクサマリーバーが付く画像）だけ、表の最終行の直下に
+    スロバース専用の集計バー（総差枚・平均・勝率）を入れる。値は他店舗のピンクバーと同じ集計値・書式
+    （fmt_diff・勝率は小数1桁）で、計算はしない。"""
     import sloverse_design as _slv
     df_d = _add_prob_col(df_m)
     active = _active_sub_cols(df_d)
@@ -6324,7 +6380,18 @@ def _build_sloverse_machine_img(df_m: pd.DataFrame, title: str) -> Image.Image:
     headers = [_DISPLAY_RENAME.get(h, h) for h in df_f.columns]
     rows = df_f.values.tolist()
     _title = str(title).replace("（", "(").replace("）", ")")
-    return _slv.render_table(_title, headers, rows, _signs)
+    _summary = None
+    if summary_stat:
+        _s = summary_stat
+        _rate = _s["win_count"] / _s["total_count"] * 100 if _s["total_count"] > 0 else 0.0
+        _summary = {
+            "total": fmt_diff(_s["total_diff"]),
+            "avg": fmt_diff(_s["avg_diff"]),
+            "rate": f"{_rate:.1f}%",
+            "count": (f"({_s['total_count']}台中{_s['win_count']}台+)" if _s.get("count_style") == "of_plus"
+                      else f"({_s['win_count']}/{_s['total_count']}台)"),
+        }
+    return _slv.render_table(_title, headers, rows, _signs, _summary)
 
 
 def _build_machine_img(
@@ -6343,9 +6410,9 @@ def _build_machine_img(
     ピンクサマリーバーの有無・表の内容は no_bar でも変わらない。"""
 
     # スロバース用（マルハン新宿東宝など）だけ水色デザインの専用描画へ渡す。
-    # ピンクサマリーバーは描かない（集計値 summary_stat は呼び出し側でそのまま使われる）。
+    # ピンクサマリーバーの代わりに、summary_stat があるときだけスロバース専用の集計バーを表の直下に描く。
     if _sloverse_theme() and not no_bar:
-        return _build_sloverse_machine_img(df_m, title)
+        return _build_sloverse_machine_img(df_m, title, summary_stat)
 
     # ── テーブル部分（タイトル・ピンクバーなし）─────────────────────
     df_d = _add_prob_col(df_m)
@@ -23249,17 +23316,31 @@ def show_auto_page(with_slump: bool = False) -> None:
             _moved_narabi: list[str] = []
             # 台番一覧の店舗は並びの個別画像を作らない（台番一覧へ載せる）。列画像は従来どおり
             _narabi_img_ok = narabi_ok and store not in _BAN_LIST_IMG_STORES
+            # スロバース用だけ、並び画像は⑥プレビューと同じアプリ内描画（水色デザイン・集計バー）で作り、
+            # 外部の並びスクリプトには並びを渡さない（列画像の扱い・他店舗は従来どおり）。
+            _slv_narabi_app = _narabi_img_ok and _sloverse_theme()
             if _narabi_img_ok or retsu_ok:
-                st.write(f"⏳ 並び画像スクリプトを実行中…")
-                os.makedirs(narabi_dir, exist_ok=True)
-                ok_n, out_n, err_n = _patch_and_run_narabi(
-                    _narabi_script_for(store), excel_path, narabi_dir,
-                    narabi_ranges if _narabi_img_ok else [],
-                    col_ranges=(retsu_ranges if retsu_ok else None),
-                    # ⑦プレビュー（_build_machine_img）と⑧本番の色を必ず一致させる
-                    theme_new=_table_theme_new(),
-                    yg_theme=_yg_theme(),
-                )
+                ok_n, out_n, err_n = True, "", ""
+                if _slv_narabi_app:
+                    st.write("⏳ 並び画像を作成中…（⑥と同じ描画）")
+                    os.makedirs(narabi_dir, exist_ok=True)
+                    try:
+                        _slv_nfs = _sloverse_narabi_images(result.get("df"), narabi_ranges, narabi_dir)
+                        out_n = f"スロバース並び画像 {len(_slv_nfs)}枚"
+                    except Exception as _e_slvn:
+                        ok_n, err_n = False, f"スロバース並び画像の作成に失敗: {_e_slvn}"
+                if ok_n and ((_narabi_img_ok and not _slv_narabi_app) or retsu_ok):
+                    st.write(f"⏳ 並び画像スクリプトを実行中…")
+                    os.makedirs(narabi_dir, exist_ok=True)
+                    ok_n, _out_s, _err_s = _patch_and_run_narabi(
+                        _narabi_script_for(store), excel_path, narabi_dir,
+                        narabi_ranges if (_narabi_img_ok and not _slv_narabi_app) else [],
+                        col_ranges=(retsu_ranges if retsu_ok else None),
+                        # ⑦プレビュー（_build_machine_img）と⑧本番の色を必ず一致させる
+                        theme_new=_table_theme_new(),
+                        yg_theme=_yg_theme(),
+                    )
+                    out_n, err_n = out_n + _out_s, err_n + _err_s
                 narabi_result = {"ok": ok_n, "stdout": out_n, "stderr": err_n}
                 st.write(f"{'✅' if ok_n else '❌'} 並び画像{'完了' if ok_n else 'エラー'}")
                 # ⑦プレビューでチェックを外した並び画像を narabi_dir から削除（完全一致）

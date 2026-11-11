@@ -48,6 +48,30 @@
   .pool .here{width:104px;min-height:60px}
   .empty{color:#aaa;font-size:12px;text-align:center;padding:14px 4px}
   .warn{color:#b00020}
+  /* 1〜4枠（左）＋5枠目＝完成プレビュー（右端・確認専用） */
+  .main{display:grid;grid-template-columns:minmax(0,1fr) var(--pvw);gap:8px;align-items:start}
+  :root{--pvw:clamp(200px,28vw,360px)}
+  .left{min-width:0}
+  .sec.cur{border-color:var(--fr);box-shadow:0 0 0 2px rgba(91,47,179,.25)}
+  .sec h4 .pvb{margin-left:auto}
+  .pvpane{border:1px solid var(--fr);border-radius:8px;background:#fff;padding:6px;will-change:transform;position:relative;z-index:2}
+  .pvpane h4{margin:0 0 4px;font-size:14px}
+  .pvtabs{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:4px}
+  .pvtabs button{padding:1px 7px;font-size:12px}
+  .pvbody{position:relative;overflow:auto;border-radius:4px;border:1px solid #d5d9e2;
+          background:repeating-conic-gradient(#e6e9ef 0% 25%,#f7f8fa 0% 50%) 0 0/16px 16px;
+          display:flex;justify-content:center;align-items:flex-start}
+  .pvbody img{display:block;height:auto;max-width:100%}
+  .pvbody.fit img{width:auto;max-width:100%}
+  .pvbody.wide img{width:100%}
+  .pvstale{position:absolute;left:6px;top:6px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;padding:1px 6px;border-radius:4px}
+  .pvbody.stale img{opacity:.45}
+  .pvcap{font-size:11px;line-height:1.35;color:var(--sub);margin-top:4px;word-break:break-all}
+  .pvnone{color:#999;font-size:12px;text-align:center;padding:24px 6px}
+  @media (max-width:640px){
+    .main{grid-template-columns:minmax(0,1fr)}
+    .pvpane{order:-1}
+  }
 </style>
 </head>
 <body>
@@ -57,6 +81,7 @@
 // ── Streamlit コンポーネントの通信（公式 JS ライブラリなしの最小実装）─────────
 function send(type, data){ window.parent.postMessage(Object.assign({isStreamlitMessage:true, type:type}, data||{}), "*"); }
 let MAT = {}, ORDER = [], L = null, REV = null, HIST = [], SEL = null, DRAGGING = false;
+let PV = [], PVLAY = "", CUR = null, FIT = "fit";   // 5枠目：完成画像（サーバーで⑧と同じ結合）・表示中の枠・表示方法
 const NF = 4, MC = 4;
 
 window.addEventListener("message", function(ev){
@@ -67,6 +92,7 @@ window.addEventListener("message", function(ev){
   (a.materials || []).forEach(function(m){ MAT[m.id] = m; ORDER.push(m.id); });
   if(a.rev !== REV || !L){ REV = a.rev; L = norm(a.layout); HIST = []; SEL = null; }
   else { L = norm(L); }
+  PV = a.previews || []; PVLAY = JSON.stringify(norm(a.layout));
   if(!DRAGGING) render();
 });
 send("streamlit:componentReady", {apiVersion:1});
@@ -107,6 +133,7 @@ function findItem(id){
   return null;
 }
 function moveTo(id, zone, idx){
+  const zm = /^f(\d)c/.exec(zone || ""); if(zm) CUR = +zm[1];
   change(function(){
     const src = findItem(id);
     if(src) L.frames[src.f].cols[src.c].items.splice(src.k, 1);
@@ -119,6 +146,7 @@ function moveTo(id, zone, idx){
   });
 }
 function setCols(f, k){
+  CUR = f;
   change(function(){
     const cols = L.frames[f].cols;
     while(cols.length < k) cols.push({items: [], pad: 0});
@@ -126,16 +154,19 @@ function setCols(f, k){
   });
 }
 function shiftCol(f, c, d){
+  CUR = f;
   change(function(){ const cols = L.frames[f].cols; const t = c + d; if(t < 0 || t >= cols.length) return; const x = cols[c]; cols[c] = cols[t]; cols[t] = x; });
 }
 // 列の余白（px）を増減する。素材の大きさは変えない（列の幅だけが広がり、素材は列の中央）
 function padAdj(f, c, d){
+  CUR = f;
   change(function(){ const col = L.frames[f].cols[c]; col.pad = Math.max(0, Math.min(2000, (col.pad || 0) + d)); });
 }
-function resetPad(f){ change(function(){ L.frames[f].cols.forEach(function(c){ c.pad = 0; }); }); }
+function resetPad(f){ CUR = f; change(function(){ L.frames[f].cols.forEach(function(c){ c.pad = 0; }); }); }
 function colWidth(c){ return c.items.reduce(function(m, i){ return Math.max(m, (MAT[i] && MAT[i].w) || 0); }, 0); }
-function clearFrame(f){ change(function(){ L.frames[f].cols.forEach(function(c){ c.items = []; }); }); }
+function clearFrame(f){ CUR = f; change(function(){ L.frames[f].cols.forEach(function(c){ c.items = []; }); }); }
 function stepItem(id, d){
+  const sp = findItem(id); if(sp) CUR = sp.f;
   change(function(){ const p = findItem(id); if(!p) return; const it = L.frames[p.f].cols[p.c].items; const t = p.k + d; if(t < 0 || t >= it.length) return; it[p.k] = it[t]; it[t] = id; });
 }
 function undo(){ if(!HIST.length) return; L = norm(JSON.parse(HIST.pop())); SEL = null; render(); commit(); }
@@ -183,12 +214,14 @@ function render(){
     btn("↩ 元に戻す", undo, "", "直前の操作を取り消す"),
     el("span", {class: "hint", text: SEL ? "選択中：「＋ここへ」を押すと移動します（もう一度タップで解除）"
       : "素材をドラッグして枠へ入れます（スマホは右上の ✥ をドラッグ、またはタップで選択→「＋ここへ」）"})));
+  const main = el("div", {class: "main"}); const left = el("div", {class: "left"});
+  main.append(left, pvPane()); app.append(main);
   const ids = poolIds();
   const pz = el("div", {class: "zone", "data-zone": "pool"});
   ids.forEach(function(i){ pz.append(card(i, false)); });
   if(SEL && !ids.includes(SEL)) pz.append(hereBtn("pool"));
   if(!ids.length && !SEL) pz.append(el("div", {class: "empty", text: "未配置の素材はありません"}));
-  app.append(el("div", {class: "sec pool"}, el("h4", {}, "未配置の素材", el("span", {class: "cnt", text: ids.length + "件"})), pz));
+  left.append(el("div", {class: "sec pool"}, el("h4", {}, "未配置の素材", el("span", {class: "cnt", text: ids.length + "件"})), pz));
   for(let f=0; f<NF; f++){
     const fr = L.frames[f]; const k = fr.cols.length;
     const n = fr.cols.reduce(function(s, c){ return s + c.items.length; }, 0);
@@ -196,6 +229,7 @@ function render(){
     for(let j=1; j<=MC; j++) h.append(btn(j + "列", (function(jj){ return function(){ setCols(f, jj); }; })(j), j === k ? "on" : ""));
     h.append(btn("余白をリセット", function(){ resetPad(f); }, "", "列に足した余白をすべて0に戻す"));
     h.append(btn("空にする", function(){ clearFrame(f); }, "", "この枠の素材を未配置へ戻す"));
+    if(n) h.append(btn("👁 完成を見る", function(){ CUR = f; render(); }, "pvb" + (curFrame() === f ? " on" : ""), "右端の完成プレビューにこの枠を表示"));
     const grid = el("div", {class: "cols"}); grid.style.gridTemplateColumns = "repeat(" + k + ", minmax(0,1fr))";
     fr.cols.forEach(function(c, ci){
       const cw = colWidth(c);
@@ -212,10 +246,83 @@ function render(){
       else if(!c.items.length) z.append(el("div", {class: "empty", text: "ここへドロップ"}));
       grid.append(el("div", {class: "col"}, ch, z));
     });
-    app.append(el("div", {class: "sec"}, h, grid));
+    left.append(el("div", {class: "sec" + (curFrame() === f ? " cur" : "")}, h, grid));
   }
-  setH();
+  setH(); follow();
 }
+
+// ── 5枠目：完成プレビュー（確認専用・ここへは配置できない）────────────────
+function curFrame(){
+  const used = PV.map(function(p){ return p.frame; });
+  if(CUR != null && (used.indexOf(CUR) >= 0 || L.frames[CUR].cols.some(function(c){ return c.items.length; }))) return CUR;
+  return used.length ? used[0] : null;
+}
+function pvPane(){
+  const f = curFrame();
+  const pane = el("div", {class: "pvpane", id: "pvpane"});
+  const tabs = el("div", {class: "pvtabs"});
+  for(let i=0; i<NF; i++){
+    const has = PV.some(function(p){ return p.frame === i; });
+    const b = btn((i+1) + "枚目", (function(ii){ return function(){ CUR = ii; render(); }; })(i), i === f ? "on" : "", "■" + (i+1) + "枚目の完成画像");
+    if(!has) b.disabled = true;
+    tabs.append(b);
+  }
+  const vw = el("div", {class: "pvtabs"});
+  vw.append(btn("全体", function(){ FIT = "fit"; render(); }, FIT === "fit" ? "on" : "", "完成画像全体を枠の中に収めて表示（縦横比そのまま）"));
+  vw.append(btn("幅に合わせる", function(){ FIT = "wide"; render(); }, FIT === "wide" ? "on" : "", "枠の幅いっぱいに表示して、枠の中を縦にスクロール"));
+  pane.append(el("h4", {}, "5枠目：完成プレビュー"), tabs, vw);
+  const p = PV.filter(function(x){ return x.frame === f; })[0];
+  const stale = JSON.stringify(L) !== PVLAY;
+  const body = el("div", {class: "pvbody " + FIT + (stale ? " stale" : "")});
+  if(p){
+    const im = el("img", {src: p.url, alt: p.name + " の完成プレビュー", draggable: "false"});
+    im.addEventListener("load", follow);
+    body.append(im);
+    if(stale) body.append(el("span", {class: "pvstale", text: "更新中…"}));
+    pane.append(body);
+    pane.append(el("div", {class: "pvcap", text:
+      p.name + "（■" + (p.frame+1) + "枚目・横" + p.ncol + "列）出力 " + p.w + "×" + p.h + "px・縦横比 1:" + p.ratio +
+      "・余白 " + p.blank + "%・JPEG " + p.mb + "MB（品質" + p.q + "）" +
+      (p.scale < 99.95 ? "・全体を" + p.scale + "%に縮小して出力" : "・素材は等倍")}));
+    pane.append(el("div", {class: "pvcap", text: "確認専用（ここには配置できません）。表示は縮小・縦横比はそのまま。青い部分が余白です。"}));
+  } else {
+    body.append(el("div", {class: "pvnone", text: f == null ? "配置するとここに完成画像が出ます" : (stale ? "更新中…" : "この枠は未使用です")}));
+    pane.append(body);
+  }
+  return pane;
+}
+// 5枠目は、ページをスクロールしても画面内に見えるように左の枠の範囲で追従する（PC幅のみ）
+function follow(){
+  const pane = document.getElementById("pvpane"); const main = document.querySelector(".main");
+  if(!pane || !main) return;
+  const body = pane.querySelector(".pvbody");
+  let vh = 800, top = 0;
+  let hd = 0;   // 画面上部の Streamlit ヘッダー（Deploy の帯）に隠れないように、その下へ置く
+  try{
+    vh = window.parent.innerHeight; top = window.frameElement.getBoundingClientRect().top;
+    const hh = window.parent.document.querySelector('[data-testid="stHeader"]');
+    if(hh) hd = Math.max(0, hh.getBoundingClientRect().bottom);
+  }catch(e){}
+  const narrow = window.matchMedia("(max-width:640px)").matches;
+  const capH = pane.offsetHeight - (body ? body.offsetHeight : 0);
+  const mh = Math.max(160, (narrow ? vh * 0.45 : vh - hd - 24) - capH);
+  if(body){
+    body.style.maxHeight = mh + "px";
+    const im = body.querySelector("img");
+    if(im) im.style.maxHeight = (FIT === "fit") ? (mh - 2) + "px" : "none";
+  }
+  if(narrow){ pane.style.transform = ""; return; }
+  const mr = main.getBoundingClientRect();
+  const off = Math.max(0, Math.min(hd - (top + mr.top) + 8, mr.height - pane.offsetHeight));
+  pane.style.transform = off ? "translateY(" + Math.round(off) + "px)" : "";
+}
+(function(){
+  try{
+    const s = scroller(); if(s) s.addEventListener("scroll", follow, {passive: true});
+    window.parent.addEventListener("resize", follow);
+  }catch(e){}
+  window.addEventListener("resize", follow);
+})();
 
 // ── ドラッグ（マウス・タッチ共通の Pointer Events）────────────────────
 function scroller(){
@@ -233,6 +340,8 @@ function autoScroll(y){
   }catch(e){}
 }
 function hit(x, y){
+  const pp = document.getElementById("pvpane");
+  if(pp){ const r = pp.getBoundingClientRect(); if(x >= r.left - 4 && x <= r.right + 4 && y >= r.top - 4 && y <= r.bottom + 4) return null; }
   const zs = document.querySelectorAll("[data-zone]");
   let best = null, bd = 1e9;
   zs.forEach(function(z){

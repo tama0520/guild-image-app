@@ -10805,6 +10805,44 @@ def _xpost_materials(store: str, excel_name: str, with_slump: bool):
     return order, imgs, meta, src
 
 
+def _xpost_preview_url(jpeg_bytes: bytes, max_long: int = 1000) -> str:
+    """5枠目（完成プレビュー）の表示用：⑧と同じ結合・同じJPEG設定で作った画像のバイトを、
+    縦横比を保ったまま長辺 max_long px 以下へ縮小した data URL（表示専用。保存画像は変えない）。"""
+    import base64
+    with Image.open(io.BytesIO(jpeg_bytes)) as _im:
+        _im = _im.convert("RGB")
+        _w, _h = _im.size
+        _r = min(1.0, max_long / max(_w, _h))
+        if _r < 1.0:
+            _im = _im.resize((max(1, round(_w * _r)), max(1, round(_h * _r))), Image.LANCZOS)
+        _buf = io.BytesIO()
+        _im.save(_buf, format="JPEG", quality=85)
+    return "data:image/jpeg;base64," + base64.b64encode(_buf.getvalue()).decode("ascii")
+
+
+def _xpost_frame_jpegs(store: str, layout: dict, imgs: dict, sizes: dict) -> list:
+    """配置の各枠（素材のある枠だけ）を⑧と同じ計算・同じ結合・同じJPEG設定で作る（画面用のキャッシュ付き）。
+    戻り値: [(枠番号0〜3, 枠の配置, 寸法計算, JPEGバイト, 品質), ...]（出力の連番順）"""
+    import xpost_layout as _xl
+    cache = st.session_state.setdefault(f"_xpost_render_{store}", {})
+    _sig_all = tuple((i, id(imgs[i])) for i in _xl.placed_ids(layout))
+    out = []
+    for _fi, _fr in enumerate(layout["frames"]):
+        _g = _xl.plan_frame(_fr["cols"], sizes)
+        if _g is None:
+            continue
+        _ck = (json.dumps(_fr, ensure_ascii=False, sort_keys=True), _sig_all,
+               getattr(_xl, "RENDER_VERSION", ""))
+        if _ck not in cache:
+            _img = _xl.render_frame(_g, imgs)
+            if len(cache) > 12:
+                cache.clear()
+            cache[_ck] = _xl.encode_jpeg(_img)
+        _data, _q = cache[_ck]
+        out.append((_fi, _fr, _g, _data, _q))
+    return out
+
+
 def _xpost_auto_order(order: list, imgs: dict) -> list:
     """自動配置に使う素材：表と横版（_side）が両方あるときは表だけ（横版は未配置の候補に残す）。"""
     return [i for i in order if not (i.endswith("_side.jpg") and (i[:-9] + ".jpg") in imgs)]
@@ -11222,7 +11260,23 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool) -> None:
         return _r
     if layout != _xl.normalize_layout(rec.get("layout"), order) or set(rec.get("materials") or []) != set(order):
         rec = _save(layout)
-    _xpost_component()(materials=mats, layout=layout, rev=st.session_state[rev_key], key=_ek, default=None)
+    # 5枠目（確認専用）：今の配置の完成画像。⑧と同じ結合・同じJPEG設定の画像を表示用に縮小して渡す
+    _pv_cache = st.session_state.setdefault(f"_xpost_pvurl_{store}", {})
+    previews = []
+    for _n, (_fi, _fr, _g, _data, _q) in enumerate(_xpost_frame_jpegs(store, layout, imgs, sizes), 1):
+        _pk = hashlib.md5(_data).hexdigest()
+        if _pk not in _pv_cache:
+            if len(_pv_cache) > 16:
+                _pv_cache.clear()
+            _pv_cache[_pk] = _xpost_preview_url(_data)
+        _s = _xl.frame_summary(_g)
+        previews.append({"frame": _fi, "name": _xpost_out_name(_n), "url": _pv_cache[_pk],
+                         "w": _s["width"], "h": _s["height"], "ratio": round(_s["ratio"], 2),
+                         "blank": round(_s["blank"] * 100, 1), "scale": round(_s["downscale"] * 100, 1),
+                         "mb": round(len(_data) / 1_000_000, 2), "q": _q,
+                         "ncol": len([c for c in _fr["cols"] if c["items"]])})
+    _xpost_component()(materials=mats, layout=layout, rev=st.session_state[rev_key], previews=previews,
+                       key=_ek, default=None)
 
     _b1, _b2, _b3 = st.columns(3)
     with _b1:
@@ -11262,23 +11316,12 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool) -> None:
     _vm = st.radio("完成プレビューの表示", ["画面に合わせる（全体を同じ倍率で縮小表示）", "100%（出力画像の等倍・スクロール）"],
                    horizontal=True, key=f"{_ek}_view")
     _full = _vm.startswith("100%")
-    cache = st.session_state.setdefault(f"_xpost_render_{store}", {})
-    _sig_all = tuple((i, id(imgs[i])) for i in _used)
-    _frames = [(_fi, _fr, _xl.plan_frame(_fr["cols"], sizes)) for _fi, _fr in enumerate(layout["frames"])]
-    _frames = [(_fi, _fr, _g) for _fi, _fr, _g in _frames if _g is not None]
+    _frames = _xpost_frame_jpegs(store, layout, imgs, sizes)
     _pick = None
     if _full and _frames:
         _pick = st.selectbox("100%で見る画像", [_xpost_out_name(n) for n in range(1, len(_frames) + 1)],
                              key=f"{_ek}_pick")
-    for _n, (_fi, _fr, _g) in enumerate(_frames, 1):
-        _ck = (json.dumps(_fr, ensure_ascii=False, sort_keys=True), _sig_all,
-               getattr(_xl, "RENDER_VERSION", ""))
-        if _ck not in cache:
-            _img = _xl.render_frame(_g, imgs)
-            if len(cache) > 12:
-                cache.clear()
-            cache[_ck] = _xl.encode_jpeg(_img)
-        _data, _q = cache[_ck]
+    for _n, (_fi, _fr, _g, _data, _q) in enumerate(_frames, 1):
         _s = _xl.frame_summary(_g)
         _ncol = len([c for c in _fr["cols"] if c["items"]])
         st.markdown(f"**{_xpost_out_name(_n)}**（■{_fi + 1}枚目・横{_ncol}列）")

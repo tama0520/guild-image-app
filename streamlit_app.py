@@ -4309,6 +4309,10 @@ _WP_BLOG_KIND = "ブログ"
 _WP_BLOG_FROM: "tuple[int, int, int]" = (2026, 11, 1)
 # 「本日の仕事」の表示だけの店舗名（作業の抽出・完了キー・他機能の店舗名は変えない）
 _WP_STORE_DISPLAY: "dict[str, str]" = {"新宿歌舞伎町": "歌舞伎町"}
+# ①のローテを作らない店舗（①は 事前／結果 と、その OC 複製だけ）。作業日が開始日以降だけ
+# （それより前の日付の表示・完了履歴は変えない）。⑤のローテ・他店舗の①は従来どおり。
+_WP_NO_CAT1_ROTE_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+_WP_NO_CAT1_ROTE_FROM: "tuple[int, int, int]" = (2026, 11, 11)
 
 
 def _wp_add_oc_tasks(tasks: list, work_date) -> list:
@@ -4581,6 +4585,9 @@ def _wp_tasks_for(work_date) -> dict:
                 _rules = _rules + (("何の日", -1),)
             for _kind, _off in _rules:
                 if _d + _dt.timedelta(days=_off) != work_date:
+                    continue
+                if (_cat == "①" and _kind == "ローテ" and _s in _WP_NO_CAT1_ROTE_STORES
+                        and work_date >= _dt.date(*_WP_NO_CAT1_ROTE_FROM)):
                     continue
                 if (_cat == "⑤" and _kind == "事前"
                         and any(c != "⑤" and any(k == "事前" for k, _o in _WP_RULES.get(c, ()))

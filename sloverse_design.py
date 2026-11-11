@@ -140,6 +140,33 @@ def _draw_text(draw, box, text, font, fill, align, right_pad=24, left_x=None):
     draw.text((round(tx), round(ty)), text, font=font, fill=fill)
 
 
+def _draw_dash_joined(canvas, box, text, font, fill):
+    """「――」を _draw_text（中央揃え）と同じ位置・長さ・太さで、2本の間の切れ目だけ埋めて1本の線にする。
+    NotoSansJP-Black の「―」は字の左右に余白があり、2文字並べると中央が数px切れて見えるため
+    （他店舗の MochiyPopOne はつながっている）。切れ目の列は、線の中ほどの列と同じ縦の濃淡で埋める。"""
+    x0, y0, x1, y1 = box
+    d = ImageDraw.Draw(canvas)
+    bb = d.textbbox((0, 0), text, font=font)
+    tx = round(x0 + (x1 - x0 - (bb[2] - bb[0])) / 2 - bb[0])
+    ty = round(y0 + (y1 - y0 - (bb[3] - bb[1])) / 2 - bb[1])
+    m = Image.new("L", (x1 - x0, y1 - y0), 0)
+    ImageDraw.Draw(m).text((tx - x0, ty - y0), text, font=font, fill=255)
+    ink = m.getbbox()
+    if ink:
+        px = m.load()
+        cols = [max(px[x, y] for y in range(ink[1], ink[3])) for x in range(ink[0], ink[2])]
+        top = max(cols)
+        full = [ink[0] + i for i, v in enumerate(cols) if v >= top * 0.9]
+        if full:
+            ref = full[len(full) // 4]                       # 1本目の線の中ほどの列
+            prof = [px[ref, y] for y in range(m.height)]
+            for x in range(full[0], full[-1] + 1):           # 両端の外側（字の端のぼかし）はそのまま
+                for y in range(m.height):
+                    if px[x, y] < prof[y]:
+                        px[x, y] = prof[y]
+    canvas.paste(Image.new("RGB", m.size, fill), (x0, y0), m)
+
+
 def _split2(text: str) -> tuple[str, str]:
     """2行に分ける位置：中央に最も近い「・」「空白」「(」の直前／直後。無ければ中央。"""
     mid = len(text) / 2
@@ -265,6 +292,12 @@ def render_table(title: str, headers: list[str], rows: list[list[str]],
                 # 1行で 30px まで縮小、入らなければ2行（行の高さに収める）。省略しない。
                 n_lines, nf = _layout_fit(d, txt, (cx1 - cx0) - 20, (y1 - y0) - 8, SZ_DATA, 30, 28, 16)
                 _draw_lines(d, (cx0 + cx1) / 2, (y0 + y1) / 2, n_lines, nf, C_TEXT)
+                continue
+            if h == "合算確率" and txt == "――":
+                # 表示不能の合算確率（BB+RB=0 または G数=0）は切れ目のない1本の線（位置・長さ・太さは文字のまま）
+                f = _fit_font(d, txt, SZ_DATA, (cx1 - cx0) - RIGHT_PAD.get(h, 24) - 16)
+                _draw_dash_joined(canvas, (cx0, y0, cx1, y1), txt, f, C_TEXT)
+                d = ImageDraw.Draw(canvas)
                 continue
             fill = C_TEXT
             if h == "差枚数" and diff_signs is not None:

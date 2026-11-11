@@ -68,6 +68,11 @@
   .pvbody.stale img{opacity:.45}
   .pvcap{font-size:11px;line-height:1.35;color:var(--sub);margin-top:4px;word-break:break-all}
   .pvnone{color:#999;font-size:12px;text-align:center;padding:24px 6px}
+/* 4枚目＝その他の優秀台ピックアップ専用の固定枠 */
+.lockinfo{font-size:12px;font-weight:700;color:#5b2bb5;background:#efe7ff;border-radius:6px;padding:3px 8px;margin-right:6px}
+.card.locked{cursor:default}
+.card .lk{font-size:11px;color:#5b2bb5;font-weight:700;margin-top:2px}
+.zone.lockz{background:#f6f1ff}
   @media (max-width:640px){
     .main{grid-template-columns:minmax(0,1fr)}
     .pvpane{order:-1}
@@ -81,7 +86,10 @@
 // ── Streamlit コンポーネントの通信（公式 JS ライブラリなしの最小実装）─────────
 function send(type, data){ window.parent.postMessage(Object.assign({isStreamlitMessage:true, type:type}, data||{}), "*"); }
 let MAT = {}, ORDER = [], L = null, REV = null, HIST = [], SEL = null, DRAGGING = false;
-let PV = [], PVLAY = "", CUR = null, FIT = "fit";   // 5枠目：完成画像（サーバーで⑧と同じ結合）・表示中の枠・表示方法
+let PV = [], PVLAY = "", CUR = null, FIT = "fit";
+// 4枚目＝「その他の優秀台ピックアップ」専用の固定枠（サーバーから受け取る）。LOCK.id がその素材、LOCK.pair は置かない横版
+let LOCK = {frame: 3, id: null, pair: []};
+function locked(id){ return id === LOCK.id || (LOCK.pair || []).indexOf(id) >= 0; }   // 5枠目：完成画像（サーバーで⑧と同じ結合）・表示中の枠・表示方法
 const NF = 4, MC = 4;
 
 window.addEventListener("message", function(ev){
@@ -90,6 +98,7 @@ window.addEventListener("message", function(ev){
   const a = d.args || {};
   MAT = {}; ORDER = [];
   (a.materials || []).forEach(function(m){ MAT[m.id] = m; ORDER.push(m.id); });
+  LOCK = a.lock || {frame: 3, id: null, pair: []};
   if(a.rev !== REV || !L){ REV = a.rev; L = norm(a.layout); HIST = []; SEL = null; }
   else { L = norm(L); }
   PV = a.previews || []; PVLAY = JSON.stringify(norm(a.layout));
@@ -120,6 +129,12 @@ function norm(lay){
     });
     fr.push({cols: cols.length ? cols : [{items: [], pad: 0}]});
   }
+  // 4枚目は固定：1〜3枚目からはその他（と横版）を外し、4枚目は1列にその他だけ
+  const LF = LOCK.frame;
+  for(let f=0; f<NF; f++){ if(f === LF) continue; fr[f].cols.forEach(function(c){ c.items = c.items.filter(function(i){ return !locked(i); }); }); }
+  const c0 = fr[LF].cols[0] || {items: [], pad: 0};
+  const keepPad = (c0.items.length === 1 && c0.items[0] === LOCK.id) ? c0.pad : 0;
+  fr[LF] = {cols: [{items: (LOCK.id && (LOCK.id in MAT)) ? [LOCK.id] : [], pad: keepPad}]};
   return {frames: fr};
 }
 function placed(){ const s = new Set(); L.frames.forEach(function(f){ f.cols.forEach(function(c){ c.items.forEach(function(i){ s.add(i); }); }); }); return s; }
@@ -133,7 +148,9 @@ function findItem(id){
   return null;
 }
 function moveTo(id, zone, idx){
-  const zm = /^f(\d)c/.exec(zone || ""); if(zm) CUR = +zm[1];
+  if(locked(id)) return;                                            // その他（と横版）は動かさない
+  const zm = /^f(\d)c/.exec(zone || ""); if(zm && +zm[1] === LOCK.frame) return;   // 4枚目へは入れない
+  if(zm) CUR = +zm[1];
   change(function(){
     const src = findItem(id);
     if(src) L.frames[src.f].cols[src.c].items.splice(src.k, 1);
@@ -146,6 +163,7 @@ function moveTo(id, zone, idx){
   });
 }
 function setCols(f, k){
+  if(f === LOCK.frame) return;                                      // 4枚目は1列固定
   CUR = f;
   change(function(){
     const cols = L.frames[f].cols;
@@ -164,8 +182,9 @@ function padAdj(f, c, d){
 }
 function resetPad(f){ CUR = f; change(function(){ L.frames[f].cols.forEach(function(c){ c.pad = 0; }); }); }
 function colWidth(c){ return c.items.reduce(function(m, i){ return Math.max(m, (MAT[i] && MAT[i].w) || 0); }, 0); }
-function clearFrame(f){ CUR = f; change(function(){ L.frames[f].cols.forEach(function(c){ c.items = []; }); }); }
+function clearFrame(f){ if(f === LOCK.frame) return; CUR = f; change(function(){ L.frames[f].cols.forEach(function(c){ c.items = []; }); }); }
 function stepItem(id, d){
+  if(locked(id)) return;
   const sp = findItem(id); if(sp) CUR = sp.f;
   change(function(){ const p = findItem(id); if(!p) return; const it = L.frames[p.f].cols[p.c].items; const t = p.k + d; if(t < 0 || t >= it.length) return; it[p.k] = it[t]; it[t] = id; });
 }
@@ -195,6 +214,11 @@ function card(id, inCol){
   c.append(el("img", {src: m.thumb, alt: m.label, draggable: "false"}));
   const tg = el("span", {class: "tg " + (m.cat || "etc"), text: m.tag || ""});
   c.append(el("div", {class: "lb"}, m.tag ? tg : null, document.createTextNode(m.label)));
+  if(locked(id)){
+    c.classList.add("locked");
+    c.append(el("div", {class: "lk", text: id === LOCK.id ? "4枚目専用（固定）" : "4枚目の素材の横版（配置しません）"}));
+    return c;
+  }
   c.append(el("div", {class: "hdl", title: "ドラッグで移動"}, "✥"));
   if(inCol){
     c.append(el("div", {class: "ops"},
@@ -226,9 +250,14 @@ function render(){
     const fr = L.frames[f]; const k = fr.cols.length;
     const n = fr.cols.reduce(function(s, c){ return s + c.items.length; }, 0);
     const h = el("h4", {}, "■" + (f+1) + "枚目", el("span", {class: "cnt", text: n ? n + "件・横" + k + "列" : "（未使用）"}));
-    for(let j=1; j<=MC; j++) h.append(btn(j + "列", (function(jj){ return function(){ setCols(f, jj); }; })(j), j === k ? "on" : ""));
-    h.append(btn("余白をリセット", function(){ resetPad(f); }, "", "列に足した余白をすべて0に戻す"));
-    h.append(btn("空にする", function(){ clearFrame(f); }, "", "この枠の素材を未配置へ戻す"));
+    if(f === LOCK.frame){
+      h.append(el("span", {class: "lockinfo", text: "「その他の優秀台ピックアップ」専用（1列・固定）"}));
+      h.append(btn("余白をリセット", function(){ resetPad(f); }, "", "列に足した余白をすべて0に戻す"));
+    } else {
+      for(let j=1; j<=MC; j++) h.append(btn(j + "列", (function(jj){ return function(){ setCols(f, jj); }; })(j), j === k ? "on" : ""));
+      h.append(btn("余白をリセット", function(){ resetPad(f); }, "", "列に足した余白をすべて0に戻す"));
+      h.append(btn("空にする", function(){ clearFrame(f); }, "", "この枠の素材を未配置へ戻す"));
+    }
     if(n) h.append(btn("👁 完成を見る", function(){ CUR = f; render(); }, "pvb" + (curFrame() === f ? " on" : ""), "右端の完成プレビューにこの枠を表示"));
     const grid = el("div", {class: "cols"}); grid.style.gridTemplateColumns = "repeat(" + k + ", minmax(0,1fr))";
     fr.cols.forEach(function(c, ci){
@@ -240,9 +269,11 @@ function render(){
         el("span", {class: "wl", text: "列" + (ci+1) + " " + wl}),
         btn("＋", function(){ padAdj(f, ci, 100); }, "", "列の余白を100px増やす（素材の大きさは変わりません）"),
         btn("▶", function(){ shiftCol(f, ci, 1); }, "", "列を右へ"));
-      const z = el("div", {class: "zone", "data-zone": "f" + f + "c" + ci});
+      const lockedZone = (f === LOCK.frame);
+      const z = el("div", lockedZone ? {class: "zone lockz"} : {class: "zone", "data-zone": "f" + f + "c" + ci});
       c.items.forEach(function(i){ z.append(card(i, true)); });
-      if(SEL) z.append(hereBtn("f" + f + "c" + ci));
+      if(lockedZone){ if(!c.items.length) z.append(el("div", {class: "empty", text: "その他の優秀台ピックアップが無いため空です"})); }
+      else if(SEL) z.append(hereBtn("f" + f + "c" + ci));
       else if(!c.items.length) z.append(el("div", {class: "empty", text: "ここへドロップ"}));
       grid.append(el("div", {class: "col"}, ch, z));
     });
@@ -373,6 +404,7 @@ function showMark(t){
   }
 }
 function startDrag(e, id, c){
+  if(locked(id)) return;
   if(e.button !== undefined && e.button !== 0) return;
   const touch = e.pointerType && e.pointerType !== "mouse";
   if(touch && !e.target.closest(".hdl")){ return; }   // タッチはつまみ（✥）だけでドラッグ（画面のスクロールを妨げない）
@@ -406,7 +438,7 @@ document.addEventListener("click", function(e){
   const c = e.target.closest && e.target.closest(".card");
   if(!c || e.target.closest("button") || e.target.closest(".hdl")) return;
   if(e.pointerType === "mouse") return;
-  if(window.matchMedia("(pointer: coarse)").matches){ const id = c.getAttribute("data-id"); SEL = (SEL === id) ? null : id; render(); }
+  if(window.matchMedia("(pointer: coarse)").matches){ const id = c.getAttribute("data-id"); if(locked(id)) return; SEL = (SEL === id) ? null : id; render(); }
 });
 </script>
 </body>

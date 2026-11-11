@@ -10804,7 +10804,7 @@ def _xpost_confirmed(store: str, excel_name: str, with_slump: bool) -> bool:
     rec = _xl.load_record(BASE_DIR, _xpost_key(store, excel_name, with_slump))
     if not rec:
         return False
-    lay = _xl.normalize_layout(rec.get("layout"), rec.get("materials") or [])
+    lay = _xpost_enforce_last(rec.get("layout"), rec.get("materials") or [])[0]   # 4枚目の固定ルールに合わない配置は未確定扱い
     sizes = {i: tuple(v) for i, v in (rec.get("sizes") or {}).items()}
     return bool(_xl.placed_ids(lay)) and rec.get("confirmed") == _xl.layout_hash(lay, sizes)
 
@@ -10920,6 +10920,66 @@ def _xpost_auto_order(order: list, imgs: dict) -> list:
 _XPOST_LAST_FRAME_FN = "その他の優秀台ピックアップ.jpg"
 
 
+def _xpost_lock(order: list) -> "tuple[str | None, list]":
+    """4枚目（固定枠）に置く素材と、置かない対（横版）。通常版を基本とし、横版だけのときは横版。
+    戻り値: (4枚目の素材ID または None, 4枚目以外にも置かない素材IDのリスト)"""
+    _side = _XPOST_LAST_FRAME_FN[:-4] + "_side.jpg"
+    if _XPOST_LAST_FRAME_FN in order:
+        return _XPOST_LAST_FRAME_FN, ([_side] if _side in order else [])
+    if _side in order:
+        return _side, []
+    return None, []
+
+
+def _xpost_enforce_last(layout: dict, order: list) -> "tuple[dict, list]":
+    """4枚目＝「その他の優秀台ピックアップ」専用（1列・1枚）の固定ルールを配置へ当てる。
+    1〜3枚目の配置はそのまま（その他と横版だけを外す）。4枚目にあった他の素材は未配置へ戻す。
+    対象が無ければ4枚目は空（1列）。戻り値: (補正後の配置, 画面に出す補正内容のリスト・補正なしは空)"""
+    import copy
+    import xpost_layout as _xl
+    lay = copy.deepcopy(_xl.normalize_layout(layout, order))
+    tgt, pair = _xpost_lock(order)
+    lock = {i for i in [tgt] + pair if i}
+    lf = _xl.N_FRAMES - 1
+    notes: list = []
+    for _fi, _fr in enumerate(lay["frames"][:lf]):
+        for _c in _fr["cols"]:
+            _rm = [i for i in _c["items"] if i in lock]
+            if _rm:
+                _c["items"] = [i for i in _c["items"] if i not in lock]
+                for _i in _rm:
+                    notes.append(f"{_fi + 1}枚目の「{_i[:-4]}」を" + ("4枚目へ移しました" if _i == tgt else "外しました（4枚目専用）"))
+    _cols4 = lay["frames"][lf]["cols"]
+    _old4 = [i for c in _cols4 for i in c["items"]]
+    for _i in _old4:
+        if _i != tgt:
+            notes.append(f"4枚目の「{_i[:-4]}」を未配置へ戻しました")
+    if len(_cols4) > 1:
+        notes.append("4枚目を1列にしました")
+    if tgt and tgt not in _old4 and not any(n.endswith("4枚目へ移しました") for n in notes):
+        notes.append(f"4枚目に「{tgt[:-4]}」を配置しました")
+    _pad = _cols4[0].get("pad", 0) if _cols4 and _cols4[0]["items"] == ([tgt] if tgt else []) else 0
+    lay["frames"][lf] = {"cols": [{"items": [tgt] if tgt else [], "pad": _pad}]}
+    lay = _xl.normalize_layout(lay, order)
+    if lay == _xl.normalize_layout(layout, order):
+        return lay, []
+    return lay, notes
+
+
+def _xpost_backup_layouts() -> "str | None":
+    """配置の保存JSON（_tmp_xpost/layouts.json）を、補正して保存する前に複製しておく（消さない・上書きしない）。"""
+    import shutil
+    import xpost_layout as _xl
+    _src = os.path.join(_xl.store_root(BASE_DIR), "layouts.json")
+    if not os.path.exists(_src):
+        return None
+    _bd = os.path.join(_xl.store_root(BASE_DIR), "backup")
+    os.makedirs(_bd, exist_ok=True)
+    _dst = os.path.join(_bd, "layouts_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f") + ".json")
+    shutil.copy2(_src, _dst)
+    return _dst
+
+
 def _xpost_auto_layout(order: list, imgs: dict, sizes: dict) -> dict:
     """自動配置（初回の自動配置と「🪄 自動配置」だけが使う）。
     「その他の優秀台ピックアップ」があれば4枚目に1枚だけ置き、残りは1〜3枚目に従来の方法で自動配置する
@@ -10934,7 +10994,7 @@ def _xpost_auto_layout(order: list, imgs: dict, sizes: dict) -> dict:
         return _xl.auto_layout(auto, sizes)
     lay = _xl.auto_layout([i for i in auto if i != tgt], sizes, max_frames=_xl.N_FRAMES - 1)
     lay["frames"][_xl.N_FRAMES - 1] = {"cols": [{"items": [tgt], "pad": 0}]}
-    return _xl.normalize_layout(lay, order)
+    return _xpost_enforce_last(lay, order)[0]
 
 
 def _xpost_unplaced_warn(order: list, imgs: dict, layout: dict) -> list:
@@ -11314,6 +11374,20 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool) -> None:
         _xl.save_record(BASE_DIR, key, rec)
         st.caption("🪄 初回のため自動配置しました（全台系→高配分の平均差枚の高い順を基本・その他の優秀台は4枚目）。")
     layout = _xl.normalize_layout(rec.get("layout"), order)
+    # 4枚目は「その他の優秀台ピックアップ」専用：保存済み配置にも当てる（1〜3枚目はそのまま・補正したら通知）
+    layout, _fix4 = _xpost_enforce_last(layout, order)
+    if _fix4:
+        _rs0 = {i: tuple(v) for i, v in (rec.get("sizes") or {}).items()}
+        _was_conf = bool(rec.get("confirmed")) and rec.get("confirmed") == _xl.layout_hash(
+            _xl.normalize_layout(rec.get("layout"), rec.get("materials") or []), _rs0)
+        _xpost_backup_layouts()
+        st.session_state[f"_xpost_fix4_{key}"] = {"notes": _fix4, "was_conf": _was_conf}
+    _fx = st.session_state.get(f"_xpost_fix4_{key}")
+    if _fx:
+        st.info("ℹ️ 4枚目は「その他の優秀台ピックアップ」専用のため、保存済みの配置を補正しました（元のJSONはバックアップ済み）："
+                + "／".join(_fx["notes"]))
+        if _fx.get("was_conf"):
+            st.warning("⚠️ 確定済みだった配置を補正しました。内容を確認して「✅ この配置で確定」を押し直してください。")
     _gone = [i for i in _xl.placed_ids(_xl.normalize_layout(rec.get("layout"), rec.get("materials") or []))
              if i not in sizes]
     _new = [i for i in order if i not in (rec.get("materials") or [])]
@@ -11338,11 +11412,12 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool) -> None:
     # （描く引数を最新にしておかないと、部品の再読み込みで1つ前の配置に戻るため）
     val = st.session_state.get(_ek)
     if isinstance(val, dict) and val.get("rev") == st.session_state[rev_key]:
-        _nl = _xl.normalize_layout(val.get("layout"), order)
+        _nl = _xpost_enforce_last(val.get("layout"), order)[0]
         if _nl != layout:
             layout = _nl
 
     def _save(lay, confirmed=None, keep_conf=True):
+        lay = _xpost_enforce_last(lay, order)[0]
         _r = {"layout": lay, "materials": order, "sizes": {i: list(sizes[i]) for i in order},
               "confirmed": (rec.get("confirmed") if keep_conf else confirmed)}
         _xl.save_record(BASE_DIR, key, _r)
@@ -11364,18 +11439,22 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool) -> None:
                          "blank": round(_s["blank"] * 100, 1), "scale": round(_s["downscale"] * 100, 1),
                          "mb": round(len(_data) / 1_000_000, 2), "q": _q,
                          "ncol": len([c for c in _fr["cols"] if c["items"]])})
+    _lk_id, _lk_pair = _xpost_lock(order)
     _xpost_component()(materials=mats, layout=layout, rev=st.session_state[rev_key], previews=previews,
+                       lock={"frame": _xl.N_FRAMES - 1, "id": _lk_id, "pair": _lk_pair},
                        key=_ek, default=None)
 
     _b1, _b2, _b3 = st.columns(3)
     with _b1:
         if st.button("🪄 自動配置", key=f"{_ek}_auto", use_container_width=True,
                      help="素材の枚数・縦横比から余白の少ない配置を提案します（その他の優秀台は4枚目・今の配置は置き換わります・↩で戻せません）"):
+            st.session_state.pop(f"_xpost_fix4_{key}", None)
             rec = _save(_xpost_auto_layout(order, imgs, sizes), keep_conf=False)
             st.session_state[rev_key] += 1
             st.rerun(scope="fragment")
     with _b2:
         if st.button("↩ すべて未配置に戻す", key=f"{_ek}_reset", use_container_width=True):
+            st.session_state.pop(f"_xpost_fix4_{key}", None)
             rec = _save(_xl.empty_layout(), keep_conf=False)
             st.session_state[rev_key] += 1
             st.rerun(scope="fragment")
@@ -11384,6 +11463,7 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool) -> None:
     with _b3:
         if st.button("✅ この配置で確定", key=f"{_ek}_conf", type="primary", use_container_width=True,
                      disabled=not _used):
+            st.session_state.pop(f"_xpost_fix4_{key}", None)
             rec = _save(layout, confirmed=_h, keep_conf=False)
     if _used and rec.get("confirmed") == _h:
         st.success("✅ 配置は確定済みです。⑧で 001〜004.jpg と結果テキストだけを出力します。")
@@ -11446,7 +11526,7 @@ def _xpost_finalize(store: str, output_dir: str, excel_name: str, with_slump: bo
     import xpost_layout as _xl
     key = _xpost_key(store, excel_name, with_slump)
     rec = _xl.load_record(BASE_DIR, key)
-    lay = _xl.normalize_layout((rec or {}).get("layout"), (rec or {}).get("materials") or [])
+    lay = _xpost_enforce_last((rec or {}).get("layout"), (rec or {}).get("materials") or [])[0]
     used = _xl.placed_ids(lay)
     if not rec or not used:
         st.warning("⚠️ X投稿用：配置が無いため、従来どおり素材画像を出力しました。")

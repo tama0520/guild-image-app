@@ -14,7 +14,7 @@ streamlit_app.py の _build_machine_img() が、スロバース店舗 × 結果�
 from __future__ import annotations
 
 import os
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 ASSET_DIR = os.path.join(_HERE, "assets", "sloverse")
@@ -505,7 +505,13 @@ SL_INFO_H = 50                            # 台番・差枚の行
 SL_RADIUS = 10
 SL_GAP = 22                               # カードの間隔・表との間隔
 SL_TAIL_H = 120                           # render_table の下端から下の枠（frame_bottom の表下端以降）
-SL_BASE_RANGE = 3000                      # 縦軸の基本レンジ ±3,000（超える台だけ 1,000 単位で広げる）
+# 縦軸は固定目盛り（2026-11-11）：+5,000〜-1,000 を 1,000 枚ごとに 7 本。表記は +5,000 と 0 だけ・0 だけ実線。
+# 台ごとの自動拡大はしない（他店舗のスランプと同じく 1,000 枚あたりの高さは固定）。
+SL_Y_TOP, SL_Y_BOT, SL_Y_STEP = 5000, -1000, 1000
+SL_Y_LABELS = {5000: "+5,000", 0: "0"}
+SL_GRID_PAD_T = 44                        # 台番行の下端〜+5,000 の線（上へはみ出す線の余白・1 倍）
+SL_GRID_PAD_B = 30                        # -1,000 の線〜カード下端（下へはみ出す線の余白・1 倍）
+SL_DASH = (7, 5)                          # 点線：線・すき間（1 倍）
 
 C_SL_FRAME    = (58, 206, 238)            # カード外枠：シアン（見出しバーの区切りと同じ）
 C_SL_NAME_T   = (22, 104, 176)            # 機種名の帯：上
@@ -518,13 +524,12 @@ C_SL_LINE     = (57, 255, 20)             # 折れ線：蛍光グリーン
 C_SL_AREA_BG  = (226, 241, 252)           # カードを並べる領域の地（表のセルより少し濃い水色）
 
 
-def _sl_range(points: list) -> int:
-    m = max((abs(float(p.get("y", 0))) for p in points), default=0)
-    # ±3,000（目盛 1,000 刻み）が基本。超える台だけ ±6,000 / ±9,000 … に広げ、目盛は常に片側 3 本
-    r = SL_BASE_RANGE
-    while m > r:
-        r += SL_BASE_RANGE
-    return r
+def _sl_dash(d, x0: float, x1: float, y: float, fill, width: int, dash: int, gap: int) -> None:
+    """横の点線（x0→x1）。"""
+    x = x0
+    while x < x1:
+        d.line([(x, y), (min(x + dash, x1), y)], fill=fill, width=width)
+        x += dash + gap
 
 
 def render_slump_card(unit_id: str, machine_name: str, points: list,
@@ -532,7 +537,9 @@ def render_slump_card(unit_id: str, machine_name: str, points: list,
     """スランプカード1枚（2 倍解像度 932×660）。
 
     diff_text が None のときは差枚を出さない（既存の show_diff=False と同じ扱い）。
-    縦軸は ±3,000 が基本。差枚がそれを超える台だけ 1,000 単位で広げ、線を枠外へ出さない。"""
+    縦軸は固定目盛り：+5,000〜-1,000 を 1,000 枚ごとに 7 本（表記は +5,000 と 0 だけ・0 だけ実線・他は点線）。
+    台ごとに目盛りを広げず、+5,000 を超える／-1,000 を下回る線はグラフ地（台番行の下〜カード下端）の中で
+    目盛りの外へはみ出して描く（他店舗のスランプと同じ考え方）。"""
     S = SL_S
     W_, H_ = SL_CARD_W * S, SL_CARD_H * S
     card = Image.new("RGB", (W_, H_), C_SL_AREA_BG)
@@ -564,25 +571,22 @@ def render_slump_card(unit_id: str, machine_name: str, points: list,
         fill = C_PLUS if diff_sign > 0 else (C_MINUS if diff_sign < 0 else C_TEXT)
         _draw_text(d, (0, y0, W_, y1), diff_text, df_, fill, "right", right_pad=16 * S)
 
-    # ── グラフ（ネイビー地・補助線・0 ライン・蛍光グリーンの折れ線）──
+    # ── グラフ（ネイビー地・固定目盛り 7 本・0 ラインだけ実線・蛍光グリーンの折れ線）──
     gx0, gx1 = 82 * S, W_ - 18 * S
-    gy0, gy1 = y1 + 16 * S, H_ - 16 * S
-    rng = _sl_range(points or [])
-    step = rng // 3
+    gy0, gy1 = y1 + SL_GRID_PAD_T * S, H_ - SL_GRID_PAD_B * S     # +5,000 の線 / -1,000 の線
     lf = _font(16 * S)
     def _y(v: float) -> float:
-        return gy0 + (rng - v) / (2 * rng) * (gy1 - gy0)
-    v = -rng
-    while v <= rng:
+        return gy0 + (SL_Y_TOP - v) / (SL_Y_TOP - SL_Y_BOT) * (gy1 - gy0)
+    for v in range(SL_Y_TOP, SL_Y_BOT - 1, -SL_Y_STEP):
         yy = _y(v)
         if v == 0:
             d.line([(gx0, yy), (gx1, yy)], fill=C_SL_ZERO, width=2 * S)
         else:
-            d.line([(gx0, yy), (gx1, yy)], fill=C_SL_GRID, width=1 * S)
-        lab = "0" if v == 0 else f"{v:+,}"
-        bb = d.textbbox((0, 0), lab, font=lf)
-        d.text((gx0 - 8 * S - bb[2], round(yy - (bb[1] + bb[3]) / 2)), lab, font=lf, fill=C_SL_LABEL)
-        v += step
+            _sl_dash(d, gx0, gx1, yy, C_SL_GRID, 2 * S, SL_DASH[0] * S, SL_DASH[1] * S)
+        lab = SL_Y_LABELS.get(v)
+        if lab:
+            bb = d.textbbox((0, 0), lab, font=lf)
+            d.text((gx0 - 8 * S - bb[2], round(yy - (bb[1] + bb[3]) / 2)), lab, font=lf, fill=C_SL_LABEL)
     d.line([(gx0, gy0), (gx0, gy1)], fill=C_SL_GRID, width=1 * S)
 
     pts = points or []
@@ -590,12 +594,18 @@ def render_slump_card(unit_id: str, machine_name: str, points: list,
         max_x = max(float(p.get("x", 0)) for p in pts)
         if max_x > 0:
             xy = [(gx0 + float(p["x"]) / max_x * (gx1 - gx0), _y(float(p["y"]))) for p in pts]
+            # 目盛りの外へはみ出した線もグラフ地（台番行の下端〜カード下端）の中は描く。台番・差枚の行には重ねない
+            area = Image.new("L", (W_, H_), 0)
+            ImageDraw.Draw(area).rectangle([0, y1, W_, H_], fill=255)
             glow = Image.new("L", (W_, H_), 0)
             ImageDraw.Draw(glow).line(xy, fill=255, width=10 * S, joint="curve")
             glow = glow.filter(ImageFilter.GaussianBlur(5 * S))
-            body.paste(Image.new("RGB", (W_, H_), C_SL_LINE), (0, 0), glow.point(lambda a: int(a * 0.45)))
+            glow = ImageChops.multiply(glow.point(lambda a: int(a * 0.45)), area)
+            body.paste(Image.new("RGB", (W_, H_), C_SL_LINE), (0, 0), glow)
+            lm = Image.new("L", (W_, H_), 0)
+            ImageDraw.Draw(lm).line(xy, fill=255, width=4 * S, joint="curve")
+            body.paste(Image.new("RGB", (W_, H_), C_SL_LINE), (0, 0), ImageChops.multiply(lm, area))
             d = ImageDraw.Draw(body)
-            d.line(xy, fill=C_SL_LINE, width=4 * S, joint="curve")
 
     card.paste(body, (0, 0), mask)
     ImageDraw.Draw(card).rounded_rectangle([1, 1, W_ - 2, H_ - 2], radius=SL_RADIUS * S,

@@ -5212,6 +5212,7 @@ _ITYPE_BTN_HIDE: "frozenset[tuple[str, str]]" = frozenset({
     ("新宿歌舞伎町", "auto_slump_btn"),     # 📊 かぶぱポストの結果用
     ("秋葉原", "auto_article_btn"),         # 📰 記事用
     ("稲毛", "auto_slump_btn"),             # 📊 スランプ付き結果ポスト用（2026-11-10 追加）
+    ("モグ玄・新宿歌舞伎町", "rote_mode_btn"),  # 📋 ローテ用（2026-11-11 追加）
 })
 
 
@@ -5423,21 +5424,11 @@ def show_image_type_page() -> None:
                 </style>""",
                 unsafe_allow_html=True,
             )
-            _col_l, _col_r = st.columns(2)
-            with _col_l:
-                if st.button(
-                    "📈 スランプ付き結果ポスト用",
-                    key="auto_slump2_btn",
-                    use_container_width=True,
-                ):
-                    _navigate("auto_slump2")
-            with _col_r:
-                if st.button(
-                    "📋 ローテ用",
-                    key="rote_mode_btn",
-                    use_container_width=True,
-                ):
-                    _navigate("rote")
+            # ローテ用は _ITYPE_BTN_HIDE で非表示（2026-11-11・ページ/処理は残す）
+            _itype_btn_grid(store, [
+                ("📈 スランプ付き結果ポスト用", "auto_slump2_btn", "auto_slump2", False),
+                ("📋 ローテ用", "rote_mode_btn", "rote", False),
+            ])
         elif store == "新宿歌舞伎町":
             # 新宿歌舞伎町：①かぶぱポストの結果（auto_slump）＋
             # ②スランプ付き結果（auto_slump2・上野新館型）＋ ③ローテ用。

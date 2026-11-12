@@ -32894,6 +32894,42 @@ def show_weekly_result_text_page() -> None:
         _navigate("image_type")
 
 
+# 機種名変換「🔍 pisionチェック」の店舗一覧（表示だけを整理する。内部キー・設定ファイル・取得処理は変えない）。
+# 系列は表示名に含まれる文字で分け、エスパス → マルハン → 楽園 → その他 の順に並べる（系列内は従来の登録順）。
+_NC_STORE_SERIES: "tuple[str, ...]" = ("エスパス", "マルハン", "楽園")
+
+
+def _nc_store_label(store: str) -> str:
+    """機種名変換の店舗選択に出す表示名。既存店舗（STORES）は頭に「エスパス」を付ける
+    （既に付いていれば重ねない）。その他・YG・スロバースは従来どおり display_name。"""
+    if store in STORES:
+        return store if store.startswith("エスパス") else f"エスパス{store}"
+    return _other_display_name(store) or store
+
+
+def _nc_store_options() -> list:
+    """機種名変換の店舗選択肢（内部キーのリスト）。
+    スロバース用の店舗が、一覧にある通常の店舗（既存・その他・YG）と同じ店舗
+    （表示名が同じ、または Pision hall_id が同じ）を指すときは、表示からだけ外して通常側を残す。
+    設定ファイル・内部キーは統合しない。"""
+    _base = [_s for _s in STORES if _s not in _STORE_DATA_ALIAS] + [
+        _s for _s in _load_other_stores().keys() if _s not in STORES]
+    _regular = [_s for _s in _base if not _is_sloverse_store(_s)]
+    _names = {_nc_store_label(_s) for _s in _regular}
+    _halls = {_other_hall_id(_s) for _s in _regular if _is_other_store(_s)} - {None}
+    _opts = [_s for _s in _base
+             if not (_is_sloverse_store(_s)
+                     and (_nc_store_label(_s) in _names or _other_hall_id(_s) in _halls))]
+
+    def _series(_s: str) -> int:
+        _nm = _nc_store_label(_s)
+        for _i, _g in enumerate(_NC_STORE_SERIES):
+            if _g in _nm:
+                return _i
+        return len(_NC_STORE_SERIES)
+    return sorted(_opts, key=_series)
+
+
 def show_name_conversion_page() -> None:
     """機種名変換ページ（タブ構成）"""
     st.markdown("## 機種名変換")
@@ -33105,14 +33141,15 @@ def show_name_conversion_page() -> None:
         else:
             _nc_col1, _nc_col2 = st.columns(2)
             with _nc_col1:
-                # 既存13店舗（STORES）はそのままの順序で、その下へ「その他」配下を追加する。
-                # 設定ファイル（store_settings/_other_stores.json）から動的に読むので、
-                # 店舗が増えてもコード変更は不要。表示は display_name（「エスパス」を付けない）。
-                _nc_opts = [_s for _s in STORES if _s not in _STORE_DATA_ALIAS] + [
-                    _s for _s in _load_other_stores().keys() if _s not in STORES]
+                # 店舗一覧は _nc_store_options()（既存・その他・YG・スロバースを設定から動的に読み、
+                # 同じ店舗の重複を表示から外して エスパス → マルハン → 楽園 → その他 の順）。
+                # 選択値は内部キーのまま。表示だけ _nc_store_label()（既存店舗は「エスパス」付き）。
+                _nc_opts = _nc_store_options()
+                if st.session_state.get("nc_pision_store") not in _nc_opts:
+                    st.session_state.pop("nc_pision_store", None)
                 _nc_store = st.selectbox(
                     "店舗を選択", _nc_opts, key="nc_pision_store",
-                    format_func=lambda _s: _other_display_name(_s) or _s)
+                    format_func=_nc_store_label)
             with _nc_col2:
                 _nc_mode = st.radio(
                     "データ種別",

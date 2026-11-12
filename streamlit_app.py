@@ -12351,6 +12351,14 @@ _ART_WP_NANAKO_LAST_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
 # ⑥ブロックを出さない店舗で、全台データ画像を「冒頭の直後」へ置く平均差枚の下限。
 # これ未満（かつ _ART_ZENDAI_MIN_AVG 以上）は「かぶぱブロックの後ろ」へ置く。
 _ART_ZENDAI_TOP_MIN_AVG = 150
+# 冒頭直後（zendai_top）に置く全台データ画像の直前へ H2「総差枚±N枚」を入れる店舗（2026-11-12）。
+# 置く条件は zendai_top と同じ（平均差枚 +150枚以上）。+150枚未満の配置・見出しなしは従来どおり。
+_ART_ZENDAI_TOP_H2_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+
+
+def _art_zendai_top_h2(total_diff) -> str:
+    """H2文言「総差枚+47,300枚」（符号つき・3桁カンマ）。数値は呼び出し側の total_diff をそのまま使う。"""
+    return f"総差枚{int(total_diff):+,}枚"
 
 # 差枚数ランキング画像をネイティブ2倍で描く店舗（WordPress掲載時の鮮明さ優先）。
 # ランキング自体 `_ART_RANK_STORES` の店舗しか作らないが、**倍率の gate は別に持つ**
@@ -29023,9 +29031,15 @@ def show_auto_article_page() -> None:
                     #   +150枚以上 → 冒頭の直後 ／ +50〜+149枚 → かぶぱブロック全体の後ろ
                     #   +49枚以下 → 画像自体を作らない（⑧が前回分を _rm_stale_image で削除）
                     if store in _ART_ZENDAI_STORES and not _art_rank_blk:
-                        _zd_avg_wp = (_art_zendai_stat(result.get("diff_raw")) or {}).get("avg_diff")
+                        _zd_st_wp = _art_zendai_stat(result.get("diff_raw")) or {}
+                        _zd_avg_wp = _zd_st_wp.get("avg_diff")
                         if _zd_avg_wp is not None and _zd_avg_wp >= _ART_ZENDAI_TOP_MIN_AVG:
                             _art_wp_pl["zendai_top"] = [_ART_ZENDAI_FN]
+                            # 画像の直前へ H2「総差枚±N枚」（_ART_ZENDAI_TOP_H2_STORES だけ）。
+                            # 総差枚は画像・結果テキストと同じ _zendai_total_stat の total_diff（再計算しない）。
+                            if (store in _ART_ZENDAI_TOP_H2_STORES
+                                    and _zd_st_wp.get("total_diff") is not None):
+                                _art_wp_pl["zendai_top_h2"] = _art_zendai_top_h2(_zd_st_wp["total_diff"])
                         elif _zd_avg_wp is not None and _zd_avg_wp >= _ART_ZENDAI_MIN_AVG:
                             _art_wp_pl["zendai_bottom"] = [_ART_ZENDAI_FN]
                     # ⑥島図。**⑥を出す店舗のうち島図が無い店舗だけ**を空にする。

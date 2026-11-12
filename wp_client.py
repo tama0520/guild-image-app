@@ -1197,9 +1197,15 @@ def plan_blocks(payload: dict) -> list[dict]:
 
     # ── 全台データ画像（冒頭の直後・payload["zendai_top"] を渡した店舗のみ）──
     #    新宿歌舞伎町の記事用は⑥ブロック（差枚数ランキング）を出さないため、
-    #    全台データ画像だけを冒頭の直後へ独立して置く（H2は付けない）。
+    #    全台データ画像だけを冒頭の直後へ独立して置く。
+    #    payload["zendai_top_h2"]（「総差枚+47,300枚」）を渡した店舗だけ、画像の直前へH2を1回入れる
+    #    （2026-11-12）。画像が実在しないときはH2も出さない（見出しだけ残さない）。
     #    キーを渡さない店舗は1ブロックも増えない。実在しなければ何も出さない。
-    for fn in _existing_files(payload.get("zendai_top"), out_dir):
+    _zt_files = _existing_files(payload.get("zendai_top"), out_dir)
+    _zt_h2 = str(payload.get("zendai_top_h2") or "").strip()
+    if _zt_files and _zt_h2:
+        plan.append({"type": "h2", "text": _zt_h2})
+    for fn in _zt_files:
         plan.append({"type": "image", "file": fn, "label": f"全台データ {fn}"})
 
     # ── ななこポスト（渋谷新館の記事用のみ・2026-09-04 追加）──────────────

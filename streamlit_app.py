@@ -11232,13 +11232,69 @@ def _slv_ai_generate(store: str) -> None:
         st.session_state[f"slv_ai_out_{store}"] = _full
         st.session_state[f"_slv_ai_lastgen_{store}"] = _full
         st.session_state[f"_slv_ai_n_{store}"] = _n + 1
+        # どのAI用データ（＝どの結果テキスト）から作った文章か（⑧で結果.txt に使ってよいかの確認用）
+        st.session_state[f"_slv_ai_gen_{store}"] = {
+            "sig": _src.get("sig"), "excel": _src.get("excel"), "xmode": _src.get("xmode"),
+            "text": _src.get("text", "")}
 
 
 def _slv_ai_keep_text(store: str) -> None:
     st.session_state[f"_slv_ai_text_{store}"] = st.session_state.get(f"slv_ai_out_{store}", "")
 
 
-def _slv_ai_panel(store: str, excel_name: str, with_slump: bool) -> None:
+def _slv_ai_exec_text(store: str, excel_name: str, with_slump: bool,
+                      report_text: "str | None" = None) -> "tuple[str | None, str]":
+    """⑧で結果.txt に保存するAI文章（編集欄の今の内容・全文）と、使えない理由。
+    使えるのは、AI文章を生成済みで、生成に使ったAI用データが今のデータ（Excel・📝モード・⑥の状態）と同じとき。
+    report_text（⑧で作った従来の結果テキスト）を渡すと、AI文章を作ったときの結果テキストと同じことも確かめる。
+    使えないときは (None, 理由)。理由が空なら「AI文章が未生成」。APIは呼ばない。"""
+    _gen = st.session_state.get(f"_slv_ai_gen_{store}")
+    if not _gen or not st.session_state.get(f"_slv_ai_text_{store}"):
+        return None, ""
+    _txt = st.session_state.get(f"slv_ai_out_{store}")
+    if _txt is None:
+        _txt = st.session_state.get(f"_slv_ai_text_{store}")
+    if not (_txt or "").strip():
+        return None, "AI文章の欄が空のため"
+    _src, _why = _slv_ai_src_state(store, excel_name, with_slump)
+    if _src is None or _src.get("sig") != _gen.get("sig") or _src.get("text") != _gen.get("text"):
+        return None, "AI文章が今のデータ（Excel・⑥の設定やチェック）より前のデータで作られているため"
+    if report_text is not None and report_text != _gen.get("text"):
+        return None, "⑧で作った結果テキストが、AI文章を作ったときの結果テキストと違うため"
+    return _txt, ""
+
+
+def _slv_ai_report_for_exec(store: str, excel_name: str, with_slump: bool, report_text: str) -> str:
+    """⑧（ドライランではない）で結果.txt に書く文章。AI文章が今のデータで生成済みなら編集欄の文章（全文）、
+    そうでなければ従来の結果テキストをそのまま返す（APIは呼ばない・再生成しない・二重に連結しない）。"""
+    _txt, _why = _slv_ai_exec_text(store, excel_name, with_slump, report_text)
+    if _txt is not None:
+        _note = ("ok", "🤖 結果.txt には AI文章（編集欄の内容・全文）を保存しました。")
+    elif _why:
+        _note = ("warn", f"⚠️ {_why}、結果.txt には従来の結果テキストを保存しました。")
+    else:
+        _note = ("info", "ℹ️ AI文章が未生成のため、結果.txt には従来の結果テキストを保存しました。")
+    st.session_state[f"_slv_rt_note_{store}"] = _note
+    return report_text if _txt is None else _txt
+
+
+def _slv_rt_note_show(store: str) -> None:
+    """⑧の「📄 結果.txt を保存しました」の下に、保存した文章の種類（AI文章／従来）を出す。"""
+    _n = st.session_state.pop(f"_slv_rt_note_{store}", None)
+    if _n:
+        {"ok": st.success, "warn": st.warning}.get(_n[0], st.info)(_n[1])
+
+
+def _slv_exec_button(store: str, exec_label: str) -> None:
+    """スロバース用の⑧（▶▶ 自動処理を開始）ボタン。🤖 AI文章の編集欄の直下（欄が無いときはX投稿エディターの最後）に
+    1つだけ出す。押すとページ全体を再実行し、従来の⑧の処理（確定チェック・出力）をそのまま行う。"""
+    st.markdown(f"### {exec_label} 実行")
+    if st.button("▶▶ 自動処理を開始", type="primary", use_container_width=True, key=f"slv_ai_exec_{store}"):
+        st.session_state[f"_slv_exec_req_{store}"] = True
+        st.rerun(scope="app")
+
+
+def _slv_ai_panel(store: str, excel_name: str, with_slump: bool, exec_label: str = "") -> None:
     """X投稿用の配置を「✅ この配置で確定」した直後に出す「🤖 AI文章」欄（スロバース店舗だけ）。
     配置の確定ではAPIを呼ばない。生成ボタンを押したときだけ、必要なら⑧と同じ処理を一時フォルダで
     実行して結果テキストとAI用データを作り（保存・出力・pushなし）、AI部分を作る。
@@ -11250,7 +11306,8 @@ def _slv_ai_panel(store: str, excel_name: str, with_slump: bool) -> None:
     st.markdown("---")
     st.markdown("### 🤖 AI文章（X投稿用の下書き）")
     st.caption("AIの分析文の後ろに、結果テキストの「🏆全台」〜「🏆その他の単品優秀台」をそのまま付けます。"
-               "ボタンを押したときだけ作り、ファイル保存・ZIP・投稿はしません（⑧の出力とは別です）。")
+               "ボタンを押したときだけ作ります（生成ではファイル保存・投稿はしません）。"
+               "⑧では、下の欄の文章をそのまま結果.txt に保存します（未生成のときは従来の結果テキスト）。")
     if _src is None:
         st.info("ℹ️ 生成を押すと、まず⑧と同じ集計を行って結果テキストとAI用データを作ります"
                 "（画像は描かず数秒・デスクトップ保存・ZIP・自動pushはしません）。" + (f"\n\n{_why}" if _why else ""))
@@ -11344,6 +11401,8 @@ def _slv_ai_panel(store: str, excel_name: str, with_slump: bool) -> None:
     if _meta.get("warning"):
         st.warning("⚠️ " + _meta["warning"])
     if not _has:
+        if exec_label:
+            _slv_exec_button(store, exec_label)
         return
     if _meta and not _meta.get("mock") and _meta.get("model"):
         st.caption(f"モデル {_meta['model']}／入力 {_meta['in']:,}・出力 {_meta['out']:,}トークン"
@@ -11377,12 +11436,20 @@ def _slv_ai_panel(store: str, excel_name: str, with_slump: bool) -> None:
         st.warning("⚠️ 設定に関わる表現があります（データでは確認できません）：" + " ／ ".join(_set))
     if _intp:
         st.info("ℹ️ 解釈・見立て・因果を含む表現です（数値の根拠を確認してください）：" + " ／ ".join(_intp))
-    st.caption("コピー用（右上のアイコンで全文をコピー）")
+    if exec_label:
+        # ⑧ボタンは編集欄（と、その文字数・注意）の直下
+        _ex_txt, _ex_why = _slv_ai_exec_text(store, excel_name, with_slump)
+        if _ex_txt is not None:
+            st.caption("📄 ⑧では、この欄の文章をそのまま結果.txt に保存します。")
+        else:
+            st.warning("⚠️ " + (_ex_why or "AI文章が未生成のため") + "、⑧では従来の結果テキストを結果.txt に保存します"
+                       "（AI文章を使うときは「🔄 データを作り直す」のあと再生成してください）。")
+        _slv_exec_button(store, exec_label)
     st.code(_cur, language=None, wrap_lines=True)
 
 
 @st.fragment
-def _xpost_editor(store: str, excel_name: str, with_slump: bool) -> None:
+def _xpost_editor(store: str, excel_name: str, with_slump: bool, exec_label: str = "") -> None:
     """⑥〜⑧の間に出す「X投稿用の画像（最大4枚）」エディター（fragment：操作でページ全体を再実行しない）。"""
     _slv_fast_restore()
     import xpost_layout as _xl
@@ -11392,6 +11459,8 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool) -> None:
     order, imgs, meta, src = _xpost_materials(store, excel_name, with_slump)
     if not order:
         st.info("⑥でプレビューを作成すると、ここで素材を最大4枚の画像にまとめられます。")
+        if exec_label:
+            _slv_exec_button(store, exec_label)
         return
     if src == "stored":
         st.caption("📦 ⑥のプレビューが無いため、前回⑧で保持した素材を表示しています。")
@@ -11497,10 +11566,9 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool) -> None:
                      disabled=not _used):
             st.session_state.pop(f"_xpost_fix4_{key}", None)
             rec = _save(layout, confirmed=_h, keep_conf=False)
-    if _used and rec.get("confirmed") == _h:
+    _conf_ok = bool(_used) and rec.get("confirmed") == _h
+    if _conf_ok:
         st.success("✅ 配置は確定済みです。⑧で 001〜004.jpg と結果テキストだけを出力します。")
-        if _is_sloverse_store(store):
-            _slv_ai_panel(store, excel_name, with_slump)
     elif _used:
         st.warning("⚠️ 配置が未確定です。⑧の前に「✅ この配置で確定」を押してください"
                    "（未確定のままでは⑧は実行されず、出力フォルダも変わりません）。")
@@ -11533,20 +11601,19 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool) -> None:
                     f'<div style="overflow:auto;max-height:78vh;border:1px solid #ccd;background:#fff">'
                     f'<img src="data:image/jpeg;base64,{_b64}" style="display:block;width:{_s["width"]}px;'
                     f'max-width:none;height:auto"></div>', unsafe_allow_html=True)
-                st.caption("画面表示：出力画像の100%（1px＝1px）")
         else:
             st.image(_data, use_container_width=True)
-            st.caption("画面表示：画面の幅に合わせて完成画像全体を同じ倍率で縮小（出力の倍率とは別）")
+        # 寸法・倍率・余白・JPEG容量/品質の説明は出さない（結合・品質・寸法の計算は変えない）。
+        # 50%未満まで縮小される（文字が小さくなる）ときだけ注意を出す
         _f = _s["downscale"]
-        _out = (f"出力の倍率：素材はすべて100%（等倍のまま）" if _f >= 0.9995 else
-                f"出力の倍率：完成画像全体を{_f * 100:.1f}%に一括縮小（素材ごとの倍率はすべて同じ{_f * 100:.1f}%）")
-        st.caption(f"等倍で結合 {_s['native_w']}×{_s['native_h']}px → 出力 {_s['width']}×{_s['height']}px"
-                   f"（縦横比 1:{_s['ratio']:.2f}）・{_out}・余白{_s['blank'] * 100:.1f}%・"
-                   f"JPEG {len(_data) / 1_000_000:.2f}MB（品質{_q}）")
-        if _f < 0.9995:
+        if _f < _xl.WARN_SCALE:
             st.warning(f"⚠️ 長辺が{_xl.MAX_LONG}pxを超えるため、完成画像全体を{_f * 100:.1f}%に縮小して出力します"
-                       + ("（50%未満：文字が小さくなります。列を減らすか、別の枚に分けてください）" if _f < _xl.WARN_SCALE else "")
-                       + "。")
+                       "（50%未満：文字が小さくなります。列を減らすか、別の枚に分けてください）。")
+    # 🤖 AI文章（配置の確定後だけ）→ 編集欄の直下に⑧ボタン。AI欄が無いときはここに⑧ボタン
+    if _conf_ok and _is_sloverse_store(store):
+        _slv_ai_panel(store, excel_name, with_slump, exec_label)
+    elif exec_label:
+        _slv_exec_button(store, exec_label)
 
 
 # X投稿用の内部素材（⑧で 001〜004.jpg を作った元の個別画像）を残す日数。
@@ -21743,14 +21810,18 @@ def show_auto_page(with_slump: bool = False) -> None:
                         st.session_state.pop(f"_manual_preview_mode_{store}", None)
                     st.rerun()
 
-    # スロバース用：⑥の素材を X投稿用の最大4枚へまとめるエディター
+    # スロバース用：⑥の素材を X投稿用の最大4枚へまとめるエディター。
+    # ⑧の実行ボタンはエディターの中（🤖 AI文章の編集欄の直下）に1つだけ出し、下の共通ボタンは出さない
+    _slv_inline_run = uploaded is not None and _xpost_on(store) and _is_sloverse_store(store)
     if uploaded is not None and _xpost_on(store):
         if _is_sloverse_store(store):
             st.session_state[f"_slv_sig_{store}"] = _slv_input_sig(store, uploaded, with_slump)
-        _xpost_editor(store, uploaded.name, with_slump)
+        _xpost_editor(store, uploaded.name, with_slump, (_sec_num() if _slv_inline_run else ""))
+    _slv_exec_req = bool(st.session_state.pop(f"_slv_exec_req_{store}", False))
 
     # ── ⑧ 実行ボタン（常に描画・ファイル未選択時は disabled）─────────
-    st.markdown(f"### {_sec_num()} 実行")
+    if not _slv_inline_run:
+        st.markdown(f"### {_sec_num()} 実行")
     # 新宿歌舞伎町（かぶぱ）×スマホ幅（≤640px）のみ：プレビュー前は「自動処理を開始」を
     # 非表示、プレビュー後はグレーで控えめにして誤爆を防ぐ。PC幅・他店舗は無変更。
     if _is_kabupa_pg:
@@ -21765,13 +21836,16 @@ def show_auto_page(with_slump: bool = False) -> None:
                 "background:#6c757d!important;border-color:#6c757d!important;color:#fff!important;}}</style>",
                 unsafe_allow_html=True,
             )
-    run_clicked = st.button(
-        "▶▶ 自動処理を開始",
-        type="primary",
-        use_container_width=True,
-        disabled=(uploaded is None),
-        key="auto_run",
-    )
+    if _slv_inline_run:
+        run_clicked = _slv_exec_req   # エディター内の⑧ボタン（押すとページ全体を再実行）
+    else:
+        run_clicked = st.button(
+            "▶▶ 自動処理を開始",
+            type="primary",
+            use_container_width=True,
+            disabled=(uploaded is None),
+            key="auto_run",
+        )
     # Cloud のみ：ボタン直下にZIPダウンロード用スロットを確保
     _auto_zip_slot = st.empty() if _IS_CLOUD else None
 
@@ -22678,6 +22752,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                         for _old_rt, _new_rt in STORE_RESULT_TRANSFORMS.get(store, []):
                             _m_report_text = _m_report_text.replace(_old_rt, _new_rt)
                         _txt_name_m = (f"{_m_date.month:02d}{_m_date.day:02d}_結果.txt" if _m_date else "結果.txt")
+                        if not _slv_dry and _is_sloverse_store(store):
+                            # スロバース用：🤖 AI文章を今のデータで生成済みなら、編集欄の文章（全文）を結果.txt にする
+                            _m_report_text = _slv_ai_report_for_exec(store, uploaded.name, with_slump, _m_report_text)
                         with open(os.path.join(output_dir, _txt_name_m), "w", encoding="utf-8") as _f_rt:
                             _f_rt.write(_m_report_text)
                         if _slv_dry:
@@ -22719,6 +22796,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     st.caption(f"📄 {_txt_name_m} をZIPに含めます")
                 else:
                     st.caption(f"📄 {_txt_name_m} を保存しました")
+                _slv_rt_note_show(store)
                 import html as _html_m
                 _safe_m = _html_m.escape(_m_report_text)
                 _lines_m = _m_report_text.count("\n") + 1
@@ -24632,6 +24710,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                 _txt_name = f"{_date.month:02d}{_date.day:02d}_結果.txt"
             else:
                 _txt_name = "結果.txt"
+            if not _slv_dry and _is_sloverse_store(store):
+                # スロバース用：🤖 AI文章を今のデータで生成済みなら、編集欄の文章（全文）を結果.txt にする
+                report_text = _slv_ai_report_for_exec(store, uploaded.name, with_slump, report_text)
             _txt_path = os.path.join(output_dir, _txt_name)
             try:
                 with open(_txt_path, "w", encoding="utf-8") as _f:
@@ -24643,6 +24724,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     st.caption(f"📄 {_txt_name} をZIPに含めます")
                 else:
                     st.caption(f"📄 {_txt_name} を保存しました")
+                _slv_rt_note_show(store)
             except Exception as _e:
                 st.warning(f"結果.txt の保存に失敗: {_e}")
             if _slv_dry:

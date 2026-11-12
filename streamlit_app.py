@@ -5180,13 +5180,13 @@ def show_sloverse_store_page() -> None:
         if _cur not in _by:
             _cur = None
         if _cur is None:
-            st.caption("グループを選んでください")
-            # 2列×2段（PCでも文字が折り返さない幅・スマホでは縦に4つ並ぶ）
+            # 2列×2段（PCでも文字が折り返さない幅・スマホでは縦に4つ並ぶ）。
+            # 色は店舗ボタンと同じ白（既定の secondary）・店舗数は登録内容から数える
             for _r in range(0, len(_SLOVERSE_STORE_GROUPS), 2):
                 _gcols = st.columns(2)
                 for _j, _g in enumerate(_SLOVERSE_STORE_GROUPS[_r:_r + 2]):
                     with _gcols[_j]:
-                        if st.button(f"{_g}（{len(_by[_g])}）", key=f"sloverse_group_{_g}", type="primary",
+                        if st.button(f"{_g}（{len(_by[_g])}店舗）", key=f"sloverse_group_{_g}",
                                      use_container_width=True, disabled=not _by[_g]):
                             st.session_state["_slv_group"] = _g
                             st.rerun()

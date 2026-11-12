@@ -1,5 +1,5 @@
 {
-  "_comment": "「スロバース用」配下の店舗設定（書式は _yg_stores.json と同じ）。読込時に「その他」と同じ店舗集合へ合流し _group: \"sloverse\" が付く（その他・YG用の一覧には出ない）。pision_hall_id は Pision の /api/v2/halls で確認した確定データ用の値（マルハン新宿東宝＝11。id 3514 は速報用で results が 404 のため使わない／マルハン亀有＝1105。同名ホールは1件だけで速報用IDなし・2026-11-04/05 の確定データ536台を確認）。速報・slotterguild は使わない。image_types は暫定（④末尾のUI表示判定にだけ使われる）。side・panel は現行コードで参照されないため未設定（未確定事項）。",
+  "_comment": "「スロバース用」配下の店舗設定（書式は _yg_stores.json と同じ）。読込時に「その他」と同じ店舗集合へ合流し _group: \"sloverse\" が付く（その他・YG用の一覧には出ない）。pision_hall_id は Pision の /api/v2/halls で確認した確定データ用の値（マルハン新宿東宝＝11。id 3514 は速報用で results が 404 のため使わない／マルハン亀有＝1105。同名ホールは1件だけで速報用IDなし・2026-11-04/05 の確定データ536台を確認）。速報・slotterguild は使わない。image_types は暫定（④末尾のUI表示判定にだけ使われる）。side・panel は現行コードで参照されないため未設定（未確定事項）。　2026-11-12 追加10店舗（Pision /api/v2/halls の完全一致名で確認・2026-11-10/11 の確定データを取得）：マルハン池袋SLOT BASE＝1182／マルハン鹿浜＝1103（速報用 3577 は使わない）／楽園池袋＝1203／楽園池袋グリーンサイド＝3588／楽園立川＝1221／エスパス新宿歌舞伎町＝501／エスパス上野新館＝201／エスパス高田馬場＝503／エスパス西武新宿＝508／アイランド秋葉原＝4。エスパス4店舗は通常店舗（新宿歌舞伎町・上野新館・高田馬場・西武新宿＝結果テキストでは「エスパス〇〇」）と保存・設定・出力を分けるため内部キーに（スロバース）を付ける。",
   "stores": {
     "マルハン新宿東宝": {
       "display_name": "マルハン新宿東宝",
@@ -74,6 +74,76 @@
     "大山オーシャン（スロバース）": {
       "display_name": "大山オーシャン",
       "pision_hall_id": "270",
+      "slotterguild": false,
+      "realtime": false,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "マルハン池袋SLOT BASE": {
+      "display_name": "マルハン池袋SLOT BASE",
+      "pision_hall_id": "1182",
+      "slotterguild": false,
+      "realtime": false,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "マルハン鹿浜": {
+      "display_name": "マルハン鹿浜",
+      "pision_hall_id": "1103",
+      "slotterguild": false,
+      "realtime": false,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "楽園池袋": {
+      "display_name": "楽園池袋",
+      "pision_hall_id": "1203",
+      "slotterguild": false,
+      "realtime": false,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "楽園池袋グリーンサイド": {
+      "display_name": "楽園池袋グリーンサイド",
+      "pision_hall_id": "3588",
+      "slotterguild": false,
+      "realtime": false,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "楽園立川": {
+      "display_name": "楽園立川",
+      "pision_hall_id": "1221",
+      "slotterguild": false,
+      "realtime": false,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "エスパス新宿歌舞伎町（スロバース）": {
+      "display_name": "エスパス新宿歌舞伎町",
+      "pision_hall_id": "501",
+      "slotterguild": false,
+      "realtime": false,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "エスパス上野新館（スロバース）": {
+      "display_name": "エスパス上野新館",
+      "pision_hall_id": "201",
+      "slotterguild": false,
+      "realtime": false,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "エスパス高田馬場（スロバース）": {
+      "display_name": "エスパス高田馬場",
+      "pision_hall_id": "503",
+      "slotterguild": false,
+      "realtime": false,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "エスパス西武新宿（スロバース）": {
+      "display_name": "エスパス西武新宿",
+      "pision_hall_id": "508",
+      "slotterguild": false,
+      "realtime": false,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "アイランド秋葉原": {
+      "display_name": "アイランド秋葉原",
+      "pision_hall_id": "4",
       "slotterguild": false,
       "realtime": false,
       "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]

@@ -5145,26 +5145,67 @@ def show_yg_store_page() -> None:
         _navigate("store")
 
 
+# スロバース用の店舗選択のグループ（表示順）。表示名（display_name）で分ける：
+# 「マルハン」を含む → マルハン／「楽園」→ 楽園／「エスパス」→ エスパス／それ以外 → その他。
+# 内部キーの「（スロバース）」は分類・表示に使わない（display_name で判定）。
+_SLOVERSE_STORE_GROUPS: "tuple[str, ...]" = ("マルハン", "楽園", "エスパス", "その他")
+
+
+def _sloverse_store_group(store: str) -> str:
+    """スロバース用店舗の選択グループ（表示名で判定）。"""
+    _nm = _other_display_name(store) or store
+    for _g in _SLOVERSE_STORE_GROUPS[:-1]:
+        if _g in _nm:
+            return _g
+    return _SLOVERSE_STORE_GROUPS[-1]
+
+
 def show_sloverse_store_page() -> None:
-    """画面: 「スロバース用」配下の店舗選択（店舗ごとにボタン・YG用と同じ4列）。
+    """画面: 「スロバース用」配下の店舗選択。
+    まず4つのグループ（マルハン／楽園／エスパス／その他）を出し、押したグループの店舗ボタンを4列で出す。
+    選んだグループは session_state（_slv_group）に覚え、機能選択から「← 戻る」で同じグループへ戻る。
 
     対象店舗は store_settings/_sloverse_stores.json だけで管理する。
-    店舗を押すと機能選択（page=sloverse_store）へ進む。"""
+    店舗を押すと機能選択（page=sloverse_store）へ進む（店舗選択後の機能は従来どおり）。"""
     st.markdown("## 【スロバース用】")
     st.markdown("---")
     _slvs = _other_group_stores(_SLOVERSE_GROUP)
     if not _slvs:
         st.warning("`store_settings/_sloverse_stores.json` に店舗が登録されていません。")
     else:
-        _cols = st.columns(4)
-        for _i, _nm in enumerate(_slvs.keys()):
-            with _cols[_i % len(_cols)]:
-                if st.button(_other_display_name(_nm) or _nm, key=f"sloverse_store_{_nm}",
-                             use_container_width=True):
-                    _navigate("sloverse_store", store=_nm)
+        _by: dict = {_g: [] for _g in _SLOVERSE_STORE_GROUPS}
+        for _nm in _slvs.keys():
+            _by[_sloverse_store_group(_nm)].append(_nm)
+        _cur = st.session_state.get("_slv_group")
+        if _cur not in _by:
+            _cur = None
+        if _cur is None:
+            st.caption("グループを選んでください")
+            # 2列×2段（PCでも文字が折り返さない幅・スマホでは縦に4つ並ぶ）
+            for _r in range(0, len(_SLOVERSE_STORE_GROUPS), 2):
+                _gcols = st.columns(2)
+                for _j, _g in enumerate(_SLOVERSE_STORE_GROUPS[_r:_r + 2]):
+                    with _gcols[_j]:
+                        if st.button(f"{_g}（{len(_by[_g])}）", key=f"sloverse_group_{_g}", type="primary",
+                                     use_container_width=True, disabled=not _by[_g]):
+                            st.session_state["_slv_group"] = _g
+                            st.rerun()
+        else:
+            st.markdown(f"#### {_cur}（{len(_by[_cur])}店舗）")
+            _cols = st.columns(4)
+            for _i, _nm in enumerate(_by[_cur]):
+                with _cols[_i % len(_cols)]:
+                    if st.button(_other_display_name(_nm) or _nm, key=f"sloverse_store_{_nm}",
+                                 use_container_width=True):
+                        _navigate("sloverse_store", store=_nm)
+            st.markdown("")
+            if st.button("← グループ選択に戻る", key="back_to_sloverse_groups"):
+                st.session_state.pop("_slv_group", None)
+                st.rerun()
 
     st.markdown("---")
     if st.button("← 店舗選択に戻る", key="back_to_store_from_sloverse"):
+        st.session_state.pop("_slv_group", None)
         _navigate("store")
 
 

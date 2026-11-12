@@ -5213,6 +5213,7 @@ _ITYPE_BTN_HIDE: "frozenset[tuple[str, str]]" = frozenset({
     ("秋葉原", "auto_article_btn"),         # 📰 記事用
     ("稲毛", "auto_slump_btn"),             # 📊 スランプ付き結果ポスト用（2026-11-10 追加）
     ("モグ玄・新宿歌舞伎町", "rote_mode_btn"),  # 📋 ローテ用（2026-11-11 追加）
+    ("上野本館", "rote_mode_btn"),          # 📋 ローテ用（2026-11-12 追加）
 })
 
 
@@ -5360,21 +5361,11 @@ def show_image_type_page() -> None:
             if store in _AUTO_BTN_HIDE_STORES:
                 # 結果ポスト用(auto)のボタンだけ表示しない（ページ・処理・URLは残す）。
                 # 残る2ボタンは他店舗と同じ横2列（スマホ幅では Streamlit の既定で縦に積まれる）
-                _col_l, _col_r = st.columns(2)
-                with _col_l:
-                    if st.button(
-                        "📊 スランプ付き結果ポスト用",
-                        key="auto_slump_btn",
-                        use_container_width=True,
-                    ):
-                        _navigate("auto_slump")
-                with _col_r:
-                    if st.button(
-                        "📋 ローテ用",
-                        key="rote_mode_btn",
-                        use_container_width=True,
-                    ):
-                        _navigate("rote")
+                # 上野本館のローテ用は _ITYPE_BTN_HIDE で非表示（2026-11-12・ページ/処理は残す）
+                _itype_btn_grid(store, [
+                    ("📊 スランプ付き結果ポスト用", "auto_slump_btn", "auto_slump", False),
+                    ("📋 ローテ用", "rote_mode_btn", "rote", False),
+                ])
             else:
                 _col_l, _col_r = st.columns(2)
                 with _col_l:

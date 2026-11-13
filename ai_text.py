@@ -132,10 +132,13 @@ def _report_total(report_text: str) -> "int | None":
 
 
 def build_context(df, report_text: str, *, store_key: str, store_label: str, date,
-                  excel_name: str, jug_series=(), source: str = "Pision") -> AIContext:
+                  excel_name: str, jug_series=(), source: str = "Pision",
+                  ref_total: "int | None" = None, ref_note: str = "") -> AIContext:
     """⑧で使った df（補正後差枚・機種名変換済み）と結果テキストから AI 用データを作る。
     df の列：台番・機種名・差枚（必須）、ゲーム数・BB・RB・AT（あれば使う）。
-    対象店舗・日付の取り違えを、Excel名・結果テキストの1行目・df と突き合わせて止める。"""
+    対象店舗・日付の取り違えを、Excel名・結果テキストの1行目・df と突き合わせて止める。
+    ref_total：照合元の総差枚（呼び出し側が、アップロードされた Excel/CSV を df とは別に読み直して補正した差枚の合計）。
+    df の総差枚と一致しなければ作らない。None（照合元を取得できない）なら未検証のまま作らない（ref_note は理由）。"""
     checks: list = []
     if df is None or len(df) == 0:
         return AIContext(ok=False, error="台別データがありません（⑧を実行してから使ってください）。")
@@ -175,6 +178,15 @@ def build_context(df, report_text: str, *, store_key: str, store_label: str, dat
     total = int(d["差枚"].sum())
     avg = int(round(d["差枚"].mean()))
     win = int((d["差枚"] > 0).sum())
+    # 総差枚の照合（表示用の結果テキストの「総差枚：」の有無に依存しない）
+    if ref_total is None:
+        return AIContext(ok=False, error=("総差枚を照合できないため作りません（照合元："
+                                          + (ref_note or "Excelを読み直した総差枚を取得できません") + "）。"))
+    if int(ref_total) != total:
+        return AIContext(ok=False, error=(f"台別データの総差枚（{fmt_signed(total)}）と、Excelを読み直した総差枚"
+                                          f"（{fmt_signed(int(ref_total))}）が一致しないため作りません。"))
+    checks.append(("総差枚（台別データ＝Excelを読み直した補正後差枚）", "OK", fmt_signed(total)))
+    # 結果テキストに「総差枚：」がある日（平均+100枚以上）は、従来どおりその値とも照合する
     rep_total = _report_total(report_text)
     if rep_total is not None:
         if rep_total != total:

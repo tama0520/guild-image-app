@@ -11058,8 +11058,28 @@ def _xpost_unplaced_warn(order: list, imgs: dict, layout: dict) -> list:
 
 
 # ── スロバース用：AI文章（⑥の配置確定後・⑧と同じ処理を一時フォルダで実行して作るデータから）─────
+def _slv_ref_total(uploaded) -> "tuple[int | None, str]":
+    """AI用データの総差枚の照合元：アップロードされた Excel/CSV を、⑧の df とは別にもう一度読み直し、
+    同じ補正（_pipeline_calc_d）をかけた差枚の合計。取得できなければ (None, 理由)。"""
+    if uploaded is None:
+        return None, "アップロードされたファイルがありません"
+    try:
+        _raw = _read_uploaded_df(uploaded)
+        _d, _ = normalize_df(_raw)
+        if "差枚" not in _d.columns:
+            return None, "読み直したデータに差枚の列がありません"
+        return int(_d["差枚"].apply(_pipeline_calc_d).sum()), ""
+    except Exception as _e:
+        return None, f"Excelを読み直せませんでした（{type(_e).__name__}）"
+    finally:
+        try:
+            uploaded.seek(0)
+        except Exception:
+            pass
+
+
 def _slv_ai_set_source(store: str, excel_name: str, report_text: str,
-                       txt_name: str, manual: bool, df=None, date=None) -> None:
+                       txt_name: str, manual: bool, df=None, date=None, uploaded=None) -> None:
     """⑧と同じ処理（一時フォルダ・保存/出力なし）で作った結果テキストと台別データ（補正後差枚）から、
     AI用データと連結部分（🏆全台〜🏆その他の単品優秀台）を作って覚える。Pision へは再取得しない。
     AI文章（編集中の文章）には触れない。"""
@@ -11072,8 +11092,10 @@ def _slv_ai_set_source(store: str, excel_name: str, report_text: str,
     except Exception:
         _jug = []
     try:
+        _ref, _ref_note = _slv_ref_total(uploaded)
         _ctx = _ai.build_context(df, report_text, store_key=store, store_label=_sloverse_label(store),
-                                 date=date, excel_name=excel_name, jug_series=_jug)
+                                 date=date, excel_name=excel_name, jug_series=_jug,
+                                 ref_total=_ref, ref_note=_ref_note)
     except Exception as _e:
         _ctx = _ai.AIContext(ok=False, error=f"AI用データの作成に失敗しました（{type(_e).__name__}）。")
     _app, _app_err = _ai.extract_append(report_text)
@@ -22778,7 +22800,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _f_rt.write(_m_report_text)
                         if _slv_dry:
                             _slv_ai_set_source(store, uploaded.name, _m_report_text, _txt_name_m, True,
-                                               df=_df_exec_m, date=_m_date)
+                                               df=_df_exec_m, date=_m_date, uploaded=uploaded)
                     except Exception as _rte:
                         _m_log(f"  ⚠️ 結果テキスト生成エラー: {_rte}")
                         import traceback as _tbe
@@ -24738,7 +24760,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _f.write(report_text)
                 if _slv_dry:
                     _slv_ai_set_source(store, uploaded.name, report_text, _txt_name, False,
-                                       df=result.get("df"), date=result.get("date"))
+                                       df=result.get("df"), date=result.get("date"), uploaded=uploaded)
                 if _IS_CLOUD:
                     st.caption(f"📄 {_txt_name} をZIPに含めます")
                 else:

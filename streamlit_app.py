@@ -9371,10 +9371,12 @@ def generate_report_text(
             _ds = _zendai_diff_list(diff_raw)
             _zs = _zendai_total_stat(diff_raw)
             if _ds and _zs is not None:
-                _L += ["", "📝全体データ📝",
-                       f"総差枚：{_jug_signed(_zs['total_diff'])}",
-                       f"平均差枚：{_jug_signed(_zs['avg_diff'])}",
-                       "",
+                # 総差枚・平均差枚は、平均差枚 +100枚以上（総差枚もプラス）のときだけ実数値で出す。
+                # それ以外は2行とその後の空行を出さず、プラス台の実績（👑）だけにする（集計値は変えない）
+                _tot_rows = ([f"総差枚：{_jug_signed(_zs['total_diff'])}",
+                              f"平均差枚：{_jug_signed(_zs['avg_diff'])}", ""]
+                             if (_zs['avg_diff'] >= _SLV_TOTAL_MIN_AVG and _zs['total_diff'] > 0) else [])
+                _L += ["", "📝全体データ📝"] + _tot_rows + [
                        f"👑万枚オーバー…{sum(1 for d in _ds if d >= 10000)}台",
                        f"👑+5,000枚オーバー{sum(1 for d in _ds if d >= 5000)}台",
                        f"👑+3,000枚オーバー{sum(1 for d in _ds if d >= 3000)}台",
@@ -10800,6 +10802,8 @@ _SLV_HEAD_MARKS: "tuple[str, ...]" = ("✅", "✅", "💥", "💥")
 _SLV_HALF_MIN_AVG = 400
 # スロバース用結果テキストの「🏆その他の単品優秀台」に載せる差枚の下限（この値ちょうども載せる・2026-11-13）
 _SLV_SINGLE_MIN_DIFF = 3000
+# スロバース用結果テキストの「📝全体データ📝」で総差枚・平均差枚を出す平均差枚の下限（未満なら2行とも出さない・2026-11-13）
+_SLV_TOTAL_MIN_AVG = 100
 _SLV_HEAD_INPUTS_VISIBLE = False   # ✅・💥の入力欄を画面に出すか（簡略版では出さない・保存値は維持）
 
 

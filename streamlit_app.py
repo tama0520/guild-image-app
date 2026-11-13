@@ -11263,7 +11263,8 @@ def _slv_ai_generate(store: str) -> None:
         "stop": _res.stop_reason, "style": _cfg["style"]}
     if _res.ok:
         _head = [_l.strip() for _l in (_src.get("text") or "").splitlines() if _l.strip()][:2]
-        _full = _ai.compose_full(_ai.tidy_ai_part(_res.text, _head), _src.get("append", ""))
+        _full = _ai.compose_full(_ai.tidy_ai_part(_res.text, _head, singles=_ai.single_candidates(_src.get("text") or "")),
+                                 _src.get("append", ""))
         st.session_state[f"_slv_ai_text_{store}"] = _full
         st.session_state[f"slv_ai_out_{store}"] = _full
         st.session_state[f"_slv_ai_lastgen_{store}"] = _full

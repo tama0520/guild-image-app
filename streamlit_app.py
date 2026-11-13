@@ -4221,6 +4221,9 @@ def _store_menu_go(target: str) -> None:
     elif target == "yg":
         _navigate("yg")
     elif target == "sloverse":
+        # トップから入り直したときは必ず4グループの選択から（前回のグループ表示だけを解除・
+        # 店舗設定・入力・配置などの保存データには触れない）。スロバース内の「← 戻る」は従来どおり
+        st.session_state.pop("_slv_group", None)
         _navigate("sloverse")
     elif target == "osusume_top":
         _navigate("osusume_top")

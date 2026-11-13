@@ -11260,7 +11260,7 @@ def _slv_ai_exec_text(store: str, excel_name: str, with_slump: bool,
     if _src is None or _src.get("sig") != _gen.get("sig") or _src.get("text") != _gen.get("text"):
         return None, "AI文章が今のデータ（Excel・⑥の設定やチェック）より前のデータで作られているため"
     if report_text is not None and report_text != _gen.get("text"):
-        return None, "⑧で作った結果テキストが、AI文章を作ったときの結果テキストと違うため"
+        return None, "実行時に作った結果テキストが、AI文章を作ったときの結果テキストと違うため"
     return _txt, ""
 
 
@@ -11305,11 +11305,12 @@ def _slv_ai_panel(store: str, excel_name: str, with_slump: bool, exec_label: str
     _src, _why = _slv_ai_src_state(store, excel_name, with_slump)
     st.markdown("---")
     st.markdown("### 🤖 AI文章（X投稿用の下書き）")
+    _xn = exec_label or "⑧"   # 実行ステップの番号（実行ボタンと同じ）
     st.caption("AIの分析文の後ろに、結果テキストの「🏆全台」〜「🏆その他の単品優秀台」をそのまま付けます。"
                "ボタンを押したときだけ作ります（生成ではファイル保存・投稿はしません）。"
-               "⑧では、下の欄の文章をそのまま結果.txt に保存します（未生成のときは従来の結果テキスト）。")
+               f"{_xn}では、下の欄の文章をそのまま結果.txt に保存します（未生成のときは従来の結果テキスト）。")
     if _src is None:
-        st.info("ℹ️ 生成を押すと、まず⑧と同じ集計を行って結果テキストとAI用データを作ります"
+        st.info(f"ℹ️ 生成を押すと、まず{_xn}と同じ集計を行って結果テキストとAI用データを作ります"
                 "（画像は描かず数秒・デスクトップ保存・ZIP・自動pushはしません）。" + (f"\n\n{_why}" if _why else ""))
     elif not _src.get("ctx_ok"):
         st.error("❌ " + (_src.get("ctx_error") or "AI用データを作れませんでした。"))
@@ -11328,7 +11329,7 @@ def _slv_ai_panel(store: str, excel_name: str, with_slump: bool, exec_label: str
                 st.caption(f"✂️ {_nt}")
             _secs = st.session_state.get(f"_slv_dry_secs_{store}")
             if _secs is not None:
-                st.caption(f"⏱ データ準備（⑧と同じ集計・画像は描かない）：{_secs}秒")
+                st.caption(f"⏱ データ準備（{_xn}と同じ集計・画像は描かない）：{_secs}秒")
             st.caption("同じ条件なら作り直しません。⑥の設定・チェック・Excel が変わると自動で作り直します。")
             st.code(_src["ctx_text"], language=None, wrap_lines=True)
     with st.expander("⚙️ AI設定", expanded=False):
@@ -11382,7 +11383,7 @@ def _slv_ai_panel(store: str, excel_name: str, with_slump: bool, exec_label: str
     with _c2:
         _rebuild = st.button("🔄 データを作り直す", key=f"slv_ai_rebuild_{store}", use_container_width=True,
                              disabled=_src is None and not _why,
-                             help="⑥の設定やチェックを変えたあとに押します（⑧と同じ処理を一時フォルダで実行・保存なし）")
+                             help=f"⑥の設定やチェックを変えたあとに押します（{_xn}と同じ処理を一時フォルダで実行・保存なし）")
     if _gen:
         st.session_state.pop(f"slv_ai_discard_{store}", None)
         if _src is not None and _src.get("ctx_ok"):
@@ -11440,9 +11441,9 @@ def _slv_ai_panel(store: str, excel_name: str, with_slump: bool, exec_label: str
         # ⑧ボタンは編集欄（と、その文字数・注意）の直下
         _ex_txt, _ex_why = _slv_ai_exec_text(store, excel_name, with_slump)
         if _ex_txt is not None:
-            st.caption("📄 ⑧では、この欄の文章をそのまま結果.txt に保存します。")
+            st.caption(f"📄 {_xn}では、この欄の文章をそのまま結果.txt に保存します。")
         else:
-            st.warning("⚠️ " + (_ex_why or "AI文章が未生成のため") + "、⑧では従来の結果テキストを結果.txt に保存します"
+            st.warning("⚠️ " + (_ex_why or "AI文章が未生成のため") + f"、{_xn}では従来の結果テキストを結果.txt に保存します"
                        "（AI文章を使うときは「🔄 データを作り直す」のあと再生成してください）。")
         _slv_exec_button(store, exec_label)
     st.code(_cur, language=None, wrap_lines=True)
@@ -11567,47 +11568,26 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool, exec_label: str
             st.session_state.pop(f"_xpost_fix4_{key}", None)
             rec = _save(layout, confirmed=_h, keep_conf=False)
     _conf_ok = bool(_used) and rec.get("confirmed") == _h
+    # 実行ステップの番号は、エディター内の実行ボタンと同じ（ページの番号から決まる・無ければ従来の⑧）
+    _xn = exec_label or "⑧"
     if _conf_ok:
-        st.success("✅ 配置は確定済みです。⑧で 001〜004.jpg と結果テキストだけを出力します。")
+        st.success(f"✅ 配置は確定済みです。{_xn}で 001〜004.jpg と結果テキストだけを出力します。")
     elif _used:
-        st.warning("⚠️ 配置が未確定です。⑧の前に「✅ この配置で確定」を押してください"
-                   "（未確定のままでは⑧は実行されず、出力フォルダも変わりません）。")
+        st.warning(f"⚠️ 配置が未確定です。{_xn}の前に「✅ この配置で確定」を押してください"
+                   f"（未確定のままでは{_xn}は実行されず、出力フォルダも変わりません）。")
     _both = [i for i in _used if i.endswith("_side.jpg") and (i[:-9] + ".jpg") in _used]
     if _both:
         st.warning("⚠️ 同じ内容の表と横版（_side）を両方配置しています（内容が重複します）："
                    + "、".join(i[:-9] for i in _both))
     _un = _xpost_unplaced_warn(order, imgs, layout)
     if _un and _used:
-        st.warning("⚠️ 未配置の素材があります（⑧では出力されません）：" + "、".join(meta[i]["label"] for i in _un))
+        st.warning(f"⚠️ 未配置の素材があります（{_xn}では出力されません）：" + "、".join(meta[i]["label"] for i in _un))
 
-    # 完成プレビュー（⑧と同じ計算・同じ結合・同じJPEG設定）
-    # 素材は等倍で並べる。画面では「完成画像全体」を同じ倍率で縮小表示するか、出力画像の100%で見る。
-    _vm = st.radio("完成プレビューの表示", ["画面に合わせる（全体を同じ倍率で縮小表示）", "100%（出力画像の等倍・スクロール）"],
-                   horizontal=True, key=f"{_ek}_view")
-    _full = _vm.startswith("100%")
-    _frames = _xpost_frame_jpegs(store, layout, imgs, sizes)
-    _pick = None
-    if _full and _frames:
-        _pick = st.selectbox("100%で見る画像", [_xpost_out_name(n) for n in range(1, len(_frames) + 1)],
-                             key=f"{_ek}_pick")
-    for _n, (_fi, _fr, _g, _data, _q) in enumerate(_frames, 1):
-        _s = _xl.frame_summary(_g)
-        _ncol = len([c for c in _fr["cols"] if c["items"]])
-        st.markdown(f"**{_xpost_out_name(_n)}**（■{_fi + 1}枚目・横{_ncol}列）")
-        if _full:
-            if _pick == _xpost_out_name(_n):
-                _b64 = base64.b64encode(_data).decode("ascii")
-                st.markdown(
-                    f'<div style="overflow:auto;max-height:78vh;border:1px solid #ccd;background:#fff">'
-                    f'<img src="data:image/jpeg;base64,{_b64}" style="display:block;width:{_s["width"]}px;'
-                    f'max-width:none;height:auto"></div>', unsafe_allow_html=True)
-        else:
-            st.image(_data, use_container_width=True)
-        # 寸法・倍率・余白・JPEG容量/品質の説明は出さない（結合・品質・寸法の計算は変えない）。
-        # 50%未満まで縮小される（文字が小さくなる）ときだけ注意を出す
-        _f = _s["downscale"]
-        if _f < _xl.WARN_SCALE:
-            st.warning(f"⚠️ 長辺が{_xl.MAX_LONG}pxを超えるため、完成画像全体を{_f * 100:.1f}%に縮小して出力します"
+    # 完成画像はエディター右側（5枠目）の「完成画像プレビュー」で見る（下に重ねて表示しない）。
+    # 50%未満まで縮小される（文字が小さくなる）ときだけ注意を出す（5枠目と同じ計算結果を使う）
+    for _pv in previews:
+        if _pv["scale"] < _xl.WARN_SCALE * 100:
+            st.warning(f"⚠️ {_pv['name']}：長辺が{_xl.MAX_LONG}pxを超えるため、完成画像全体を{_pv['scale']}%に縮小して出力します"
                        "（50%未満：文字が小さくなります。列を減らすか、別の枚に分けてください）。")
     # 🤖 AI文章（配置の確定後だけ）→ 編集欄の直下に⑧ボタン。AI欄が無いときはここに⑧ボタン
     if _conf_ok and _is_sloverse_store(store):
@@ -21813,10 +21793,11 @@ def show_auto_page(with_slump: bool = False) -> None:
     # スロバース用：⑥の素材を X投稿用の最大4枚へまとめるエディター。
     # ⑧の実行ボタンはエディターの中（🤖 AI文章の編集欄の直下）に1つだけ出し、下の共通ボタンは出さない
     _slv_inline_run = uploaded is not None and _xpost_on(store) and _is_sloverse_store(store)
+    _slv_exec_lbl = _sec_num() if _slv_inline_run else ""   # 実行ステップの番号（ボタン・確定メッセージ・警告で共通）
     if uploaded is not None and _xpost_on(store):
         if _is_sloverse_store(store):
             st.session_state[f"_slv_sig_{store}"] = _slv_input_sig(store, uploaded, with_slump)
-        _xpost_editor(store, uploaded.name, with_slump, (_sec_num() if _slv_inline_run else ""))
+        _xpost_editor(store, uploaded.name, with_slump, _slv_exec_lbl)
     _slv_exec_req = bool(st.session_state.pop(f"_slv_exec_req_{store}", False))
 
     # ── ⑧ 実行ボタン（常に描画・ファイル未選択時は disabled）─────────
@@ -21866,8 +21847,9 @@ def show_auto_page(with_slump: bool = False) -> None:
             _save_auto_inputs(store)
         if _xpost_on(store) and not _xpost_confirmed(store, uploaded.name, with_slump):
             # X投稿用の試験店舗：配置が未確定なら⑧を実行しない（出力フォルダを変更しない）
-            st.warning("⚠️ X投稿用：配置が未確定のため⑧を実行しませんでした。🧩の「✅ この配置で確定」を押してから、"
-                       "もう一度⑧を実行してください（出力フォルダは変更していません）。")
+            _xn_run = _slv_exec_lbl or "⑧"
+            st.warning(f"⚠️ X投稿用：配置が未確定のため{_xn_run}を実行しませんでした。🧩の「✅ この配置で確定」を押してから、"
+                       f"もう一度{_xn_run}を実行してください（出力フォルダは変更していません）。")
             st.stop()
         # オススメ機種設定をJSON保存（次回起動時に復元する）
         if _rec_pickup_on(store) and not _slv_dry:

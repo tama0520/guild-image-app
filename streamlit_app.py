@@ -11285,6 +11285,25 @@ def _slv_rt_note_show(store: str) -> None:
         {"ok": st.success, "warn": st.warning}.get(_n[0], st.info)(_n[1])
 
 
+def _slv_copy_button(text: str) -> None:
+    """編集欄の今の文章（全文）をクリップボードへコピーするボタンだけを出す（文章は画面に再表示しない）。"""
+    import html as _html_c
+    st.iframe(f"""
+    <button id="slv_cp" onclick="
+      var t=document.getElementById('slv_tx');
+      t.select();t.setSelectionRange(0,t.value.length);
+      var ok=false;try{{ok=document.execCommand('copy');}}catch(e){{}}
+      if(!ok&&navigator.clipboard){{navigator.clipboard.writeText(t.value);ok=true;}}
+      this.textContent=ok?'✅ コピー済み':'⚠️ コピーできませんでした';
+      var b=this;setTimeout(function(){{b.textContent='📋 全文をコピー';}},2000);
+    " style="padding:5px 14px;background:#2F559E;color:#fff;border:none;border-radius:4px;
+             cursor:pointer;font-size:14px;">📋 全文をコピー</button>
+    <textarea id="slv_tx" readonly aria-hidden="true" tabindex="-1"
+      style="position:absolute;left:-9999px;top:0;width:10px;height:10px;opacity:0;"
+    >{_html_c.escape(text)}</textarea>
+    """, height=44)
+
+
 def _slv_exec_button(store: str, exec_label: str) -> None:
     """スロバース用の⑧（▶▶ 自動処理を開始）ボタン。🤖 AI文章の編集欄の直下（欄が無いときはX投稿エディターの最後）に
     1つだけ出す。押すとページ全体を再実行し、従来の⑧の処理（確定チェック・出力）をそのまま行う。"""
@@ -11417,6 +11436,7 @@ def _slv_ai_panel(store: str, excel_name: str, with_slump: bool, exec_label: str
     _gen_sty = _ai.STYLES.get(_meta.get("style", ""), {})
     st.caption(f"{_xc['chars']}字（改行・絵文字を含む）／X換算 {_xc['weight']}（全角換算 {_xc['zen']:g}字）"
                + (f"／生成時のスタイル：{_gen_sty['label']}（{_gen_sty['guide']}）" if _gen_sty else ""))
+    _slv_copy_button(_cur)   # コピーはボタンだけ（文章を⑦の下へ再表示しない）
     _source = (_src or {}).get("text", "") + "\n" + (_src or {}).get("ctx_text", "")
     if _src:
         _bad = _ai.unverified_tokens(_cur, _source)
@@ -11446,7 +11466,6 @@ def _slv_ai_panel(store: str, excel_name: str, with_slump: bool, exec_label: str
             st.warning("⚠️ " + (_ex_why or "AI文章が未生成のため") + f"、{_xn}では従来の結果テキストを結果.txt に保存します"
                        "（AI文章を使うときは「🔄 データを作り直す」のあと再生成してください）。")
         _slv_exec_button(store, exec_label)
-    st.code(_cur, language=None, wrap_lines=True)
 
 
 @st.fragment

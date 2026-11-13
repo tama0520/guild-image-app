@@ -9295,7 +9295,7 @@ def generate_report_text(
         # 🏆全台（既存 zen_dai_section と同じ対象・平均差枚の高い順・1機種1行）
         _zd = sorted([it for it in zen_dai_list if it.get("name") not in _hide_sum],
                      key=lambda x: x.get("all_avg_diff", 0), reverse=True)
-        _zl = [f"💎{it['name']}({it['count']}/{it['total']}台)"
+        _zl = [f"📌{it['name']}({it['count']}/{it['total']}台)"
                f"{_avg_s(it, int(it.get('all_avg_diff', 0)))}" for it in _zd]
         # 🏆ハーフ系（既存 high_ratio_section と同じ対象・並び順。平均差枚 +400枚以上だけ・1機種1行）
         _hr = sorted([it for it in high_ratio_list
@@ -9303,7 +9303,7 @@ def generate_report_text(
                      key=lambda x: x["all_avg_diff"] if "all_avg_diff" in x
                      else (int(round(sum(x["diffs"]) / len(x["diffs"]))) if x["diffs"] else 0),
                      reverse=True)
-        _hl = [f"💎{it['name']}({it['count']}/{it['total']}台)→平均{_fmt_diff(_high_avg_of(it))}"
+        _hl = [f"📌{it['name']}({it['count']}/{it['total']}台)→平均{_fmt_diff(_high_avg_of(it))}"
                for it in _hr if _high_avg_of(it) >= _SLV_HALF_MIN_AVG]
         # +400枚未満で外れた高配分機種（画像の分類は変えない）。+2,000枚以上の台は単品欄へ回す
         _half_out = {it["name"] for it in _hr if _high_avg_of(it) < _SLV_HALF_MIN_AVG}
@@ -9354,10 +9354,17 @@ def generate_report_text(
                      and (_p["name"] not in _jug_ser or _p["name"] in _ex_names)]
         _ex = excellent_section(_half_out, keep_sue=True, extra_src=_tail_src)
         if _ex != "（なし）":
-            _ex = "\n".join(
+            _ex_rows = [
                 re.sub(r"^・【(\d+)番台】(.+)→([+-][\d,]+枚)$", r"\2(\1番台)→\3", _ln)
                 if _ln.startswith("・【") else (_ln[1:] if _ln.startswith("・") else _ln)
-                for _ln in _ex.split("\n"))
+                for _ln in _ex.split("\n")]
+            # 掲載は差枚 +3,000枚以上（ちょうども含む）だけ・全行の先頭に「・」（対象・順番は既存のまま）
+            _ex_keep = []
+            for _ln in _ex_rows:
+                _m_d = re.search(r"→([+-][\d,]+)枚$", _ln)
+                if _m_d and int(_m_d.group(1).replace(",", "")) >= _SLV_SINGLE_MIN_DIFF:
+                    _ex_keep.append("・" + _ln)
+            _ex = "\n".join(_ex_keep) if _ex_keep else "（なし）"
         _L += ["🏆その他の単品優秀台", _ex]
         # 📝全体データ📝（既存 summary_section と同じ集計・実績行は👑のまま）
         if diff_raw is not None:
@@ -10791,6 +10798,8 @@ def _manual_jug_title(kojin_machines, cfg: dict) -> str:
 _SLV_HEAD_MARKS: "tuple[str, ...]" = ("✅", "✅", "💥", "💥")
 # スロバース用 結果テキストの🏆ハーフ系に載せる最低平均差枚（テキスト表示だけの条件。画像の高配分は不変）
 _SLV_HALF_MIN_AVG = 400
+# スロバース用結果テキストの「🏆その他の単品優秀台」に載せる差枚の下限（この値ちょうども載せる・2026-11-13）
+_SLV_SINGLE_MIN_DIFF = 3000
 _SLV_HEAD_INPUTS_VISIBLE = False   # ✅・💥の入力欄を画面に出すか（簡略版では出さない・保存値は維持）
 
 
@@ -11227,7 +11236,8 @@ def _slv_ai_generate(store: str) -> None:
         "in": _res.input_tokens, "out": _res.output_tokens, "usd": _res.cost_usd,
         "stop": _res.stop_reason, "style": _cfg["style"]}
     if _res.ok:
-        _full = _ai.compose_full(_res.text, _src.get("append", ""))
+        _head = [_l.strip() for _l in (_src.get("text") or "").splitlines() if _l.strip()][:2]
+        _full = _ai.compose_full(_ai.tidy_ai_part(_res.text, _head), _src.get("append", ""))
         st.session_state[f"_slv_ai_text_{store}"] = _full
         st.session_state[f"slv_ai_out_{store}"] = _full
         st.session_state[f"_slv_ai_lastgen_{store}"] = _full
@@ -11452,6 +11462,10 @@ def _slv_ai_panel(store: str, excel_name: str, with_slump: bool, exec_label: str
             st.warning("⚠️ 表記ミスの可能性があります：" + " ／ ".join(_ty))
         if _src.get("append") and _src["append"] not in _cur:
             st.caption("ℹ️ 後ろの結果テキスト部分が元の内容と違います（手動で編集した場合はそのままで構いません）。")
+    _ai_only = _cur.split(_src["append"])[0] if (_src and _src.get("append") and _src["append"] in _cur) else _cur
+    _neg = _ai.negative_notes(_ai_only)
+    if _neg:
+        st.warning("⚠️ プラス中心の方針に合わない表現があります（否定的な表現・マイナスの差枚）：" + "、".join(_neg))
     _set, _intp = _ai.speculative_notes(_cur)
     if _set:
         st.warning("⚠️ 設定に関わる表現があります（データでは確認できません）：" + " ／ ".join(_set))

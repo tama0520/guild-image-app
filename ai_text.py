@@ -26,12 +26,12 @@ DEFAULT_MODEL = "claude-sonnet-5-5"
 
 # 文章スタイル（画面で切り替え・既定は短文）。guide は長さの目安（上限ではない）。
 STYLES: "dict[str, dict]" = {
-    "short": {"label": "短文", "guide": "全角120〜180字程度",
-              "focus": "全体は1〜2文、目立った機種は1〜2機種に絞り、仕掛けは該当時に1文だけ"},
-    "standard": {"label": "標準", "guide": "全角250〜400字程度",
-                 "focus": "全体の特徴を2〜3文、目立った機種は3機種程度（必要なら優秀台にも触れる）、仕掛けは該当時に要点だけ"},
+    "short": {"label": "短文", "guide": "全角200〜320字程度",
+              "focus": "✅は3行、📊全体の結果は1〜2文、🏅好成績機種ピックアップは2機種を各1〜2文、💎単品の優秀台は1文、仕掛けは該当時に1文だけ"},
+    "standard": {"label": "標準", "guide": "全角320〜500字程度",
+                 "focus": "✅は3行、📊全体の結果は2〜3文、🏅好成績機種ピックアップは2〜3機種（個別台の好成績にも触れる）、💎単品の優秀台は1〜2文、仕掛けは該当時に要点だけ"},
     "detail": {"label": "詳細", "guide": "全角600〜1,200字程度（データに見どころが多ければ超えてよい）",
-               "focus": "全体の結果・考察を詳しく（設置台数別・ジャグラー全体・バラエティも使ってよい）、目立った機種は機種単位の配分・勝率や優秀台まで考察し、仕掛けは該当時に判定結果の数値を使って紹介する"},
+               "focus": "✅は3行、📊全体の結果を詳しく（設置台数別・ジャグラー全体・バラエティのプラスの実績も使ってよい）、🏅好成績機種ピックアップは2〜3機種を勝率・平均差枚・総差枚・個別台まで紹介、💎単品の優秀台は1〜3台、仕掛けは該当時に判定結果の数値を使って紹介する"},
 }
 DEFAULT_STYLE = "short"
 
@@ -282,7 +282,8 @@ def build_context(df, report_text: str, *, store_key: str, store_label: str, dat
     _sk = shikake_lines(report_text)
     shikake = (["【仕掛けの判定結果（既存処理の判定・これ以外を仕掛けとして扱わない）】"]
                + (_sk if _sk else ["該当なし"]) + [""])
-    tail = shikake + ["【既存の集計結果（結果テキスト・全台系／ハーフ系／並び／末尾／単品優秀台など）】", report_text.strip()]
+    points = _points_lines(d, report_text, rows, total=total, avg=avg, win=win, n_units=n_units)
+    tail = points + shikake + ["【既存の集計結果（結果テキスト・全台系／ハーフ系／並び／末尾／単品優秀台など）】", report_text.strip()]
     body = "\n".join(L + single_lines + unit_lines + tail)
     notes = []
     if len(body) > CONTEXT_SOFT_LIMIT:
@@ -302,6 +303,92 @@ def build_context(df, report_text: str, *, store_key: str, store_label: str, dat
                      machines=[r["name"] for r in rows])
 
 
+POINT_TOTAL_MIN_AVG = 100     # 平均差枚がこれ以上なら全体の総差枚・平均差枚を書く（未満は書かない）
+POINT_MACHINE_MIN_AVG = 1000  # 全台系・ハーフ系以外の好成績機種の候補：平均差枚の下限（2台以上・勝率50%以上）
+POINT_MACHINES_MAX = 5        # 好成績機種の候補の最大数（文章で紹介するのは2〜3機種）
+POINT_SINGLES_MAX = 3         # 💎単品の優秀台の候補（🏆その他の単品優秀台の差枚上位）
+
+
+def _win_phrase(win: int, n: int) -> str:
+    """「5台中4台がプラス、勝率80.0%」（勝率は Python で小数1桁に丸める）。"""
+    return f"{n}台中{win}台がプラス、勝率{(win / n * 100) if n else 0.0:.1f}%"
+
+
+def _report_blocks(report_text: str) -> dict:
+    """結果テキストを「🏆見出し」ごとの行リストに分ける（（なし）は除く）。"""
+    out, cur = {}, None
+    for ln in (report_text or "").splitlines():
+        t = ln.strip()
+        if t.startswith("🏆") or t.startswith(APPEND_STOP):
+            cur = t
+            out[cur] = []
+            continue
+        if cur and t and t not in ("（なし）", "(なし)"):
+            out[cur].append(t)
+    return out
+
+
+_GROUP_LINE_RE = re.compile(r"^[📌💎]?(.+?)\((\d+)/(\d+)台\)")
+_SINGLE_LINE_RE = re.compile(r"^・?(.+)\((\d+)番台\)→([+\-][\d,]+枚)$")
+
+
+def _points_lines(d, report_text: str, rows: list, *, total: int, avg: int, win: int, n_units: int) -> list:
+    """AI文章用の要点（Python で計算・判定済み）。プラスの実績だけを並べ、書く／書かないの判定も渡す。"""
+    heads = [ln.strip() for ln in (report_text or "").splitlines() if ln.strip()][:2]
+    blocks = _report_blocks(report_text)
+    P = ["【AI文章用の要点（Python で計算・判定済み・この範囲で書く）】"]
+    if len(heads) == 2:
+        P += [f"日付行：{heads[0]}", f"店名行：{heads[1]}"]
+    if avg >= POINT_TOTAL_MIN_AVG:
+        P.append(f"全体の総差枚・平均差枚：書く（総差枚 {fmt_signed(total)}／平均差枚 {fmt_signed(avg)}）")
+    else:
+        P.append(f"全体の総差枚・平均差枚：書かない（平均差枚が+{POINT_TOTAL_MIN_AVG}枚未満のため・数値に触れない）")
+    P.append("プラス台の実績：" + "／".join(f"+{t:,}枚以上 {int((d['差枚'] >= t).sum())}台"
+                                       for t in (10000, 5000, 3000, 1000)))
+    if n_units and win * 2 >= n_units:
+        P.append(f"勝率：書いてよい（{_win_phrase(win, n_units)}）")
+    else:
+        P.append("勝率：書かない（50%未満のため）")
+    by = {r["name"]: r for r in rows}
+    cands, seen = [], set()
+
+    def _add(name, kind):
+        r = by.get(name)
+        if r is None or name in seen or r["avg"] <= 0 or len(cands) >= POINT_MACHINES_MAX:
+            return
+        seen.add(name)
+        cands.append((r, kind))
+
+    for key, kind in (("🏆全台", "全台系"), ("🏆ハーフ系", "ハーフ系")):
+        for ln in blocks.get(key, []):
+            m = _GROUP_LINE_RE.match(ln)
+            if m:
+                _add(m.group(1), kind)
+    for r in sorted([r for r in rows if r["n"] >= 2], key=lambda r: (-r["avg"], r["name"])):
+        if r["avg"] >= POINT_MACHINE_MIN_AVG and r["win"] * 2 >= r["n"]:
+            _add(r["name"], "2台以上")
+    P.append("好成績機種の候補（全台系→ハーフ系→2台以上で平均差枚+1,000枚以上・勝率50%以上の順・最大5機種）：")
+    if cands:
+        for r, kind in cands:
+            P.append(f"- {r['name']}｜{kind}｜{_win_phrase(r['win'], r['n'])}｜平均差枚 {fmt_signed(r['avg'])}｜"
+                     f"総差枚 {fmt_signed(r['total'])}｜最高 {r['best_ban']}番台 {fmt_signed(r['best'])}")
+    else:
+        P.append("- （なし）")
+    singles = []
+    for key, ls in blocks.items():
+        if key.startswith("🏆その他の単品優秀台"):
+            for ln in ls:
+                m = _SINGLE_LINE_RE.match(ln)
+                if m:
+                    singles.append((int(m.group(2)), m.group(1), m.group(3)))
+    P.append(f"💎単品の優秀台の候補（🏆その他の単品優秀台の差枚上位{POINT_SINGLES_MAX}台・+10,000枚以上が先頭）：")
+    if singles:
+        P += [f"- {b}番台｜{n}｜{df_}" for b, n, df_ in singles[:POINT_SINGLES_MAX]]
+    else:
+        P.append("- （なし）")
+    return P + [""]
+
+
 def _machine_line(r: dict, has_g: bool) -> str:
     s = f"{r['name']}｜{r['n']}台｜{fmt_signed(r['total'])}｜{fmt_signed(r['avg'])}｜{fmt_rate(r['win'], r['n'])}"
     if has_g:
@@ -311,33 +398,49 @@ def _machine_line(r: dict, has_g: bool) -> str:
 
 
 # ── プロンプト ────────────────────────────────────────────────────────
-SYSTEM_PROMPT = """あなたは、パチスロ店の営業結果を X（旧Twitter）へ投稿する分析記事を書く担当です（スロバースの投稿）。
-入力の <data> は、店舗の台別データ（取得済みの確定データ）から Python で集計した数値と、既存の集計結果（結果テキスト）です。これを読み、その日の結果を分析・考察した投稿文を1つ書いてください。
+SYSTEM_PROMPT = """あなたは、パチスロ店の営業結果を X（旧Twitter）へ投稿する紹介文を書く担当です（スロバースの投稿）。
+入力の <data> は、店舗の台別データ（取得済みの確定データ）から Python で集計した数値と、既存の集計結果（結果テキスト）です。これを読み、その日のプラスの実績を中心に紹介する投稿文を1つ書いてください。
 
 ## 事実の扱い（最優先）
-- 台番・機種名・差枚・台数・勝率・割合（%）・平均差枚・G数・合算・総差枚・日付・店名は、<data> に書かれているものだけを使い、表記をそのまま写す（+や,や%の書き方も同じ）。
-- 台数は「(5/5台)」「12/20台（60.0%）」のように <data> の括弧を含めた表記をできるだけそのまま使う。
+- 台番・機種名・差枚・台数・勝率・割合（%）・平均差枚・G数・合算・総差枚・日付・店名は、<data> に書かれているものだけを使い、数値の表記をそのまま写す（+や,や%の書き方も同じ）。
+- 勝率は「4/5台（80.0%）」の形では書かず、【AI文章用の要点】の「5台中4台がプラス、勝率80.0%」の形で書く。機種名の後ろに「(2/3台)」のような短い台数表記を付けるのはよい。
+- 括弧は半角の ( ) を使う（店名の【】はそのまま）。
 - 足し算・引き算・割合・平均・順位・機種数や台数の数え上げなど、<data> に無い数値を自分で計算しない。四捨五入や「約」「超え」などの言い換えもしない。
-- 割合・台数・差枚を「3割台半ば」「約半数」「大半」「一部」のような曖昧な言葉に言い換えない。触れるときは <data> の数値をそのまま書く。
-- <data> に無い台番・機種名・数値・出来事（設定・イベント・来店・取材など）は書かない。
+- 割合・台数・差枚を「3割台半ば」「約半数」「大半」「一部」のような曖昧な言葉に言い換えない。
+- <data> に無い台番・機種名・数値・出来事（設定・イベント・来店・取材など）は書かない。実績を誇張しない。
 - 設定についての推測や示唆（「高設定」「設定6」「全台6」「設定示唆」など）は書かない。
-- データで確認できない因果関係（「〜が全体を押し上げた」「〜のおかげで」「〜に引っ張られて」など）は書かない。全体への影響を書くのは、その機種の総差枚と店舗全体の総差枚のように、<data> の数値を並べて示せるときだけにする。
-- 機種同士を比べるときは、比べる両方の機種名と根拠の数値を書く。「同系統」「同シリーズ」などの括りも、両方の機種名と数値を挙げられるときだけ使う。
-- 実績（<data> の数値）と考察を書き分ける。考察は、直前に書いた数値を根拠にした短い文にし、断定的な予想や推測（「狙い目」「次回も」など）は書かない。
+- データで確認できない因果関係（「〜が全体を押し上げた」「〜のおかげで」「〜に引っ張られて」など）や、断定的な予想・推測（「狙い目」「次回も」など）は書かない。
 
-## 構成（この順番で書く。各部の頭に絵文字付きの短い見出しを付けてよい）
-- 1行目：日付と店名（結果テキストの1・2行目の表記どおり。例「11/04(水) 【店名】」）。
-- ① 全体の結果・考察：店舗全体の総差枚・平均差枚・勝率などを踏まえ、その日の全体的な特徴を文章で紹介する（数値の羅列にしない）。
-- ② 目立った機種：全台系・ハーフ系（高配分）・平均差枚・勝率などから、その日の注目機種を紹介する。必要に応じて優秀な個別台にも触れる。
-- ③ 並び・末尾などの仕掛け：<data> の【仕掛けの判定結果】に該当があるときだけ紹介する。「該当なし」のときは、この部分を見出しごと書かない。判定結果にない並び・末尾・列などを、台番や差枚から推測して書かない。
-- この文章の後ろには、結果テキストの「🏆全台」〜「🏆その他の単品優秀台」がそのまま付く。その一覧を書き写したり、全機種・全台を並べたりしない（重要なものだけを文章で紹介する）。
+## プラスの実績を中心にする
+- マイナスの印象を与える文章は書かない。「厳しい」「苦戦」「不調」「マイナスの中で」「振るわない」などの否定的な表現は使わない。
+- 「📉厳しかった機種」のような、マイナスの機種・台を紹介する項目は作らない。マイナスの機種・台・差枚には触れない。
+- マイナスの総差枚・平均差枚は書かない。マイナスの数値をプラスのように言い換えることもしない。
+- 紹介するのは <data> にあるプラスの結果だけにする。
+
+## 構成（この順番・見出しはこの表記のまま）
+- 1行目：【AI文章用の要点】の「日付行」をそのまま書く。
+- 2行目：【AI文章用の要点】の「店名行」をそのまま書く（日付と店名は必ず別の行にする）。
+- 3〜5行目：「✅」で始まる注目ポイントを3行。各行は <data> のプラスの実績（台数・機種・台番と差枚など）を簡潔に書く。根拠のない注目ポイントは書かない。
+- 空行のあと「📊全体の結果」：
+  - 【AI文章用の要点】の「全体の総差枚・平均差枚」が「書く」のときは、総差枚・平均差枚（実数値）を最初に書き、その後に +10,000枚以上・+5,000枚以上などの台数を書く。
+  - 「書かない」のときは総差枚・平均差枚に触れず、+10,000枚以上・+5,000枚以上などプラス台の台数を中心に書く。
+  - 台数は「プラス台の実績」の値を使い、0台の区分は書かない。勝率は「勝率：書いてよい」のときだけ書く。
+  - 最後に、好成績の機種・台の紹介へ自然につなげる。
+- 空行のあと「🏅好成績機種ピックアップ」：
+  - 【AI文章用の要点】の「好成績機種の候補」から、実績に応じて2〜3機種を選んで紹介する（候補が1機種なら1機種だけ・候補にない機種は選ばない・無理に3機種にしない）。
+  - 機種名・勝率（「N台中M台がプラス、勝率P%」）・平均差枚・総差枚・個別台の好成績（最高の台番と差枚）を自然な文章でつなげる。同じ機種や同じ情報を繰り返さない。
+- 空行のあと「💎単品の優秀台」：
+  - 【AI文章用の要点】の「💎単品の優秀台の候補」（＝🏆その他の単品優秀台の差枚上位）からだけ選び、1〜3台を自然な紹介文で書く（箇条書きにしない）。機種名・台番・差枚は候補の表記のまま。+10,000枚以上の台があれば優先する。
+  - 同じ差枚の台は「52番台のリコリスと224番台のモンキーターンVが、ともに+11,150枚を記録しました！🎉」のようにまとめてよい。
+  - 候補が「（なし）」のときは、この見出しごと書かない。全台系・ハーフ系・並びの台を混ぜない。
+- 「🔢並び・末尾などの仕掛け」は、<data> の【仕掛けの判定結果】に該当があるときだけ最後に書く。「該当なし」のときは見出しごと書かない。判定結果にない並び・末尾・列を推測で書かない。
+- この文章の後ろには、結果テキストの「🏆全台」〜「🏆その他の単品優秀台」がそのまま付く。その一覧を書き写したり、全機種・全台を並べたりしない。
 
 ## 書き方
-- 結果テキストの言い換えや数値の羅列ではなく、データからその日の特徴を読み取って自然な文章で伝える。全項目を並べず、その日に重要なものを選ぶ。
-- 機種別の紹介は注目機種を優先して絞り、数値を並べるだけでなく、何が目立ったのかを説明する。
+- 数値の羅列ではなく自然な文章にする。同じ文末を続けない。読みやすく改行する。
+- 文末に、内容に合う絵文字を適度に付ける（🎉🔥✨💪 など）。絵文字を連続して並べない・付けすぎない。
 - 個別台を並べるとき、G数を書くなら並べる全台に書く。揃えられない場合はG数を書かない。
-- 同じ文末を続けない。読みやすく改行し、絵文字は適度に使う。
-- ハッシュタグ・URL・宣伝文句は付けない。「爆発」「確定」「激アツ」のような過剰な煽りは書かない。
+- ハッシュタグ・URL・宣伝文句は付けない。「爆発」「激アツ」のような過剰な煽りは書かない。
 - 長さの目安：{guide}。
 - 内容：{focus}。
 
@@ -500,6 +603,61 @@ def shikake_lines(report_text: str) -> "list[str]":
     return out
 
 
+_HEADING_RENAME = {"🎯目立った機種": "🏅好成績機種ピックアップ", "🎰目立った機種": "🏅好成績機種ピックアップ",
+                   "📊全体の結果・考察": "📊全体の結果"}
+_HEADING_MARKS = ("📊", "🏅", "💎", "🔢", "🎯", "🎰", "📉", "✅")
+_DATE_LINE_RE = re.compile(r"^\d{1,2}/\d{1,2}\(.\)")
+
+
+def tidy_ai_part(text: str, head_lines: "list[str]") -> str:
+    """生成直後（AI・モック共通）に1回だけ整える。手動編集後の文章には使わない。
+    - 冒頭の日付と店名を、結果テキストの1・2行目（head_lines）に置き換えて必ず別の行にする
+    - 全角の括弧（）を半角 () に（店名の【】はそのまま）
+    - 旧見出し（🎯目立った機種・📊全体の結果・考察）を新しい見出しへ、「📉…」の項目（マイナスの紹介）は丸ごと除く"""
+    lines = (text or "").replace("\r\n", "\n").replace("（", "(").replace("）", ")").split("\n")
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    if lines and _DATE_LINE_RE.match(lines[0].strip()):
+        first = lines.pop(0)
+        if "【" not in first and lines and lines[0].strip().startswith("【") and lines[0].strip().endswith("】"):
+            lines.pop(0)
+    elif lines and lines[0].strip().startswith("【") and lines[0].strip().endswith("】"):
+        lines.pop(0)
+    out, skip = [], False
+    for ln in lines:
+        t = ln.strip()
+        if t.startswith(_HEADING_MARKS) and not t.startswith("✅"):
+            skip = t.startswith("📉")
+            for old, new in _HEADING_RENAME.items():
+                if t.startswith(old):
+                    ln = new
+        if skip:
+            continue
+        out.append(ln)
+    while out and not out[0].strip():
+        out.pop(0)
+    body = "\n".join(out)
+    body = re.sub(r"\n{3,}", "\n\n", body).strip()
+    head = [h for h in (head_lines or []) if h.strip()][:2]
+    return "\n".join(head + ([body] if body else []))
+
+
+NEGATIVE_WORDS = ("厳しい", "厳しかった", "厳しめ", "苦戦", "不調", "マイナスの中", "振るわ", "低調", "凹み", "📉")
+_NEG_NUM_RE = re.compile(r"[\-−－][\d,]+枚")
+
+
+def negative_notes(ai_part: str) -> "list[str]":
+    """プラス中心の方針に合わない表現（否定的な語・マイナスの差枚）。注意表示だけ（文章は書き換えない）。"""
+    out = []
+    for w in NEGATIVE_WORDS:
+        if w in (ai_part or ""):
+            out.append(f"「{w}」")
+    for m in _NEG_NUM_RE.finditer(ai_part or ""):
+        if f"「{m.group(0)}」" not in out:
+            out.append(f"「{m.group(0)}」")
+    return out
+
+
 def compose_full(ai_part: str, append: str) -> str:
     """AI文章の後ろに空行1行を空けて結果テキストの連結部分を付ける。"""
     a = (ai_part or "").rstrip()
@@ -512,37 +670,87 @@ _MOCK_OPENERS = ("📊結果分析", "🔍本日の傾向", "📝データまと
 
 def mock_generate(data_text: str, variant: int = 0, model: str = DEFAULT_MODEL,
                   style: str = DEFAULT_STYLE) -> AIResult:
-    """AI用データの行をそのまま拾って並べるだけの決定的なモック（数値は入力の表記のまま）。"""
+    """AI用データの【AI文章用の要点】の行だけを使って、新しい構成の文章を決定的に作るモック（数値は入力の表記のまま）。"""
     err = check_input(data_text)
     if err:
         return AIResult(ok=False, error=err, model=model, mock=True)
     style = style if style in STYLES else DEFAULT_STYLE
     sec = _sections(data_text)
-    rep = sec.get("既存の集計結果", [])
-    head = " ".join([ln for ln in rep[:3] if ln.strip()][:2])
-    whole = (sec.get("店舗全体") or [""])[0]
-    mach = [ln for ln in sec.get("機種別集計", [])[1:] if "｜" in ln]
-    units = [ln for ln in sec.get("差枚上位", [])[1:] if "｜" in ln]
-    jug = (sec.get("ジャグラー全体") or [""])[0]
-    var = [ln for ln in sec.get("設置台数別", []) if "バラエティ" in ln]
+    kv, cands, singles, mode = {}, [], [], None
+    for ln in sec.get("AI文章用の要点", []):
+        if ln.startswith("好成績機種の候補"):
+            mode = "c"
+            continue
+        if ln.startswith("💎単品の優秀台の候補"):
+            mode = "s"
+            continue
+        if mode and ln.startswith("- "):
+            if ln[2:] != "（なし）":
+                (cands if mode == "c" else singles).append(ln[2:].split("｜"))
+            continue
+        if "：" in ln:
+            k, v = ln.split("：", 1)
+            kv[k] = v
+    emo = ("🎉", "🔥", "✨", "💪")
+    e = lambda i: emo[(variant + i) % len(emo)]
+    cnt = {int(a.replace(",", "")): int(b) for a, b in re.findall(r"\+([\d,]+)枚以上 (\d+)台", kv.get("プラス台の実績", ""))}
+    mt = re.search(r"総差枚 ([+\-][\d,]+枚)／平均差枚 ([+\-][\d,]+枚)", kv.get("全体の総差枚・平均差枚", ""))
+    show_total = kv.get("全体の総差枚・平均差枚", "").startswith("書く") and mt
+    mw = re.search(r"（(.+)）", kv.get("勝率", ""))
+    show_win = kv.get("勝率", "").startswith("書いてよい") and mw
+    big = [(t, cnt.get(t, 0)) for t in (10000, 5000) if cnt.get(t, 0)] or \
+          [(t, cnt.get(t, 0)) for t in (3000, 1000) if cnt.get(t, 0)][:1]
+    pts = []
+    if show_total:
+        pts.append(f"✅総差枚{mt.group(1)}・平均差枚{mt.group(2)}を記録！")
+    if big:
+        pts.append("✅" + "、".join(f"+{t:,}枚以上が{c}台" for t, c in big) + "！")
+    for c in cands[:1]:
+        pts.append(f"✅{c[0]}は{c[2]}")
+    for b in singles[:1]:
+        pts.append(f"✅{b[0]}の{b[1]}が{b[2]}！")
+    for c in cands[1:2]:
+        pts.append(f"✅{c[0]}は{c[2]}")
+    body = [kv.get("日付行", ""), kv.get("店名行", "")] + pts[:3] + ["", "📊全体の結果"]
+    s1 = ""
+    if show_total:
+        s1 += f"総差枚{mt.group(1)}・平均差枚{mt.group(2)}を記録しました{e(0)}"
+    if big:
+        s1 += "、".join(f"+{t:,}枚以上が{c}台" for t, c in big) + "と、プラス台が多数出ています！" + ("" if show_total else e(0))
+    if show_win:
+        s1 += f"{mw.group(1)}でした。"
+    body += [s1 or "プラスの台を中心に紹介します。", "好成績の機種と台を紹介します👇"]
+    k = 2 if style == "short" else 3
+    if cands:
+        body += ["", "🏅好成績機種ピックアップ"]
+        for i, c in enumerate(cands[:k]):
+            name, kind, wtxt, avg_t, tot_t, best = c[:6]
+            mb = re.match(r"最高 (\d+番台) ([+\-][\d,]+枚)", best)
+            pre = "全台系の" if kind == "全台系" else ""
+            tail = f"で、{mb.group(1)}が{mb.group(2)}を記録しました！{e(i + 1)}" if mb else f"でした！{e(i + 1)}"
+            body.append(f"{pre}{name}は{wtxt}。{avg_t.replace(' ', '')}・{tot_t.replace(' ', '')}{tail}")
+    if singles:
+        body += ["", "💎単品の優秀台"]
+        groups = []
+        for b in singles:
+            if groups and groups[-1][0] == b[2]:
+                groups[-1][1].append(b)
+            else:
+                groups.append((b[2], [b]))
+        sent = []
+        for i, (diff, items) in enumerate(groups):
+            who = "と".join(f"{b[0]}の{b[1]}" for b in items)
+            sent.append(f"{who}が、ともに{diff}を記録しました！{e(i)}" if len(items) > 1
+                        else f"{who}が{diff}を記録しました！{e(i)}")
+        body += sent
     shk = [ln for ln in sec.get("仕掛けの判定結果", []) if ln != "該当なし"]
-    n = {"short": 1, "standard": 3, "detail": 5}[style]
-    k = variant % max(1, len(mach))
-    body = [head, "", f"📊全体の結果・考察（モック#{variant + 1}・{STYLES[style]['label']}）", f"・{whole}"]
-    if style != "short" and jug:
-        body.append(f"・ジャグラー全体：{jug}")
-    if style == "detail" and var:
-        body.append(f"・{var[0]}")
-    body += ["", "🎰目立った機種"] + [f"・{ln}" for ln in (mach[k:] + mach[:k])[:n]]
-    if style != "short":
-        body += [f"・{ln}" for ln in (units[k:] + units[:k])[:n]]
     if shk:
         body += ["", "🔢並び・末尾などの仕掛け"] + [f"・{ln}" for ln in shk[:{"short": 2, "standard": 4, "detail": 8}[style]]]
     return AIResult(ok=True, text="\n".join(body).strip(), model=model, mock=True, stop_reason="mock")
 
 
 _SECTION_KEYS = ("基本情報", "店舗全体", "設置台数別", "ジャグラー全体", "機種別集計", "1台設置",
-                 "差枚上位", "差枚下位", "仕掛けの判定結果", "既存の集計結果")
+                 "差枚上位", "差枚下位", "AI文章用の要点", "仕掛けの判定結果", "既存の集計結果")
 
 
 def _sections(text: str) -> dict:

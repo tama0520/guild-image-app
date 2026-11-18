@@ -9319,8 +9319,10 @@ def generate_report_text(
                     for it in (items or [])]
         _nl = _grp_lines(nami_list)
         _L += ["", "🏆全台系", "\n".join(_zl) if _zl else "（なし）",
-               "", "🏆ハーフ系", "\n".join(_hl) if _hl else "（なし）",
-               "", "🏆並び", "\n".join(_nl) if _nl else "（なし）", ""]
+               "", "🏆ハーフ系", "\n".join(_hl) if _hl else "（なし）", ""]
+        # 🏆並びはデータがあるときだけ出す（無い日は見出しごと出さない・2026-11-18）
+        if _nl:
+            _L += ["🏆並び", "\n".join(_nl), ""]
         _rl = _grp_lines(retsu_list)
         if _rl:
             _L += ["🏆列仕掛け", "\n".join(_rl), ""]

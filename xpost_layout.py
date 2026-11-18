@@ -431,6 +431,76 @@ def auto_layout(order: list, sizes: dict, max_frames: int = N_FRAMES) -> dict:
     return normalize_layout(lay, order)
 
 
+# ── スロバース用の自動配置（2026-11-18）──────────────────────────────────
+# 「少ない画像に詰め込む」より「2列中心で見やすい画像を複数枚」を優先する。
+SLV_MAX_COLS = 3                          # 1枚の列数の上限（4列にはしない）
+SLV_SEG_MAX = 6                           # 1枚に入れる素材数の上限（詰め込みすぎない）
+SLV_COL_PEN = {1: 3.0, 2: 0.0, 3: 1.5}    # 列数ごとの追加コスト（素材2つ以上）：2列が基本・3列は必要なときだけ・縦1列に積まない
+SLV_SINGLE_PEN = 1.0                      # 素材1つだけの枠の追加コスト（1枚1素材を並べず2列にまとめる）
+
+
+def _best_frame_slv(seg: list, sizes: dict) -> tuple[float, list]:
+    """1枚分の最良の列分け（1〜SLV_MAX_COLS 列・列数／1素材の追加コストつき）。"""
+    best = (float("inf"), None)
+    m = len(seg)
+    for k in range(1, min(SLV_MAX_COLS, m) + 1):
+        for parts in _compositions(m, k):
+            cols = [{"items": seg[a:b], "pad": 0} for a, b in parts]
+            c = _frame_cost(plan_frame(cols, sizes)) + (SLV_COL_PEN.get(k, 0.0) if m > 1 else SLV_SINGLE_PEN)
+            if c < best[0]:
+                best = (c, cols)
+    return best
+
+
+def auto_layout_slv(order: list, sizes: dict, last=(), max_frames: int = N_FRAMES) -> dict:
+    """スロバース用の自動配置。優先順（order）を崩さずに分ける。
+    - 1枚は基本2列・必要なときだけ3列（4列にはしない）・1枚に SLV_SEG_MAX 素材まで
+    - 枚数を減らすために列数を増やさない（足りなければ次の枠へ分ける）。最大 max_frames 枚・全部を使う必要はない
+    - last（「その他の優秀台ピックアップ」）は、実際に使う最後の枠に単独で置く（他の素材と混ぜない）
+    - 入りきらない素材は削除せず未配置のまま（画面の「未配置の素材」で分かる）
+    手動の配置・保存済みの配置には使わない（初回の自動配置と🪄だけ）。"""
+    lastset = set(last or ())
+    tail = [i for i in order if i in lastset]
+    rest = [i for i in order if i not in lastset]
+    F = max(0, min(N_FRAMES, int(max_frames)) - (1 if tail else 0))
+    lay = empty_layout()
+    used = 0
+    rest = rest[:F * SLV_SEG_MAX]                # 入りきらない分は未配置
+    n = len(rest)
+    if n and F:
+        INF = float("inf")
+        cache: dict = {}
+
+        def seg_cost(a, b):
+            if (a, b) not in cache:
+                cache[(a, b)] = _best_frame_slv(rest[a:b], sizes)
+            return cache[(a, b)]
+
+        best = [[(INF, None)] * (F + 1) for _ in range(n + 1)]
+        best[0][0] = (0.0, None)
+        for i in range(1, n + 1):
+            for f in range(1, F + 1):
+                for a in range(max(0, i - SLV_SEG_MAX), i):
+                    if best[a][f - 1][0] == INF:
+                        continue
+                    tot = best[a][f - 1][0] + seg_cost(a, i)[0]
+                    if tot < best[i][f][0]:
+                        best[i][f] = (tot, a)
+        f_best = min(range(1, F + 1), key=lambda f: best[n][f][0])
+        segs, i, f = [], n, f_best
+        while f > 0:
+            a = best[i][f][1]
+            segs.append((a, i))
+            i, f = a, f - 1
+        segs.reverse()
+        for fi, (a, b) in enumerate(segs):
+            lay["frames"][fi]["cols"] = seg_cost(a, b)[1]
+        used = len(segs)
+    if tail:
+        lay["frames"][used]["cols"] = _best_frame_slv(tail, sizes)[1]
+    return normalize_layout(lay, order)
+
+
 # ── サムネイル ────────────────────────────────────────────────
 def thumb_data_url(img: Image.Image, max_w: int = 240) -> str:
     im = img.convert("RGB")

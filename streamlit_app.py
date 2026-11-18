@@ -10989,13 +10989,19 @@ def _xpost_backup_layouts() -> "str | None":
     return _dst
 
 
+# 自動配置で「実際に使う最後の枠」に置く素材（名前がこれで始まるもの）。初期配置だけで固定はしない
+_XPOST_LAST_GROUP = "その他の優秀台ピックアップ"
+
+
 def _xpost_auto_layout(order: list, imgs: dict, sizes: dict) -> dict:
     """自動配置（初回の自動配置と「🪄 自動配置」だけが使う）。優先順（全台系→高配分→その他）のまま
-    1〜8枚目へ従来の方法（xpost_layout.auto_layout）で割り振る。どの素材も特定の枠に固定しない（2026-11-18）。
-    表と横版（_side）の選び方は _xpost_auto_order のまま（表があれば表・横版は未配置の候補）。
-    保存済み配置の復元・手動の編集には使わない。"""
+    xpost_layout.auto_layout_slv で1〜8枚目へ割り振る：1枚は基本2列・最大3列・1枚6素材まで、
+    「その他の優秀台ピックアップ」は実際に使う最後の枠に単独で置く。入りきらない素材は未配置のまま。
+    これは初期配置だけで、どの枠も固定しない（手動の移動・保存済み配置の復元・確定の補正はしない）。
+    表と横版（_side）の選び方は _xpost_auto_order のまま（表があれば表・横版は未配置の候補）。"""
     import xpost_layout as _xl
-    return _xl.auto_layout(_xpost_auto_order(order, imgs), sizes)
+    auto = _xpost_auto_order(order, imgs)
+    return _xl.auto_layout_slv(auto, sizes, last=[i for i in auto if i.startswith(_XPOST_LAST_GROUP)])
 
 
 def _xpost_unplaced_warn(order: list, imgs: dict, layout: dict) -> list:
@@ -11173,9 +11179,8 @@ def _slv_ai_settings(store: str) -> dict:
     _sel = st.session_state.get(f"slv_ai_model_{store}")
     if _sel in _ai.AI_MODELS:
         _cfg["model"] = _sel
-    _sty = st.session_state.get(f"slv_ai_style_{store}")
-    if _sty in _ai.STYLES:
-        _cfg["style"] = _sty
+    # 文章スタイルは「標準」で固定（2026-11-18・選択UIなし。古い選択値・SLV_AI_STYLE があっても使わない）
+    _cfg["style"] = "standard"
     return _cfg
 
 
@@ -11393,10 +11398,7 @@ def _slv_ai_panel(store: str, excel_name: str, with_slump: bool, exec_label: str
             _disabled = True
         else:
             st.caption(f"実API：このセッションの残り {_cfg['max_calls'] - _calls}回")
-    _styles = list(_ai.STYLES)
-    st.radio("文章スタイル", _styles, index=_styles.index(_cfg["style"]), horizontal=True,
-             format_func=lambda k: f"{_ai.STYLES[k]['label']}（{_ai.STYLES[k]['guide']}）",
-             key=f"slv_ai_style_{store}")
+    # 文章スタイルの選択UIは出さない（標準で固定）
     # ✅ 冒頭のチェック（入力欄は1つ・複数行。1行＝1つの「✅〇〇」を日付・店名の下に入れる・空なら✅行なし）
     _hk = f"slv_ai_head_{store}"
     if _hk not in st.session_state:
@@ -11458,8 +11460,7 @@ def _slv_ai_panel(store: str, excel_name: str, with_slump: bool, exec_label: str
     _cur = st.session_state.get(_out_key, "")
     _xc = _ai.x_check(_cur)
     _gen_sty = _ai.STYLES.get(_meta.get("style", ""), {})
-    st.caption(f"{_xc['chars']}字（改行・絵文字を含む）／X換算 {_xc['weight']}（全角換算 {_xc['zen']:g}字）"
-               + (f"／生成時のスタイル：{_gen_sty['label']}（{_gen_sty['guide']}）" if _gen_sty else ""))
+    st.caption(f"{_xc['chars']}字（改行・絵文字を含む）／X換算 {_xc['weight']}（全角換算 {_xc['zen']:g}字）")
     _slv_copy_button(_cur)   # コピーはボタンだけ（文章を⑦の下へ再表示しない）
     _source = (_src or {}).get("text", "") + "\n" + (_src or {}).get("ctx_text", "")
     if _src:
@@ -11521,7 +11522,7 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool, exec_label: str
         rec = {"layout": _xpost_auto_layout(order, imgs, sizes),
                "materials": order, "sizes": {i: list(sizes[i]) for i in order}, "confirmed": None}
         _xl.save_record(BASE_DIR, key, rec)
-        st.caption("🪄 初回のため自動配置しました（全台系→高配分の平均差枚の高い順を基本・1〜8枚目へ割り振り）。")
+        st.caption("🪄 初回のため自動配置しました（全台系→高配分の平均差枚の高い順・1枚は基本2列・その他の優秀台は最後の枠）。")
     # 保存済み配置はそのまま使う（固定枠の補正なし・4枠の旧配置は1〜4枚目に復元し5〜8枚目は空）
     layout = _xl.normalize_layout(rec.get("layout"), order)
     _gone = [i for i in _xl.placed_ids(_xl.normalize_layout(rec.get("layout"), rec.get("materials") or []))
@@ -11581,7 +11582,7 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool, exec_label: str
     _b1, _b2, _b3 = st.columns(3)
     with _b1:
         if st.button("🪄 自動配置", key=f"{_ek}_auto", use_container_width=True,
-                     help="素材の枚数・縦横比から余白の少ない配置を1〜8枚目へ提案します（今の配置は置き換わります・↩で戻せません）"):
+                     help="1枚は基本2列・最大3列で1〜8枚目へ割り振り、その他の優秀台は最後の枠に置きます（今の配置は置き換わります・↩で戻せません）"):
             st.session_state.pop(f"_xpost_fix4_{key}", None)
             rec = _save(_xpost_auto_layout(order, imgs, sizes), keep_conf=False)
             st.session_state[rev_key] += 1

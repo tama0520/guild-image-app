@@ -1,7 +1,7 @@
-"""スロバース用：X投稿用の画像結合（最大4枚）。
+"""スロバース用：X投稿用の画像結合（最大8枚・2026-11-18 に4枚から変更）。
 
 ⑥プレビューの素材画像（表・スランプ付きの表・_side など）を、1枚あたり横1〜4列に
-並べて最大4枚の完成画像にする。
+並べて最大8枚の完成画像にする。
 
 ★素材は等倍（100%）で並べる。素材ごとの拡大・縮小はしない（列の高さをそろえるための
   サイズ変更もしない）。列の幅は「その列で一番幅の広い素材の幅＋列の余白（pad）」で、
@@ -10,7 +10,8 @@
   切り抜き・引き伸ばし・重ね合わせはしない。
 
 レイアウトの形（JSON）:
-    {"frames": [ {"cols": [ {"items": [素材ID, ...], "pad": 0}, ... ]}, × 4 ]}
+    {"frames": [ {"cols": [ {"items": [素材ID, ...], "pad": 0}, ... ]}, × 8 ]}
+    - 4枠で保存した旧形式も読める（5〜8枠目は空として補う）
     - 素材IDは連番 NN_ を外したファイル名（例「戦国乙女4.jpg」「末尾1番台の優秀台_side.jpg」）
     - pad は列の幅に足す余白（px・0以上）。素材の大きさは変えない
 """
@@ -28,7 +29,7 @@ from datetime import datetime
 
 from PIL import Image
 
-N_FRAMES = 4
+N_FRAMES = 8                 # 枠（完成画像）の数。2026-11-18 に4→8（旧4枠の保存データは5〜8枠目を空で補う）
 MAX_COLS = 4
 GAP = 6                      # 素材どうしの隙間（px・完成画像の寸法）
 BG = (255, 255, 255)         # （旧）白地。今は make_background() の近未来背景で埋める
@@ -60,7 +61,8 @@ def empty_layout() -> dict:
 
 
 def normalize_layout(layout, ids) -> dict:
-    """存在しない素材・重複を外し、4枠・各1〜4列の形にそろえる（並び順は保つ）。"""
+    """存在しない素材・重複を外し、N_FRAMES 枠（8枠）・各1〜4列の形にそろえる（並び順は保つ）。
+    4枠の旧形式は1〜4枠目をそのまま使い、5〜8枠目は空で補う。"""
     ids = set(ids)
     seen: set = set()
     frames = []
@@ -381,8 +383,8 @@ def best_frame(seg: list, sizes: dict) -> tuple[float, list]:
 
 
 def auto_layout(order: list, sizes: dict, max_frames: int = N_FRAMES) -> dict:
-    """優先順（order）を崩さずに、最大4枚（max_frames 枚）・各1〜4列へ分ける。
-    max_frames を減らすと前から max_frames 枚だけを使う（残りの枠は空）。既定は従来どおり 4 枚。
+    """優先順（order）を崩さずに、最大8枚（max_frames 枚）・各1〜4列へ分ける。
+    max_frames を減らすと前から max_frames 枚だけを使う（残りの枠は空）。既定は N_FRAMES（8枚）。
 
     1枚の中は「左の列の上から順に → 次の列」の順。枚数・列数・列ごとの枚数は
     余白・縮小率・縦横比のコストが最小になる組み合わせを選ぶ（動的計画法）。"""
@@ -410,7 +412,7 @@ def auto_layout(order: list, sizes: dict, max_frames: int = N_FRAMES) -> dict:
                 if tot < best[i][f][0]:
                     best[i][f] = (tot, a)
     f_best = min(range(1, F + 1), key=lambda f: best[n][f][0])
-    if best[n][f_best][0] == INF:          # 4枚（F 枚）に入りきらない（素材が多すぎる）
+    if best[n][f_best][0] == INF:          # F 枚に入りきらない（素材が多すぎる）
         per = math.ceil(n / F)
         segs = [(s, min(n, s + per)) for s in range(0, n, per)]
     else:

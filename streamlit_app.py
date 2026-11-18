@@ -9318,7 +9318,7 @@ def generate_report_text(
                      else f"{it['title']}→平均{_fmt_diff(it['avg_diff'])}")
                     for it in (items or [])]
         _nl = _grp_lines(nami_list)
-        _L += ["", "🏆全台", "\n".join(_zl) if _zl else "（なし）",
+        _L += ["", "🏆全台系", "\n".join(_zl) if _zl else "（なし）",
                "", "🏆ハーフ系", "\n".join(_hl) if _hl else "（なし）",
                "", "🏆並び", "\n".join(_nl) if _nl else "（なし）", ""]
         _rl = _grp_lines(retsu_list)
@@ -9327,13 +9327,14 @@ def generate_report_text(
         # 🏆末尾（既存 suebangai_data の勝率・平均・1グループ1行。個別台は載せない）
         _cm = {"0": "⓪", "1": "①", "2": "②", "3": "③", "4": "④",
                "5": "⑤", "6": "⑥", "7": "⑦", "8": "⑧", "9": "⑨"}
-        def _tail_lines(items) -> list[str]:
-            return [f"💎{'ゾロ目' if _it['tail'] == 'ゾロ目' else _cm.get(_it['tail'], _it['tail']) + '番台'}"
+        def _tail_lines(items, pre: str = "") -> list[str]:
+            return [f"💎{'ゾロ目' if _it['tail'] == 'ゾロ目' else pre + _cm.get(_it['tail'], _it['tail']) + '番台'}"
                     f"({_it['win_count']}/{_it['total']}台)→平均{_fmt_diff(_it['avg_diff'])}"
                     for _it in (items or [])]
-        _sl = _tail_lines(suebangai_data)
+        # 🏆優秀末尾（2026-11-18 に「🏆末尾」から改名・行は「💎末尾①番台(N/M台)→平均…」）
+        _sl = _tail_lines(suebangai_data, "末尾")
         if _sl:
-            _L += ["🏆末尾", "\n".join(_sl), ""]
+            _L += ["🏆優秀末尾", "\n".join(_sl), ""]
         # 🏆ジャグラーの優秀末尾（既存のデータ生成条件のまま・1グループ1行。個別台は載せない）
         _jg = _tail_lines(jug_sue_data)
         if _jg:
@@ -10810,14 +10811,14 @@ _SLV_TOTAL_MIN_AVG = 100
 _SLV_HEAD_INPUTS_VISIBLE = False   # ✅・💥の入力欄を画面に出すか（簡略版では出さない・保存値は維持）
 
 
-# ── スロバース用：X投稿用の画像結合（最大4枚・スロバース用11店舗・2026-11-09）──────────
-# ⑥プレビューの素材を「■1枚目〜■4枚目」へドラッグ＆ドロップで配置し、⑧で
-# 001.jpg〜004.jpg（使った枠を詰めた連番）＋ 結果テキストだけを出力する。素材は _tmp_xpost/ に保持（Git管理外）。
+# ── スロバース用：X投稿用の画像結合（2026-11-18 から最大8枚・固定枠なし／当初は最大4枚・2026-11-09）──────────
+# ⑥プレビューの素材を「■1枚目〜■8枚目」へドラッグ＆ドロップで配置し、⑧で
+# 001.jpg〜008.jpg（使った枠を詰めた連番）＋ 結果テキストだけを出力する。素材は _tmp_xpost/ に保持（Git管理外）。
 # 配置計算・結合・保存は xpost_layout.py、操作画面は components/xpost_editor/index.html。
 # 2026-11-09：蒲田7での試験（34beee3）を経て、スロバース用の全店舗（_is_sloverse_store）へ展開。
 # 店舗は内部キーで判定するので、YG用と同名の3店舗（楽園渋谷駅前／楽園渋谷道玄坂／大山オーシャン）は
 # 「〇〇（スロバース）」だけが対象で、YG用の店舗には出ない（配置・素材・出力も内部キー単位で分かれる）。
-_XPOST_OUT_RE = re.compile(r"^\d{3}\.jpg$")               # 出力する結合画像（001.jpg〜004.jpg）
+_XPOST_OUT_RE = re.compile(r"^\d{3}\.jpg$")               # 出力する結合画像（001.jpg〜008.jpg）
 _XPOST_OLD_OUT_RE = re.compile(r"^X投稿用_\d+\.jpg$")     # 旧名（2026-11-09 の 34beee3）。再実行時に置き換える
 
 
@@ -10852,7 +10853,7 @@ def _xpost_confirmed(store: str, excel_name: str, with_slump: bool) -> bool:
     rec = _xl.load_record(BASE_DIR, _xpost_key(store, excel_name, with_slump))
     if not rec:
         return False
-    lay = _xpost_enforce_last(rec.get("layout"), rec.get("materials") or [])[0]   # 4枚目の固定ルールに合わない配置は未確定扱い
+    lay = _xpost_enforce_last(rec.get("layout"), rec.get("materials") or [])[0]   # 正規化だけ（固定ルールなし）
     sizes = {i: tuple(v) for i, v in (rec.get("sizes") or {}).items()}
     return bool(_xl.placed_ids(lay)) and rec.get("confirmed") == _xl.layout_hash(lay, sizes)
 
@@ -10964,54 +10965,12 @@ def _xpost_auto_order(order: list, imgs: dict) -> list:
     return [i for i in order if not (i.endswith("_side.jpg") and (i[:-9] + ".jpg") in imgs)]
 
 
-# 自動配置（初回・🪄）で4枚目に優先して置く素材。4枚目は固定枠ではなく、手動では自由に入れ替えられる。
-_XPOST_LAST_FRAME_FN = "その他の優秀台ピックアップ.jpg"
-
-
-def _xpost_lock(order: list) -> "tuple[str | None, list]":
-    """4枚目（固定枠）に置く素材と、置かない対（横版）。通常版を基本とし、横版だけのときは横版。
-    戻り値: (4枚目の素材ID または None, 4枚目以外にも置かない素材IDのリスト)"""
-    _side = _XPOST_LAST_FRAME_FN[:-4] + "_side.jpg"
-    if _XPOST_LAST_FRAME_FN in order:
-        return _XPOST_LAST_FRAME_FN, ([_side] if _side in order else [])
-    if _side in order:
-        return _side, []
-    return None, []
-
-
 def _xpost_enforce_last(layout: dict, order: list) -> "tuple[dict, list]":
-    """4枚目＝「その他の優秀台ピックアップ」専用（1列・1枚）の固定ルールを配置へ当てる。
-    1〜3枚目の配置はそのまま（その他と横版だけを外す）。4枚目にあった他の素材は未配置へ戻す。
-    対象が無ければ4枚目は空（1列）。戻り値: (補正後の配置, 画面に出す補正内容のリスト・補正なしは空)"""
-    import copy
+    """配置の正規化だけ（存在しない素材・重複を外し、1〜8枚目の形にそろえる）。
+    2026-11-18：旧「4枚目＝その他の優秀台ピックアップ専用」の固定ルールは解除した（復元・保存・確定・⑦実行前の
+    強制補正をしない）。4枠で保存した旧配置は1〜4枚目をそのまま使い、5〜8枚目は空。戻り値の2つ目は常に空。"""
     import xpost_layout as _xl
-    lay = copy.deepcopy(_xl.normalize_layout(layout, order))
-    tgt, pair = _xpost_lock(order)
-    lock = {i for i in [tgt] + pair if i}
-    lf = _xl.N_FRAMES - 1
-    notes: list = []
-    for _fi, _fr in enumerate(lay["frames"][:lf]):
-        for _c in _fr["cols"]:
-            _rm = [i for i in _c["items"] if i in lock]
-            if _rm:
-                _c["items"] = [i for i in _c["items"] if i not in lock]
-                for _i in _rm:
-                    notes.append(f"{_fi + 1}枚目の「{_i[:-4]}」を" + ("4枚目へ移しました" if _i == tgt else "外しました（4枚目専用）"))
-    _cols4 = lay["frames"][lf]["cols"]
-    _old4 = [i for c in _cols4 for i in c["items"]]
-    for _i in _old4:
-        if _i != tgt:
-            notes.append(f"4枚目の「{_i[:-4]}」を未配置へ戻しました")
-    if len(_cols4) > 1:
-        notes.append("4枚目を1列にしました")
-    if tgt and tgt not in _old4 and not any(n.endswith("4枚目へ移しました") for n in notes):
-        notes.append(f"4枚目に「{tgt[:-4]}」を配置しました")
-    _pad = _cols4[0].get("pad", 0) if _cols4 and _cols4[0]["items"] == ([tgt] if tgt else []) else 0
-    lay["frames"][lf] = {"cols": [{"items": [tgt] if tgt else [], "pad": _pad}]}
-    lay = _xl.normalize_layout(lay, order)
-    if lay == _xl.normalize_layout(layout, order):
-        return lay, []
-    return lay, notes
+    return _xl.normalize_layout(layout, order), []
 
 
 def _xpost_backup_layouts() -> "str | None":
@@ -11029,20 +10988,12 @@ def _xpost_backup_layouts() -> "str | None":
 
 
 def _xpost_auto_layout(order: list, imgs: dict, sizes: dict) -> dict:
-    """自動配置（初回の自動配置と「🪄 自動配置」だけが使う）。
-    「その他の優秀台ピックアップ」があれば4枚目に1枚だけ置き、残りは1〜3枚目に従来の方法で自動配置する
-    （入りきらない素材は従来どおりの扱い）。表と横版（_side）の選び方は _xpost_auto_order のまま
-    （表があれば表・横版は未配置の候補。表が無く横版だけのときは横版）。対象が無ければ従来どおり4枚で自動配置。
+    """自動配置（初回の自動配置と「🪄 自動配置」だけが使う）。優先順（全台系→高配分→その他）のまま
+    1〜8枚目へ従来の方法（xpost_layout.auto_layout）で割り振る。どの素材も特定の枠に固定しない（2026-11-18）。
+    表と横版（_side）の選び方は _xpost_auto_order のまま（表があれば表・横版は未配置の候補）。
     保存済み配置の復元・手動の編集には使わない。"""
     import xpost_layout as _xl
-    auto = _xpost_auto_order(order, imgs)
-    _side = _XPOST_LAST_FRAME_FN[:-4] + "_side.jpg"
-    tgt = next((t for t in (_XPOST_LAST_FRAME_FN, _side) if t in auto), None)
-    if tgt is None:
-        return _xl.auto_layout(auto, sizes)
-    lay = _xl.auto_layout([i for i in auto if i != tgt], sizes, max_frames=_xl.N_FRAMES - 1)
-    lay["frames"][_xl.N_FRAMES - 1] = {"cols": [{"items": [tgt], "pad": 0}]}
-    return _xpost_enforce_last(lay, order)[0]
+    return _xl.auto_layout(_xpost_auto_order(order, imgs), sizes)
 
 
 def _xpost_unplaced_warn(order: list, imgs: dict, layout: dict) -> list:
@@ -11084,7 +11035,7 @@ def _slv_ref_total(uploaded) -> "tuple[int | None, str]":
 def _slv_ai_set_source(store: str, excel_name: str, report_text: str,
                        txt_name: str, manual: bool, df=None, date=None, uploaded=None) -> None:
     """⑧と同じ処理（一時フォルダ・保存/出力なし）で作った結果テキストと台別データ（補正後差枚）から、
-    AI用データと連結部分（🏆全台〜🏆その他の単品優秀台）を作って覚える。Pision へは再取得しない。
+    AI用データと連結部分（🏆全台系〜🏆その他の単品優秀台）を作って覚える。Pision へは再取得しない。
     AI文章（編集中の文章）には触れない。"""
     if not _is_sloverse_store(store) or not report_text:
         return
@@ -11266,7 +11217,9 @@ def _slv_ai_generate(store: str) -> None:
         "stop": _res.stop_reason, "style": _cfg["style"]}
     if _res.ok:
         _head = [_l.strip() for _l in (_src.get("text") or "").splitlines() if _l.strip()][:2]
-        _full = _ai.compose_full(_ai.tidy_ai_part(_res.text, _head, singles=_ai.single_candidates(_src.get("text") or "")),
+        _full = _ai.compose_full(_ai.tidy_ai_part(_res.text, _head, singles=_ai.single_candidates(_src.get("text") or ""),
+                                                  checks=_slv_ai_head_lines(store),
+                                                  tails=_ai.tail_candidates(_src.get("text") or "")),
                                  _src.get("append", ""))
         st.session_state[f"_slv_ai_text_{store}"] = _full
         st.session_state[f"slv_ai_out_{store}"] = _full
@@ -11276,6 +11229,27 @@ def _slv_ai_generate(store: str) -> None:
         st.session_state[f"_slv_ai_gen_{store}"] = {
             "sig": _src.get("sig"), "excel": _src.get("excel"), "xmode": _src.get("xmode"),
             "text": _src.get("text", "")}
+
+
+def _slv_ai_head_lines(store: str) -> "list[str]":
+    """🤖 AI文章の冒頭チェック（入力欄1つ・1行＝1つの✅）。空なら空リスト。"""
+    import ai_text as _ai
+    _raw = st.session_state.get(f"slv_ai_head_{store}", st.session_state.get(f"_slv_ai_head_keep_{store}", ""))
+    return _ai.check_lines(_raw)
+
+
+def _slv_ai_head_changed(store: str) -> None:
+    """冒頭チェックを変えたとき：生成後に手動編集していなければ、編集欄の✅行だけを入れ替える
+    （本文・下段は変えない・手動編集した文章には触れない・APIは呼ばない）。"""
+    import ai_text as _ai
+    st.session_state[f"_slv_ai_head_keep_{store}"] = st.session_state.get(f"slv_ai_head_{store}", "")
+    _t = st.session_state.get(f"_slv_ai_text_{store}")
+    _last = st.session_state.get(f"_slv_ai_lastgen_{store}")
+    if _t and _last is not None and _t == _last:
+        _new = _ai.replace_checks(_t, _slv_ai_head_lines(store))
+        st.session_state[f"_slv_ai_text_{store}"] = _new
+        st.session_state[f"slv_ai_out_{store}"] = _new
+        st.session_state[f"_slv_ai_lastgen_{store}"] = _new
 
 
 def _slv_ai_keep_text(store: str) -> None:
@@ -11365,7 +11339,7 @@ def _slv_ai_panel(store: str, excel_name: str, with_slump: bool, exec_label: str
     st.markdown("---")
     st.markdown("### 🤖 AI文章（X投稿用の下書き）")
     _xn = exec_label or "⑧"   # 実行ステップの番号（実行ボタンと同じ）
-    st.caption("AIの分析文の後ろに、結果テキストの「🏆全台」〜「🏆その他の単品優秀台」をそのまま付けます。"
+    st.caption("AIの分析文の後ろに、結果テキストの「🏆全台系」〜「🏆その他の単品優秀台」をそのまま付けます。"
                "ボタンを押したときだけ作ります（生成ではファイル保存・投稿はしません）。"
                f"{_xn}では、下の欄の文章をそのまま結果.txt に保存します（未生成のときは従来の結果テキスト）。")
     if _src is None:
@@ -11421,6 +11395,14 @@ def _slv_ai_panel(store: str, excel_name: str, with_slump: bool, exec_label: str
     st.radio("文章スタイル", _styles, index=_styles.index(_cfg["style"]), horizontal=True,
              format_func=lambda k: f"{_ai.STYLES[k]['label']}（{_ai.STYLES[k]['guide']}）",
              key=f"slv_ai_style_{store}")
+    # ✅ 冒頭のチェック（入力欄は1つ・複数行。1行＝1つの「✅〇〇」を日付・店名の下に入れる・空なら✅行なし）
+    _hk = f"slv_ai_head_{store}"
+    if _hk not in st.session_state:
+        st.session_state[_hk] = st.session_state.get(f"_slv_ai_head_keep_{store}", "")
+    st.text_area("✅ 冒頭のチェック（1行＝1つの✅・空欄なら✅行は出しません）", key=_hk, height=80,
+                 placeholder="7の付く日\nアナスロ調査班来店", on_change=_slv_ai_head_changed, args=(store,),
+                 help="生成時に日付・店名の下へ「✅〇〇」として入れます。生成後に変えたときは、手動編集していなければ"
+                      "編集欄の✅行だけが入れ替わります（手動編集した文章は変わりません）。")
     # データ作成（ドライラン）直後の続き：押した「生成」をここで1回だけ実行する
     if _src is not None and _src.get("ctx_ok") and st.session_state.pop(f"_slv_ai_pending_{store}", False):
         if not _disabled:
@@ -11514,15 +11496,15 @@ def _slv_ai_panel(store: str, excel_name: str, with_slump: bool, exec_label: str
 
 @st.fragment
 def _xpost_editor(store: str, excel_name: str, with_slump: bool, exec_label: str = "") -> None:
-    """⑥〜⑧の間に出す「X投稿用の画像（最大4枚）」エディター（fragment：操作でページ全体を再実行しない）。"""
+    """⑥〜⑧の間に出す「X投稿用の画像（最大8枚）」エディター（fragment：操作でページ全体を再実行しない）。"""
     _slv_fast_restore()
     import xpost_layout as _xl
     import base64
     key = _xpost_key(store, excel_name, with_slump)
-    st.markdown("### 🧩 X投稿用の画像（最大4枚）")
+    st.markdown("### 🧩 X投稿用の画像（最大8枚）")
     order, imgs, meta, src = _xpost_materials(store, excel_name, with_slump)
     if not order:
-        st.info("⑥でプレビューを作成すると、ここで素材を最大4枚の画像にまとめられます。")
+        st.info("⑥でプレビューを作成すると、ここで素材を最大8枚の画像にまとめられます。")
         if exec_label:
             _slv_exec_button(store, exec_label)
         return
@@ -11537,22 +11519,9 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool, exec_label: str
         rec = {"layout": _xpost_auto_layout(order, imgs, sizes),
                "materials": order, "sizes": {i: list(sizes[i]) for i in order}, "confirmed": None}
         _xl.save_record(BASE_DIR, key, rec)
-        st.caption("🪄 初回のため自動配置しました（全台系→高配分の平均差枚の高い順を基本・その他の優秀台は4枚目）。")
+        st.caption("🪄 初回のため自動配置しました（全台系→高配分の平均差枚の高い順を基本・1〜8枚目へ割り振り）。")
+    # 保存済み配置はそのまま使う（固定枠の補正なし・4枠の旧配置は1〜4枚目に復元し5〜8枚目は空）
     layout = _xl.normalize_layout(rec.get("layout"), order)
-    # 4枚目は「その他の優秀台ピックアップ」専用：保存済み配置にも当てる（1〜3枚目はそのまま・補正したら通知）
-    layout, _fix4 = _xpost_enforce_last(layout, order)
-    if _fix4:
-        _rs0 = {i: tuple(v) for i, v in (rec.get("sizes") or {}).items()}
-        _was_conf = bool(rec.get("confirmed")) and rec.get("confirmed") == _xl.layout_hash(
-            _xl.normalize_layout(rec.get("layout"), rec.get("materials") or []), _rs0)
-        _xpost_backup_layouts()
-        st.session_state[f"_xpost_fix4_{key}"] = {"notes": _fix4, "was_conf": _was_conf}
-    _fx = st.session_state.get(f"_xpost_fix4_{key}")
-    if _fx:
-        st.info("ℹ️ 4枚目は「その他の優秀台ピックアップ」専用のため、保存済みの配置を補正しました（元のJSONはバックアップ済み）："
-                + "／".join(_fx["notes"]))
-        if _fx.get("was_conf"):
-            st.warning("⚠️ 確定済みだった配置を補正しました。内容を確認して「✅ この配置で確定」を押し直してください。")
     _gone = [i for i in _xl.placed_ids(_xl.normalize_layout(rec.get("layout"), rec.get("materials") or []))
              if i not in sizes]
     _new = [i for i in order if i not in (rec.get("materials") or [])]
@@ -11604,15 +11573,13 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool, exec_label: str
                          "blank": round(_s["blank"] * 100, 1), "scale": round(_s["downscale"] * 100, 1),
                          "mb": round(len(_data) / 1_000_000, 2), "q": _q,
                          "ncol": len([c for c in _fr["cols"] if c["items"]])})
-    _lk_id, _lk_pair = _xpost_lock(order)
     _xpost_component()(materials=mats, layout=layout, rev=st.session_state[rev_key], previews=previews,
-                       lock={"frame": _xl.N_FRAMES - 1, "id": _lk_id, "pair": _lk_pair},
                        key=_ek, default=None)
 
     _b1, _b2, _b3 = st.columns(3)
     with _b1:
         if st.button("🪄 自動配置", key=f"{_ek}_auto", use_container_width=True,
-                     help="素材の枚数・縦横比から余白の少ない配置を提案します（その他の優秀台は4枚目・今の配置は置き換わります・↩で戻せません）"):
+                     help="素材の枚数・縦横比から余白の少ない配置を1〜8枚目へ提案します（今の配置は置き換わります・↩で戻せません）"):
             st.session_state.pop(f"_xpost_fix4_{key}", None)
             rec = _save(_xpost_auto_layout(order, imgs, sizes), keep_conf=False)
             st.session_state[rev_key] += 1
@@ -11634,7 +11601,7 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool, exec_label: str
     # 実行ステップの番号は、エディター内の実行ボタンと同じ（ページの番号から決まる・無ければ従来の⑧）
     _xn = exec_label or "⑧"
     if _conf_ok:
-        st.success(f"✅ 配置は確定済みです。{_xn}で 001〜004.jpg と結果テキストだけを出力します。")
+        st.success(f"✅ 配置は確定済みです。{_xn}で 001〜008.jpg（使った枚数分）と結果テキストだけを出力します。")
     elif _used:
         st.warning(f"⚠️ 配置が未確定です。{_xn}の前に「✅ この配置で確定」を押してください"
                    f"（未確定のままでは{_xn}は実行されず、出力フォルダも変わりません）。")
@@ -11646,8 +11613,8 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool, exec_label: str
     if _un and _used:
         st.warning(f"⚠️ 未配置の素材があります（{_xn}では出力されません）：" + "、".join(meta[i]["label"] for i in _un))
 
-    # 完成画像はエディター右側（5枠目）の「完成画像プレビュー」で見る（下に重ねて表示しない）。
-    # 50%未満まで縮小される（文字が小さくなる）ときだけ注意を出す（5枠目と同じ計算結果を使う）
+    # 完成画像はエディター右側の「完成画像プレビュー」（1〜8枚目を切り替え）で見る（下に重ねて表示しない）。
+    # 50%未満まで縮小される（文字が小さくなる）ときだけ注意を出す（プレビューと同じ計算結果を使う）
     for _pv in previews:
         if _pv["scale"] < _xl.WARN_SCALE * 100:
             st.warning(f"⚠️ {_pv['name']}：長辺が{_xl.MAX_LONG}pxを超えるため、完成画像全体を{_pv['scale']}%に縮小して出力します"
@@ -11697,7 +11664,7 @@ def _xpost_cleanup_materials(keep_dir: "str | None" = None, keep_days: int = _XP
 
 
 def _xpost_finalize(store: str, output_dir: str, excel_name: str, with_slump: bool) -> "list | None":
-    """⑧の最後：確定した配置で 001.jpg〜004.jpg を作り、素材画像を内部フォルダへ移す。
+    """⑧の最後：確定した配置で 001.jpg〜008.jpg（使った枠を詰めた連番）を作り、素材画像を内部フォルダへ移す。
 
     配置が無い・未確定・素材が足りない・寸法が確定時と違う、のどれかなら何もしない
     （従来どおり素材画像を出力したまま）。失敗しても既存の出力は壊さない。"""
@@ -21853,7 +21820,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         st.session_state.pop(f"_manual_preview_mode_{store}", None)
                     st.rerun()
 
-    # スロバース用：⑥の素材を X投稿用の最大4枚へまとめるエディター。
+    # スロバース用：⑥の素材を X投稿用の最大8枚へまとめるエディター。
     # ⑧の実行ボタンはエディターの中（🤖 AI文章の編集欄の直下）に1つだけ出し、下の共通ボタンは出さない
     _slv_inline_run = uploaded is not None and _xpost_on(store) and _is_sloverse_store(store)
     _slv_exec_lbl = _sec_num() if _slv_inline_run else ""   # 実行ステップの番号（ボタン・確定メッセージ・警告で共通）

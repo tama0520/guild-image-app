@@ -10892,12 +10892,15 @@ def _xpost_materials(store: str, excel_name: str, with_slump: bool):
                         _im.load()
                         imgs.setdefault(_xl.bare(_f), _im.copy())
             src = "stored"
-    zen_map = st.session_state.get(f"auto_preview_zen_{store}") or {}
+    zen_map = dict(st.session_state.get(f"auto_preview_zen_{store}") or {})
+    # ②個別画像（全台系）に入れた機種の画像も全台系として扱う（自動の全台系判定には載らないため）
+    for _kz in (st.session_state.get(f"auto_preview_kzen_{store}") or {}):
+        zen_map.setdefault(_xl.bare(_kz), _kz[:-4])
     hr_map = st.session_state.get(f"auto_preview_hr_{store}") or {}
     avg = st.session_state.get(f"auto_preview_avg_{store}") or {}
     pre = [i for i in imgs if not i.endswith("_side.jpg")]
-    # 平均差枚の降順（同じ値は⑥の順番のまま＝安定ソート）
-    zen = sorted([i for i in pre if i in zen_map], key=lambda i: -avg.get(i, 0))
+    # 平均差枚の降順（同じ値は⑥の順番のまま＝安定ソート）。全台系で平均差枚が取れないものは推測せず全台系の最後
+    zen = sorted([i for i in pre if i in zen_map], key=lambda i: (i not in avg, -avg.get(i, 0)))
     high = sorted([i for i in pre if i in hr_map and i not in zen_map], key=lambda i: -avg.get(i, 0))
     rest = [i for i in pre if i not in zen_map and i not in hr_map]
     order: list = []
@@ -19448,6 +19451,7 @@ def show_auto_page(with_slump: bool = False) -> None:
 
                             # ─ ① 全台系（平均差枚 大→小・個別全台系を含む）─
                             _zen_pv_items: list[tuple[int, str, object]] = []
+                            _xpost_kz_avg: dict[str, int] = {}   # X投稿の並び順用：②個別全台系の画像名→平均差枚
                             for _item in _prev_result.get("zen_dai_list", []):
                                 _zen_pv_items.append((_item.get("all_avg_diff", 0), "pipeline", _item))
                             if kojin_enabled and _pv_df is not None and _pv_diff is not None:
@@ -19461,6 +19465,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _kdr = _pv_diff.loc[_pv_df[_pv_df["機種名"] == _km].index].reset_index(drop=True)
                                     _kavg = int(round(_kdr.mean()))
                                     _zen_pv_items.append((_kavg, "kojin", (_km, _kgrp, _kdr)))
+                                    _xpost_kz_avg[f"{_km}.jpg"] = _kavg
                             for _avg, _typ, _data in sorted(_zen_pv_items, key=lambda x: x[0], reverse=True):
                                 if _typ == "pipeline":
                                     _fn = f"{_make_safe_fn(_data['name'])}.jpg"
@@ -20131,8 +20136,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                         for item in _prev_result.get("zen_dai_list", [])
                     }
                     if _xpost_on(store):
-                        # X投稿用の素材一覧の並び順に使う（全台系＝all_avg_diff・高配分＝_high_avg_of）
+                        # X投稿用の素材一覧の並び順に使う（全台系＝all_avg_diff・高配分＝_high_avg_of・
+                        # ②個別画像の全台系＝⑥の全台系の並びと同じ平均差枚）
+                        _xpost_kz = dict(locals().get("_xpost_kz_avg") or {})
+                        st.session_state[f"auto_preview_kzen_{store}"] = _xpost_kz
                         st.session_state[f"auto_preview_avg_{store}"] = {
+                            **_xpost_kz,
                             **{f"{_make_safe_fn(_it['name'])}.jpg": int(_it.get("all_avg_diff", 0))
                                for _it in _prev_result.get("zen_dai_list", [])},
                             **{f"{_make_safe_fn(_it['name'])}_高配分.jpg": int(_high_avg_of(_it))

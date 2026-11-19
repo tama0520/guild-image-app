@@ -10996,6 +10996,28 @@ def _xpost_backup_layouts() -> "str | None":
 _XPOST_LAST_GROUP = "その他の優秀台ピックアップ"
 
 
+def _xpost_off_core(store: str, excel_name: str) -> set:
+    """⑦で「その他」への振り分けに関わるチェックOFFの画像（横版・その他の優秀台自身は除く）。"""
+    return {f for f in _pv_off_set(store, excel_name)
+            if not f.endswith("_side.jpg") and not f.startswith(_XPOST_LAST_GROUP)}
+
+
+def _xpost_off_mark(store: str, excel_name: str, reflected: bool) -> None:
+    """⑥の「その他」がどのチェックOFFまで反映して作られたかを記録する（X投稿の店舗だけ）。
+    🔍プレビュー生成はOFFを反映しない（reflected=False→空）、🔄その他を更新・📝記入部分のみは今のOFFを反映。"""
+    if _xpost_on(store):
+        st.session_state[f"_xpost_offsnap_{store}_{os.path.splitext(excel_name)[0]}"] = (
+            sorted(_xpost_off_core(store, excel_name)) if reflected else [])
+
+
+def _xpost_off_unreflected(store: str, excel_name: str) -> list:
+    """チェックを変えたのに「🔄 その他を更新」をまだ押していない画像（記録が無いときは空）。"""
+    _snap = st.session_state.get(f"_xpost_offsnap_{store}_{os.path.splitext(excel_name)[0]}")
+    if _snap is None:
+        return []
+    return sorted(_xpost_off_core(store, excel_name) ^ set(_snap))
+
+
 def _xpost_auto_layout(order: list, imgs: dict, sizes: dict) -> dict:
     """自動配置（初回の自動配置と「🪄 自動配置」だけが使う）。優先順（全台系→高配分→その他）のまま
     xpost_layout.auto_layout_slv で1〜8枚目へ割り振る：1枚は基本2列・最大3列・1枚6素材まで、
@@ -11611,6 +11633,12 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool, exec_label: str
     elif _used:
         st.warning(f"⚠️ 配置が未確定です。{_xn}の前に「✅ この配置で確定」を押してください"
                    f"（未確定のままでは{_xn}は実行されず、出力フォルダも変わりません）。")
+    _off_chg = _xpost_off_unreflected(store, excel_name) if src == "preview" else []
+    if _off_chg:
+        st.warning(f"⚠️ ⑥でチェックを変えた画像があります（まだ「🔄 その他を更新」を押していません）："
+                   + "、".join(_xl.bare(f)[:-4] for f in _off_chg)
+                   + f"。チェックを外した画像の台は{_xn}で「その他の優秀台ピックアップ」へ移るため、その他の画像の大きさが"
+                   f"変わり、X投稿用画像が作られません。⑥の「🔄 その他を更新」を押してから配置を確定してください。")
     _both = [i for i in _used if i.endswith("_side.jpg") and (i[:-9] + ".jpg") in _used]
     if _both:
         st.warning("⚠️ 同じ内容の表と横版（_side）を両方配置しています（内容が重複します）："
@@ -20104,6 +20132,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _ban_list_purge_old_images(store, _ban_list_out_dir(uploaded.name),
                                                    machine_names=_bl_mac_pv, extra=_bl_ext_pv)
                     st.session_state[_aprev_key]    = _dedup_previews(_prev_img_list)
+                    _xpost_off_mark(store, uploaded.name, reflected=False)
                     # 台番一覧（モグ玄・新大久保のみ）：⑧と同じ関数・同じ入力で作る
                     if store in _BAN_LIST_IMG_STORES:
                         st.session_state[f"ban_list_img_{store}"] = (
@@ -20643,6 +20672,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     ban2mac=_m_ban2mac, ban2diff=_m_ban2diff, date_str=_m_date_str,
                                 )
                             st.session_state[_aprev_key] = _dedup_previews(_manual_imgs)
+                            _xpost_off_mark(store, uploaded.name, reflected=True)
                             st.session_state[f"_manual_preview_mode_{store}"] = True
                             if store in _BAN_LIST_MANUAL_STORES:
                                 st.session_state[f"ban_list_img_{store}"] = _bl_m_img
@@ -20890,6 +20920,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                 # 🔄由来の再生成直後の続き（_unit_resort_on のページのみ・同じExcelのときだけ）
                 _auto_resort = (st.session_state.pop(f"_unit_resort_{store}", None) == _excel_stem)
                 if (_upd_clicked and not _unit_regen and not _manual_regen) or _auto_resort:
+                    _xpost_off_mark(store, uploaded.name, reflected=True)
                     # 📝記入部分のみプレビュー由来（秋葉原スランプ付きのみ）の再振り分け。
                     # 📝は _aprev_df_key を持たないため、②個別優秀台のチェック外しが
                     # 「その他の優秀台」へ回らなかった。📝が保存済みの df/diff をフォールバックに使う。
@@ -23226,6 +23257,23 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _jov_excl_e |= {int(b) for b in _df_res["台番"]
                                             if str(int(b))[-len(_st_e):] == _st_e}
 
+                # スロバース用だけ：チェックOFFの全台系・高配分（ジャグラー以外）をその他へ回すとき、
+                # 🔄その他を更新と同じく「チェック中の並び画像の台」と「末尾番号に該当する台」を除く
+                # （⑥→🔄 と ⑦ のその他を一致させる・末尾画像との二重掲載を防ぐ）。
+                _slv_excl_e: set[int] = set()
+                if _is_sloverse_store(store) and _df_res is not None:
+                    for _np_s, _nbl_s in (_narabi_ban_map_ex or {}).items():
+                        if _pv_is_on(store, uploaded.name, _np_s):
+                            _slv_excl_e |= {int(_b) for _b in (_nbl_s or [])}
+                    for _st_s in [t for i in range(1, 4)
+                                  if (t := st.session_state.get(f"suebangai_tail_input_{i}", "").strip())]:
+                        if _st_s == "ゾロ目":
+                            _slv_excl_e |= {int(b) for b in _df_res["台番"]
+                                            if (s := str(int(b))) and len(s) >= 2 and s[-2] == s[-1]}
+                        elif _st_s.isdigit() and len(_st_s) in (1, 2):
+                            _slv_excl_e |= {int(b) for b in _df_res["台番"]
+                                            if str(int(b))[-len(_st_s):] == _st_s}
+
                 def _jov_drop_e(_gdf: pd.DataFrame) -> pd.DataFrame:
                     if not _jov_excl_e or _gdf.empty:
                         return _gdf
@@ -23253,6 +23301,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _m_good_diff = _m_diff[_m_mask].reset_index(drop=True)
                                 if not _m_good.empty and _m in _ex_jug_series_set:
                                     _m_good = _jov_drop_e(_m_good)
+                                if not _m_good.empty and _slv_excl_e and _m not in _ex_jug_series_set:
+                                    # スロバース用：🔄その他を更新と同じく並び（チェック中）・末尾の台は除く
+                                    _slv_k = ~_m_good["台番"].apply(int).isin(_slv_excl_e)
+                                    _m_good = _m_good[_slv_k.values].copy().reset_index(drop=True)
+                                    _m_good_diff = _m_good_diff[_slv_k.values].reset_index(drop=True)
                                 if not _m_good.empty:
                                     if _m in _ex_jug_series_set and not (with_slump and store == "秋葉原"):
                                         _jug_ex_dfs.append(_m_good)
@@ -23270,6 +23323,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _mz_good_diff = _mz_diff[_mz_mask].reset_index(drop=True)
                                 if not _mz_good.empty and _mz in _ex_jug_series_set:
                                     _mz_good = _jov_drop_e(_mz_good)
+                                if not _mz_good.empty and _slv_excl_e and _mz not in _ex_jug_series_set:
+                                    # スロバース用：🔄その他を更新と同じく並び（チェック中）・末尾の台は除く
+                                    _slv_k = ~_mz_good["台番"].apply(int).isin(_slv_excl_e)
+                                    _mz_good = _mz_good[_slv_k.values].copy().reset_index(drop=True)
+                                    _mz_good_diff = _mz_good_diff[_slv_k.values].reset_index(drop=True)
                                 if not _mz_good.empty:
                                     if _mz in _ex_jug_series_set and not (with_slump and store == "秋葉原"):
                                         _jug_ex_dfs.append(_mz_good)

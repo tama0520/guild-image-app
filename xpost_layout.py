@@ -501,6 +501,77 @@ def auto_layout_slv(order: list, sizes: dict, last=(), max_frames: int = N_FRAME
     return normalize_layout(lay, order)
 
 
+# ── スロバース用の自動配置：縦長に詰める（2026-11-19）────────────────────────
+# 1枚目から 4096px 近くまで縦に詰める。長い画像は長い画像どうしで並べ、短い画像は2列に積む。
+SLVT_COL_CAP = 4800     # 1列に積む高さの上限（等倍px）。4096を超える分は一括縮小（約85%まで）
+SLVT_TALL_H = 3000      # これ以上の高さの素材は「長い画像」（1つで1列を使い、長い画像どうしで並べる）
+SLVT_WIDE_W = 2000      # これより幅の広い素材（横版）は1枚を単独で使う
+
+
+def auto_layout_slv_tall(order: list, sizes: dict, last=(), max_frames: int = N_FRAMES) -> dict:
+    """スロバース用の自動配置（初回の自動配置と🪄だけ）。order は優先順（全台系→高配分→その他）。
+    - 長い画像（高さ SLVT_TALL_H 以上）は優先順に2つずつ組にして1枚（後ろの長い画像も前へ持ってくる）。
+      1つ余ったら、短い画像が1列分だけの枚があればそれと並べる／横版があれば横版で1枚／無ければ1列で1枚
+    - 短い画像は優先順のまま、2列に分けたとき高い方の列が SLVT_COL_CAP 以下に収まるだけ1枚に入れる
+      （列の切れ目は左右の高さがそろう位置・順番は崩さない）。列数は2列まで
+    - 枚の並びは、各枚の中で一番優先順の高い素材の順
+    - last（その他の優秀台ピックアップ）は実際に使う最後の枠に単独で置く。横版があれば横版
+    - max_frames に入りきらない素材は未配置のまま"""
+    lastset = set(last or ())
+    tail = [i for i in order if i in lastset]
+    if tail and not tail[0].endswith("_side.jpg") and (tail[0][:-4] + "_side.jpg") in sizes:
+        tail = [tail[0][:-4] + "_side.jpg"]
+    tail = tail[:1]
+    rest = [i for i in order if i not in lastset]
+    idx = {i: k for k, i in enumerate(rest)}
+
+    def colh(items):
+        return sum(sizes[i][1] for i in items) + GAP * max(0, len(items) - 1)
+
+    def split2(items):
+        if len(items) < 2:
+            return [items]
+        c = min(range(1, len(items)), key=lambda c: max(colh(items[:c]), colh(items[c:])))
+        return [items[:c], items[c:]]
+
+    wide = [i for i in rest if sizes[i][0] >= SLVT_WIDE_W]
+    tall = [i for i in rest if i not in wide and sizes[i][1] >= SLVT_TALL_H]
+    short = [i for i in rest if i not in wide and i not in tall]
+    sframes, cur = [], []
+    for i in short:
+        if cur and max(colh(c) for c in split2(cur + [i])) > SLVT_COL_CAP:
+            sframes.append(split2(cur))
+            cur = []
+        cur.append(i)
+    if cur:
+        sframes.append(split2(cur))
+    frames = list(sframes)
+    for a in range(0, len(tall) - 1, 2):
+        frames.append([[tall[a]], [tall[a + 1]]])
+    if len(tall) % 2:
+        t = tall[-1]
+        sd = t[:-4] + "_side.jpg"
+        last_s = sframes[-1] if sframes else None
+        if last_s is not None and len(last_s) == 1 and colh(last_s[0]) <= SLVT_COL_CAP:
+            frames.remove(last_s)
+            frames.append([[t], last_s[0]] if idx[t] < idx[last_s[0][0]] else [last_s[0], [t]])
+        elif sd in sizes and sd not in lastset:
+            idx[sd] = idx[t]
+            frames.append([[sd]])
+        else:
+            frames.append([[t]])
+    for w in wide:
+        frames.append([[w]])
+    frames.sort(key=lambda f: min(idx[i] for c in f for i in c))
+    F = max(0, min(N_FRAMES, int(max_frames)) - (1 if tail else 0))
+    lay = empty_layout()
+    for fi, f in enumerate(frames[:F]):
+        lay["frames"][fi]["cols"] = [{"items": list(c), "pad": 0} for c in f]
+    if tail:
+        lay["frames"][min(len(frames), F)]["cols"] = [{"items": tail, "pad": 0}]
+    return normalize_layout(lay, list(sizes.keys()))
+
+
 # ── サムネイル ────────────────────────────────────────────────
 def thumb_data_url(img: Image.Image, max_w: int = 240) -> str:
     im = img.convert("RGB")

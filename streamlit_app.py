@@ -11026,7 +11026,8 @@ def _xpost_auto_layout(order: list, imgs: dict, sizes: dict) -> dict:
     表と横版（_side）の選び方は _xpost_auto_order のまま（表があれば表・横版は未配置の候補）。"""
     import xpost_layout as _xl
     auto = _xpost_auto_order(order, imgs)
-    return _xl.auto_layout_slv(auto, sizes, last=[i for i in auto if i.startswith(_XPOST_LAST_GROUP)])
+    # 2026-11-19：縦長（4096px近く）に詰める自動配置へ変更（長い画像どうしを並べる・2列・その他は横版優先）
+    return _xl.auto_layout_slv_tall(auto, sizes, last=[i for i in auto if i.startswith(_XPOST_LAST_GROUP)])
 
 
 def _xpost_unplaced_warn(order: list, imgs: dict, layout: dict) -> list:
@@ -11547,7 +11548,7 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool, exec_label: str
         rec = {"layout": _xpost_auto_layout(order, imgs, sizes),
                "materials": order, "sizes": {i: list(sizes[i]) for i in order}, "confirmed": None}
         _xl.save_record(BASE_DIR, key, rec)
-        st.caption("🪄 初回のため自動配置しました（全台系→高配分の平均差枚の高い順・1枚は基本2列・その他の優秀台は最後の枠）。")
+        st.caption("🪄 初回のため自動配置しました（全台系→高配分の平均差枚の高い順・1枚は2列で縦長に詰める・長い画像どうしは並べる・その他の優秀台は最後の枠）。")
     # 保存済み配置はそのまま使う（固定枠の補正なし・4枠の旧配置は1〜4枚目に復元し5〜8枚目は空）
     layout = _xl.normalize_layout(rec.get("layout"), order)
     _gone = [i for i in _xl.placed_ids(_xl.normalize_layout(rec.get("layout"), rec.get("materials") or []))
@@ -11607,7 +11608,7 @@ def _xpost_editor(store: str, excel_name: str, with_slump: bool, exec_label: str
     _b1, _b2, _b3 = st.columns(3)
     with _b1:
         if st.button("🪄 自動配置", key=f"{_ek}_auto", use_container_width=True,
-                     help="1枚は基本2列・最大3列で1〜8枚目へ割り振り、その他の優秀台は最後の枠に置きます（今の配置は置き換わります・↩で戻せません）"):
+                     help="1枚は2列で4096px近くまで縦に詰め、長い画像どうしは並べて1〜8枚目へ割り振り、その他の優秀台は最後の枠に置きます（今の配置は置き換わります・↩で戻せません）"):
             st.session_state.pop(f"_xpost_fix4_{key}", None)
             rec = _save(_xpost_auto_layout(order, imgs, sizes), keep_conf=False)
             st.session_state[rev_key] += 1

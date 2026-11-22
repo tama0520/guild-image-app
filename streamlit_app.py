@@ -16408,6 +16408,35 @@ def _mogu_shino_no_purple(store: str) -> bool:
         return False
 
 
+def _mogu_shino_group(store: str, blocks: list) -> list:
+    """モグ玄・新大久保 × 結果ポスト用の台番一覧：モグ玄・新宿歌舞伎町（1db157a／5886573）と同じ規則で
+    ・優秀機種・高配分・ジャグラーは同じ機種を1つの塊にまとめる（機種の順＝台番昇順で最初に出た順、機種内は台番昇順）
+    ・並びは機種ごとの塊にまとめる（1機種だけの並びは機種名、複数機種の並びは単独。一般の機種は最初に出た並びの位置、
+      ジャグラーシリーズは最後に出た並びの位置。同じ機種内は元の順）
+    行の追加・削除はしない（順番だけ）。他店舗・他ページでは呼ばない。"""
+    if not _mogu_shino_no_purple(store):
+        return blocks
+    for _b in blocks:
+        if _b["kind"] in ("zen", "high", "jug"):
+            _first: dict[str, int] = {}
+            for _i, _a in enumerate(_b["atoms"]):
+                _first.setdefault(_a[0]["name"], _i)
+            _b["atoms"] = sorted(_b["atoms"], key=lambda _a: _first[_a[0]["name"]])
+    _jser = set(get_store_config(store)["juggler_series"])
+    for _b in blocks:
+        if _b["kind"] == "nami":
+            _ks = [(_a[0]["name"] if len({_r["name"] for _r in _a}) == 1 else ("#", _i))
+                   for _i, _a in enumerate(_b["atoms"])]
+            _pos: dict = {}
+            for _i, _k in enumerate(_ks):
+                if _k not in _pos or _k in _jser:
+                    _pos[_k] = _i
+            _b["atoms"] = [_a for _, _, _a in sorted(
+                ((_pos[_k], _i, _a) for _i, (_k, _a) in enumerate(zip(_ks, _b["atoms"]))),
+                key=lambda _t: (_t[0], _t[1]))]
+    return blocks
+
+
 def _mogu_shino_extra_kw(store: str, df, ban_map: "dict | None", retsu_ranges, skip) -> dict:
     """_mogu_shino_no_purple() のときだけ、台番一覧へ足すジャグラー・列・その他の追加ブロックの引数を返す
     （_ban_list_blocks_from の jug_bans／retsu_map／extra_map）。それ以外は空 dict＝従来どおり。"""
@@ -16812,7 +16841,12 @@ def _ban_list_image(store: str, result: dict, sue_ban_map: "dict | None" = None,
     _kw_bl = _mogu_shino_extra_kw(store, _df_bl, ban_map, retsu_ranges,
                                   lambda _f: _ban_list_cat_image(_f, _mac_bl, _ext_bl))
     _blocks, _pool = _ban_list_blocks(result, sue_ban_map, rec_ban_map, recommended_blocks, **_kw_bl)
-    return draw_ban_list_image(_ban_list_title(store, result.get("date")), _blocks, _pool,
+    _title_bl = _ban_list_title(store, result.get("date"))
+    if _mogu_shino_no_purple(store):
+        # モグ玄・新大久保 × 結果ポスト用：機種・並びの塊にまとめ、タイトルは「M/D　エスパス新大久保」だけ
+        _blocks = _mogu_shino_group(store, _blocks)
+        _title_bl = _title_bl.removesuffix("・台番一覧")
+    return draw_ban_list_image(_title_bl, _blocks, _pool,
                                grow=store in _BAN_LIST_GROW_STORES, **_BAN_LIST_STYLE.get(store, {}))
 
 
@@ -16921,6 +16955,7 @@ def _ban_list_image_manual(store: str, df, excel_name: str, ban_map: dict,
         [_b for _fn in _of("zen") for _b in ban_map[_fn]],
         [_b for _fn in _of("high") for _b in ban_map[_fn]],
         [], {}, {}, **_kw_m)
+    _blocks = _mogu_shino_group(store, _blocks)
     _m = re.search(r"(\d{4})(\d{2})(\d{2})", excel_name or "")
     _d = None
     if _m:

@@ -16395,6 +16395,26 @@ def _pv_set_on(store: str, excel_name: str, fname: str) -> None:
 _BAN_LIST_IMG_STORES: "frozenset[str]" = frozenset({"モグ玄・新大久保", "モグ玄・新宿歌舞伎町"})
 # 📝・⑧📝の台番一覧（②だけ・縦長1列・はにぃポスト結果考察）を作る店舗。通常の一覧とは分ける
 _BAN_LIST_MANUAL_STORES: "frozenset[str]" = frozenset({"モグ玄・新大久保"})
+
+
+def _mogu_shino_no_purple(store: str) -> bool:
+    """モグ玄・新大久保 × 結果ポスト用（page=auto）だけ True。
+    紫系の表画像（ジャグラーシリーズ優秀台・列仕掛け・②台番範囲／個別ピックを含む全カテゴリ）を
+    🔍・📝・⑧・⑧📝・🔄 で作らず／表示せず／保存せず、台番一覧へ載せる（モグ玄・新宿歌舞伎町 be71e60 と同じ考え方）。
+    他店舗・他ページは False（従来どおり）。"""
+    try:
+        return store in _BAN_LIST_MANUAL_STORES and st.session_state.get("page") == "auto"
+    except Exception:
+        return False
+
+
+def _mogu_shino_extra_kw(store: str, df, ban_map: "dict | None", retsu_ranges, skip) -> dict:
+    """_mogu_shino_no_purple() のときだけ、台番一覧へ足すジャグラー・列・その他の追加ブロックの引数を返す
+    （_ban_list_blocks_from の jug_bans／retsu_map／extra_map）。それ以外は空 dict＝従来どおり。"""
+    if not _mogu_shino_no_purple(store) or ban_map is None or df is None:
+        return {}
+    jug, col, extra = _mogu_kabu_split_extra(ban_map, _mogu_kabu_col_map(df, retsu_ranges or []), skip)
+    return {"jug_bans": jug, "retsu_map": col, "extra_map": extra}
 # 3列のまま行数を伸ばして全件載せる店舗（75セル上限・残りセルだけの単品補充をしない）
 _BAN_LIST_GROW_STORES: "frozenset[str]" = frozenset({"モグ玄・新宿歌舞伎町"})
 # 店舗ごとの文字サイズ・間隔（draw_ban_list_image の引数）。無い店舗は既定値のまま。
@@ -16527,7 +16547,7 @@ def _ban_list_blocks_from(df, zen_bans, high_bans, nami_groups, sue_map: dict,
 
 def _ban_list_blocks(result: dict, sue_ban_map: "dict | None" = None,
                      rec_ban_map: "dict | None" = None,
-                     recommended_blocks: "list | None" = None) -> "tuple[list[dict], list[dict]]":
+                     recommended_blocks: "list | None" = None, **extra_kw) -> "tuple[list[dict], list[dict]]":
     """🔍・⑧：run_auto_pipeline() の戻り値と、画像生成時に確定した末尾・⑤の掲載台から作る。"""
     _rec: dict[str, list[int]] = {}
     if rec_ban_map and recommended_blocks:
@@ -16541,7 +16561,7 @@ def _ban_list_blocks(result: dict, sue_ban_map: "dict | None" = None,
         [_b for _it in result.get("high_ratio_list", []) if _it.get("has_image")
          for _b in _it.get("bans", [])],
         [_it.get("bans", []) for _it in result.get("nami_list", [])],
-        sue_ban_map or {}, _rec)
+        sue_ban_map or {}, _rec, **extra_kw)
 
 
 def _ban_list_layout(blocks: list[dict], pool: list[dict], ncol: int = _BAN_LIST_NCOL,
@@ -16778,11 +16798,20 @@ def _ban_list_with_kojin(result: dict, kojin_zentai_machines, kojin_y_ban_map: d
 
 def _ban_list_image(store: str, result: dict, sue_ban_map: "dict | None" = None,
                     rec_ban_map: "dict | None" = None,
-                    recommended_blocks: "list | None" = None) -> "Image.Image | None":
-    """台番一覧（🔍と⑧で共通）。対象外の店舗・表示する台がない ときは None。"""
+                    recommended_blocks: "list | None" = None,
+                    ban_map: "dict | None" = None, retsu_ranges=None,
+                    sonota_title: str = "") -> "Image.Image | None":
+    """台番一覧（🔍と⑧で共通）。対象外の店舗・表示する台がない ときは None。
+    ban_map／retsu_ranges／sonota_title はモグ玄・新大久保 × 結果ポスト用だけが渡す
+    （ジャグラー・列・②台番範囲／個別ピックのブロックを足す。省略時は従来どおり）。"""
     if store not in _BAN_LIST_IMG_STORES or not result or not result.get("ok"):
         return None
-    _blocks, _pool = _ban_list_blocks(result, sue_ban_map, rec_ban_map, recommended_blocks)
+    _df_bl = result.get("df")
+    _mac_bl = _ban_list_machine_names(_df_bl)
+    _ext_bl = _ban_list_sonota_names(sonota_title)
+    _kw_bl = _mogu_shino_extra_kw(store, _df_bl, ban_map, retsu_ranges,
+                                  lambda _f: _ban_list_cat_image(_f, _mac_bl, _ext_bl))
+    _blocks, _pool = _ban_list_blocks(result, sue_ban_map, rec_ban_map, recommended_blocks, **_kw_bl)
     return draw_ban_list_image(_ban_list_title(store, result.get("date")), _blocks, _pool,
                                grow=store in _BAN_LIST_GROW_STORES, **_BAN_LIST_STYLE.get(store, {}))
 
@@ -16872,7 +16901,7 @@ def _ban_list_purge_old_images(store: str, output_dir: "str | None", log=None,
 
 
 def _ban_list_image_manual(store: str, df, excel_name: str, ban_map: dict,
-                           kinds: dict) -> "Image.Image | None":
+                           kinds: dict, retsu_ranges=None) -> "Image.Image | None":
     """台番一覧（📝記入部分のみプレビューと📝の⑧で共通）。
     ban_map: 画像名 → 掲載台番／kinds: 画像名 → zen・high・nami・sue・single・"rec:{入力タイトル}"。
     ②個別画像に記入した機種の掲載台だけを載せる（zen＝②全台・high＝②優秀台）。
@@ -16882,11 +16911,16 @@ def _ban_list_image_manual(store: str, df, excel_name: str, ban_map: dict,
     if store not in _BAN_LIST_MANUAL_STORES or df is None:
         return None
     _of = lambda k: [_fn for _fn, _k in kinds.items() if _k == k and _fn in ban_map]
+    # 結果ポスト用（紫系の表画像を作らない）では、記入したジャグラー・列・②台番範囲／個別ピック・
+    # その他の優秀台（single）も載せる（並び・末尾・⑤は従来どおり載せない）
+    _kw_m = _mogu_shino_extra_kw(store, df, ban_map, retsu_ranges, lambda _f: _f in kinds)
+    if _kw_m:
+        _kw_m["single_bans"] = [_b for _fn in _of("single") for _b in ban_map[_fn]]
     _blocks, _ = _ban_list_blocks_from(
         df,
         [_b for _fn in _of("zen") for _b in ban_map[_fn]],
         [_b for _fn in _of("high") for _b in ban_map[_fn]],
-        [], {}, {})
+        [], {}, {}, **_kw_m)
     _m = re.search(r"(\d{4})(\d{2})(\d{2})", excel_name or "")
     _d = None
     if _m:
@@ -20127,8 +20161,20 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _prev_img_list = [(_f, _i) for _f, _i in _prev_img_list
                                           if _f not in _bl_drop_pv
                                           and not _ban_list_cat_image(_f, _bl_mac_pv, _bl_ext_pv)]
-                        if _mogu_kabu_slump_on():
-                            # モグ玄・新宿歌舞伎町：紫系の表画像は一切出さない（ジャグラー・列・②範囲等も台番一覧へ）
+                        # モグ玄・新大久保 × 結果ポスト用：台番一覧へ足すジャグラー・②台番範囲／個別ピックの台番
+                        #（ジャグラーは統合画像が作られたときだけ。列は台番一覧側で df と列入力から作る）
+                        _shino_bm_pv = None
+                        if _mogu_shino_no_purple(store):
+                            _shino_bm_pv = dict(locals().get("_kojin_man_ban_pv") or {})
+                            _jp_sh = _prev_result.get("jug_pool_df")
+                            if (_jp_sh is not None and not _jp_sh.empty
+                                    and any(_f == _MOGU_JUG_FN for _f, _ in _prev_img_list)):
+                                _shino_bm_pv[_MOGU_JUG_FN] = [
+                                    int(str(_b).split(".")[0]) for _b in _jp_sh["台番"].dropna()
+                                    if str(_b).split(".")[0].lstrip("-").isdigit()]
+                        if _mogu_kabu_slump_on() or _mogu_shino_no_purple(store):
+                            # モグ玄・新宿歌舞伎町／モグ玄・新大久保（結果ポスト用）：紫系の表画像は一切出さない
+                            #（ジャグラー・列・②範囲等も台番一覧へ）
                             _prev_img_list = []
                         _ban_list_purge_old_images(store, _ban_list_out_dir(uploaded.name),
                                                    machine_names=_bl_mac_pv, extra=_bl_ext_pv)
@@ -20140,7 +20186,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _ban_list_image(store,
                                             (_ban_list_with_kojin(_prev_result, kojin_zentai_machines, _kojin_y_ban_pv)
                                              if kojin_enabled else _prev_result),
-                                            _sue_ban_all_pv, _rec_ban_map, recommended_blocks)
+                                            _sue_ban_all_pv, _rec_ban_map, recommended_blocks,
+                                            ban_map=locals().get("_shino_bm_pv"),
+                                            retsu_ranges=retsu_ranges if retsu_ok else [],
+                                            sonota_title=sonota_extra_title)
                             if _prev_result.get("ok") else None)
                     # 台番一覧・スランプ一覧（モグ玄・新宿歌舞伎町 × auto_slump2 のみ）：⑧と同じ関数・同じ入力
                     if _mogu_kabu_slump_on():
@@ -20224,7 +20273,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                      if _v.get("kind") not in ("high", "sonota", "kojin_yushu")
                                      and _k not in (locals().get("_bl_drop_pv") or set())
                                      and not _ban_list_cat_image(_k, _bl_mac_u, _bl_ext_u)}
-                    if _mogu_kabu_slump_on():
+                    if _mogu_kabu_slump_on() or _mogu_shino_no_purple(store):
                         _unit_src = {}   # 紫系の表画像を出さないので🎯パネルも出さない
                     st.session_state[_aprev_unit_key] = _unit_src
                     # 「未反映」判定用スナップショット（今回のプレビューへ反映済みの内容）
@@ -20645,8 +20694,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             and not _ban_list_cat_image(_f, _bl_mac_m, _bl_ext_m)]
                             _ban_list_purge_old_images(store, _ban_list_out_dir(uploaded.name),
                                                        machine_names=_bl_mac_m, extra=_bl_ext_m)
+                            if _mogu_shino_no_purple(store):
+                                _manual_imgs = []   # 紫系の表画像は出さない（ジャグラー・列・②範囲等も台番一覧へ）
                             _bl_m_img = _ban_list_image_manual(store, _df_m, uploaded.name,
-                                                               _manual_ban_map, _bl_kind_m)
+                                                               _manual_ban_map, _bl_kind_m,
+                                                               retsu_ranges if retsu_ok else [])
                         if _manual_imgs or _bl_m_img is not None:
                             if with_slump:
                                 _m_ban2mac = {str(int(b)): str(m) for b, m in zip(_df_m["台番"], _df_m["機種名"])
@@ -20687,7 +20739,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 if store in _BAN_LIST_MANUAL_STORES:
                                     _manual_unit_src = {_k: _v for _k, _v in _manual_unit_src.items()
                                                         if _k not in _bl_kind_m}
-                                if _mogu_kabu_slump_on():
+                                if _mogu_kabu_slump_on() or _mogu_shino_no_purple(store):
                                     _manual_unit_src = {}   # 紫系の表画像を出さないので🎯パネルも出さない
                                 st.session_state[_aprev_unit_key] = _manual_unit_src
                                 st.session_state[_unit_snap_key] = _unit_ex_snapshot(
@@ -21840,7 +21892,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         except Exception:
                                             pass
                         if _updated:
-                            if _mogu_kabu_slump_on():
+                            if _mogu_kabu_slump_on() or _mogu_shino_no_purple(store):
                                 # 🔍と同じく、紫系の表画像は出さない（台番一覧・スランプ一覧は🔍で作ったもの）
                                 _new_prev = []
                             st.session_state[_aprev_key] = _dedup_previews(_new_prev)
@@ -22620,8 +22672,16 @@ def show_auto_page(with_slump: bool = False) -> None:
                                     _m_log(f"  🗑️ 前回の画像を削除: {_f_jg}")
                                 except OSError:
                                     pass
+                        if _mogu_shino_no_purple(store):
+                            # 紫系の表画像は保存しない：今回保存した画像と ban_map の画像名を完全一致で消す
+                            _mogu_kabu_purge(store, output_dir,
+                                             list(_exec_order) + list(_m_exec_ban_map_e),
+                                             _ban_list_machine_names(_df_exec_m),
+                                             _ban_list_sonota_names(sonota_extra_title), log=_m_log)
+                            _exec_order = []
                         _bl_ex_m = _ban_list_image_manual(store, _df_exec_m, uploaded.name,
-                                                          _m_exec_ban_map_e, _bl_kind_e)
+                                                          _m_exec_ban_map_e, _bl_kind_e,
+                                                          retsu_ranges if retsu_ok else [])
                         if _bl_ex_m is not None:
                             _bl_ex_m.save(os.path.join(output_dir, _BAN_LIST_FN), format="PNG")
                             _exec_order.append(_BAN_LIST_FN)
@@ -24065,9 +24125,24 @@ def show_auto_page(with_slump: bool = False) -> None:
                 if _mogu_kabu_slump_on():
                     _rm_stale_image(output_dir, _MOGU_SHEET_FN, log=_log)
                 # モグ玄・新宿歌舞伎町は、ジャグラー等も含めて後で作る（下の _mogu_kabu_lists_result）
+                # モグ玄・新大久保 × 結果ポスト用：ジャグラー（統合画像が作られたときだけ）・②台番範囲／個別ピック
+                _shino_bm_ex = None
+                if _mogu_shino_no_purple(store):
+                    _shino_bm_ex = dict(_kojin_man_ban_e)
+                    if os.path.exists(os.path.join(output_dir, _MOGU_JUG_FN)):
+                        _jb_sh = locals().get("_jug_comb_bans_e")
+                        if not _jb_sh:
+                            _jp_sh = result.get("jug_pool_df")
+                            _jb_sh = ([int(str(_b).split(".")[0]) for _b in _jp_sh["台番"].dropna()
+                                       if str(_b).split(".")[0].lstrip("-").isdigit()]
+                                      if _jp_sh is not None and not _jp_sh.empty else [])
+                        if _jb_sh:
+                            _shino_bm_ex[_MOGU_JUG_FN] = list(_jb_sh)
                 _bl_ex = (None if _mogu_kabu_slump_on() else
                           _ban_list_image(store, result, _sue_ban_run, _exec_rec_ban_map,
-                                          recommended_blocks))
+                                          recommended_blocks, ban_map=_shino_bm_ex,
+                                          retsu_ranges=retsu_ranges if retsu_ok else [],
+                                          sonota_title=sonota_extra_title))
                 if _bl_ex is not None:
                     _bl_ex.save(os.path.join(output_dir, _BAN_LIST_FN), format="PNG")
                     _log(f"  ✅ {_BAN_LIST_FN}")
@@ -24078,6 +24153,16 @@ def show_auto_page(with_slump: bool = False) -> None:
                 _ban_list_purge_old_images(store, output_dir, log=_log,
                                            machine_names=_ban_list_machine_names(result.get("df")),
                                            extra=_ban_list_sonota_names(sonota_extra_title))
+                if _mogu_shino_no_purple(store):
+                    # 紫系の表画像（ジャグラー・列・②台番範囲／個別ピック）は保存しない：
+                    # 今回の⑧で作った画像名・列の移動分・ban_map の画像名を完全一致で消す（前回の連番付きも）
+                    _mogu_kabu_purge(store, output_dir,
+                                     [os.path.basename(_f) for _f in result.get("files", [])]
+                                     + list(_moved_narabi) + list(_shino_bm_ex or {})
+                                     + [_c[2] for _c in (_build_col_items(result.get("df"), retsu_ranges)
+                                                         if retsu_ok and retsu_ranges else [])],
+                                     _ban_list_machine_names(result.get("df")),
+                                     _ban_list_sonota_names(sonota_extra_title), log=_log)
 
             # ── 全台系→高配分→並び→ジャグラー優秀台→その他 の順にリネーム ──
             if result["ok"]:

@@ -17019,14 +17019,17 @@ def _ban_list_image_manual(store: str, df, excel_name: str, ban_map: dict,
         _low_blocks = _mogu_shino_group(store, _low_blocks)
     if not _low_blocks:
         return draw_ban_list_image(_title, _blocks, [], single_col=True, **_BAN_LIST_STYLE.get(store, {}))
+    if not _blocks:
+        # 上段（はにぃポスト結果考察）が空で下段だけ：タイトル「M/D 好成績機種」の1ブロック
+        #（空の「はにぃポスト結果考察」と3mmの白地は作らない）
+        return draw_ban_list_image((f"{_d.month}/{_d.day} " if _d is not None else "") + "好成績機種",
+                                   _low_blocks, [], single_col=True, **_BAN_LIST_STYLE.get(store, {}))
     # 1枚の中に「M/D はにぃポスト結果考察」→ 上段の機種 → 3mmの白地 → 「その他の好成績機種」→ 下段の機種
-    #（上段が空のときは下段だけ。列幅は両方をそろえる）
+    #（列幅は両方をそろえる）
     _up_img = draw_ban_list_image(_title, _blocks, [], single_col=True, width_ref=_low_blocks,
-                                  **_BAN_LIST_STYLE.get(store, {})) if _blocks else None
+                                  **_BAN_LIST_STYLE.get(store, {}))
     _lo_img = draw_ban_list_image(_MSHINO_LOW_TITLE, _low_blocks, [], single_col=True, width_ref=_blocks,
                                   **_BAN_LIST_STYLE.get(store, {}))
-    if _up_img is None:
-        return _lo_img
     _w = max(_up_img.width, _lo_img.width)
     _out = Image.new("RGB", (_w, _up_img.height + _MSHINO_GAP_PX + _lo_img.height), "white")
     _out.paste(_up_img, (0, 0))

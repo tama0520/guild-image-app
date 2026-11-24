@@ -10224,7 +10224,7 @@ def _persistent_keys(store: str) -> set[str]:
     if store in _KOJIN_DATE_SCOPED_STORES:
         return {f"variety_range_{store}"}
     return ({f"kojin_y_{i}_{store}" for i in range(48)}
-            | {f"kojin_z_{i}_{store}" for i in range(12)}
+            | {f"kojin_z_{i}_{store}" for i in range(_KOJIN_Z_KEYS)}
             | {f"variety_range_{store}"})
 
 
@@ -10276,7 +10276,8 @@ def _collect_kojin_pick(store: str, prefix: str = "") -> list[tuple[str, set[int
     """個別機種の優秀台ピックアップの (タイトル, 台番set) を返す（台番非空のみ）。"""
     out: list[tuple[str, set[int]]] = []
     # モグ玄・新宿歌舞伎町のスランプ付き結果ポスト用は入力欄を撤去したので、保存値が残っていても使わない
-    _skip_pick = (not prefix) and store in _MOGU_SL_STORES and _mogu_kabu_slump_on()
+    _skip_pick = (not prefix) and ((store in _MOGU_SL_STORES and _mogu_kabu_slump_on())
+                                   or _mogu_shino_no_purple(store))
     for i in range(0 if _skip_pick else _KOJIN_PICK_COUNT):
         title = str(st.session_state.get(f"{prefix}kojin_pick_title_{i}_{store}", "")).strip()
         bans_text = str(st.session_state.get(f"{prefix}kojin_pick_bans_{i}_{store}", "")).strip()
@@ -11841,6 +11842,11 @@ def _slv_head_comments(store: str) -> "tuple[list[str], list[str]]":
     return [v for v in _vals[:2] if v], [v for v in _vals[2:] if v]
 
 
+# ②全台（kojin_z_*）の保存キー数。通常の画面は12枠（0〜11）、モグ玄・新大久保の結果ポスト用だけ
+# 上段6＋下段12＝18枠（0〜17）を使う。値の無いキーは保存・復元されないので他店舗の動きは変わらない
+_KOJIN_Z_KEYS = 18
+
+
 def _auto_input_keys(store: str) -> list[str]:
     store = _kojin_ns(store)
     keys = ["kojin_enabled", "narabi_enabled", "narabi_ranges_input",
@@ -11851,7 +11857,7 @@ def _auto_input_keys(store: str) -> list[str]:
     keys += ["jug_sue_enabled",
              "jug_sue_tail_input_1", "jug_sue_tail_input_2", "jug_sue_tail_input_3",
              "jug_sue_mode"]
-    for i in range(12):
+    for i in range(_KOJIN_Z_KEYS):
         keys += [f"kojin_z_{i}_{store}"]
     for i in range(48):
         keys += [f"kojin_y_{i}_{store}"]
@@ -11896,7 +11902,7 @@ def _kojin_keys(store: str) -> list[str]:
     _auto_input_keys() が生成するものと同じ並び・同じ範囲を1か所で使い回す
     （枠数を変えるときは _auto_input_keys() と一緒に直す）。"""
     store = _kojin_ns(store)
-    return ([f"kojin_z_{i}_{store}" for i in range(12)]
+    return ([f"kojin_z_{i}_{store}" for i in range(_KOJIN_Z_KEYS)]
             + [f"kojin_y_{i}_{store}" for i in range(48)])
 
 
@@ -16419,6 +16425,15 @@ def _mogu_shino_no_purple(store: str) -> bool:
         return False
 
 
+# モグ玄・新大久保 × 結果ポスト用の②：上段「はにぃポスト結果考察」（全台6／優秀台6）と
+# 下段「その他の好成績機種」（全台12／優秀台12）。キーは kojin_z_0〜17／kojin_y_0〜17（上段が 0〜5）
+_MSHINO_TOP_N = 6
+_MSHINO_LOW_N = 12
+_MSHINO_LOW_TITLE = "その他の好成績機種"
+# 📝・⑧📝の台番一覧で上段と下段の間に入れる白地（3mm・既存画像の基準 150dpi 換算）
+_MSHINO_GAP_PX = round(3 / 25.4 * 150)
+
+
 def _mogu_shino_group(store: str, blocks: list) -> list:
     """モグ玄・新大久保 × 結果ポスト用の台番一覧：モグ玄・新宿歌舞伎町（1db157a／5886573）と同じ規則で
     ・優秀機種・高配分・ジャグラーは同じ機種を1つの塊にまとめる（機種の順＝台番昇順で最初に出た順、機種内は台番昇順）
@@ -16669,7 +16684,8 @@ def _ban_list_layout(blocks: list[dict], pool: list[dict], ncol: int = _BAN_LIST
 def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = None,
                         single_col: bool = False, grow: bool = False,
                         title_fs: int = _BAN_LIST_TITLE_FS, hdr_fs: int = _BAN_LIST_FS,
-                        name_gap: int = _BAN_LIST_GAP) -> "Image.Image | None":
+                        name_gap: int = _BAN_LIST_GAP,
+                        width_ref: "list | None" = None) -> "Image.Image | None":
     """台番一覧を 25セル×3列で描く。高さは実際に描いた最下端で切り取り、最後に外周の黒枠を引く。
     罫線は1座標1本（同じ位置へ重ねない）。列の仕切りは各1本だけ。
     75セルを超えて載せられなかった行数は戻り値の info["ban_list_omitted"] に入れる。
@@ -16707,6 +16723,10 @@ def draw_ban_list_image(title: str, blocks: list[dict], pool: "list | None" = No
 
     _all = [_cells(_c[2]) for _col in cols for _c in _col if _c[0] == "row"]
     _hdrs = [blocks[_c[1]]["title"] for _col in cols for _c in _col if _c[0] == "hdr"]
+    if width_ref:
+        # 別に描くブロック（モグ玄・新大久保の📝下段など）と列幅をそろえる：幅の計算にだけ含める
+        _all += [_cells(_r) for _b in width_ref for _a in _b["atoms"] for _r in _a]
+        _hdrs += [_b["title"] for _b in width_ref]
     # 台番・回転数・差枚数の列：数字は右揃えのまま、数字の幅の中心へ見出しを左右中央で置く
     ban_dw = max([_tw(_c[1]) for _c in _all] + [0])
     games_dw = max([_tw(_c[2]) for _c in _all] + [0])
@@ -16946,7 +16966,8 @@ def _ban_list_purge_old_images(store: str, output_dir: "str | None", log=None,
 
 
 def _ban_list_image_manual(store: str, df, excel_name: str, ban_map: dict,
-                           kinds: dict, retsu_ranges=None) -> "Image.Image | None":
+                           kinds: dict, retsu_ranges=None,
+                           lower_machines=None) -> "Image.Image | None":
     """台番一覧（📝記入部分のみプレビューと📝の⑧で共通）。
     ban_map: 画像名 → 掲載台番／kinds: 画像名 → zen・high・nami・sue・single・"rec:{入力タイトル}"。
     ②個別画像に記入した機種の掲載台だけを載せる（zen＝②全台・high＝②優秀台）。
@@ -16955,7 +16976,20 @@ def _ban_list_image_manual(store: str, df, excel_name: str, ban_map: dict,
     （M/D はExcelファイル名の YYYYMMDD＝データの日付。取れなければ日付なし）。"""
     if store not in _BAN_LIST_MANUAL_STORES or df is None:
         return None
-    _of = lambda k: [_fn for _fn, _k in kinds.items() if _k == k and _fn in ban_map]
+    # モグ玄・新大久保の結果ポスト用：②下段「その他の好成績機種」に記入した機種の画像名（上段と同じ機種は上段）
+    _low_fns: set = set()
+    if lower_machines and _mogu_shino_no_purple(store):
+        _lz, _ly = lower_machines
+        _up = set()
+        for _fn, _k in kinds.items():
+            if _k in ("zen", "high"):
+                _up.add(_fn)
+        _cand = ({f"{_make_safe_fn(str(_m).strip())}.jpg" for _m in _lz if str(_m).strip()}
+                 | {f"{_make_safe_fn(str(_m).strip() + '（優秀台）')}.jpg" for _m in _ly if str(_m).strip()})
+        _low_fns = {_fn for _fn in _up
+                    if _fn in _cand or re.sub(r"_\d+(?=\.jpg$)", "", _fn) in _cand}
+    _of_all = lambda k: [_fn for _fn, _k in kinds.items() if _k == k and _fn in ban_map]
+    _of = lambda k: [_fn for _fn in _of_all(k) if _fn not in _low_fns]
     # 結果ポスト用（紫系の表画像を作らない）では、記入したジャグラー・列・②台番範囲／個別ピック・
     # その他の優秀台（single）も載せる（並び・末尾・⑤は従来どおり載せない）
     _kw_m = _mogu_shino_extra_kw(store, df, ban_map, retsu_ranges, lambda _f: _f in kinds)
@@ -16975,7 +17009,29 @@ def _ban_list_image_manual(store: str, df, excel_name: str, ban_map: dict,
         except ValueError:
             pass
     _title = (f"{_d.month}/{_d.day} " if _d is not None else "") + "はにぃポスト結果考察"
-    return draw_ban_list_image(_title, _blocks, [], single_col=True, **_BAN_LIST_STYLE.get(store, {}))
+    _low_blocks: list = []
+    if _low_fns:
+        _low_blocks, _ = _ban_list_blocks_from(
+            df,
+            [_b for _fn in _of_all("zen") if _fn in _low_fns for _b in ban_map[_fn]],
+            [_b for _fn in _of_all("high") if _fn in _low_fns for _b in ban_map[_fn]],
+            [], {}, {})
+        _low_blocks = _mogu_shino_group(store, _low_blocks)
+    if not _low_blocks:
+        return draw_ban_list_image(_title, _blocks, [], single_col=True, **_BAN_LIST_STYLE.get(store, {}))
+    # 1枚の中に「M/D はにぃポスト結果考察」→ 上段の機種 → 3mmの白地 → 「その他の好成績機種」→ 下段の機種
+    #（上段が空のときは下段だけ。列幅は両方をそろえる）
+    _up_img = draw_ban_list_image(_title, _blocks, [], single_col=True, width_ref=_low_blocks,
+                                  **_BAN_LIST_STYLE.get(store, {})) if _blocks else None
+    _lo_img = draw_ban_list_image(_MSHINO_LOW_TITLE, _low_blocks, [], single_col=True, width_ref=_blocks,
+                                  **_BAN_LIST_STYLE.get(store, {}))
+    if _up_img is None:
+        return _lo_img
+    _w = max(_up_img.width, _lo_img.width)
+    _out = Image.new("RGB", (_w, _up_img.height + _MSHINO_GAP_PX + _lo_img.height), "white")
+    _out.paste(_up_img, (0, 0))
+    _out.paste(_lo_img, (0, _up_img.height + _MSHINO_GAP_PX))
+    return _out
 
 
 def _dedup_previews(items: list) -> list:
@@ -17773,6 +17829,10 @@ def show_auto_page(with_slump: bool = False) -> None:
     _mk_ui = with_slump and _mogu_kabu_slump_on()
     if _mk_ui:
         _variety_ui = True
+    # モグ玄・新大久保の結果ポスト用だけ：②を「はにぃポスト結果考察」「その他の好成績機種」の2ブロックにし、
+    # ②の並び台番範囲〜その他の優秀台ピックアップ・⑤オススメ・⑥素材メモを出さず、
+    # ⑤に「その他」（モグ玄・新宿歌舞伎町スランプ付きの⑥「その他」からバラエティを除いたもの）を置く
+    _mshino_ui = (not with_slump) and _mogu_shino_no_purple(store)
     # セクション番号を動的採番（実際に表示されたセクションだけ丸数字を消費し、番号飛びを防ぐ）
     _CIRCLED_SEC = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫"
     _sec_state = {"n": 0}
@@ -18410,50 +18470,73 @@ def show_auto_page(with_slump: bool = False) -> None:
         # 台番範囲を使わない店舗と同一集合。
         _ky_expandable = _no_kojin_narabi
         _ky_count = 6 if _is_kabupa else (48 if _ky_expandable else 12)
-        _cols_k = st.columns(2, gap="large")
-        if _is_kabupa:
-            col_ky, col_kz = _cols_k
+        if _mshino_ui:
+            def _mshino_cols(_i0: int, _n: int) -> None:
+                _cz, _cy = st.columns(2, gap="large")
+                for _lbl, _pref, _cc in (("全台", "kojin_z", _cz), ("優秀台", "kojin_y", _cy)):
+                    with _cc:
+                        st.markdown(f"**{_lbl}**")
+                        _rows_ms = [st.columns(3) for _ in range((_n + 2) // 3)]
+                        for _j, _col in enumerate([c for row in _rows_ms for c in row][:_n]):
+                            with _col:
+                                _k_ms = f"{_pref}_{_i0 + _j}_{store}"
+                                render_machine_autocomplete_input(
+                                    str(_j + 1), _k_ms, _kojin_candidates,
+                                    default=_kojin_default(_kojin_excel, store, _k_ms),
+                                    on_change=_save_auto_inputs, on_change_args=(store, _auto_xl))
+            st.markdown("#### はにぃポスト結果考察")
+            _mshino_cols(0, _MSHINO_TOP_N)
+            st.markdown(f"#### {_MSHINO_LOW_TITLE}")
+            _mshino_cols(_MSHINO_TOP_N, _MSHINO_LOW_N)
+            _ms_n = _MSHINO_TOP_N + _MSHINO_LOW_N
+            kojin_zentai_machines = [st.session_state.get(f"kojin_z_{_i}_{store}", "") for _i in range(_ms_n)]
+            kojin_yushu_machines = [st.session_state.get(f"kojin_y_{_i}_{store}", "") for _i in range(_ms_n)]
         else:
-            col_kz, col_ky = _cols_k
-        with col_kz:
-            st.markdown("**全台**")
-            _kz_rows = [st.columns(3) for _ in range((_kz_count + 2) // 3)]
-            for _i, _col in enumerate([c for row in _kz_rows for c in row][:_kz_count]):
-                with _col:
-                    _kz_key = f"kojin_z_{_i}_{store}"
-                    render_machine_autocomplete_input(str(_i + 1), _kz_key, _kojin_candidates,
-                                                      default=_kojin_default(_kojin_excel, store, _kz_key),
-                                                      on_change=_save_auto_inputs, on_change_args=(store, _auto_xl))
-            kojin_zentai_machines = [st.session_state.get(f"kojin_z_{_i}_{store}", "") for _i in range(_kz_count)]
-        with col_ky:
-            st.markdown("**優秀台**")
-            # 対象店舗のスランプ付きは基本12個表示。13個目以降に入力があるか
-            # 「ページを広げる」ボタンを押すと最大48個まで表示する。
-            if _ky_expandable:
-                _ky_expand_key = f"kojin_y_expand_{store}"
-                _has_extra_ky = any(st.session_state.get(f"kojin_y_{_i}_{store}", "")
-                                    for _i in range(12, _ky_count))
-                _ky_expanded = st.session_state.get(_ky_expand_key, False) or _has_extra_ky
-                _ky_shown = _ky_count if _ky_expanded else 12
+            _cols_k = st.columns(2, gap="large")
+            if _is_kabupa:
+                col_ky, col_kz = _cols_k
             else:
-                _ky_expanded = True
-                _ky_shown = _ky_count
-            _ky_rows = [st.columns(3) for _ in range((_ky_shown + 2) // 3)]
-            for _i, _col in enumerate([c for row in _ky_rows for c in row][:_ky_shown]):
-                with _col:
-                    _ky_key = f"kojin_y_{_i}_{store}"
-                    render_machine_autocomplete_input(str(_i + 1), _ky_key, _kojin_candidates,
-                                                      default=_kojin_default(_kojin_excel, store, _ky_key),
-                                                      on_change=_save_auto_inputs, on_change_args=(store, _auto_xl))
-            if _ky_expandable and not _ky_expanded:
-                def _expand_ky(_k=_ky_expand_key):
-                    st.session_state[_k] = True
-                st.button("▼ ページを広げる（最大48個まで入力）",
-                          key=f"kojin_y_expand_btn_{store}",
-                          on_click=_expand_ky, use_container_width=True)
-            kojin_yushu_machines = [st.session_state.get(f"kojin_y_{_i}_{store}", "") for _i in range(_ky_count)]
+                col_kz, col_ky = _cols_k
+            with col_kz:
+                st.markdown("**全台**")
+                _kz_rows = [st.columns(3) for _ in range((_kz_count + 2) // 3)]
+                for _i, _col in enumerate([c for row in _kz_rows for c in row][:_kz_count]):
+                    with _col:
+                        _kz_key = f"kojin_z_{_i}_{store}"
+                        render_machine_autocomplete_input(str(_i + 1), _kz_key, _kojin_candidates,
+                                                          default=_kojin_default(_kojin_excel, store, _kz_key),
+                                                          on_change=_save_auto_inputs, on_change_args=(store, _auto_xl))
+                kojin_zentai_machines = [st.session_state.get(f"kojin_z_{_i}_{store}", "") for _i in range(_kz_count)]
+            with col_ky:
+                st.markdown("**優秀台**")
+                # 対象店舗のスランプ付きは基本12個表示。13個目以降に入力があるか
+                # 「ページを広げる」ボタンを押すと最大48個まで表示する。
+                if _ky_expandable:
+                    _ky_expand_key = f"kojin_y_expand_{store}"
+                    _has_extra_ky = any(st.session_state.get(f"kojin_y_{_i}_{store}", "")
+                                        for _i in range(12, _ky_count))
+                    _ky_expanded = st.session_state.get(_ky_expand_key, False) or _has_extra_ky
+                    _ky_shown = _ky_count if _ky_expanded else 12
+                else:
+                    _ky_expanded = True
+                    _ky_shown = _ky_count
+                _ky_rows = [st.columns(3) for _ in range((_ky_shown + 2) // 3)]
+                for _i, _col in enumerate([c for row in _ky_rows for c in row][:_ky_shown]):
+                    with _col:
+                        _ky_key = f"kojin_y_{_i}_{store}"
+                        render_machine_autocomplete_input(str(_i + 1), _ky_key, _kojin_candidates,
+                                                          default=_kojin_default(_kojin_excel, store, _ky_key),
+                                                          on_change=_save_auto_inputs, on_change_args=(store, _auto_xl))
+                if _ky_expandable and not _ky_expanded:
+                    def _expand_ky(_k=_ky_expand_key):
+                        st.session_state[_k] = True
+                    st.button("▼ ページを広げる（最大48個まで入力）",
+                              key=f"kojin_y_expand_btn_{store}",
+                              on_click=_expand_ky, use_container_width=True)
+                kojin_yushu_machines = [st.session_state.get(f"kojin_y_{_i}_{store}", "") for _i in range(_ky_count)]
         # 対象店舗のスランプ付きは台番範囲を使わない（UI非表示＋下流も空文字で無効化）
-        if not _no_kojin_narabi and store != "溝の口新館" and _data_store(store) != "新宿歌舞伎町":
+        if (not _no_kojin_narabi and store != "溝の口新館" and _data_store(store) != "新宿歌舞伎町"
+                and not _mshino_ui):
             st.markdown("**並び台番範囲 優秀台**")
             _col_nr, _col_nt = st.columns([2, 3])
             with _col_nr:
@@ -18485,8 +18568,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                     placeholder="例: 4・5列目の優秀台",
                     on_change=_save_auto_inputs, args=(store, _auto_xl),
                 )
-        if _no_kojin_narabi:
-            # 対象店舗のスランプ付き: 保存済みの値が残っていても台番範囲を生成しない
+        if _no_kojin_narabi or _mshino_ui:
+            # 対象店舗のスランプ付き・モグ玄・新大久保の結果ポスト用: 保存済みの値が残っていても台番範囲を生成しない
             kojin_narabi_ranges_text  = ""
             kojin_narabi_title        = ""
             kojin_narabi2_ranges_text = ""
@@ -18497,7 +18580,7 @@ def show_auto_page(with_slump: bool = False) -> None:
             kojin_narabi2_ranges_text = st.session_state.get(f"kojin_narabi2_range_{store}", "")
             kojin_narabi2_title       = st.session_state.get(f"kojin_narabi2_title_{store}", "")
         # 個別機種の優秀台ピックアップ（新宿歌舞伎町の①かぶぱ・モグ玄・新宿歌舞伎町のスランプ付きは非表示）
-        if not _is_kabupa_pg and not _mk_ui:
+        if not _is_kabupa_pg and not _mk_ui and not _mshino_ui:
             st.markdown("**個別機種の優秀台ピックアップ**")
             st.caption("タイトルと台番を指定した機種は、貼った台番だけの画像を作り、自動高配分画像は生成しません。")
             for _pi in range(_KOJIN_PICK_COUNT):
@@ -18530,7 +18613,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                     store, _jg_mem, st.session_state.get(_jg_key), opts=_MOGU_JUG_AUTO_OPTS)
             elif st.session_state.get(_jg_key) not in _MOGU_JUG_AUTO_OPTS:
                 st.session_state[_jg_key] = "なし"
-        if not _is_kabupa_pg and not _mk_ui:  # その他の優秀台ピックアップ（①かぶぱは非表示）
+        if not _is_kabupa_pg and not _mk_ui and not _mshino_ui:  # その他の優秀台ピックアップ（①かぶぱは非表示）
             st.markdown("**その他の優秀台ピックアップ**")
             # 秋葉原スランプ付き: タイトル未設定/空文字なら既定文言を session_state へ入れて常時表示する。
             # Streamlit は key が既存だと value= を無視するため、_restore_auto_inputs が入れた ""
@@ -18602,9 +18685,9 @@ def show_auto_page(with_slump: bool = False) -> None:
         if _yg_paste_on(store) and str(st.session_state.get(_yg_paste_key(store), "") or "").strip():
             sonota_extra_auto = "+1,000枚以上"
         jug_extra_auto = st.session_state.get(f"jug_extra_auto_{_kojin_ns(store)}", "なし")
-        if jug_extra_auto not in (_MOGU_JUG_AUTO_OPTS if _mk_ui else _JUG_AUTO_OPTS):
+        if jug_extra_auto not in (_MOGU_JUG_AUTO_OPTS if (_mk_ui or _mshino_ui) else _JUG_AUTO_OPTS):
             jug_extra_auto = "なし"
-        if _mk_ui:
+        if _mk_ui or _mshino_ui:
             # その他の優秀台は閾値だけ（タイトル・台番テキストの保存値は使わない）
             sonota_extra_title = ""
             sonota_extra_text  = ""
@@ -19077,7 +19160,7 @@ def show_auto_page(with_slump: bool = False) -> None:
     # ── ⑤ オススメ機種ピックアップ（拡張機能店舗）──────────────────────
 
     recommended_blocks: list[dict] = []
-    if _rec_pickup_on(store) and not _is_kabupa_pg:
+    if _rec_pickup_on(store) and not _is_kabupa_pg and not _mshino_ui:
         # 保存済み機種名を受け取り、ウィジェットのキー不在時の seed に使う
         # （default="" のままだと ⑤OFF→ON の再描画で空文字が焼き付く）
         _rec_saved_m = _init_recommended_settings(store)
@@ -19314,24 +19397,26 @@ def show_auto_page(with_slump: bool = False) -> None:
             )
 
     # ── ⑥ 結果テキスト素材メモ（拡張機能店舗・①かぶぱは非表示）──────────
-    if _mk_ui:
+    if _mk_ui or _mshino_ui:
         # 単品ピックアップ・ジャグラーの優秀台の閾値（1つだけON・全部OFF＝なし）と、バラエティの優秀台
+        #（モグ玄・新大久保の結果ポスト用はバラエティなし）
         st.markdown(f"### {_sec_num()} その他")
         _mk_thr_row("単品ピックアップ", f"sonota_extra_auto_{_kojin_ns(store)}", _SONOTA_AUTO_OPTS,
                     _sonota_auto_mem_field(store), "その他の優秀台 抽出閾値", store, _auto_xl)
         _mk_thr_row("ジャグラーの優秀台", f"jug_extra_auto_{_kojin_ns(store)}", _MOGU_JUG_AUTO_OPTS,
                     _jug_auto_mem_field(store), "ジャグラー抽出条件", store, _auto_xl)
-        st.markdown("**バラエティの優秀台**")
-        _vr_key = f"variety_range_{store}"
-        if _vr_key not in st.session_state:
-            st.session_state[_vr_key] = ""
-        # 既存のバラエティ欄と同じく value= も渡す（未描画 run の後でもブラウザへ保存値が届く）
-        st.text_area("台番テキスト（台番を含むテキストをそのまま貼り付け）",
-                     value=st.session_state[_vr_key], key=_vr_key, height=80,
-                     on_change=_save_auto_inputs, args=(store, _auto_xl))
-        variety_ranges_text = st.session_state.get(_vr_key, "") or ""
-        variety_enabled = bool(variety_ranges_text.strip())
-        variety_mode = "全台"
+        if _mk_ui:
+            st.markdown("**バラエティの優秀台**")
+            _vr_key = f"variety_range_{store}"
+            if _vr_key not in st.session_state:
+                st.session_state[_vr_key] = ""
+            # 既存のバラエティ欄と同じく value= も渡す（未描画 run の後でもブラウザへ保存値が届く）
+            st.text_area("台番テキスト（台番を含むテキストをそのまま貼り付け）",
+                         value=st.session_state[_vr_key], key=_vr_key, height=80,
+                         on_change=_save_auto_inputs, args=(store, _auto_xl))
+            variety_ranges_text = st.session_state.get(_vr_key, "") or ""
+            variety_enabled = bool(variety_ranges_text.strip())
+            variety_mode = "全台"
     elif store in EXTENDED_FEATURE_STORES and not _is_kabupa_pg:
         st.markdown(f"### {_sec_num()} 結果テキスト素材メモ")
         memo_enabled = st.checkbox("結果テキスト素材メモを使用する", key=f"memo_enabled_{store}")
@@ -20744,7 +20829,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _manual_imgs = []   # 紫系の表画像は出さない（ジャグラー・列・②範囲等も台番一覧へ）
                             _bl_m_img = _ban_list_image_manual(store, _df_m, uploaded.name,
                                                                _manual_ban_map, _bl_kind_m,
-                                                               retsu_ranges if retsu_ok else [])
+                                                               retsu_ranges if retsu_ok else [],
+                                                               lower_machines=(
+                                                                   (kojin_zentai_machines[_MSHINO_TOP_N:],
+                                                                    kojin_yushu_machines[_MSHINO_TOP_N:])
+                                                                   if _mshino_ui and kojin_enabled else None))
                         if _manual_imgs or _bl_m_img is not None:
                             if with_slump:
                                 _m_ban2mac = {str(int(b)): str(m) for b, m in zip(_df_m["台番"], _df_m["機種名"])
@@ -22090,7 +22179,7 @@ def show_auto_page(with_slump: bool = False) -> None:
                        f"もう一度{_xn_run}を実行してください（出力フォルダは変更していません）。")
             st.stop()
         # オススメ機種設定をJSON保存（次回起動時に復元する）
-        if _rec_pickup_on(store) and not _slv_dry:
+        if _rec_pickup_on(store) and not _slv_dry and not _mshino_ui:
             _s = load_store_settings(store)
             _s["rec_enabled"] = bool(st.session_state.get(f"rec_enabled_{store}", False))
             if recommended_blocks and _mk_ui:
@@ -22793,7 +22882,11 @@ def show_auto_page(with_slump: bool = False) -> None:
                             _exec_order = []
                         _bl_ex_m = _ban_list_image_manual(store, _df_exec_m, uploaded.name,
                                                           _m_exec_ban_map_e, _bl_kind_e,
-                                                          retsu_ranges if retsu_ok else [])
+                                                          retsu_ranges if retsu_ok else [],
+                                                          lower_machines=(
+                                                              (kojin_zentai_machines[_MSHINO_TOP_N:],
+                                                               kojin_yushu_machines[_MSHINO_TOP_N:])
+                                                              if _mshino_ui and kojin_enabled else None))
                         if _bl_ex_m is not None:
                             _bl_ex_m.save(os.path.join(output_dir, _BAN_LIST_FN), format="PNG")
                             _exec_order.append(_BAN_LIST_FN)

@@ -669,6 +669,17 @@ def _other_slump_from_other(store: str) -> bool:
         return False
 
 
+def _oyama_son_fix_on(store: str) -> bool:
+    """「その他」経由のマルハン大山（other_slump・src=other）で、「その他の優秀台ピックアップ」の
+    🔄／⑧の作り直しに専用の整合処理（⑦の対象台から毎回作り直す・🎯除外を戻した台にも適用・
+    表とスランプを同じ台番リストにする）を使うか。YG経由・スロバース用・他店舗は False。"""
+    try:
+        return (st.session_state.get("page") == "other_slump"
+                and _other_slump_from_other(store) and not _is_sloverse_store(store))
+    except Exception:
+        return False
+
+
 def _is_sloverse_store(store: str) -> bool:
     """「スロバース用」配下の店舗か（既存13店舗・その他・YG用は False）。"""
     return _is_other_store(store) and _other_store_cfg(store).get("_group") == _SLOVERSE_GROUP
@@ -21597,7 +21608,18 @@ def show_auto_page(with_slump: bool = False) -> None:
                                              if item.get("diff", 0) < 1000 and item.get("name", "") in _jug_series_set}
                             if _jug_low_bans:
                                 _ex_bans_for_son -= _jug_low_bans
-                        if _upd_extra_dfs or _jug_ov_used_bans:
+                        # 「その他」経由のマルハン大山だけ：🔄のたびに⑦の対象台（🎯除外前）を土台に「その他」を
+                        # 作り直す（チェックをONへ戻したら⑦の状態へ戻る・前回🔄の結果を使い回さない）。
+                        _oy_fix = (_oyama_son_fix_on(store) and not _manual_son_upd and not _sonota_split
+                                   and _pv_df is not None and _pv_diff is not None)
+                        _oy_son_key = "その他の優秀台ピックアップ.jpg"
+                        _oy_base7: list = []
+                        if _oy_fix:
+                            _oy_src0 = (st.session_state.get(_aprev_unit_key, {}) or {}).get(_oy_son_key) or {}
+                            _oy_base7 = [int(b) for b in _oy_src0.get("_base7", _oy_src0.get("bans", []))]
+                            _ex_bans_for_son = ((set(_oy_base7) | {int(item["ban"]) for item in _pv_ex})
+                                                - _jug_ov_used_bans)
+                        if _upd_extra_dfs or _jug_ov_used_bans or (_oy_fix and _ex_bans_for_son):
                             if _ex_bans_for_son:
                                 _ex_rows = _pv_df[_pv_df["台番"].apply(lambda b: int(b) in _ex_bans_for_son)].copy().reset_index(drop=True)
                                 _ex_diff = _pv_diff.loc[_pv_df[_pv_df["台番"].apply(lambda b: int(b) in _ex_bans_for_son)].index].reset_index(drop=True)
@@ -21757,6 +21779,43 @@ def show_auto_page(with_slump: bool = False) -> None:
                                         _new_prev.append(("ジャグラーシリーズ優秀台.jpg", _jug_img))
                                         _pv_set_on(store, uploaded.name, _new_prev[-1][0])
                                 _updated = True
+                        if _oy_fix:
+                            # 「その他」経由のマルハン大山だけ：最終の対象台で🎯パネルの候補を作り直し、
+                            # 🎯の除外を表・スランプの両方へ適用する（スランプは後段で同じ _son_comb を使う）。
+                            _oy_fin = _son_comb if _all_dfs else pd.DataFrame()
+                            _oy_cands = ([int(str(b).split(".")[0]) for b in _oy_fin["台番"].dropna()
+                                          if str(b).split(".")[0].lstrip("-").isdigit()]
+                                         if not _oy_fin.empty else [])
+                            _oy_state = _unit_ex_state(store, _excel_stem)
+                            # 対象台から外れた台の古い🎯除外は持ち越さない（再び対象になったら既定どおり掲載）
+                            _oy_state["sonota"] &= set(_oy_cands)
+                            st.session_state[_unit_snap_key] = _unit_ex_snapshot(_oy_state)
+                            _oy_src = dict(st.session_state.get(_aprev_unit_key, {}) or {})
+                            if _oy_cands:
+                                _oy_src[_oy_son_key] = {"kind": "sonota", "machine": None,
+                                                        "bans": _oy_cands, "_base7": _oy_base7}
+                            else:
+                                _oy_src.pop(_oy_son_key, None)
+                            st.session_state[_aprev_unit_key] = _oy_src
+                            _oy_pick = (_unit_ex_kind_pick(_oy_state, "sonota", _oy_fin)[0]
+                                        if not _oy_fin.empty else _oy_fin)
+                            if _oy_pick is None or _oy_pick.empty:
+                                # 対象台0台（または🎯で全台除外）→ 古い「その他」画像を残さない
+                                _new_prev = [(_pn_o, _im_o) for _pn_o, _im_o in _new_prev
+                                             if _pn_o not in (_oy_son_key, "その他の優秀台ピックアップ_side.jpg")]
+                                _all_dfs = []
+                            else:
+                                _son_comb = _oy_pick.reset_index(drop=True)
+                                _all_dfs = [_son_comb]
+                                _oy_img = _build_machine_img(_son_comb, "その他の優秀台ピックアップ", None)
+                                for _ci_o, (_pn_o, _) in enumerate(_new_prev):
+                                    if _pn_o == _oy_son_key:
+                                        _new_prev[_ci_o] = (_pn_o, _oy_img)
+                                        break
+                                else:
+                                    _new_prev.append((_oy_son_key, _oy_img))
+                                    _pv_set_on(store, uploaded.name, _oy_son_key)
+                            _updated = True
                         # 🔄で作り直した⑤オススメ画像の掲載台番（スランプ合成用）。
                         # ⑦は _rec_ban_map、⑧は _exec_rec_ban_map で同じものを持つ。
                         _upd_rec_bans: dict[str, list[int]] = {}
@@ -21883,6 +21942,8 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                                                machine_name=_dn_u2, games=_it_u2.get("games")))
                                         except Exception:
                                             pass
+                                    if _ufn == "その他の優秀台ピックアップ.jpg":
+                                        _oy_gn = len(_g_imgs_u2)
                                     # 「その他」配下: タイトルバー + パネル + 表 にする
                                     _uimg = _other_apply_panel(
                                         store, _uimg, re.sub(r"^\d{2}_", "", _ufn), _bans_u2,
@@ -21938,6 +21999,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                                                 _pv_set_on(store, uploaded.name, _new_prev[-1][0])
                                         except Exception:
                                             pass
+                        if locals().get("_oy_fix") and _updated and (locals().get("_oy_gn") or 0) < 16:
+                            # 「その他」経由のマルハン大山だけ：スランプが16枚未満になったら古い横版を残さない
+                            _new_prev = [(_pn_o, _im_o) for _pn_o, _im_o in _new_prev
+                                         if _pn_o != "その他の優秀台ピックアップ_side.jpg"]
                         if _updated:
                             if _mogu_kabu_slump_on() or _mogu_shino_no_purple(store):
                                 # 🔍と同じく、紫系の表画像は出さない（台番一覧・スランプ一覧は🔍で作ったもの）
@@ -23305,6 +23370,10 @@ def show_auto_page(with_slump: bool = False) -> None:
 
             # ── プレビューでチェックを外した画像を削除 / 高配分・並び外しはその他/ジャグラーに追加 ──
             _sonota_extra_bans: list[int] = []  # チェック外し再生成後の全台番（スランプ合成に渡す）
+            # 「その他」経由のマルハン大山だけ：⑧で作り直した「その他」の掲載台番（表＝スランプ）
+            _oy_e8 = _oyama_son_fix_on(store) and not _sonota_split
+            _oy_e_bans = None
+            _oy_son_e = None
             _unchecked_kojin_y: set[str] = set()  # プレビューでチェック外しされたkojin優秀台機種（全店舗共通）
             _aprev_imgs = st.session_state.get(f"auto_preview_imgs_{store}")
             if _aprev_imgs and result["ok"]:
@@ -23674,11 +23743,23 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _son_combined = pd.concat(all_dfs,   ignore_index=True)
                     _son_order    = _son_combined["台番"].argsort()
                     _son_combined = _son_combined.iloc[_son_order].reset_index(drop=True)
-                    _son_img = _build_machine_img(_son_combined, "その他の優秀台ピックアップ", None)
-                    _save_jpeg(_son_img, _sonota_path, target_kb=800)
-                    _log(f"  ✅ その他の優秀台ピックアップ再生成: {len(_son_combined)}台")
+                    if _oy_e8:
+                        # 🔄と同じく、戻した台にも🎯の除外を適用する（⑦／🔄と同じ掲載台にする）
+                        _son_combined = _son_combined.drop_duplicates(subset=["台番"]).reset_index(drop=True)
+                        _son_combined, _ = _unit_ex_kind_pick(
+                            _unit_ex_state(store, _excel_stem_run), "sonota", _son_combined)
+                        _oy_son_e = _son_combined
+                    if _oy_e8 and _son_combined.empty:
+                        _rm_stale_image(output_dir, "その他の優秀台ピックアップ.jpg", _log)
+                        _log("  その他の優秀台ピックアップ: 掲載台が0台のため画像なし")
+                    else:
+                        _son_img = _build_machine_img(_son_combined, "その他の優秀台ピックアップ", None)
+                        _save_jpeg(_son_img, _sonota_path, target_kb=800)
+                        _log(f"  ✅ その他の優秀台ピックアップ再生成: {len(_son_combined)}台")
                     _sonota_extra_bans = [int(str(b).split(".")[0]) for b in _son_combined["台番"].dropna()
                                           if str(b).split(".")[0].lstrip("-").isdigit()]
+                    if _oy_e8:
+                        _oy_e_bans = list(_sonota_extra_bans)
                     # 結果テキスト用: チェック外しで「その他の優秀台」画像へ移した台。
                     # 画像へ足したのと同じ _extra_dfs/_extra_diffs をそのまま使い、再抽出しない。
                     # （_jug_ex_dfs はジャグラー側なのでここには含めない）
@@ -23737,10 +23818,21 @@ def show_auto_page(with_slump: bool = False) -> None:
                         _ex_bans_ov = {item["ban"] for item in result.get("sonota_excellent_list", [])}
                         _ex_rows_ov = _df_res[_df_res["台番"].apply(lambda b: int(b) in _ex_bans_ov)].copy().reset_index(drop=True) if _ex_bans_ov else pd.DataFrame()
                         _ov_dfs = ([_ex_rows_ov] if not _ex_rows_ov.empty else []) + _jug_ex_dfs
+                        if _oy_e8 and _oy_son_e is not None and not _oy_son_e.empty:
+                            # 「その他」経由のマルハン大山だけ：作り直した「その他」（戻した台）も土台に加える
+                            _ov_dfs = _ov_dfs + [_oy_son_e]
                         _ov_son = pd.concat(_ov_dfs, ignore_index=True)
                         _ov_son = _ov_son.drop_duplicates(subset=["台番"])
                         _ov_son = _ov_son.iloc[_ov_son["台番"].argsort()].reset_index(drop=True)
-                        _save_jpeg(_build_machine_img(_ov_son, "その他の優秀台ピックアップ", None), _sonota_path_ov, target_kb=800)
+                        if _oy_e8:
+                            _ov_son, _ = _unit_ex_kind_pick(
+                                _unit_ex_state(store, _excel_stem_run), "sonota", _ov_son)
+                            _oy_e_bans = [int(str(b).split(".")[0]) for b in _ov_son["台番"].dropna()
+                                          if str(b).split(".")[0].lstrip("-").isdigit()]
+                        if _oy_e8 and _ov_son.empty:
+                            _rm_stale_image(output_dir, "その他の優秀台ピックアップ.jpg", _log)
+                        else:
+                            _save_jpeg(_build_machine_img(_ov_son, "その他の優秀台ピックアップ", None), _sonota_path_ov, target_kb=800)
                         _log(f"  ✅ ジャグラー{len(_jug_comb)}台→overflow: その他の優秀台ピックアップに追加({len(_ov_son)}台)")
                     else:
                         _has_kojin_jug_ex = any(m.strip() in _ex_jug_series_set for m in (kojin_zentai_machines + kojin_yushu_machines) if m.strip())
@@ -24371,6 +24463,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                     _sonota_bans_ig2 = sorted({int(_e2["ban"]) for _e2 in result.get("sonota_excellent_list", []) if "ban" in _e2})
                     if _sonota_extra_bans:
                         _sonota_bans_ig2 = sorted(set(_sonota_bans_ig2) | set(_sonota_extra_bans))
+                    if locals().get("_oy_e_bans") is not None:
+                        # 「その他」経由のマルハン大山だけ：⑧で作り直した表と同じ台番でスランプを付ける
+                        _sonota_bans_ig2 = sorted(set(locals()["_oy_e_bans"]))
                     # _jug_ov_move_on の店舗：ジャグラー側へ移した台はその他のスランプから外し、
                     # 作り直したジャグラー統合画像には実際に載せた台番でスランプを付ける。
                     if _jug_ov_move_on(store):

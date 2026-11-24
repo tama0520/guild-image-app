@@ -8791,10 +8791,13 @@ def generate_report_text(
     poster_new: bool = False,
     poster_weekly: "list | None" = None,
     mshino_lower: "tuple | None" = None,
+    mshino_upper: "tuple | None" = None,
 ) -> str:
     """画像生成で使ったデータをそのまま文章化して返す。
-    mshino_lower: モグ玄・新大久保 × 結果ポスト用の⑧📝だけが渡す (②下段の全台機種名, ②下段の優秀台機種名)。
+    mshino_lower: モグ玄・新大久保 × 結果ポスト用の⑧（通常）・⑧📝だけが渡す (②下段の全台機種名, ②下段の優秀台機種名)。
       渡されたときだけ、下段の機種を『はにぃポスト結果考察』から外し「🟨その他の好成績機種」へ出す。
+    mshino_upper: 同じく (②上段の全台機種名, ②上段の優秀台機種名)。mshino_lower と一緒に渡し、
+      『はにぃポスト結果考察』は②上段の機種だけにする（②に記入していない自動抽出の機種は出さない）。
     poster_weekly: poster_new 時、カバネリの直後に出す「📈週間オススメ機種📈」の中身
       （_poster_weekly_items() の戻り値）。None なら出さない。
     poster_new: 渋谷新館の「オススメポスター機種」セクションを新形式にする（結果ポスト用だけが
@@ -9445,18 +9448,26 @@ def generate_report_text(
                     or (store_name == "モグ玄・新大久保" and it.get("is_yushu")))
                and it["name"] not in _hide_sum])
         _hp_items.sort(key=lambda p: (-p[1], _make_safe_fn(str(p[0].get("name", "")))))
-        # モグ玄・新大久保 × 結果ポスト用の⑧📝だけ：②下段（その他の好成績機種）に記入した機種を分ける
+        # モグ玄・新大久保 × 結果ポスト用の⑧（通常）・⑧📝だけ：②下段（その他の好成績機種）に記入した機種を分ける
         # （全台は②下段の全台、優秀台は②下段の優秀台の機種名で判定。並び順は上の平均差枚の多い順のまま）
         _hp_low_items: list = []
-        if store_name == "モグ玄・新大久保" and mshino_lower:
-            _lz_n = {str(_m).strip() for _m in (mshino_lower[0] or []) if str(_m).strip()}
-            _ly_n = {str(_m).strip() for _m in (mshino_lower[1] or []) if str(_m).strip()}
+        if store_name == "モグ玄・新大久保" and mshino_lower is not None and mshino_upper is not None:
+            _nm_set = lambda _ms: {str(_m).strip() for _m in (_ms or []) if str(_m).strip()}
+            _lz_n, _ly_n = _nm_set(mshino_lower[0]), _nm_set(mshino_lower[1])
+            _uz_n, _uy_n = _nm_set(mshino_upper[0]), _nm_set(mshino_upper[1])
             _zen_ids = {id(_it) for _it in zen_dai_list}
-            _is_low = lambda _it: (str(_it.get("name", "")).strip() in _lz_n if id(_it) in _zen_ids
-                                   else (bool(_it.get("is_yushu"))
-                                         and str(_it.get("name", "")).strip() in _ly_n))
-            _hp_low_items = [_p for _p in _hp_items if _is_low(_p[0])]
-            _hp_items = [_p for _p in _hp_items if not _is_low(_p[0])]
+
+            def _mshino_side(_it) -> str:
+                # "low"＝②下段・"up"＝②上段・""＝②に記入していない（自動抽出など）→ 出さない
+                # 上段と下段の両方に同じ機種があれば下段（📝台番一覧の画像と同じ）
+                _nm = str(_it.get("name", "")).strip()
+                if id(_it) in _zen_ids:
+                    return "low" if _nm in _lz_n else ("up" if _nm in _uz_n else "")
+                if not _it.get("is_yushu"):
+                    return ""
+                return "low" if _nm in _ly_n else ("up" if _nm in _uy_n else "")
+            _hp_low_items = [_p for _p in _hp_items if _mshino_side(_p[0]) == "low"]
+            _hp_items = [_p for _p in _hp_items if _mshino_side(_p[0]) == "up"]
         # 機種名は画像タイトルに使った表記をそのまま使う（img_name。無ければ name＝
         # ②個別画像など name がそのまま画像タイトルの経路）。結果テキストだけの置換はしない。
         _hp_items = [({**it, "name": it.get("img_name") or it["name"]}, avg)
@@ -9472,13 +9483,16 @@ def generate_report_text(
             except Exception:
                 _jst_m = None
             _hp = ([f"{date.month}月{date.day}日（{weekday_jp[date.weekday()]}）", ""] if date is not None else [])
-            _hp += [f"【 {store_display} 】", "", "『はにぃポスト結果考察』", ""]
+            _hp += [f"【 {store_display} 】", ""]
+            if _hp_items or not _hp_low_items:
+                # 上段（はにぃポスト結果考察）の機種がなく下段だけのときは、空の見出しを出さない
+                _hp += ["『はにぃポスト結果考察』", ""]
             if _hp_items:
                 _hp += [f"♦{it['name']}" for it, _ in _hp_items] + [""]
                 _hp += ["🎯" for _ in _hp_items] + [""]
                 _hp += [f"・{it['name']}：平均{_fmt_diff(avg)}" for it, avg in _hp_items] + [""]
             if _hp_low_items:
-                # ②下段に記入した機種（⑧📝で mshino_lower を渡したときだけ）：平均差枚の多い順
+                # ②下段に記入した機種（⑧・⑧📝で mshino_lower を渡したときだけ）：平均差枚の多い順
                 _hp += ["🟨その他の好成績機種"]
                 _hp += [f"・{it['name']}：平均{_fmt_diff(avg)}" for it, avg in _hp_low_items] + [""]
                 _hp += ["👆", ""]
@@ -23091,6 +23105,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 mshino_lower=((kojin_zentai_machines[_MSHINO_TOP_N:],
                                                kojin_yushu_machines[_MSHINO_TOP_N:])
                                               if _mshino_ui and kojin_enabled else None),
+                                mshino_upper=((kojin_zentai_machines[:_MSHINO_TOP_N],
+                                               kojin_yushu_machines[:_MSHINO_TOP_N])
+                                              if _mshino_ui and kojin_enabled else None),
                             )
                             if store in _REC_TEXT_IMG_BANS_STORES and with_slump and _rec_bbb_e:
                                 _rec_txt_m = _rec_text_from_img_bans(store, recommended_blocks, _df_exec_m,
@@ -25082,6 +25099,12 @@ def show_auto_page(with_slump: bool = False) -> None:
                 poster_new=(store in _POSTER_NEW_STORES),
                 poster_weekly=_poster_weekly_items(
                     store, recommended_blocks, result.get("df"), result.get("diff_raw")),
+                mshino_lower=((kojin_zentai_machines[_MSHINO_TOP_N:],
+                               kojin_yushu_machines[_MSHINO_TOP_N:])
+                              if _mshino_ui and kojin_enabled else None),
+                mshino_upper=((kojin_zentai_machines[:_MSHINO_TOP_N],
+                               kojin_yushu_machines[:_MSHINO_TOP_N])
+                              if _mshino_ui and kojin_enabled else None),
             )
             # 「📈オススメポスター機種📈」「📈週間オススメ機種📈」に出したブロックは下の⑤セクションへ重複させない
             _pw_hide = _poster_hidden_rec_blocks(store, recommended_blocks)

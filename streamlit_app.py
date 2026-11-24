@@ -21697,9 +21697,21 @@ def show_auto_page(with_slump: bool = False) -> None:
                                 _ov_ex_bans = {item["ban"] for item in _pv_ex}
                                 _ov_rows = _pv_df[_pv_df["台番"].apply(lambda b: int(b) in _ov_ex_bans)].copy().reset_index(drop=True) if _pv_df is not None else pd.DataFrame()
                                 _ov_dfs = ([_ov_rows] if not _ov_rows.empty else []) + _jug_extra_dfs
+                                # 「その他」経由のマルハン大山（_other_slump_from_other）だけ：上で作り直した
+                                # その他の対象台（_son_comb＝チェックOFF画像から戻した台を含む）も土台に加え、
+                                # 表とスランプ合成（後段の _upd_dyn_ban_map）で同じ台番リストを使う。
+                                # 従来は表だけが⑦の台＋ジャグラー分で上書きされ、スランプと台が食い違っていた。
+                                _ov_same = (st.session_state.get("page") == "other_slump"
+                                            and _other_slump_from_other(store)
+                                            and not _manual_son_upd and not _sonota_split)
+                                if _ov_same and _all_dfs:
+                                    _ov_dfs = _ov_dfs + [_son_comb]
                                 _ov_son = pd.concat(_ov_dfs, ignore_index=True)
                                 _ov_son = _ov_son.drop_duplicates(subset=["台番"])
                                 _ov_son = _ov_son.iloc[_ov_son["台番"].argsort()].reset_index(drop=True)
+                                if _ov_same and _ov_son is not None and not _ov_son.empty:
+                                    _son_comb = _ov_son
+                                    _all_dfs = [_ov_son]
                                 if _jug_ux:
                                     _ov_son, _ = _unit_ex_kind_pick(
                                         _unit_ex_state(store, _excel_stem), "sonota", _ov_son)

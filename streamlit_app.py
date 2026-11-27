@@ -35506,7 +35506,9 @@ def _mogu_kabu_lists(store: str, d, df, zen, high, nami, sue_map: dict, rec_map:
                      extra_map: dict, single_bans, pool_on: bool, by_uid,
                      recommended_blocks=None) -> "tuple":
     """台番一覧（3列・行数可変）とスランプ一覧（単品は台番一覧に載った台・1〜3枚のリスト）を返す。表示する台がなければ None と []。"""
-    # ⑥「4Fの優秀台」：差枚プラスの台だけを追加ブロック（見出し色はバラエティと同じ）にする。🔍・⑧・📝・⑧📝共通
+    # ⑥「4Fの優秀台」：差枚プラスの台だけを追加ブロック（見出し色はバラエティと同じ）にする。🔍・⑧・📝・⑧📝共通。
+    # 画像（台番一覧・スランプ一覧）のブロック内は他の追加ブロックと同じく台番の若い順
+    #（_ban_list_blocks_from の既定の並び）。差枚の多い順は結果テキストだけ（_mogu_kabu_report_text）
     _f4 = _mogu_kabu_f4_rows(store, df)
     _f4_fn = f"{_MOGU_KABU_F4_TITLE}.jpg"
     if _f4:
@@ -35514,12 +35516,6 @@ def _mogu_kabu_lists(store: str, d, df, zen, high, nami, sue_map: dict, rec_map:
         extra_map[_f4_fn] = [_r["ban"] for _r in _f4]
     blocks, pool = _ban_list_blocks_from(df, zen, high, nami, sue_map, rec_map, jug_bans=jug,
                                          retsu_map=col_map, extra_map=extra_map, single_bans=single_bans)
-    if _f4:
-        # ブロック内は台番昇順ではなく差枚の多い順（同値は入力順＝結果テキストと同じ順）
-        _f4_ord = {_r["ban"]: _i for _i, _r in enumerate(_f4)}
-        for _b in blocks:
-            if _b["kind"] == "extra" and _b["title"] == _MOGU_KABU_F4_TITLE:
-                _b["atoms"] = sorted(_b["atoms"], key=lambda _a: _f4_ord.get(_a[0]["ban"], len(_f4_ord)))
     # 列仕掛けは並びと同じく見出し「列」の1ブロックにまとめる（機種ごとの「〜(列仕掛け)」ブロックにしない）。
     # 1入力＝1かたまり・かたまりの間に区切り線（並びと同じ sep="group"）。台番一覧・スランプ一覧で共通
     # かたまりの順は高配分・並びと同じく台番の若い順（各かたまりの最小台番の昇順。かたまり内は台番昇順のまま）

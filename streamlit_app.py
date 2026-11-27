@@ -8319,9 +8319,9 @@ def _mogu_kabu_report_text(date, zen_dai_list: list, high_ratio_list: list, nami
     _sue += [f"〇{'ジャグラーの末尾ゾロ目番台' if _it['tail'] == 'ゾロ目' else 'ジャグラーの末尾' + _circ.get(_it['tail'], _it['tail']) + '番台'}"
              f"　平均{_fmt_diff(int(_it['avg_diff']))}　{_it['win_count']}/{_it['total']}"
              for _it in jug_sue_data or []]
-    # 4Fの優秀台：・【台番】機種名→差枚（差枚プラスの台だけ・差枚の多い順・同値は入力順）。
-    # 差枚は総差枚と同じ diff_raw（台番一覧と同じ並び・同じ台）
-    _f4 = [f"・【{_r['ban']}】{_r['name']}→{_fmt_diff(_r['diff'])}"
+    # 4Fの優秀台：・【台番番台】機種名→差枚（差枚プラスの台だけ・差枚の多い順・同値は入力順）。
+    # 差枚は総差枚と同じ diff_raw（台番一覧と同じ台）。「番台」はこの4Fの行だけに付ける
+    _f4 = [f"・【{_r['ban']}番台】{_r['name']}→{_fmt_diff(_r['diff'])}"
            for _r in _mogu_kabu_f4_rows(store_name, df, diff_raw)]
     for _head, _rows in (("☆優秀機種", _zen), ("🔴高配分機種", _high), ("♦列", _retsu), ("♦並び", _nami),
                          ("🟨末尾", _sue), (_MOGU_KABU_F4_TITLE, _f4)):

@@ -28,6 +28,87 @@
       "side": true,
       "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
     },
-    "マルハン大山": {"_from_group": "yg"}
+    "マルハン大山": {"_from_group": "yg"},
+    "ラ・カータ大宮駅前（その他）": {
+      "display_name": "ラ・カータ大宮駅前",
+      "pision_hall_id": "763",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": true,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "ラ・カータ浦和（その他）": {
+      "display_name": "ラ・カータ浦和",
+      "pision_hall_id": "762",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": true,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "BIGディッパー新橋1号店（その他）": {
+      "display_name": "BIGディッパー新橋1号店",
+      "pision_hall_id": "317",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": true,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "BIGディッパー新橋2号店": {
+      "display_name": "BIGディッパー新橋2号店",
+      "pision_hall_id": "875",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": true,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "BIGディッパー戸越銀座（その他）": {
+      "display_name": "BIGディッパー戸越銀座",
+      "pision_hall_id": "758",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": true,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "パラッツォ三郷中央": {
+      "display_name": "パラッツォ三郷中央",
+      "pision_hall_id": "278",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": true,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "パラッツォ馬橋駅前": {
+      "display_name": "パラッツォ馬橋駅前",
+      "pision_hall_id": "5067",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": true,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "SAP日野": {
+      "display_name": "SAP日野",
+      "pision_hall_id": "856",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": true,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    },
+    "SAP立川": {
+      "display_name": "SAP立川",
+      "pision_hall_id": "3742",
+      "slotterguild": false,
+      "realtime": false,
+      "panel": true,
+      "side": true,
+      "image_types": ["全台データ画像", "高配分データ画像", "末尾画像", "その他の優秀台画像"]
+    }
   }
 }

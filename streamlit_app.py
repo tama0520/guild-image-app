@@ -8223,9 +8223,54 @@ _HONEY_POST_RESULT_STORES: "frozenset[str]" = frozenset({"新大久保", "モグ
 _MOGU_KABU_RESULT_TEXT_STORES: "frozenset[str]" = frozenset({"モグ玄・新宿歌舞伎町"})
 _MOGU_KABU_RESULT_TEXT_NAME = "エスパス 新宿 歌舞伎 町"
 
+# モグ玄・新宿歌舞伎町（スランプ付き結果ポスト用）の⑥「4Fの優秀台」
+_MOGU_KABU_F4_TITLE = "4Fの優秀台"
+
+
+def _mogu_kabu_f4_key(store: str) -> str:
+    """⑥「4Fの優秀台」の台番テキストの session_state キー（Excel＝日付単位で auto_page_inputs.json に保存）。"""
+    return f"f4_range_{store}"
+
+
+def _mogu_kabu_f4_rows(store: str, df, diff=None) -> "list[dict]":
+    """⑥「4Fの優秀台」に貼った台番のうち差枚プラスの台を、差枚の多い順（同値は入力順）で返す。
+    {ban, name, diff}。モグ玄・新宿歌舞伎町のスランプ付き（_mogu_kabu_slump_on）以外・空欄・df なしは []。
+    diff を渡したらその差枚（diff_raw）、省略時は df の「差枚」。"""
+    try:
+        if not _mogu_kabu_slump_on() or df is None or "台番" not in df.columns:
+            return []
+        _t = str(st.session_state.get(_mogu_kabu_f4_key(store), "") or "").strip()
+        if not _t:
+            return []
+        # 表形式（「台番 機種名 数値…」が2行以上）を貼ったときは parse_ranges が並び用に
+        # 連番2台以上だけを返すので、各行の先頭の台番も拾う（入力順・重複なし）
+        _tbl = [int(_m.group(1)) for _l in _t.splitlines()
+                if (_m := re.match(r"^(\d+)[\t ]+\D", _l.strip()))]
+        _bans = list(dict.fromkeys((_tbl if len(_tbl) >= 2 else [])
+                                   + [int(_b) for _g in parse_ranges(_t) for _b in _g]))
+    except Exception:
+        return []
+    _rows: dict[int, dict] = {}
+    for _idx, _r in df.iterrows():
+        try:
+            _b = int(_r["台番"])
+        except (TypeError, ValueError):
+            continue
+        if _b in _rows:
+            continue
+        _d = diff.loc[_idx] if (diff is not None and _idx in diff.index) else _r.get("差枚")
+        try:
+            _d = 0 if pd.isna(_d) else int(_d)
+        except (TypeError, ValueError):
+            _d = 0
+        _rows[_b] = {"ban": _b, "name": str(_r.get("機種名", "")), "diff": _d}
+    return sorted((_rows[_b] for _b in _bans if _b in _rows and _rows[_b]["diff"] > 0),
+                  key=lambda _r: -_r["diff"])
+
 
 def _mogu_kabu_report_text(date, zen_dai_list: list, high_ratio_list: list, nami_list: list,
-                           suebangai_data, jug_sue_data, diff_raw, df=None, retsu_list=None) -> str:
+                           suebangai_data, jug_sue_data, diff_raw, df=None, retsu_list=None,
+                           store_name: str = "") -> str:
     """モグ玄・新宿歌舞伎町 スランプ付き結果ポスト用の結果テキスト（⑧・⑧📝で共通）。
     平均・勝ち台数・台数・台番範囲は既存の項目の値（all_avg_diff／_high_avg_of／count・total、
     並びの ban_range・avg_diff、末尾の avg_diff・win_count・total）をそのまま使う。"""
@@ -8274,8 +8319,12 @@ def _mogu_kabu_report_text(date, zen_dai_list: list, high_ratio_list: list, nami
     _sue += [f"〇{'ジャグラーの末尾ゾロ目番台' if _it['tail'] == 'ゾロ目' else 'ジャグラーの末尾' + _circ.get(_it['tail'], _it['tail']) + '番台'}"
              f"　平均{_fmt_diff(int(_it['avg_diff']))}　{_it['win_count']}/{_it['total']}"
              for _it in jug_sue_data or []]
+    # 4Fの優秀台：・【台番】機種名→差枚（差枚プラスの台だけ・差枚の多い順・同値は入力順）。
+    # 差枚は総差枚と同じ diff_raw（台番一覧と同じ並び・同じ台）
+    _f4 = [f"・【{_r['ban']}】{_r['name']}→{_fmt_diff(_r['diff'])}"
+           for _r in _mogu_kabu_f4_rows(store_name, df, diff_raw)]
     for _head, _rows in (("☆優秀機種", _zen), ("🔴高配分機種", _high), ("♦列", _retsu), ("♦並び", _nami),
-                         ("🟨末尾", _sue)):
+                         ("🟨末尾", _sue), (_MOGU_KABU_F4_TITLE, _f4)):
         if _rows:
             out += [_head] + _rows + [""]
     _st = _zendai_total_stat(diff_raw)
@@ -9437,7 +9486,8 @@ def generate_report_text(
         return "\n".join([header, store_display, "", "", "", "", "", _yg_body])
     if store_name in _MOGU_KABU_RESULT_TEXT_STORES:
         return _mogu_kabu_report_text(date, zen_dai_list, high_ratio_list, nami_list,
-                                      suebangai_data, jug_sue_data, diff_raw, df, retsu_list=retsu_list)
+                                      suebangai_data, jug_sue_data, diff_raw, df, retsu_list=retsu_list,
+                                      store_name=store_name)
     if store_name in _HONEY_POST_RESULT_STORES:
         # 固定構成：見出し → 🍯機種名×画像を作った機種数 → 📍×3
         #          → 画像を作った機種の結果 → 💬 → 空行2 → 🔍。
@@ -11911,6 +11961,8 @@ def _auto_input_keys(store: str) -> list[str]:
         # 📝記入部分のみモードの「ジャグラーシリーズ優秀台」自動抽出（Excel＝日付単位）
         f"jug_extra_auto_{store}",
         "variety_enabled", f"variety_range_{store}", "variety_mode",
+        # モグ玄・新宿歌舞伎町（スランプ付き結果ポスト用）の⑥「4Fの優秀台」の台番テキスト
+        f"f4_range_{store}",
     ]
     for i in range(_KOJIN_PICK_COUNT):
         keys += [f"kojin_pick_title_{i}_{store}", f"kojin_pick_bans_{i}_{store}"]
@@ -18210,9 +18262,9 @@ def show_auto_page(with_slump: bool = False) -> None:
                     if _mogu_kabu_slump_on():
                         # 下の st.rerun() は⑥を描く前に止まり、台番テキストが session_state から消える。
                         # 取得失敗では入力済みの内容を残す（④プレビュー後の b24554a と同じ入れ直し）
-                        _vr_keep = f"variety_range_{store}"
-                        if _vr_keep in st.session_state:
-                            st.session_state[_vr_keep] = st.session_state[_vr_keep]
+                        for _vr_keep in (f"variety_range_{store}", _mogu_kabu_f4_key(store)):
+                            if _vr_keep in st.session_state:
+                                st.session_state[_vr_keep] = st.session_state[_vr_keep]
                 else:
                     _tb_rows = [
                         {
@@ -19042,9 +19094,10 @@ def show_auto_page(with_slump: bool = False) -> None:
                                             # この st.rerun() はジャグラー末尾の欄を描く前に止まるため、
                                             # 欄の値が session_state から消え、空のまま自動保存される。
                                             # 値を session_state へ入れ直して残す（モグ玄・新宿歌舞伎町のスランプ付きだけ）
-                                            # ⑥「バラエティの優秀台」の台番テキストも同じ理由で残す
+                                            # ⑥「バラエティの優秀台」「4Fの優秀台」の台番テキストも同じ理由で残す
                                             for _jk in ("jug_sue_enabled", "jug_sue_tail_input_1", "jug_sue_tail_input_2",
-                                                        "jug_sue_tail_input_3", "jug_sue_mode", f"variety_range_{store}"):
+                                                        "jug_sue_tail_input_3", "jug_sue_mode", f"variety_range_{store}",
+                                                        _mogu_kabu_f4_key(store)):
                                                 if _jk in st.session_state:
                                                     st.session_state[_jk] = st.session_state[_jk]
                                         st.rerun()
@@ -19503,6 +19556,15 @@ def show_auto_page(with_slump: bool = False) -> None:
         _mk_thr_row("ジャグラーの優秀台", f"jug_extra_auto_{_kojin_ns(store)}", _MOGU_JUG_AUTO_OPTS,
                     _jug_auto_mem_field(store), "ジャグラー抽出条件", store, _auto_xl)
         if _mk_ui:
+            # 4Fの優秀台（モグ玄・新宿歌舞伎町のスランプ付きだけ）：台番テキスト。差枚プラスの台だけを
+            # 台番一覧・スランプ一覧（バラエティと同じ追加ブロック）と結果テキストへ出す。空欄なら出さない
+            st.markdown(f"**{_MOGU_KABU_F4_TITLE}**")
+            _f4_key = _mogu_kabu_f4_key(store)
+            if _f4_key not in st.session_state:
+                st.session_state[_f4_key] = ""
+            st.text_area("台番テキスト（台番を含むテキストをそのまま貼り付け）",
+                         value=st.session_state[_f4_key], key=_f4_key, height=80,
+                         on_change=_save_auto_inputs, args=(store, _auto_xl))
             st.markdown("**バラエティの優秀台**")
             _vr_key = f"variety_range_{store}"
             if _vr_key not in st.session_state:
@@ -35444,8 +35506,20 @@ def _mogu_kabu_lists(store: str, d, df, zen, high, nami, sue_map: dict, rec_map:
                      extra_map: dict, single_bans, pool_on: bool, by_uid,
                      recommended_blocks=None) -> "tuple":
     """台番一覧（3列・行数可変）とスランプ一覧（単品は台番一覧に載った台・1〜3枚のリスト）を返す。表示する台がなければ None と []。"""
+    # ⑥「4Fの優秀台」：差枚プラスの台だけを追加ブロック（見出し色はバラエティと同じ）にする。🔍・⑧・📝・⑧📝共通
+    _f4 = _mogu_kabu_f4_rows(store, df)
+    _f4_fn = f"{_MOGU_KABU_F4_TITLE}.jpg"
+    if _f4:
+        extra_map = {_k: _v for _k, _v in (extra_map or {}).items() if _k != _f4_fn}
+        extra_map[_f4_fn] = [_r["ban"] for _r in _f4]
     blocks, pool = _ban_list_blocks_from(df, zen, high, nami, sue_map, rec_map, jug_bans=jug,
                                          retsu_map=col_map, extra_map=extra_map, single_bans=single_bans)
+    if _f4:
+        # ブロック内は台番昇順ではなく差枚の多い順（同値は入力順＝結果テキストと同じ順）
+        _f4_ord = {_r["ban"]: _i for _i, _r in enumerate(_f4)}
+        for _b in blocks:
+            if _b["kind"] == "extra" and _b["title"] == _MOGU_KABU_F4_TITLE:
+                _b["atoms"] = sorted(_b["atoms"], key=lambda _a: _f4_ord.get(_a[0]["ban"], len(_f4_ord)))
     # 列仕掛けは並びと同じく見出し「列」の1ブロックにまとめる（機種ごとの「〜(列仕掛け)」ブロックにしない）。
     # 1入力＝1かたまり・かたまりの間に区切り線（並びと同じ sep="group"）。台番一覧・スランプ一覧で共通
     # かたまりの順は高配分・並びと同じく台番の若い順（各かたまりの最小台番の昇順。かたまり内は台番昇順のまま）
@@ -35495,13 +35569,15 @@ def _mogu_kabu_lists(store: str, d, df, zen, high, nami, sue_map: dict, rec_map:
             _b["atoms"] = [_a for _, _, _a in sorted(
                 ((_pos[_k], _i, _a) for _i, (_k, _a) in enumerate(zip(_ks, _b["atoms"]))),
                 key=lambda _t: (_t[0], _t[1]))]
-    # ブロックの順：優秀機種→高配分→優秀列→並び→末尾→ジャグラーの末尾→⑤→ジャグラー→バラエティ→その他の追加→単品。
+    # ブロックの順：優秀機種→高配分→優秀列→並び→末尾→ジャグラーの末尾→⑤→ジャグラー→4Fの優秀台→バラエティ→その他の追加→単品。
     # 見出しは高配分・末尾・ジャグラーの末尾・⑤・ジャグラー・バラエティに「(優秀台)」を付ける（台番一覧・スランプ一覧で共通）
     def _mk_rank(_b) -> int:
         _k, _t = _b["kind"], str(_b["title"])
         if _k == "sue":
             return 5 if _t.startswith("ジャグラー") else 4
         if _k == "extra":
+            if _t == _MOGU_KABU_F4_TITLE:
+                return 7.5   # 見出しに「優秀台」を含むので「(優秀台)」は付けない
             return 8 if _t.startswith("バラエティ") else 9
         return {"zen": 0, "high": 1, "retsu": 2, "nami": 3, "rec": 6, "jug": 7, "single": 10}.get(_k, 9)
     blocks = sorted(blocks, key=_mk_rank)   # 同じ順位の中は元の順のまま（安定ソート）

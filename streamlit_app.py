@@ -14037,6 +14037,10 @@ def _article_input_keys(store: str) -> list[str]:
     # 従来どおり art_suebangai_tail_input の1枠のみ＝既存の重複除外を変えない）
     for i in range(1, 4):
         keys += [f"art_suebangai_tail_input_{i}", f"art_jug_sue_tail_input_{i}"]
+    # 末尾①②③ごとのモード（_ART_SUE_MODE_PER_TAIL_STORES だけ・日付単位）。
+    # 旧共通モード art_suebangai_mode は上で従来どおり保存・復元する（消さない）。
+    if store in _ART_SUE_MODE_PER_TAIL_STORES:
+        keys += [_art_sue_mode_key(i) for i in range(1, 4)]
     for i in range(12):
         keys += [f"art_kojin_z_{i}_{store}", f"art_kojin_y_{i}_{store}"]
     # ②優秀台の13〜48枠目と⑥バラエティの台番テキスト（_ART_KB_UI_STORES だけ・日付単位）
@@ -17240,6 +17244,32 @@ def _art_sue_mode_label(v: str) -> str:
     return _ART_SUE_MODE_LABELS.get(v, v)
 
 
+# 記事用④末尾のモードを **末尾①②③ごと** に選べる店舗（2026-11-27）。
+# 既定（他店舗）は従来どおり共通モード1つ（art_suebangai_mode）。
+# ★選択肢・内部値・表示名・抽出／集計（_build_sue_images）は従来のまま。管理単位だけを変える。
+# ★ジャグラー末尾（art_jug_sue_mode）は従来どおり共通1つ。
+_ART_SUE_MODE_PER_TAIL_STORES: "frozenset[str]" = frozenset({"新宿歌舞伎町"})
+_ART_SUE_TAIL_MODE_OPTS: "list[str]" = ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）",
+                                        "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"]
+
+
+def _art_sue_mode_key(i: int) -> str:
+    """末尾i（1〜3）のモードの保存キー（article_page_inputs.json・日付単位）。"""
+    return f"art_suebangai_mode_{i}"
+
+
+def _art_sue_common_mode() -> str:
+    """旧UIの共通モード（art_suebangai_mode）。選択肢外・未保存は「全台」＝従来の既定。"""
+    _v = st.session_state.get("art_suebangai_mode")
+    return _v if _v in _ART_SUE_TAIL_MODE_OPTS else "全台"
+
+
+def _art_sue_tail_mode(i: int) -> str:
+    """末尾iのモード：末尾ごとの値 → 旧共通モード → 全台（旧形式の保存値と同じ結果にする互換処理）。"""
+    _v = st.session_state.get(_art_sue_mode_key(i))
+    return _v if _v in _ART_SUE_TAIL_MODE_OPTS else _art_sue_common_mode()
+
+
 def _art_osusume_collect(store: str) -> list[dict]:
     """⑤オススメの設定を [{"title", "machines", "filter"}, …×6] で返す。
 
@@ -17514,6 +17544,27 @@ def _art_sue_settings() -> "tuple[list[str], str, list[str], str]":
                    if (t := st.session_state.get(f"art_jug_sue_tail_input_{i}", "").strip())]
     _jmode = st.session_state.get("art_jug_sue_mode", "全台")
     return _tails, _mode, _jtails, _jmode
+
+
+def _art_sue_groups(store: str) -> "list[tuple[list[str], str, bool]]":
+    """記事用④末尾を _build_sue_images へ渡す単位（⑦プレビュー・⑧本番で共通）。
+
+    既定は従来どおり [(通常末尾すべて, 共通モード, False), (ジャグラー末尾, ジャグラーモード, True)]。
+    _ART_SUE_MODE_PER_TAIL_STORES は通常末尾を末尾①②③ごとに分け、それぞれのモードで作る。
+    _build_sue_images は末尾ごとに独立して処理する（末尾間で台を除外し合わない）ので、
+    末尾の順番・抽出・集計・ファイル名は共通モードのときと同じで、モードだけが末尾ごとになる。
+    """
+    _tails, _mode, _jtails, _jmode = _art_sue_settings()
+    if store not in _ART_SUE_MODE_PER_TAIL_STORES:
+        return [(_tails, _mode, False), (_jtails, _jmode, True)]
+    _groups: "list[tuple[list[str], str, bool]]" = []
+    if st.session_state.get("art_suebangai_enabled", False):
+        for _i in range(1, 4):
+            _t = (st.session_state.get(f"art_suebangai_tail_input_{_i}", "") or "").strip()
+            if _t:
+                _groups.append(([_t], _art_sue_tail_mode(_i), False))
+    _groups.append((_jtails, _jmode, True))
+    return _groups
 
 
 # 記事用⑦の「生成する」チェックを **画像名ベースの安定キー** にする店舗。
@@ -26273,17 +26324,30 @@ def show_auto_article_page() -> None:
             # 他画像からの末尾台除外（pipelineの suebangai_tails）は
             # 従来どおり1枠だけ＝末尾①を使う（_art_sue_exclude_tails）。
             _atc1, _atc2, _atc3 = st.columns(3)
+            # 末尾①②③ごとにモードを選ぶ店舗：入力がある末尾だけ、その入力欄の直下にモード。
+            # 初期値はその日付の末尾ごとの保存値 → 無ければ旧共通モード（従来と同じ結果）。
+            _a_sue_per_tail = store in _ART_SUE_MODE_PER_TAIL_STORES
+
+            def _a_sue_tail_mode_ui(_i: int, _val: str) -> None:
+                if _a_sue_per_tail and (_val or "").strip():
+                    _art_choice(f"末尾{'①②③'[_i - 1]}のモード", _art_sue_mode_key(_i),
+                                _ART_SUE_TAIL_MODE_OPTS, default=_art_sue_common_mode(),
+                                horizontal=False, format_func=_art_sue_mode_label,
+                                skip_kojin=False)
             with _atc1:
                 _a_ti1 = _art_txt("末尾①", "art_suebangai_tail_input_1",
                                   placeholder="例: 5", skip_kojin=False)
+                _a_sue_tail_mode_ui(1, _a_ti1)
             with _atc2:
                 _a_ti2 = _art_txt("末尾②", "art_suebangai_tail_input_2",
                                   placeholder="例: 7", skip_kojin=False)
+                _a_sue_tail_mode_ui(2, _a_ti2)
             with _atc3:
                 _a_ti3 = _art_txt("末尾③", "art_suebangai_tail_input_3",
                                   placeholder="ゾロ目", skip_kojin=False)
+                _a_sue_tail_mode_ui(3, _a_ti3)
             _a_sue_tails_ui = [t.strip() for t in [_a_ti1, _a_ti2, _a_ti3] if t.strip()]
-            if _a_sue_tails_ui:
+            if _a_sue_tails_ui and not _a_sue_per_tail:
                 _a_sue_mode_opts = ["全台", "プラス台（ピンクバー付き）", "優秀台（ピンクバー付き）",
                                     "プラス台（ピンクバーなし）", "優秀台（ピンクバーなし）"]
                 # 保存値が選択肢外なら先頭「全台」＝従来と同じ既定へ落とす
@@ -26821,9 +26885,7 @@ def show_auto_article_page() -> None:
                             # ④ 末尾画像（通常末尾／ジャグラー末尾・並びの後・ジャグラーの前）
                             # 抽出・タイトル・ファイル名・集計は通常ページと同じ _build_sue_images。
                             # 記事用は article_mode=True（青タイトルバーなし）・🎯は未対応（今回は除外なし）。
-                            _a_st, _a_sm, _a_jt, _a_jm = _art_sue_settings()
-                            for _sue_tails_pv, _sue_mode_pv, _is_jug_pv in (
-                                    (_a_st, _a_sm, False), (_a_jt, _a_jm, True)):
+                            for _sue_tails_pv, _sue_mode_pv, _is_jug_pv in _art_sue_groups(store):
                                 if not _sue_tails_pv:
                                     continue
                                 for _sfn_pv, _simg_pv in _build_sue_images(
@@ -28551,11 +28613,11 @@ def show_auto_article_page() -> None:
             _art_sue_stat_e: dict[str, list[int]] = {}
             _art_sue_h3_e:   dict[str, dict]      = {}
             _a_st_e, _a_sm_e, _a_jt_e, _a_jm_e = _art_sue_settings()
+            _art_sue_groups_e = _art_sue_groups(store)
             def _art_gen_sue_e() -> None:
                 """④末尾・ジャグラー末尾画像を生成・保存する（下の2か所のどちらか一方で1回だけ呼ぶ）。"""
                 if result["ok"] and uploaded is not None:
-                    for _tails_e, _mode_e, _isjug_e in ((_a_st_e, _a_sm_e, False),
-                                                        (_a_jt_e, _a_jm_e, True)):
+                    for _tails_e, _mode_e, _isjug_e in _art_sue_groups_e:
                         if not _tails_e:
                             continue
                         for _sfn_e, _simg_e in _build_sue_images(

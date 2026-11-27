@@ -686,11 +686,13 @@ def _is_sloverse_store(store: str) -> bool:
 
 
 def _sloverse_label(store: str) -> str:
-    """画面の見出し・サイドバー現在地に出す店舗名。スロバース用の店舗だけ display_name
-    （内部キー「〇〇（スロバース）」の店舗は正式名）を返し、それ以外の店舗は store のまま。
-    保存キー・URL・出力フォルダ・Excel名には使わない（内部キーのまま）。"""
+    """画面の見出し・サイドバー現在地に出す店舗名。スロバース用の店舗と「その他」の店舗は display_name
+    （内部キー「〇〇（スロバース）」「〇〇（その他）」の店舗は正式名）を返し、それ以外の店舗は store のまま。
+    保存キー・URL・出力フォルダ・Excel名には使わない（内部キーのまま）。
+    ★「その他」の既存店舗は内部キー＝display_name なので表示は従来どおり（YG用は対象外）。"""
     try:
-        if _is_sloverse_store(store):
+        if _is_sloverse_store(store) or (
+                _is_other_store(store) and not _other_store_cfg(store).get("_group")):
             return _other_display_name(store) or store
     except Exception:
         pass
@@ -766,7 +768,11 @@ _OTHER_NO_PANEL_STORES: "frozenset[str]" = frozenset({"プレサス飯田橋"})
 # 設定ファイル（@st.cache_data）に依存せずコードで明示し、Reboot 後も同じ判定にする。
 # ★かぶぱポストの結果（新宿歌舞伎町×auto_slump）は別仕様（_kabupa_panel_on）で従来どおり。
 _SLUMP_PANEL_PAGES: "frozenset[str]" = frozenset({"other_slump"})
-_SLUMP_PANEL_STORES: "frozenset[str]" = frozenset({"BEAM新井薬師", "ラ・カータ鶴ヶ島"})
+_SLUMP_PANEL_STORES: "frozenset[str]" = frozenset({"BEAM新井薬師", "ラ・カータ鶴ヶ島",
+    # 2026-11-27 「その他」へ追加した9店舗（内部キー。YG用・スロバース用と同名の4店舗は「（その他）」付き）
+    "ラ・カータ大宮駅前（その他）", "ラ・カータ浦和（その他）", "BIGディッパー新橋1号店（その他）",
+    "BIGディッパー新橋2号店", "BIGディッパー戸越銀座（その他）", "パラッツォ三郷中央",
+    "パラッツォ馬橋駅前", "SAP日野", "SAP立川"})
 
 
 def _slump_panel_on(store: str) -> bool:
@@ -5104,7 +5110,8 @@ def show_other_store_page() -> None:
         #   選ばれたまま表示される（実機で確認）。key なしなら options が変わった
         #   時点で widget が作り直され、先頭候補が選ばれる。ユーザーが選び直した
         #   値は options が同じ間は保持されるので、ボタン押下の rerun でも失われない。
-        _sel = st.selectbox(f"店舗を選択（{len(_cands)} / {len(_names)} 件）", _cands)
+        _sel = st.selectbox(f"店舗を選択（{len(_cands)} / {len(_names)} 件）", _cands,
+                            format_func=lambda _k: _other_display_name(_k) or _k)
         st.markdown("")
         if st.button("📊 スランプ付き結果", key="other_slump_btn",
                      type="primary", use_container_width=True):
@@ -37261,7 +37268,7 @@ def main() -> None:
             st.markdown("📍 **YG用**" if (_is_yg_store(st.session_state.selected_store)
                                           and not _other_slump_from_other(st.session_state.selected_store))
                         else "📍 **その他**")
-            st.markdown(f"　→ **{st.session_state.selected_store}**")
+            st.markdown(f"　→ **{_sloverse_label(st.session_state.selected_store)}**")
             st.markdown("　→ **📊 スランプ付き結果**")
         elif page == "rote":
             st.markdown(f"📍 **{st.session_state.selected_store}**")
